@@ -411,10 +411,14 @@ analyzer UI — never full-rate IQ to the browser.
 
 ## 10. Client
 
-- **Stack:** React 19 + Vite + TypeScript strict, TanStack Query (server state),
-  Zustand (stream/UI state: waterfall buffers, audio status), **shadcn/ui on Base UI
-  primitives** (Base UI is shadcn's default since 07/2026) + Tailwind v4, MapLibre GL
-  (ADS-B/AIS/APRS/sat maps), WebGL2 canvases for DSP views.
+- **Stack:** React 19 + Vite + **TypeScript 7** (native `tsgo` compiler) strict, TanStack
+  Query (server state), Zustand (stream/UI state: waterfall buffers, audio status),
+  **shadcn/ui on Base UI primitives** (Base UI is shadcn's default since 07/2026) +
+  Tailwind v4, MapLibre GL (ADS-B/AIS/APRS/sat maps), WebGL2 canvases for DSP views.
+- **Frontend tooling** (newest, Rust-fast): **Biome** for formatting + import organizing;
+  **Oxlint** for linting with **type-aware rules** (via `tsgolint` on the TypeScript-7 Go
+  base); **TypeScript 7** (`tsgo`) for typecheck. No ESLint/Prettier. Type-aware Oxlint is
+  the slower CI gate; format + non-type lint run pre-commit.
 - **Workspaces & tabs (SDRangel-style, done properly):** server-persisted **workspaces**
   — exactly one active at a time, unlimited **tabs** per workspace, and every tab is a
   dockable panel layout (`dockview`: VS-Code-style splitting, floating, drag-rearrange).
@@ -651,9 +655,16 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
   `.cargo/config.toml`). The pin is bumped deliberately (not floating) so builds stay
   reproducible; CI uses the same pin. `just`/`cargo xtask` as the only entry points
   (`xtask dev`, `codegen`, `test`, `dist`). pnpm for `web/`.
-- **CI (GitHub Actions):** fmt + clippy `-D warnings`; tests on ubuntu-x86_64 and
-  macos-arm64; cross-build `aarch64-unknown-linux-gnu` (cargo-zigbuild or cross);
-  web typecheck+build; codegen drift gate.
+- **Frontend toolchain:** newest across the board; **TypeScript 7** (`tsgo`), **Biome**
+  (format + organize imports), **Oxlint** (lint, type-aware via `tsgolint`). No
+  ESLint/Prettier. pnpm for `web/`.
+- **CI (GitHub Actions)** — added as the project matures (author locally via `xtask`/`just`
+  first; a workflow lands with M0 and grows each milestone):
+  - Rust: `cargo fmt --check`, `clippy -D warnings`, tests on ubuntu-x86_64 + macos-arm64,
+    cross-build `aarch64-unknown-linux-gnu` (cargo-zigbuild or cross).
+  - Web: `biome ci` (format + lint), `oxlint` **with type-aware rules** (the slower,
+    thorough gate), `tsgo` typecheck, web build.
+  - Cross-cutting: OpenAPI codegen-drift gate (regenerate → `git diff --exit-code`).
 - **Release artifacts:**
   - `sdrmm` headless server: linux x86_64 + aarch64, macOS arm64 (web UI embedded).
   - Desktop: Tauri bundles — macOS `.dmg` (signing/notarization at M5), Linux AppImage + `.deb`.
@@ -716,6 +727,8 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
 | Performance floor | Raspberry Pi 4 |
 | Toolchain | pinned Rust nightly + `-Zpolonius=next` (next-gen borrow checker) |
 | UI components | shadcn/ui on Base UI primitives, Tailwind v4 |
+| Frontend toolchain | TypeScript 7 (`tsgo`) + Biome (format) + Oxlint (lint, type-aware); no ESLint/Prettier; newest versions always |
+| CI | GitHub Actions, added incrementally (workflow lands at M0, grows per milestone) |
 | MQTT / Home Assistant export | rejected — not wanted |
 | UI shell | Workspaces (one active) → unlimited tabs → dockview panel layouts, server-persisted |
 | Maps | MapLibre GL; OpenFreeMap default (no key), self-hosted PMTiles for offline, optional satellite-imagery key |
