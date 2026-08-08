@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Rust
+/target
+**/target
+Cargo.lock
+
+# Node / web
+node_modules
+dist
+.pnpm-store
+
+# Editor
+.idea
+.vscode
+*.swp
+
+# Env
+.env
+.env.local
