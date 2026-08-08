@@ -43,25 +43,40 @@ This file is binding for any AI or human contributor. Read it before touching co
   error types. No silent failure — a dropped decoder frame or truncated result must surface.
 - Keep functions small and single-purpose. Prefer clear names over comments.
 
-## Always use the newest guidelines
-- Use the **pinned nightly** toolchain (`rust-toolchain.toml`) with the next-gen borrow checker;
+## Always use the newest versions & guidelines
+- **Always use the newest stable versions** of every tool and dependency, and their current
+  recommended patterns. Check the latest docs before writing against a crate/library — don't
+  code from stale memory. When a newer major exists, prefer it unless it breaks a hard
+  constraint (note the exception if so).
+- Use the **pinned Rust nightly** (`rust-toolchain.toml`) with the next-gen borrow checker;
   don't work around the pin. Bump it deliberately, with CI green.
-- Prefer current, maintained APIs of every dependency — check the latest docs before using a
-  crate/library; don't write against outdated patterns from memory.
-- Frontend: React 19 + TanStack Query + shadcn/ui on Base UI (current defaults). Server state
-  lives in TanStack Query only; invalidate via WS events, don't poll.
+- **Frontend toolchain (fixed choices, newest versions):**
+  - **TypeScript 7** (native `tsgo` compiler), strict.
+  - **Biome** for formatting + import organizing.
+  - **Oxlint** for linting, **with type-aware rules enabled** (via `tsgolint`).
+  - **No ESLint, no Prettier.** Don't add them, don't reintroduce their configs.
+  - React 19 + TanStack Query + shadcn/ui on Base UI. Server state lives in TanStack Query
+    only; invalidate via WS events, never poll.
+- **CI is GitHub Actions**, added incrementally as the project matures — a workflow lands at
+  M0 and grows each milestone. Every gate below must be runnable locally via `xtask`/`just`
+  first, then mirrored in the workflow. Keep local and CI in lockstep.
 
 ## Definition of done (every change)
 - [ ] Follows `PLAN.md` (or updates it in the same change with a reason).
-- [ ] `cargo fmt` + `cargo clippy -D warnings` clean; `tsc` strict + web build clean.
+- [ ] Rust: `cargo fmt` + `cargo clippy -D warnings` clean.
+- [ ] Web: `biome ci` clean, `oxlint` (type-aware) clean, `tsgo` typecheck + web build clean.
 - [ ] Tests added/updated and passing; OpenAPI codegen regenerated, no drift.
 - [ ] No hand-written TS DTOs; no useless comments; no leftover dead code.
 - [ ] Nearby off-pattern code fixed, not propagated.
+- [ ] Newest versions used; no ESLint/Prettier introduced.
 
 ## Commands (via xtask / just — the only entry points)
 - `cargo xtask dev` — server + Vite dev server (HMR).
 - `cargo xtask codegen` — regenerate OpenAPI + TS client. Run after changing `crates/wire`.
 - `cargo xtask test` — full test suite (uses `device-virtual`, no hardware).
+- `cargo xtask check` — the full local gate = fmt + clippy + `biome ci` + `oxlint`
+  (type-aware) + `tsgo` typecheck + codegen-drift. Must be green before every commit;
+  CI runs the same steps.
 - `cargo xtask dist` — release artifacts.
 
 When in doubt, re-read `PLAN.md`. If the plan is silent, pick the option most consistent with
