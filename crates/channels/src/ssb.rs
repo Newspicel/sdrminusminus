@@ -21,6 +21,8 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "SSB".to_owned(),
     bandwidth_hz: 3_000.0,
     input_rate_hz: 48_000.0,
+    has_audio: true,
+    decoder_kind: None,
 });
 
 pub struct SsbChannel {

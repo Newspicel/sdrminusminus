@@ -26,6 +26,59 @@ pub fn design_lowpass(taps: usize, cutoff: f64) -> Vec<f32> {
     h.into_iter().map(|v| v as f32).collect()
 }
 
+/// Design a linear-phase bandpass by modulating a lowpass prototype to `center`.
+/// `low`/`high` are the −6 dB edges normalized to the sample rate (`0 < low < high < 0.5`).
+/// Passband gain is unity only while the band clears DC and Nyquist by the prototype's
+/// transition width — closer in, the negative-frequency image adds and the gain walks toward 2.
+#[must_use]
+pub fn design_bandpass(taps: usize, low: f64, high: f64) -> Vec<f32> {
+    assert!(
+        low > 0.0 && low < high && high < 0.5,
+        "band edges must satisfy 0 < low < high < 0.5"
+    );
+    let prototype = design_lowpass(taps, (high - low) / 2.0);
+    let (band_center, center) = ((low + high) / 2.0, (taps - 1) as f64 / 2.0);
+    prototype
+        .iter()
+        .enumerate()
+        .map(|(k, &v)| {
+            // The cosine splits the prototype into ±band_center images at half amplitude each;
+            // doubling restores unity in the (positive-frequency) passband.
+            let m = (2.0 * PI * band_center * (k as f64 - center)).cos();
+            (2.0 * f64::from(v) * m) as f32
+        })
+        .collect()
+}
+
+/// Gaussian pulse-shaping / matched filter for GMSK (AIS): `sps` samples per symbol, `bt` the
+/// bandwidth-time product (0.4 for AIS/GMSK), `span` symbol periods. The tap count is
+/// `span·sps` rounded up to odd so the pulse has a true center tap. Normalized to unity DC gain.
+#[must_use]
+pub fn design_gaussian(sps: f64, bt: f64, span: usize) -> Vec<f32> {
+    assert!(sps > 1.0, "need more than one sample per symbol");
+    assert!(bt > 0.0, "bandwidth-time product must be positive");
+    assert!(span >= 1, "span must cover at least one symbol");
+    let mut taps = (span as f64 * sps).round() as usize;
+    if taps.is_multiple_of(2) {
+        taps += 1;
+    }
+    assert!(taps >= 3, "need at least 3 taps");
+    // Gaussian σ in symbol periods for a −3 dB bandwidth of `bt/T` (ITU-R M.1371 shaping).
+    let sigma = (2.0f64.ln()).sqrt() / (2.0 * PI * bt);
+    let center = (taps - 1) as f64 / 2.0;
+    let mut h: Vec<f64> = (0..taps)
+        .map(|k| {
+            let t = (k as f64 - center) / sps;
+            (-t * t / (2.0 * sigma * sigma)).exp()
+        })
+        .collect();
+    let sum: f64 = h.iter().sum();
+    for v in &mut h {
+        *v /= sum;
+    }
+    h.into_iter().map(|v| v as f32).collect()
+}
+
 fn sinc(x: f64) -> f64 {
     if x.abs() < 1e-12 {
         1.0
@@ -112,6 +165,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testutil::{real_tone, rms_r};
+
+    /// Steady-state amplitude gain of `h` at `freq`, measured on a real tone (unit-amplitude
+    /// sine, so RMS 1/√2) with the filter's transient skipped.
+    fn tone_gain(h: &[f32], freq: f64) -> f32 {
+        let mut fir = StreamFir::<f32, f32>::new(h, 1);
+        let mut out = Vec::new();
+        fir.process(&real_tone(freq, 16_384), &mut out);
+        rms_r(&out[h.len()..]) * std::f32::consts::SQRT_2
+    }
 
     fn response_db(h: &[f32], freq: f64) -> f64 {
         let (mut re, mut im) = (0.0f64, 0.0f64);
@@ -149,5 +212,56 @@ mod tests {
             let db = response_db(&h, f);
             assert!(db < -50.0, "stopband leak {db} dB at f={f}");
         }
+    }
+
+    #[test]
+    fn bandpass_passes_its_band_and_rejects_outside() {
+        // 255 taps → Blackman transition half-width 2.75/255 ≈ 0.011, so the passband is flat
+        // over 0.031..0.049 and the stopband is reached below 0.009 / above 0.071.
+        let h = design_bandpass(255, 0.02, 0.06);
+        for &f in &[0.031, 0.04, 0.049] {
+            let gain = tone_gain(&h, f);
+            assert!((0.9..1.1).contains(&gain), "passband gain {gain} at f={f}");
+        }
+        for &f in &[0.002, 0.008, 0.12, 0.45] {
+            let gain = tone_gain(&h, f);
+            assert!(gain < 0.01, "stopband gain {gain} at f={f}");
+        }
+    }
+
+    #[test]
+    fn bandpass_is_symmetric() {
+        let h = design_bandpass(129, 0.05, 0.15);
+        for k in 0..h.len() / 2 {
+            let mirrored = h[h.len() - 1 - k];
+            assert!((h[k] - mirrored).abs() < 1e-7, "asymmetric at tap {k}");
+        }
+    }
+
+    #[test]
+    fn gaussian_length_rounds_up_to_odd() {
+        assert_eq!(design_gaussian(10.0, 0.4, 4).len(), 41);
+        assert_eq!(design_gaussian(8.0, 0.4, 3).len(), 25);
+        assert_eq!(design_gaussian(5.0, 0.5, 3).len(), 15);
+    }
+
+    #[test]
+    fn gaussian_is_unit_gain_symmetric_and_unimodal() {
+        let h = design_gaussian(10.0, 0.4, 4);
+        let sum: f64 = h.iter().map(|&v| f64::from(v)).sum();
+        assert!((sum - 1.0).abs() < 1e-6, "dc gain {sum}");
+
+        let mid = h.len() / 2;
+        for k in 0..mid {
+            assert!(
+                (h[k] - h[h.len() - 1 - k]).abs() < 1e-9,
+                "asymmetric at tap {k}"
+            );
+            assert!(
+                h[k] < h[k + 1],
+                "not increasing toward the center at tap {k}"
+            );
+        }
+        assert!(h[mid] > 0.0, "center tap must be the peak");
     }
 }

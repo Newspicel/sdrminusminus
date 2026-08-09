@@ -1,0 +1,281 @@
+import { describe, expect, it } from "vitest";
+import type { DecodedState } from "../lib/decoded";
+import type { DecodedRecord, DecoderEvent, DecoderLogEntry, DeviceSet } from "../lib/types";
+import {
+  buildRows,
+  collectLive,
+  DECODER_KINDS,
+  DEFAULT_LOG_FILTER,
+  deviceSetOptions,
+  droppedNotice,
+  eventStation,
+  eventSummary,
+  formatLogTime,
+  isFiltered,
+  kindLabel,
+  kindOptions,
+  type LogFilter,
+  liveRow,
+  matchesFilter,
+  storedRow,
+  toQuery,
+} from "./decoderLog";
+
+const adsb: DecoderEvent = {
+  kind: "adsb",
+  data: { icao: "3c6444", df: 17, callsign: " DLH123 ", altitude_ft: 35_000, raw: "8d3c6444" },
+};
+
+const ais: DecoderEvent = {
+  kind: "ais",
+  data: {
+    mmsi: 211_234_560,
+    msg_type: 1,
+    ais_channel: "A",
+    nmea: "!AIVDM,1,1,,A,x,0*00",
+    name: " NORDLICHT ",
+    lat: 53.551_2,
+    lon: 9.993_7,
+  },
+};
+
+function entry(over: Partial<DecoderLogEntry> = {}): DecoderLogEntry {
+  return {
+    id: 1,
+    at: "2026-08-09T12:00:00Z",
+    kind: "adsb",
+    station: "3c6444",
+    summary: "3c6444 · DLH123",
+    freq_hz: 1_090_000_000,
+    device_set: 0,
+    channel: 0,
+    event: adsb,
+    ...over,
+  };
+}
+
+function record(over: Partial<DecodedRecord> = {}): DecodedRecord {
+  return {
+    at: "2026-08-09T12:00:01Z",
+    event: adsb,
+    freq_hz: 1_090_000_000,
+    device_set: 0,
+    channel: 0,
+    ...over,
+  };
+}
+
+function filter(over: Partial<LogFilter> = {}): LogFilter {
+  return { ...DEFAULT_LOG_FILTER, ...over };
+}
+
+describe("kind labels", () => {
+  it("labels every decoder the wire union declares", () => {
+    expect(DECODER_KINDS).toContain("adsb");
+    for (const kind of DECODER_KINDS) {
+      expect(kindLabel(kind)).not.toBe("");
+    }
+    expect(kindLabel("adsb")).toBe("ADS-B");
+  });
+
+  it("falls back for a kind this build does not know", () => {
+    expect(kindLabel("dmr")).toBe("DMR");
+  });
+});
+
+describe("toQuery", () => {
+  it("drops empty selects so a cleared filter is one query key, not two", () => {
+    expect(toQuery(filter())).toEqual({ limit: 500 });
+    expect(toQuery(filter({ q: "   " }))).toEqual({ limit: 500 });
+  });
+
+  it("carries every set field, with the device set as a number", () => {
+    expect(toQuery(filter({ kind: "ais", deviceSet: "2", q: " nord ", limit: 100 }))).toEqual({
+      kind: "ais",
+      device_set: 2,
+      q: "nord",
+      limit: 100,
+    });
+  });
+});
+
+describe("isFiltered", () => {
+  it("ignores the row limit", () => {
+    expect(isFiltered(filter({ limit: 100 }))).toBe(false);
+    expect(isFiltered(filter({ kind: "ais" }))).toBe(true);
+    expect(isFiltered(filter({ deviceSet: "0" }))).toBe(true);
+    expect(isFiltered(filter({ q: " x " }))).toBe(true);
+  });
+});
+
+describe("matchesFilter", () => {
+  it("applies the server's filter to the live tail", () => {
+    expect(matchesFilter(record(), filter({ kind: "ais" }))).toBe(false);
+    expect(matchesFilter(record(), filter({ kind: "adsb" }))).toBe(true);
+    expect(matchesFilter(record({ device_set: 1 }), filter({ deviceSet: "0" }))).toBe(false);
+    expect(matchesFilter(record({ device_set: 1 }), filter({ deviceSet: "1" }))).toBe(true);
+  });
+
+  it("searches station and summary case-insensitively", () => {
+    expect(matchesFilter(record(), filter({ q: "DLH" }))).toBe(true);
+    expect(matchesFilter(record(), filter({ q: "3C6444" }))).toBe(true);
+    expect(matchesFilter(record(), filter({ q: "nordlicht" }))).toBe(false);
+  });
+});
+
+describe("collectLive", () => {
+  // The store's per-kind slices are correlated with their payload type; the fixtures build plain
+  // records of the matching kind, which only the assertion can tell the compiler.
+  const frames = {
+    adsb: [record({ at: "2026-08-09T12:00:03Z" }), record({ at: "2026-08-09T12:00:01Z" })],
+    ais: [record({ at: "2026-08-09T12:00:02Z", event: ais })],
+  } as DecodedState["frames"];
+
+  it("merges every decoder newest first", () => {
+    expect(collectLive(frames, filter()).map((r) => r.at)).toEqual([
+      "2026-08-09T12:00:03Z",
+      "2026-08-09T12:00:02Z",
+      "2026-08-09T12:00:01Z",
+    ]);
+  });
+
+  it("honours the filter and the cap", () => {
+    expect(collectLive(frames, filter({ kind: "ais" }))).toHaveLength(1);
+    expect(collectLive(frames, filter(), 2).map((r) => r.at)).toEqual([
+      "2026-08-09T12:00:03Z",
+      "2026-08-09T12:00:02Z",
+    ]);
+  });
+
+  it("sorts an unstamped frame oldest instead of poisoning the order", () => {
+    const broken = {
+      ...frames,
+      adsb: [...(frames.adsb ?? []), record({ at: "not a date" })],
+    } as DecodedState["frames"];
+    expect(collectLive(broken, filter()).at(-1)?.at).toBe("not a date");
+  });
+});
+
+describe("buildRows", () => {
+  it("puts live rows above the stored page and marks them", () => {
+    const rows = buildRows([entry()], [record()]);
+    expect(rows.map((r) => r.live)).toEqual([true, false]);
+    expect(rows[0]?.summary).toBe("3c6444 · DLH123 · 35000 ft");
+  });
+
+  it("drops a live frame the stored page already carries", () => {
+    const stored = entry({ at: "2026-08-09T12:00:01Z", summary: "3c6444 · DLH123 · 35000 ft" });
+    expect(buildRows([stored], [record()])).toHaveLength(1);
+    expect(buildRows([stored], [record()])[0]?.live).toBe(false);
+  });
+
+  it("keys rows uniquely even when two identical frames arrive at the same instant", () => {
+    const rows = buildRows([entry(), entry({ id: 2 })], [record(), record()]);
+    expect(new Set(rows.map((r) => r.key)).size).toBe(rows.length);
+  });
+});
+
+describe("row projection", () => {
+  it("keeps a stored row verbatim", () => {
+    expect(storedRow(entry({ station: null }))).toMatchObject({
+      key: "stored:1",
+      kind: "adsb",
+      station: null,
+      summary: "3c6444 · DLH123",
+      freqHz: 1_090_000_000,
+      live: false,
+    });
+  });
+
+  it("derives station and summary for a live row", () => {
+    expect(liveRow(record({ event: ais }))).toMatchObject({
+      kind: "ais",
+      station: "211234560",
+      summary: "211234560 · NORDLICHT · 53.5512, 9.9937",
+      live: true,
+    });
+  });
+});
+
+describe("eventSummary", () => {
+  it("matches the server's rendering per decoder", () => {
+    expect(
+      eventSummary({
+        kind: "aprs",
+        data: { source: "DL1ABC-9", destination: "APRS", info: "hi", tnc2: "DL1ABC-9>APRS:hi" },
+      }),
+    ).toBe("DL1ABC-9>APRS:hi");
+    expect(eventSummary({ kind: "rtty", data: { text: "CQ CQ" } })).toBe("CQ CQ");
+    expect(eventSummary({ kind: "morse", data: { text: "SOS", wpm: 18 } })).toBe("SOS");
+    expect(
+      eventSummary({ kind: "rds", data: { block_errors: 0, groups: 10, pi: "D3C2", ps: "NDR2" } }),
+    ).toBe("PI D3C2 · NDR2");
+  });
+
+  it("renders a toned page without text as address and function", () => {
+    const tone: DecoderEvent = {
+      kind: "pocsag",
+      data: {
+        address: 1_234_567,
+        baud: 1200,
+        errors_corrected: 0,
+        function: 3,
+        payload: "tone",
+        text: "",
+      },
+    };
+    expect(eventSummary(tone)).toBe("1234567 (3)");
+    expect(eventSummary({ ...tone, data: { ...tone.data, text: "CALL 42" } })).toBe(
+      "1234567: CALL 42",
+    );
+  });
+
+  it("omits fields a frame does not carry", () => {
+    expect(eventSummary({ kind: "adsb", data: { icao: "3c6444", df: 11, raw: "5d" } })).toBe(
+      "3c6444",
+    );
+    expect(eventSummary({ kind: "rds", data: { block_errors: 3, groups: 0 } })).toBe("");
+  });
+});
+
+describe("eventStation", () => {
+  it("is null for the character-stream decoders", () => {
+    expect(eventStation({ kind: "rtty", data: { text: "x" } })).toBeNull();
+    expect(eventStation({ kind: "morse", data: { text: "x", wpm: 12 } })).toBeNull();
+    expect(eventStation({ kind: "rds", data: { block_errors: 0, groups: 1 } })).toBeNull();
+  });
+});
+
+describe("formatLogTime", () => {
+  it("renders UTC regardless of the browser zone", () => {
+    expect(formatLogTime("2026-08-09T12:03:04Z")).toBe("12:03:04");
+    expect(formatLogTime("2026-08-09T12:03:04+02:00")).toBe("10:03:04");
+  });
+
+  it("shows a placeholder rather than Invalid Date", () => {
+    expect(formatLogTime("nope")).toBe("--:--:--");
+  });
+});
+
+describe("option lists", () => {
+  it("appends kinds only the stored log knows", () => {
+    expect(kindOptions([])).toEqual(DECODER_KINDS);
+    expect(kindOptions([entry({ kind: "dmr" }), entry({ kind: "dmr" })]).at(-1)).toBe("dmr");
+  });
+
+  it("unions live device sets with sets that only exist in the log", () => {
+    const sets = [{ id: 3 } as DeviceSet];
+    expect(deviceSetOptions([entry({ device_set: 7 }), entry({ device_set: 3 })], sets)).toEqual([
+      3, 7,
+    ]);
+  });
+});
+
+describe("droppedNotice", () => {
+  it("stays silent only when nothing was lost", () => {
+    expect(droppedNotice(0, 0)).toBeNull();
+    expect(droppedNotice(1, 0)).toBe("1 live frame dropped");
+    expect(droppedNotice(0, 12)).toBe("12 frames never reached the log");
+    expect(droppedNotice(2, 12)).toBe("2 live frames dropped · 12 frames never reached the log");
+  });
+});

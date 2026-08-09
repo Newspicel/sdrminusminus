@@ -127,6 +127,282 @@
         }
       }
     },
+    "/api/decoderlog": {
+      "get": {
+        "operationId": "list_decoder_log",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Restrict to one decoder ([`crate::DecoderEvent::kind`]).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "device_set",
+            "in": "query",
+            "description": "Restrict to one device set.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Only entries at or after this RFC3339 timestamp.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "description": "Only entries at or before this RFC3339 timestamp.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Substring match against `station` and `summary`, case-insensitive.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum rows returned by the list endpoint (server-clamped). Ignored by export.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stored decodes, newest first, with the total the filter matches and the frames lost on the way to the log",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecoderLogResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed filter (`since`/`until`, `limit`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "clear_decoder_log",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Restrict to one decoder ([`crate::DecoderEvent::kind`]).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "device_set",
+            "in": "query",
+            "description": "Restrict to one device set.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Only entries at or after this RFC3339 timestamp.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "description": "Only entries at or before this RFC3339 timestamp.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Substring match against `station` and `summary`, case-insensitive.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum rows returned by the list endpoint (server-clamped). Ignored by export.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entries removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedCount"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed filter (`since`/`until`, `limit`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/decoderlog/export/{format}": {
+      "get": {
+        "operationId": "export_decoder_log",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "path",
+            "description": "Export encoding",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExportFormat"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Restrict to one decoder ([`crate::DecoderEvent::kind`]).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "device_set",
+            "in": "query",
+            "description": "Restrict to one device set.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Only entries at or after this RFC3339 timestamp.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "description": "Only entries at or before this RFC3339 timestamp.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Substring match against `station` and `summary`, case-insensitive.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum rows returned by the list endpoint (server-clamped). Ignored by export.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The matching entries as a downloadable file, capped at the server's export limit; `limit` is ignored",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DecoderLogEntry"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown format or malformed filter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devices": {
       "get": {
         "operationId": "get_devices",
@@ -821,6 +1097,238 @@
   },
   "components": {
     "schemas": {
+      "AdsbMessage": {
+        "type": "object",
+        "description": "One decoded Mode S / ADS-B frame (PLAN §13: preamble correlation + Mode S CRC).\nFields are `Option` because which ones a frame carries depends on its type code — a\nposition frame has no callsign, an identification frame has no altitude.",
+        "required": [
+          "icao",
+          "df",
+          "raw"
+        ],
+        "properties": {
+          "altitude_ft": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "callsign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "df": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Downlink Format (17 = ADS-B extended squitter, 11 = all-call reply).",
+            "minimum": 0
+          },
+          "ground_speed_kt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "icao": {
+            "type": "string",
+            "description": "ICAO 24-bit address as 6 hex digits — the aircraft's identity across frames."
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Latitude in degrees, once a CPR even/odd pair has been solved."
+          },
+          "lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "on_ground": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "raw": {
+            "type": "string",
+            "description": "The raw frame as hex — the interop format every Mode S tool speaks."
+          },
+          "squawk": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "track_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "type_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Extended-squitter type code, when the frame has an ME field.",
+            "minimum": 0
+          },
+          "vertical_rate_fpm": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "AdsbParams": {
+        "type": "object",
+        "properties": {
+          "crc_fix": {
+            "type": "boolean",
+            "description": "Repair single-bit errors the Mode S CRC localizes. Off trades sensitivity for a\nlower false-frame rate on a noisy antenna."
+          },
+          "ref_lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Reference position for locally-decoded (single-frame) CPR positions, in degrees.\nWithout one, a position needs a matching even/odd frame pair."
+          },
+          "ref_lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "AisChannel": {
+        "type": "string",
+        "description": "Which of the two AIS channels a receiver is parked on. Only the label travels with the\ndecoded message — the tuning itself is the channel's `offset_hz`.",
+        "enum": [
+          "a",
+          "b"
+        ]
+      },
+      "AisMessage": {
+        "type": "object",
+        "description": "One decoded AIS message (PLAN §13: GMSK/NRZI over HDLC framing).",
+        "required": [
+          "mmsi",
+          "msg_type",
+          "ais_channel",
+          "nmea"
+        ],
+        "properties": {
+          "ais_channel": {
+            "type": "string",
+            "description": "Which of the two AIS channels the burst arrived on (`A` = 161.975 MHz)."
+          },
+          "call_sign": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cog_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Course over ground in degrees."
+          },
+          "destination": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "heading_deg": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "mmsi": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maritime Mobile Service Identity — the vessel's identity across messages.",
+            "minimum": 0
+          },
+          "msg_type": {
+            "type": "integer",
+            "format": "int32",
+            "description": "ITU-R M.1371 message type (1–3 position report, 5 static data, 18/19 class B …).",
+            "minimum": 0
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nav_status": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Navigational status code (0 = under way using engine …).",
+            "minimum": 0
+          },
+          "nmea": {
+            "type": "string",
+            "description": "The `!AIVDM` sentence — the interop format every AIS tool speaks."
+          },
+          "sog_kt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Speed over ground in knots."
+          }
+        }
+      },
+      "AisParams": {
+        "type": "object",
+        "properties": {
+          "ais_channel": {
+            "$ref": "#/components/schemas/AisChannel"
+          }
+        }
+      },
       "AmParams": {
         "type": "object",
         "properties": {
@@ -862,6 +1370,108 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "AprsMode": {
+        "type": "string",
+        "description": "AX.25 physical layer (PLAN §13: AFSK1200 + 9600 G3RUH).",
+        "enum": [
+          "afsk1200",
+          "g3ruh9600"
+        ]
+      },
+      "AprsPacket": {
+        "type": "object",
+        "description": "One decoded AX.25 frame, with the APRS fields parsed out when the info field carries them\n(PLAN §13: AFSK1200 + 9600 G3RUH).",
+        "required": [
+          "source",
+          "destination",
+          "info",
+          "tnc2"
+        ],
+        "properties": {
+          "altitude_ft": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "course_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "info": {
+            "type": "string",
+            "description": "Raw information field."
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "path": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Digipeater path, in order."
+          },
+          "source": {
+            "type": "string",
+            "description": "Source callsign with SSID, e.g. `DL1ABC-9`."
+          },
+          "speed_kt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "symbol": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "APRS symbol as `table` + `code`, e.g. `/>` for a car."
+          },
+          "tnc2": {
+            "type": "string",
+            "description": "TNC2 monitor line (`SRC>DEST,PATH:info`) — the interop format."
+          }
+        }
+      },
+      "AprsParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AprsMode"
           }
         }
       },
@@ -982,6 +1592,17 @@
             "format": "double",
             "description": "Nominal RF bandwidth the channel needs, in Hz."
           },
+          "decoder_kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "[`crate::DecoderEvent::kind`] this channel emits, when it is a decoder — the client\nuses it to pick the panel that renders the events."
+          },
+          "has_audio": {
+            "type": "boolean",
+            "description": "Whether the channel produces listenable audio. Data decoders (PLAN §13 wave 1) do\nnot, so the client hides their audio controls instead of offering a silent stream.\nDefaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour."
+          },
           "input_rate_hz": {
             "type": "number",
             "format": "double",
@@ -1085,6 +1706,114 @@
                 "type": "string",
                 "enum": [
                   "wfm"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/PocsagParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "pocsag"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/AdsbParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "adsb"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/AisParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ais"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/AprsParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "aprs"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/RttyParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "rtty"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/MorseParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "morse"
                 ]
               }
             }
@@ -1382,6 +2111,270 @@
           }
         }
       },
+      "DecodedRecord": {
+        "type": "object",
+        "description": "A decoder event with the coordinates the DSP plane cannot supply. The engine stamps `at`\non the control plane (the DSP thread never formats time) and computes `freq_hz` from the\ndevice center plus the channel offset at the moment the frame was produced.",
+        "required": [
+          "device_set",
+          "channel",
+          "at",
+          "freq_hz",
+          "event"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          },
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "event": {
+            "$ref": "#/components/schemas/DecoderEvent"
+          },
+          "freq_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Absolute RF frequency of the channel when the frame arrived, in Hz."
+          }
+        }
+      },
+      "DecoderEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RdsUpdate"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rds"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/PocsagMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "pocsag"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AdsbMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "adsb"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AisMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ais"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AprsPacket"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "aprs"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RttyText"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rtty"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/MorseText"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "morse"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a\ndiscriminated union on `kind` that panels can exhaustively `switch` on, and so the log\ndatabase can index on `kind` without parsing the blob."
+      },
+      "DecoderLogEntry": {
+        "type": "object",
+        "description": "One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not\nscroll-back-only). The typed `event` is stored verbatim so an export loses nothing;\n`kind`, `summary` and `station` are the indexed projections the list view filters on.",
+        "required": [
+          "id",
+          "at",
+          "device_set",
+          "channel",
+          "kind",
+          "freq_hz",
+          "summary",
+          "event"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          },
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "event": {
+            "$ref": "#/components/schemas/DecoderEvent"
+          },
+          "freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "kind": {
+            "type": "string",
+            "description": "[`crate::DecoderEvent::kind`] of `event`."
+          },
+          "station": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Emitter identity within the decoder (ICAO, MMSI, callsign, pager address)."
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "DecoderLogResponse": {
+        "type": "object",
+        "description": "`GET /api/decoderlog` — newest first, bounded by the requested `limit`.",
+        "required": [
+          "entries",
+          "total",
+          "dropped"
+        ],
+        "properties": {
+          "dropped": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Frames dropped on the way to the log since the server started, because a consumer\nfell behind (PLAN §5: bounded queues surface their loss).",
+            "minimum": 0
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecoderLogEntry"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Rows matching the filter, ignoring `limit`.",
+            "minimum": 0
+          }
+        }
+      },
+      "DeletedCount": {
+        "type": "object",
+        "description": "`DELETE /api/decoderlog` — how many rows the filtered clear removed.",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "DeviceInfo": {
         "type": "object",
         "description": "A discovered receiver, produced by a driver's probe (PLAN §6).",
@@ -1549,6 +2542,14 @@
           }
         }
       },
+      "ExportFormat": {
+        "type": "string",
+        "description": "Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a\npath segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing\n[`DecoderLogQuery`] across list/export/clear requires the format to live elsewhere.",
+        "enum": [
+          "csv",
+          "json"
+        ]
+      },
       "ExtraSetting": {
         "oneOf": [
           {
@@ -1678,6 +2679,42 @@
           }
         }
       },
+      "MorseParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Width of the CW filter around the channel offset, in Hz."
+          },
+          "wpm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Fixed sending speed in words per minute; `None` tracks the speed from the signal."
+          }
+        }
+      },
+      "MorseText": {
+        "type": "object",
+        "description": "A run of decoded Morse characters plus the speed the tracker settled on.",
+        "required": [
+          "text",
+          "wpm"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "wpm": {
+            "type": "number",
+            "format": "float",
+            "description": "Estimated sending speed in words per minute (PARIS standard)."
+          }
+        }
+      },
       "NfmParams": {
         "type": "object",
         "properties": {
@@ -1686,6 +2723,85 @@
             "format": "double"
           }
         }
+      },
+      "PocsagBaud": {
+        "type": "string",
+        "description": "Bit rate of a POCSAG transmission. Pagers on one frequency may use several, so `Auto`\n(the default) locks onto whichever preamble it finds.",
+        "enum": [
+          "auto",
+          "b512",
+          "b1200",
+          "b2400"
+        ]
+      },
+      "PocsagMessage": {
+        "type": "object",
+        "description": "One decoded POCSAG page.",
+        "required": [
+          "address",
+          "function",
+          "baud",
+          "payload",
+          "text",
+          "errors_corrected"
+        ],
+        "properties": {
+          "address": {
+            "type": "integer",
+            "format": "int32",
+            "description": "21-bit receiver address (RIC).",
+            "minimum": 0
+          },
+          "baud": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Bit rate the batch was decoded at.",
+            "minimum": 0
+          },
+          "errors_corrected": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Single-bit errors the BCH(31,21) decoder repaired across the message's codewords.",
+            "minimum": 0
+          },
+          "function": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Function bits 0–3 (the \"A/B/C/D\" a pager shows).",
+            "minimum": 0
+          },
+          "payload": {
+            "$ref": "#/components/schemas/PocsagPayload"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "PocsagParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "baud": {
+            "$ref": "#/components/schemas/PocsagBaud"
+          },
+          "invert": {
+            "type": "boolean",
+            "description": "Swap mark and space: some transmitters (and some receiver chains) invert the\ndiscriminator polarity, which turns every codeword into noise."
+          }
+        }
+      },
+      "PocsagPayload": {
+        "type": "string",
+        "description": "POCSAG message class (PLAN §13: 512/1200/2400 baud pagers).",
+        "enum": [
+          "tone",
+          "numeric",
+          "alpha"
+        ]
       },
       "PresetInfo": {
         "type": "object",
@@ -1767,6 +2883,94 @@
               "null"
             ],
             "format": "double"
+          }
+        }
+      },
+      "RdsUpdate": {
+        "type": "object",
+        "description": "RDS state after a group changed it (PLAN §13: 57 kHz BPSK, group/AF/RT decode). RDS is a\nslowly-accreting picture rather than a stream of independent frames, so an event is the\ncurrent best view of the station, emitted only when a field actually changed.",
+        "required": [
+          "groups",
+          "block_errors"
+        ],
+        "properties": {
+          "alt_freqs_hz": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "description": "Alternative frequencies in Hz, as advertised in group 0A."
+          },
+          "block_errors": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Blocks rejected by the syndrome check since the channel started.",
+            "minimum": 0
+          },
+          "groups": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Groups accepted since the channel started.",
+            "minimum": 0
+          },
+          "music": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Music (true) / Speech (false) switch."
+          },
+          "pi": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Programme Identification, as the 4 hex digits everyone quotes it by."
+          },
+          "ps": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Programme Service name (8 chars), once every segment has been seen."
+          },
+          "pty": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Programme Type code (0–31).",
+            "minimum": 0
+          },
+          "pty_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Programme Type name for [`RdsUpdate::pty`] under the RDS (EU) table."
+          },
+          "radiotext": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RadioText (up to 64 chars), once the A/B flag closes a message."
+          },
+          "ta": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Traffic Announcement flag."
+          },
+          "tp": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Traffic Programme flag."
           }
         }
       },
@@ -1907,6 +3111,52 @@
             "items": {
               "$ref": "#/components/schemas/RecordingInfo"
             }
+          }
+        }
+      },
+      "RttyParams": {
+        "type": "object",
+        "properties": {
+          "baud": {
+            "type": "number",
+            "format": "double"
+          },
+          "invert": {
+            "type": "boolean",
+            "description": "Swap mark and space (equivalent to reversing the sideband)."
+          },
+          "shift_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Mark/space separation in Hz (170 amateur, 450/850 commercial)."
+          },
+          "stop_bits": {
+            "$ref": "#/components/schemas/RttyStopBits"
+          },
+          "unshift_on_space": {
+            "type": "boolean",
+            "description": "Return to the letters table after a space — the usual amateur convention, which\nrecovers a stream that lost its shift character."
+          }
+        }
+      },
+      "RttyStopBits": {
+        "type": "string",
+        "description": "RTTY stop-bit length in bit periods. 45.45 baud amateur RTTY uses 1.5.",
+        "enum": [
+          "one",
+          "one_and_half",
+          "two"
+        ]
+      },
+      "RttyText": {
+        "type": "object",
+        "description": "A run of decoded RTTY characters (PLAN §13: Baudot over FSK).",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
           }
         }
       },
@@ -2084,6 +3334,56 @@
           },
           {
             "type": "object",
+            "description": "A decoder produced a frame (PLAN §5: typed JSON decoder output). Pushed to every\nconnected client; the same record is persisted to the decoder log (PLAN §11).\n\nBoxed so one rare variant does not set the size of every `ServerEvent`: the control\nbroadcast carries hundreds of buffered `StateChanged`s, which would each pay for a\nrecord they never hold. `Box` is transparent to serde and to the schema.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DecodedRecord",
+                "description": "A decoder produced a frame (PLAN §5: typed JSON decoder output). Pushed to every\nconnected client; the same record is persisted to the decoder log (PLAN §11).\n\nBoxed so one rare variant does not set the size of every `ServerEvent`: the control\nbroadcast carries hundreds of buffered `StateChanged`s, which would each pay for a\nrecord they never hold. `Box` is transparent to serde and to the schema."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Decoded"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Decoder frames were dropped before reaching clients or the log because a consumer\nfell behind. Loss is surfaced, never silent (PLAN §5).",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Decoder frames were dropped before reaching clients or the log because a consumer\nfell behind. Loss is surfaced, never silent (PLAN §5).",
+                "required": [
+                  "count"
+                ],
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "DecodedLost"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "Non-fatal server-side error surfaced to the client.",
             "required": [
               "data",
@@ -2233,6 +3533,21 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "The stored decoder log changed *structurally* (cleared, pruned). Individual decodes\narrive as [`ServerEvent::Decoded`] and are appended client-side — invalidating per\ndecode would refetch the whole log hundreds of times a second under ADS-B traffic.",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "decoder_log"
+                ]
+              }
+            }
           }
         ],
         "description": "Granularity of a `StateChanged` invalidation. The client maps each scope to the\nTanStack Query keys it must invalidate (PLAN §10: the *only* cache-invalidation path)."
@@ -2274,6 +3589,10 @@
             "type": "number",
             "format": "float",
             "description": "De-emphasis time constant in µs (50 in most of the world, 75 in the Americas)."
+          },
+          "rds": {
+            "type": "boolean",
+            "description": "Decode the 57 kHz RDS subcarrier alongside the audio (PLAN §13 P2). Off by default:\nit costs a second demod chain on the same channel."
           }
         }
       }

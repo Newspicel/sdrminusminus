@@ -19,6 +19,8 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "AM".to_owned(),
     bandwidth_hz: 10_000.0,
     input_rate_hz: 48_000.0,
+    has_audio: true,
+    decoder_kind: None,
 });
 
 pub struct AmChannel {

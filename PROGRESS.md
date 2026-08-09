@@ -323,3 +323,164 @@ Opus.
   readout ticking past a fault
 - [x] Lows: SigMF-optional `sample_rate`, 500-vs-400 honesty for record I/O, 404-before-400
   ordering, writer-fault-glue test via injected shared error, honest queue-cap comment
+
+## M4 — Decoders wave 1 🚧
+
+Goal (PLAN §16): RDS · POCSAG · ADS-B + map · AIS · APRS/AX.25 · RTTY · Morse ·
+decoder-log database + export.
+
+**Status: in progress.**
+
+### Wire (single source of truth, PLAN §4)
+- [x] `crates/wire/src/decode.rs` — `DecoderEvent` tagged union (rds/pocsag/adsb/ais/aprs/rtty/
+  morse) with one typed payload per decoder, plus `kind()`/`summary()`/`position()`/`station()`
+  so the log table, CSV export, map and panels share one rendering
+- [x] `DecodedRecord` (device set · channel · RFC3339 `at` · absolute `freq_hz` · event);
+  `ServerEvent::Decoded` + `ServerEvent::DecodedLost`; `StateScope::DecoderLog`
+- [x] Per-decoder `ChannelParams` variants + defaults; `WfmParams.rds`;
+  `ChannelDescriptor.has_audio` / `decoder_kind` (decoders advertise no audio, the UI hides
+  the transport); contract tests lock every tag and default
+- [x] Decoder-log REST DTOs (`DecoderLogEntry`/`Response`/`Query`, `ExportFormat`, `DeletedCount`)
+
+### Engine
+- [x] Typed decoder frames leave the DSP plane through a bounded `DecodedSink` (drops counted,
+  never silent); a pump thread stamps wall-clock time off the hot path and fans out on a
+  broadcast separate from the control-event stream
+- [x] `Engine::subscribe_decoded()` / `decoded_dropped()`; channel ids reserved before the host
+  is built so a frame always knows which channel produced it
+
+### DSP (`crates/dsp`, all pure + analytic golden tests)
+- [x] `bits` — NRZI · differential · HDLC deframer (flag sync, zero de-stuffing, abort, shared
+  flags, length bounds) · G3RUH scrambler/descrambler · sliding sync-word correlator with an
+  error tolerance · bit packing/field extraction/Manchester
+- [x] `fec` — CRC-16/X-25 + HDLC FCS · Mode S CRC-24 with single-bit repair · POCSAG BCH(31,21)
+  + parity (2-bit correction) · RDS (26,16) syndrome + offset words, both directions
+- [x] `pll` — second-order loop filter · tracking PLL with a pull-in clamp, harmonic output and
+  a lock estimate · Costas loop for BPSK
+- [x] `sync` — Gardner TED with a Farrow interpolator (`SymbolSync`) · zero-crossing bit clock
+  (`BitSync`) that free-runs through a crossing-free stretch
+- [x] `tone` — Goertzel · sliding-DFT tone correlator · attack/release envelope · adaptive
+  keying slicer with an SNR estimate; `fir` gains bandpass and Gaussian (GMSK) designs
+
+### Decoder log (`crates/server`, PLAN §11)
+- [x] SQLite migration + indexed `decoder_log` (time · set · channel · kind · freq · station ·
+  summary · verbatim typed event); filters compose (kind, device set, time window, free text,
+  limit) with the total reported alongside the page
+- [x] Batched writer task off the engine's decoded broadcast (one transaction per batch, retry
+  queue, periodic prune to a bounded row count); lag and queue overflow are counted and
+  reported as `dropped` on every list — loss is visible, never silent
+- [x] `GET /api/decoderlog` · `DELETE /api/decoderlog` (filtered, emits `StateScope::DecoderLog`)
+  · `GET /api/decoderlog/export/{csv|json}` as a real download with RFC4180 quoting
+- [x] WS hub forwards `Decoded` on its own per-connection task; a lagging client gets
+  `DecodedLost { count }` instead of a full-state resync storm
+
+### Codegen
+- [x] OpenAPI regenerated with the decoder-log paths and every decoder schema; `ExportFormat`
+  force-registered (utoipa emits a bare `$ref` for a path-parameter enum, which
+  `openapi-typescript` cannot resolve) — TS types generated, no hand-written mirrors
+
+### Channels — decoders wave 1 (`crates/channels`, PLAN §13 P2)
+- [x] **POCSAG** — discriminator → tracked slicing level → one bit clock per candidate rate;
+  the rate that finds the frame sync word takes the lock and releases it when sync is lost, so
+  512/1200/2400 are detected per transmission. BCH corrections counted into the event; numeric
+  and alphanumeric bodies; `invert` honoured
+- [x] **ADS-B** — level-relative preamble correlation (no fixed threshold: overhead and horizon
+  aircraft differ by tens of dB), PPM slicing at 2 samples/bit, Mode S CRC with optional
+  single-bit repair. DF17/18 only — every other downlink format overlays the address on the
+  parity, so a zero syndrome there would invent aircraft. Identification, airborne/surface
+  position (CPR, global pair and local against a reference), velocity, Gillham and 25 ft
+  altitude; the per-ICAO CPR cache is bounded and age-limited
+- [x] **AIS** — GMSK via discriminator + Gaussian matched filter, NRZI + HDLC + CRC-16/X-25,
+  types 1/2/3/5/18/24, unavailable sentinels honoured, `!AIVDM` sentence with checksum
+- [x] **APRS / AX.25** — AFSK1200 (mark/space correlators) and 9600 G3RUH (descrambled NRZI);
+  address decoding with SSIDs and the has-been-repeated `*`, TNC2 line, uncompressed and
+  base-91 compressed positions, course/speed and `/A=` altitude. Mic-E is out of scope for M4
+  and yields a valid packet with no position rather than a wrong one
+- [x] **RTTY** — ITA2 with LTRS/FIGS and `unshift_on_space`, start/stop framing with stop-bit
+  rejection, 45.45/50/75 baud and 170/450/850 Hz shift, `invert`
+- [x] **Morse** — envelope + adaptive keying slicer, element/gap clustering that tracks sending
+  speed (or a fixed WPM tolerating ±30% sloppiness), international table, unknown sequences
+  surface as `*` instead of vanishing; pure noise decodes to nothing
+- [x] Reference modulators in `channels::testgen` behind the `test-signals` feature — one
+  encoder per protocol, shared by the unit tests, the engine e2e and `xtask fixtures`. ADS-B's
+  CPR/Gillham/callsign encoders are written independently from the decoder's (closed form vs
+  table) so a mistyped constant fails a test instead of cancelling out
+
+### Engine end-to-end (`crates/engine/tests/decode.rs`, PLAN §14)
+- [x] Each decoder: reference transmission → SigMF pair → `virtual:file:` playback → DDC at a
+  deliberately different device rate → decoder → the engine's decoded broadcast, asserting the
+  exact message plus the device set, channel and absolute frequency the record is stamped with
+- [x] **Wideband-channel rejection** (found by this run): the DDC delivers only 80% of the
+  output rate flat, so ADS-B — which fills its whole 2 MHz channel — decoded *nothing* at
+  2.4 Msps, indistinguishable from an empty sky. `validate_channel` now refuses any channel
+  whose occupied band exceeds what a resampling DDC can deliver, naming the rate that works
+- [x] **RDS** — 57 kHz DBPSK off the FM composite: 19 kHz pilot PLL → 3rd harmonic (a real
+  receiver's path, and far steadier than locking 57 kHz directly) → symbol sync → differential
+  decode → offset-word block sync that holds through bad blocks before re-hunting. Groups
+  0A/0B (PS, TP/TA/MS, alternative frequencies), 2A/2B (RadioText with the A/B flag), PTY with
+  its name. An event is emitted only when a field actually changed — RDS repeats endlessly and
+  one event per group would flood the log. Lives on the WFM channel behind `WfmParams.rds`, so
+  audio and RDS come off one demod chain
+
+### Web (PLAN §10)
+- [x] Live decoded-event store (Zustand, outside TanStack Query): per-kind ring buffers, a
+  100 ms publish batch so an ADS-B burst cannot re-render at frame rate, station aggregation
+  that merges partial ADS-B frames forward into one row, age-out, and a visible `lost` counter
+- [x] Decoder log panel — filter by kind/set/text/limit through the query key (no manual
+  refetch, no polling), live rows prepended and visually distinct, CSV/JSON export as real
+  download links, guarded filtered clear
+- [x] MapLibre map (OpenFreeMap, no API key) for ADS-B/AIS/APRS: GeoJSON sources updated on a
+  throttled tick rather than a React element per marker, targets aged out, and a themed
+  fallback when the basemap cannot load — a Pi in a field must still plot its targets
+- [x] Per-decoder views: RDS station display, aircraft/ship target tables, rolling RTTY/Morse
+  transcript, pager list, APRS packets — each scoped to its channel
+- [x] Decoder settings forms generated from the params union (an unhandled variant fails
+  typecheck); audio controls hidden for channels whose descriptor reports no audio
+- [x] App shell: decoder frames routed into the store, one live panel per decoder channel, map
+  shown only when a position-bearing decoder is running, `DecoderLog` scope invalidation
+
+### Fixtures (PLAN §14)
+- [x] `cargo xtask fixtures` writes one playable SigMF pair per decoder from the same
+  `testgen` modulators the tests use, re-runnable, each printing what it should decode to;
+  `fixtures/README.md` documents the channel and offset for every one
+- [x] Off-air captures remain the honest gap — every decoder is currently proven against the
+  specification via its reference modulator, not against the world
+
+### Gates
+- [x] `cargo xtask check` green: fmt · clippy `-D warnings` · Soapy-free build · `biome ci` ·
+  `oxlint --type-aware` · `tsgo` · web build · codegen drift
+- [x] `cargo xtask test` green: 465 Rust tests (dsp 113 · channels 167 · engine 37+8 decode+8
+  listen+2 record · server 42 · wire 24 · recorder 11 · device-virtual 22 · soapy 25 · device 2
+  · sdrmm 4) + 155 web tests
+
+### Post-review hardening (adversarial multi-agent review: 37 findings, 27 refuted, 10 confirmed & fixed)
+Critical/high:
+- [x] **ADS-B geometric altitude was decoded as metres** (high): TC 20–22 select the altitude
+  *source*, not its encoding — the AC12 field is the same Q-bit/Gillham feet code as TC 9–18.
+  Every GNSS-altitude frame reported a wrong number, and 12 bits of metres cannot even express
+  FL380, so the field could never have been metres. The reference modulator shared the mistake
+  (its `.min(0xFFF)` clamp was the tell), which is exactly the generator/decoder cancellation
+  the fixture strategy exists to prevent — both fixed, plus the absent-altitude sentinel
+- [x] **A retune never reached the decoder** (high): the engine sends no settings command for
+  an offset-only patch, so `WfmChannel`'s "a retune is a different station, reset RDS" rule was
+  unreachable in production. `ChannelRx::retuned()` is now a first-class hook called from
+  `DspCommand::Retune`, and an engine end-to-end test drives that exact path
+- [x] **Decoder panels keyed on channel id alone** (high): channel ids are per device set, so
+  two sets' frames poured into each other's panel
+- [x] **Conditional React hook in `TextView`** (high): patching a channel from rtty to morse in
+  place changed the hook count and tore down the app
+- [x] **A test that asserted nothing** (high): the RDS retune test's 0.05 s probe was too short
+  to close a group, so its `all()` passed over an empty list — and it exercised `apply`, an
+  entry point the retune path never uses
+
+Medium/low:
+- [x] Squelch spliced the sample stream for decoders: skipping the gated span deletes time a
+  decoder measures its bit clock in. Decoders are now fed silence of the same duration; audio
+  demods keep the cheap skip, which is where the CPU saving matters
+- [x] APRS compressed reports ignored the compression-type byte, fabricating a course and speed
+  for a GGA-sourced packet and dropping its altitude
+- [x] The client's station index grew without bound for any decoder whose panel does not drive
+  `ageOut` (a POCSAG-only session leaked one entry per RIC) — now capped, least-recently-seen first
+- [x] The RTTY alphabet guard spot-checked 9 of 30 code points while the modulator shared the
+  same tables; it now transcribes the whole chart independently — which immediately caught that
+  the transcription, not the decoder, had mixed ITA2 variants

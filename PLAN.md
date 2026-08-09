@@ -170,6 +170,11 @@ POST   /api/devicesets/{ds}/record   { action: start|stop }   # format fixed to 
                                      # (M3 decision: a format field returns when a second
                                      #  format exists — YAGNI until then)
 GET/DELETE /api/recordings           # index reconciled from SigMF files on disk (§11)
+GET/DELETE /api/decoderlog           # stored decoder frames, filterable (kind/set/time/text)
+GET    /api/decoderlog/export/{fmt}  # csv|json download of the same filter (§11)
+                                     # (M4 decision: format is a path segment, not a query
+                                     #  field — serde_urlencoded cannot flatten a shared
+                                     #  filter struct, and the filter is shared by all three)
 GET/POST /api/presets, /api/bookmarks …
 GET    /api/openapi.json · /api/docs
 ```
@@ -178,7 +183,13 @@ GET    /api/openapi.json · /api/docs
 Text frames = JSON `ServerEvent` / `ClientCommand` (from `wire`):
 - `StateChanged { scope }` → client invalidates matching TanStack Query keys.
   This is the *only* cache-invalidation mechanism; no polling.
-- Decoder output events (ADS-B aircraft, POCSAG message, RDS text, APRS packet…): typed JSON.
+- Decoder output events (ADS-B aircraft, POCSAG message, RDS text, APRS packet…): typed JSON
+  (`Decoded { DecodedRecord }`). They travel on their **own broadcast**, not the `StateChanged`
+  control stream: ADS-B alone can emit hundreds of frames a second, and a lagging control
+  receiver resyncs with a full-state refetch — a cost that must never be triggered by decode
+  traffic. Clients append them to a local ring; `StateChanged { DecoderLog }` fires only when
+  the *stored* log changes structurally (cleared, pruned). The DSP plane hands frames over a
+  bounded queue and the drops are reported as `DecodedLost { count }` (M4 decision).
 - Client → server: stream subscriptions (`SubscribeSpectrum { ds, fps, bins }`,
   `SubscribeAudio { ch }`), which are per-connection — a phone can ask for 10 fps/1024 bins
   while a desktop gets 30 fps/4096.
@@ -637,10 +648,18 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
 
 - **`dsp`:** unit tests against analytically generated signals + golden vectors
   (e.g. filter responses, PLL lock behavior). `criterion` benches for hot paths.
-- **Decoders (the crown jewels):** every decoder ships with short recorded IQ fixtures
+- **Decoders (the crown jewels):** every decoder ships with short IQ fixtures
   (seconds, checked into `fixtures/` or fetched by `xtask fixtures`) + expected decoded
   output. Recording our own fixture library starts at M3 (record/replay milestone) —
   building it *is* part of building each decoder.
+  - **Reference modulators** live once, in `channels::testgen` behind the crate's
+    `test-signals` feature (M4 decision). One encoder per protocol feeds all three consumers —
+    the decoder's unit tests, the engine's end-to-end runs through `device-virtual`, and
+    `xtask fixtures` — without duplicating protocol encoding, and without `channels` gaining a
+    dependency (§3: it still depends only on `dsp` + `wire`; the feature is test-only).
+  - Synthesized fixtures prove the decoder against the *specification*. Off-air captures prove
+    it against the *world* and land per decoder as hardware sessions produce them; a decoder
+    without one says so in `PROGRESS.md` rather than pretending coverage it does not have.
 - **Engine:** end-to-end tests with `device-virtual`: siggen → channel → assert audio
   RMS/decoded events. No hardware in CI, ever.
 - **Server:** axum handler tests via `tower::ServiceExt`; OpenAPI snapshot test;
@@ -748,6 +767,10 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
 | MCP server | yes — `rmcp` over streamable HTTP at `/mcp`, same token auth (M5) |
 | Onboarding | template gallery + first-run wizard + band-plan explorer (M5) |
 | Coherent arrays | generic `CoherentArray` abstraction (§6), NOT a Kraken-specific driver — KrakenSDR is one populator, any synced N-RX (future Dragon-class boards, RTL banks) works the same; DoA + passive radar + beamforming (stretch) |
+| Decoder events (M4) | typed `DecoderEvent` in `wire`, emitted by channels as owned values (never JSON on the DSP thread); own broadcast + bounded hand-off queue with reported drops (§5); persisted by the server, never by the engine (crate boundary) |
+| BFM stereo vs RDS (M4) | RDS is a `wfm` param, not a second channel type — one FM demod, one filter chain. WFM **stereo** is deliberately *not* in M4 (M4 §16 lists RDS only): it changes the whole audio path to two channels (PCM, Opus, frame `ch_layout`, AudioWorklet) and is tracked as the remaining half of the §19 `demodbfm` row |
+| RTTY/Morse channel rate (M4) | 8 kHz DDC output, not 48 kHz: a 400 Hz CW filter at 48 kHz needs ~2 700 taps to keep its shape factor, which blows the Pi 4 budget for one channel (§14 performance floor) |
+| Wideband channels vs the DDC (M4) | A rate conversion costs bandwidth: the DDC delivers only 80% of the output rate flat, the rest being the guard band that stops folding. A mode occupying more than that — ADS-B fills its entire 2 MHz channel — cannot be resampled into place, so the engine **refuses** it unless the device runs at exactly the channel rate, naming that rate. Found by the M4 end-to-end run: at 2.4 Msps the pulses were smeared and the decoder produced nothing, which is indistinguishable from an empty sky. **Follow-up (M5+):** a wideband DDC mode that trades the guard band for bandwidth would let ADS-B run at any device rate; until then 1090 MHz means tuning the device to 2 Msps |
 | Frequency-allocation DB | layered World/ITU → Germany (BNetzA Frequenzplan) → future US/UK; overlaid on spectrum + searchable (§8a) |
 | HackRF/PortaPack/Flipper RX parity | in scope for the RX half (§8b); Sub-GHz OOK/FSK channel + capture |
 | TX & RF security testing (future) | in scope behind a default-off "controlled RF environment / authorized test" gate: siggen, IQ-to-air, modulators, bench loopback, **sub-GHz capture/replay/fixed-code (de Bruijn)/rolling-code analysis**, **jam-susceptibility testing**, **flood/spam/malformed-broadcast testing against a DUT**, **targeted fuzzing** — all framed for contained (direct-connect/dummy-load/shielded) authorized use (§12a) |
@@ -773,7 +796,7 @@ checklist; the phase tables in §13 are the plan view of the same list. Statuses
 | demodam | ✅ AM | P1 |
 | demodapt | ✅ NOAA APT | P3 |
 | demodatv | ✅ ATV | P3 |
-| demodbfm | ✅ BFM stereo + RDS | P2 |
+| demodbfm | ✅ folded into `wfm`: RDS landed at M4 as a `wfm` param; **stereo still open** | P2 |
 | demodchirpchat | ✅ ChirpChat/LoRa | P3 |
 | demoddab | ✅ DAB/DAB+ | P3 |
 | demoddatv | ✅ DATV | P4 (stretch) |

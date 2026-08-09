@@ -15,6 +15,19 @@ pub struct ChannelDescriptor {
     pub bandwidth_hz: f64,
     /// IQ rate the demod expects from the DDC, in Hz.
     pub input_rate_hz: f64,
+    /// Whether the channel produces listenable audio. Data decoders (PLAN §13 wave 1) do
+    /// not, so the client hides their audio controls instead of offering a silent stream.
+    /// Defaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour.
+    #[serde(default = "default_has_audio")]
+    pub has_audio: bool,
+    /// [`crate::DecoderEvent::kind`] this channel emits, when it is a decoder — the client
+    /// uses it to pick the panel that renders the events.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decoder_kind: Option<String>,
+}
+
+fn default_has_audio() -> bool {
+    true
 }
 
 fn default_nfm_bandwidth_hz() -> f64 {
@@ -101,12 +114,239 @@ pub struct WfmParams {
     /// De-emphasis time constant in µs (50 in most of the world, 75 in the Americas).
     #[serde(default = "default_deemphasis_us")]
     pub deemphasis_us: f32,
+    /// Decode the 57 kHz RDS subcarrier alongside the audio (PLAN §13 P2). Off by default:
+    /// it costs a second demod chain on the same channel.
+    #[serde(default)]
+    pub rds: bool,
 }
 
 impl Default for WfmParams {
     fn default() -> Self {
         Self {
             deemphasis_us: default_deemphasis_us(),
+            rds: false,
+        }
+    }
+}
+
+/// Bit rate of a POCSAG transmission. Pagers on one frequency may use several, so `Auto`
+/// (the default) locks onto whichever preamble it finds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PocsagBaud {
+    #[default]
+    Auto,
+    B512,
+    B1200,
+    B2400,
+}
+
+impl PocsagBaud {
+    /// The bit rates this setting admits, fastest first (the order the detector tries).
+    #[must_use]
+    pub fn rates(self) -> &'static [u16] {
+        match self {
+            Self::Auto => &[2_400, 1_200, 512],
+            Self::B512 => &[512],
+            Self::B1200 => &[1_200],
+            Self::B2400 => &[2_400],
+        }
+    }
+}
+
+fn default_pocsag_bandwidth_hz() -> f64 {
+    12_500.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct PocsagParams {
+    #[serde(default)]
+    pub baud: PocsagBaud,
+    #[serde(default = "default_pocsag_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+    /// Swap mark and space: some transmitters (and some receiver chains) invert the
+    /// discriminator polarity, which turns every codeword into noise.
+    #[serde(default)]
+    pub invert: bool,
+}
+
+impl Default for PocsagParams {
+    fn default() -> Self {
+        Self {
+            baud: PocsagBaud::default(),
+            bandwidth_hz: default_pocsag_bandwidth_hz(),
+            invert: false,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AdsbParams {
+    /// Repair single-bit errors the Mode S CRC localizes. Off trades sensitivity for a
+    /// lower false-frame rate on a noisy antenna.
+    #[serde(default = "default_true")]
+    pub crc_fix: bool,
+    /// Reference position for locally-decoded (single-frame) CPR positions, in degrees.
+    /// Without one, a position needs a matching even/odd frame pair.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_lat: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_lon: Option<f64>,
+}
+
+impl Default for AdsbParams {
+    fn default() -> Self {
+        Self {
+            crc_fix: true,
+            ref_lat: None,
+            ref_lon: None,
+        }
+    }
+}
+
+/// Which of the two AIS channels a receiver is parked on. Only the label travels with the
+/// decoded message — the tuning itself is the channel's `offset_hz`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AisChannel {
+    /// 161.975 MHz.
+    #[default]
+    A,
+    /// 162.025 MHz.
+    B,
+}
+
+impl AisChannel {
+    /// The `!AIVDM` channel letter for this AIS channel.
+    #[must_use]
+    pub fn letter(self) -> char {
+        match self {
+            Self::A => 'A',
+            Self::B => 'B',
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AisParams {
+    #[serde(default)]
+    pub ais_channel: AisChannel,
+}
+
+/// AX.25 physical layer (PLAN §13: AFSK1200 + 9600 G3RUH).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AprsMode {
+    /// Bell 202 AFSK (1200/2200 Hz) through an FM receiver — VHF APRS.
+    #[default]
+    Afsk1200,
+    /// 9600 baud G3RUH: scrambled NRZI straight off the discriminator.
+    G3ruh9600,
+}
+
+fn default_aprs_bandwidth_hz() -> f64 {
+    12_500.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AprsParams {
+    #[serde(default)]
+    pub mode: AprsMode,
+    #[serde(default = "default_aprs_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+}
+
+impl Default for AprsParams {
+    fn default() -> Self {
+        Self {
+            mode: AprsMode::default(),
+            bandwidth_hz: default_aprs_bandwidth_hz(),
+        }
+    }
+}
+
+fn default_rtty_baud() -> f64 {
+    45.45
+}
+
+fn default_rtty_shift_hz() -> f64 {
+    170.0
+}
+
+/// RTTY stop-bit length in bit periods. 45.45 baud amateur RTTY uses 1.5.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RttyStopBits {
+    One,
+    #[default]
+    OneAndHalf,
+    Two,
+}
+
+impl RttyStopBits {
+    #[must_use]
+    pub fn periods(self) -> f64 {
+        match self {
+            Self::One => 1.0,
+            Self::OneAndHalf => 1.5,
+            Self::Two => 2.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RttyParams {
+    #[serde(default = "default_rtty_baud")]
+    pub baud: f64,
+    /// Mark/space separation in Hz (170 amateur, 450/850 commercial).
+    #[serde(default = "default_rtty_shift_hz")]
+    pub shift_hz: f64,
+    #[serde(default)]
+    pub stop_bits: RttyStopBits,
+    /// Swap mark and space (equivalent to reversing the sideband).
+    #[serde(default)]
+    pub invert: bool,
+    /// Return to the letters table after a space — the usual amateur convention, which
+    /// recovers a stream that lost its shift character.
+    #[serde(default = "default_true")]
+    pub unshift_on_space: bool,
+}
+
+impl Default for RttyParams {
+    fn default() -> Self {
+        Self {
+            baud: default_rtty_baud(),
+            shift_hz: default_rtty_shift_hz(),
+            stop_bits: RttyStopBits::default(),
+            invert: false,
+            unshift_on_space: true,
+        }
+    }
+}
+
+fn default_morse_bandwidth_hz() -> f64 {
+    400.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct MorseParams {
+    /// Width of the CW filter around the channel offset, in Hz.
+    #[serde(default = "default_morse_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+    /// Fixed sending speed in words per minute; `None` tracks the speed from the signal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wpm: Option<f32>,
+}
+
+impl Default for MorseParams {
+    fn default() -> Self {
+        Self {
+            bandwidth_hz: default_morse_bandwidth_hz(),
+            wpm: None,
         }
     }
 }
@@ -121,6 +361,12 @@ pub enum ChannelParams {
     Am(AmParams),
     Ssb(SsbParams),
     Wfm(WfmParams),
+    Pocsag(PocsagParams),
+    Adsb(AdsbParams),
+    Ais(AisParams),
+    Aprs(AprsParams),
+    Rtty(RttyParams),
+    Morse(MorseParams),
 }
 
 impl ChannelParams {
@@ -132,6 +378,12 @@ impl ChannelParams {
             Self::Am(_) => "am",
             Self::Ssb(_) => "ssb",
             Self::Wfm(_) => "wfm",
+            Self::Pocsag(_) => "pocsag",
+            Self::Adsb(_) => "adsb",
+            Self::Ais(_) => "ais",
+            Self::Aprs(_) => "aprs",
+            Self::Rtty(_) => "rtty",
+            Self::Morse(_) => "morse",
         }
     }
 }

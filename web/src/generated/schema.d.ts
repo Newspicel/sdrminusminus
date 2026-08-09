@@ -52,6 +52,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/decoderlog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_decoder_log"];
+        put?: never;
+        post?: never;
+        delete: operations["clear_decoder_log"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/decoderlog/export/{format}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["export_decoder_log"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices": {
         parameters: {
             query?: never;
@@ -264,6 +296,110 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description One decoded Mode S / ADS-B frame (PLAN §13: preamble correlation + Mode S CRC).
+         *     Fields are `Option` because which ones a frame carries depends on its type code — a
+         *     position frame has no callsign, an identification frame has no altitude.
+         */
+        AdsbMessage: {
+            /** Format: int32 */
+            altitude_ft?: number | null;
+            callsign?: string | null;
+            /**
+             * Format: int32
+             * @description Downlink Format (17 = ADS-B extended squitter, 11 = all-call reply).
+             */
+            df: number;
+            /** Format: double */
+            ground_speed_kt?: number | null;
+            /** @description ICAO 24-bit address as 6 hex digits — the aircraft's identity across frames. */
+            icao: string;
+            /**
+             * Format: double
+             * @description Latitude in degrees, once a CPR even/odd pair has been solved.
+             */
+            lat?: number | null;
+            /** Format: double */
+            lon?: number | null;
+            on_ground?: boolean | null;
+            /** @description The raw frame as hex — the interop format every Mode S tool speaks. */
+            raw: string;
+            squawk?: string | null;
+            /** Format: double */
+            track_deg?: number | null;
+            /**
+             * Format: int32
+             * @description Extended-squitter type code, when the frame has an ME field.
+             */
+            type_code?: number | null;
+            /** Format: int32 */
+            vertical_rate_fpm?: number | null;
+        };
+        AdsbParams: {
+            /**
+             * @description Repair single-bit errors the Mode S CRC localizes. Off trades sensitivity for a
+             *     lower false-frame rate on a noisy antenna.
+             */
+            crc_fix?: boolean;
+            /**
+             * Format: double
+             * @description Reference position for locally-decoded (single-frame) CPR positions, in degrees.
+             *     Without one, a position needs a matching even/odd frame pair.
+             */
+            ref_lat?: number | null;
+            /** Format: double */
+            ref_lon?: number | null;
+        };
+        /**
+         * @description Which of the two AIS channels a receiver is parked on. Only the label travels with the
+         *     decoded message — the tuning itself is the channel's `offset_hz`.
+         * @enum {string}
+         */
+        AisChannel: "a" | "b";
+        /** @description One decoded AIS message (PLAN §13: GMSK/NRZI over HDLC framing). */
+        AisMessage: {
+            /** @description Which of the two AIS channels the burst arrived on (`A` = 161.975 MHz). */
+            ais_channel: string;
+            call_sign?: string | null;
+            /**
+             * Format: double
+             * @description Course over ground in degrees.
+             */
+            cog_deg?: number | null;
+            destination?: string | null;
+            /** Format: int32 */
+            heading_deg?: number | null;
+            /** Format: double */
+            lat?: number | null;
+            /** Format: double */
+            lon?: number | null;
+            /**
+             * Format: int32
+             * @description Maritime Mobile Service Identity — the vessel's identity across messages.
+             */
+            mmsi: number;
+            /**
+             * Format: int32
+             * @description ITU-R M.1371 message type (1–3 position report, 5 static data, 18/19 class B …).
+             */
+            msg_type: number;
+            name?: string | null;
+            /**
+             * Format: int32
+             * @description Navigational status code (0 = under way using engine …).
+             */
+            nav_status?: number | null;
+            /** @description The `!AIVDM` sentence — the interop format every AIS tool speaks. */
+            nmea: string;
+            /**
+             * Format: double
+             * @description Speed over ground in knots.
+             */
+            sog_kt?: number | null;
+        };
+        AisParams: {
+            ais_channel?: components["schemas"]["AisChannel"];
+        };
         AmParams: {
             agc?: boolean;
             /** Format: double */
@@ -278,6 +414,44 @@ export interface components {
         ApplyPresetRequest: {
             /** Format: int32 */
             device_set: number;
+        };
+        /**
+         * @description AX.25 physical layer (PLAN §13: AFSK1200 + 9600 G3RUH).
+         * @enum {string}
+         */
+        AprsMode: "afsk1200" | "g3ruh9600";
+        /**
+         * @description One decoded AX.25 frame, with the APRS fields parsed out when the info field carries them
+         *     (PLAN §13: AFSK1200 + 9600 G3RUH).
+         */
+        AprsPacket: {
+            /** Format: int32 */
+            altitude_ft?: number | null;
+            comment?: string | null;
+            /** Format: double */
+            course_deg?: number | null;
+            destination: string;
+            /** @description Raw information field. */
+            info: string;
+            /** Format: double */
+            lat?: number | null;
+            /** Format: double */
+            lon?: number | null;
+            /** @description Digipeater path, in order. */
+            path?: string[];
+            /** @description Source callsign with SSID, e.g. `DL1ABC-9`. */
+            source: string;
+            /** Format: double */
+            speed_kt?: number | null;
+            /** @description APRS symbol as `table` + `code`, e.g. `/>` for a car. */
+            symbol?: string | null;
+            /** @description TNC2 monitor line (`SRC>DEST,PATH:info`) — the interop format. */
+            tnc2: string;
+        };
+        AprsParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+            mode?: components["schemas"]["AprsMode"];
         };
         /** @description A stored frequency bookmark (PLAN §11). */
         Bookmark: {
@@ -311,6 +485,17 @@ export interface components {
              * @description Nominal RF bandwidth the channel needs, in Hz.
              */
             bandwidth_hz: number;
+            /**
+             * @description [`crate::DecoderEvent::kind`] this channel emits, when it is a decoder — the client
+             *     uses it to pick the panel that renders the events.
+             */
+            decoder_kind?: string | null;
+            /**
+             * @description Whether the channel produces listenable audio. Data decoders (PLAN §13 wave 1) do
+             *     not, so the client hides their audio controls instead of offering a silent stream.
+             *     Defaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour.
+             */
+            has_audio?: boolean;
             /**
              * Format: double
              * @description IQ rate the demod expects from the DDC, in Hz.
@@ -348,6 +533,30 @@ export interface components {
             settings: components["schemas"]["WfmParams"];
             /** @enum {string} */
             type: "wfm";
+        } | {
+            settings: components["schemas"]["PocsagParams"];
+            /** @enum {string} */
+            type: "pocsag";
+        } | {
+            settings: components["schemas"]["AdsbParams"];
+            /** @enum {string} */
+            type: "adsb";
+        } | {
+            settings: components["schemas"]["AisParams"];
+            /** @enum {string} */
+            type: "ais";
+        } | {
+            settings: components["schemas"]["AprsParams"];
+            /** @enum {string} */
+            type: "aprs";
+        } | {
+            settings: components["schemas"]["RttyParams"];
+            /** @enum {string} */
+            type: "rtty";
+        } | {
+            settings: components["schemas"]["MorseParams"];
+            /** @enum {string} */
+            type: "morse";
         };
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
@@ -452,6 +661,102 @@ export interface components {
             device_set: number;
             name: string;
         };
+        /**
+         * @description A decoder event with the coordinates the DSP plane cannot supply. The engine stamps `at`
+         *     on the control plane (the DSP thread never formats time) and computes `freq_hz` from the
+         *     device center plus the channel offset at the moment the frame was produced.
+         */
+        DecodedRecord: {
+            /** @description RFC3339 UTC. */
+            at: string;
+            /** Format: int32 */
+            channel: number;
+            /** Format: int32 */
+            device_set: number;
+            event: components["schemas"]["DecoderEvent"];
+            /**
+             * Format: double
+             * @description Absolute RF frequency of the channel when the frame arrived, in Hz.
+             */
+            freq_hz: number;
+        };
+        /**
+         * @description Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a
+         *     discriminated union on `kind` that panels can exhaustively `switch` on, and so the log
+         *     database can index on `kind` without parsing the blob.
+         */
+        DecoderEvent: {
+            data: components["schemas"]["RdsUpdate"];
+            /** @enum {string} */
+            kind: "rds";
+        } | {
+            data: components["schemas"]["PocsagMessage"];
+            /** @enum {string} */
+            kind: "pocsag";
+        } | {
+            data: components["schemas"]["AdsbMessage"];
+            /** @enum {string} */
+            kind: "adsb";
+        } | {
+            data: components["schemas"]["AisMessage"];
+            /** @enum {string} */
+            kind: "ais";
+        } | {
+            data: components["schemas"]["AprsPacket"];
+            /** @enum {string} */
+            kind: "aprs";
+        } | {
+            data: components["schemas"]["RttyText"];
+            /** @enum {string} */
+            kind: "rtty";
+        } | {
+            data: components["schemas"]["MorseText"];
+            /** @enum {string} */
+            kind: "morse";
+        };
+        /**
+         * @description One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not
+         *     scroll-back-only). The typed `event` is stored verbatim so an export loses nothing;
+         *     `kind`, `summary` and `station` are the indexed projections the list view filters on.
+         */
+        DecoderLogEntry: {
+            /** @description RFC3339 UTC. */
+            at: string;
+            /** Format: int32 */
+            channel: number;
+            /** Format: int32 */
+            device_set: number;
+            event: components["schemas"]["DecoderEvent"];
+            /** Format: double */
+            freq_hz: number;
+            /** Format: int64 */
+            id: number;
+            /** @description [`crate::DecoderEvent::kind`] of `event`. */
+            kind: string;
+            /** @description Emitter identity within the decoder (ICAO, MMSI, callsign, pager address). */
+            station?: string | null;
+            summary: string;
+        };
+        /** @description `GET /api/decoderlog` — newest first, bounded by the requested `limit`. */
+        DecoderLogResponse: {
+            /**
+             * Format: int64
+             * @description Frames dropped on the way to the log since the server started, because a consumer
+             *     fell behind (PLAN §5: bounded queues surface their loss).
+             */
+            dropped: number;
+            entries: components["schemas"]["DecoderLogEntry"][];
+            /**
+             * Format: int64
+             * @description Rows matching the filter, ignoring `limit`.
+             */
+            total: number;
+        };
+        /** @description `DELETE /api/decoderlog` — how many rows the filtered clear removed. */
+        DeletedCount: {
+            /** Format: int64 */
+            deleted: number;
+        };
         /** @description A discovered receiver, produced by a driver's probe (PLAN §6). */
         DeviceInfo: {
             /** @description Driver id that produced this entry: `"virtual"`, `"soapy"`, `"rtlsdr"`, … */
@@ -509,6 +814,13 @@ export interface components {
             devices: components["schemas"]["DeviceInfo"][];
         };
         /**
+         * @description Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a
+         *     path segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing
+         *     [`DecoderLogQuery`] across list/export/clear requires the format to live elsewhere.
+         * @enum {string}
+         */
+        ExportFormat: "csv" | "json";
+        /**
          * @description A typed device-specific setting the client renders generically when it has no
          *     first-class UI (PLAN §6: "typed extra settings").
          */
@@ -546,10 +858,77 @@ export interface components {
             /** Format: double */
             value_db: number;
         };
+        MorseParams: {
+            /**
+             * Format: double
+             * @description Width of the CW filter around the channel offset, in Hz.
+             */
+            bandwidth_hz?: number;
+            /**
+             * Format: float
+             * @description Fixed sending speed in words per minute; `None` tracks the speed from the signal.
+             */
+            wpm?: number | null;
+        };
+        /** @description A run of decoded Morse characters plus the speed the tracker settled on. */
+        MorseText: {
+            text: string;
+            /**
+             * Format: float
+             * @description Estimated sending speed in words per minute (PARIS standard).
+             */
+            wpm: number;
+        };
         NfmParams: {
             /** Format: double */
             bandwidth_hz?: number;
         };
+        /**
+         * @description Bit rate of a POCSAG transmission. Pagers on one frequency may use several, so `Auto`
+         *     (the default) locks onto whichever preamble it finds.
+         * @enum {string}
+         */
+        PocsagBaud: "auto" | "b512" | "b1200" | "b2400";
+        /** @description One decoded POCSAG page. */
+        PocsagMessage: {
+            /**
+             * Format: int32
+             * @description 21-bit receiver address (RIC).
+             */
+            address: number;
+            /**
+             * Format: int32
+             * @description Bit rate the batch was decoded at.
+             */
+            baud: number;
+            /**
+             * Format: int32
+             * @description Single-bit errors the BCH(31,21) decoder repaired across the message's codewords.
+             */
+            errors_corrected: number;
+            /**
+             * Format: int32
+             * @description Function bits 0–3 (the "A/B/C/D" a pager shows).
+             */
+            function: number;
+            payload: components["schemas"]["PocsagPayload"];
+            text: string;
+        };
+        PocsagParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+            baud?: components["schemas"]["PocsagBaud"];
+            /**
+             * @description Swap mark and space: some transmitters (and some receiver chains) invert the
+             *     discriminator polarity, which turns every codeword into noise.
+             */
+            invert?: boolean;
+        };
+        /**
+         * @description POCSAG message class (PLAN §13: 512/1200/2400 baud pagers).
+         * @enum {string}
+         */
+        PocsagPayload: "tone" | "numeric" | "alpha";
         /** @description `GET /api/presets` list entry. */
         PresetInfo: {
             /** @description RFC3339 UTC. */
@@ -581,6 +960,44 @@ export interface components {
             min: number;
             /** Format: double */
             step?: number | null;
+        };
+        /**
+         * @description RDS state after a group changed it (PLAN §13: 57 kHz BPSK, group/AF/RT decode). RDS is a
+         *     slowly-accreting picture rather than a stream of independent frames, so an event is the
+         *     current best view of the station, emitted only when a field actually changed.
+         */
+        RdsUpdate: {
+            /** @description Alternative frequencies in Hz, as advertised in group 0A. */
+            alt_freqs_hz?: number[];
+            /**
+             * Format: int64
+             * @description Blocks rejected by the syndrome check since the channel started.
+             */
+            block_errors: number;
+            /**
+             * Format: int64
+             * @description Groups accepted since the channel started.
+             */
+            groups: number;
+            /** @description Music (true) / Speech (false) switch. */
+            music?: boolean | null;
+            /** @description Programme Identification, as the 4 hex digits everyone quotes it by. */
+            pi?: string | null;
+            /** @description Programme Service name (8 chars), once every segment has been seen. */
+            ps?: string | null;
+            /**
+             * Format: int32
+             * @description Programme Type code (0–31).
+             */
+            pty?: number | null;
+            /** @description Programme Type name for [`RdsUpdate::pty`] under the RDS (EU) table. */
+            pty_name?: string | null;
+            /** @description RadioText (up to 64 chars), once the A/B flag closes a message. */
+            radiotext?: string | null;
+            /** @description Traffic Announcement flag. */
+            ta?: boolean | null;
+            /** @description Traffic Programme flag. */
+            tp?: boolean | null;
         };
         /**
          * @description What a [`RecordRequest`] should do.
@@ -655,6 +1072,32 @@ export interface components {
         RecordRequest: {
             action: components["schemas"]["RecordAction"];
         };
+        RttyParams: {
+            /** Format: double */
+            baud?: number;
+            /** @description Swap mark and space (equivalent to reversing the sideband). */
+            invert?: boolean;
+            /**
+             * Format: double
+             * @description Mark/space separation in Hz (170 amateur, 450/850 commercial).
+             */
+            shift_hz?: number;
+            stop_bits?: components["schemas"]["RttyStopBits"];
+            /**
+             * @description Return to the letters table after a space — the usual amateur convention, which
+             *     recovers a stream that lost its shift character.
+             */
+            unshift_on_space?: boolean;
+        };
+        /**
+         * @description RTTY stop-bit length in bit periods. 45.45 baud amateur RTTY uses 1.5.
+         * @enum {string}
+         */
+        RttyStopBits: "one" | "one_and_half" | "two";
+        /** @description A run of decoded RTTY characters (PLAN §13: Baudot over FSK). */
+        RttyText: {
+            text: string;
+        };
         /** @description Server → client push (PLAN §5). Adjacently tagged so unit variants stay compact. */
         ServerEvent: {
             /** @description First frame after connect: current state revision so the client can detect gaps. */
@@ -710,6 +1153,29 @@ export interface components {
             /** @enum {string} */
             type: "StreamStopped";
         } | {
+            /**
+             * @description A decoder produced a frame (PLAN §5: typed JSON decoder output). Pushed to every
+             *     connected client; the same record is persisted to the decoder log (PLAN §11).
+             *
+             *     Boxed so one rare variant does not set the size of every `ServerEvent`: the control
+             *     broadcast carries hundreds of buffered `StateChanged`s, which would each pay for a
+             *     record they never hold. `Box` is transparent to serde and to the schema.
+             */
+            data: components["schemas"]["DecodedRecord"];
+            /** @enum {string} */
+            type: "Decoded";
+        } | {
+            /**
+             * @description Decoder frames were dropped before reaching clients or the log because a consumer
+             *     fell behind. Loss is surfaced, never silent (PLAN §5).
+             */
+            data: {
+                /** Format: int64 */
+                count: number;
+            };
+            /** @enum {string} */
+            type: "DecodedLost";
+        } | {
             /** @description Non-fatal server-side error surfaced to the client. */
             data: {
                 message: string;
@@ -752,6 +1218,9 @@ export interface components {
         } | {
             /** @enum {string} */
             scope: "recordings";
+        } | {
+            /** @enum {string} */
+            scope: "decoder_log";
         };
         /** @description Full state snapshot for initial load (PLAN §5 `GET /api/state`). */
         StateSnapshot: {
@@ -776,6 +1245,11 @@ export interface components {
              * @description De-emphasis time constant in µs (50 in most of the world, 75 in the Americas).
              */
             deemphasis_us?: number;
+            /**
+             * @description Decode the 57 kHz RDS subcarrier alongside the audio (PLAN §13 P2). Off by default:
+             *     it costs a second demod chain on the same channel.
+             */
+            rds?: boolean;
         };
     };
     responses: never;
@@ -894,6 +1368,136 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChannelTypesResponse"];
+                };
+            };
+        };
+    };
+    list_decoder_log: {
+        parameters: {
+            query?: {
+                /** @description Restrict to one device set. */
+                device_set?: number;
+                /** @description Restrict to one decoder ([`crate::DecoderEvent::kind`]). */
+                kind?: string;
+                /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
+                limit?: number;
+                /** @description Substring match against `station` and `summary`, case-insensitive. */
+                q?: string;
+                /** @description Only entries at or after this RFC3339 timestamp. */
+                since?: string;
+                /** @description Only entries at or before this RFC3339 timestamp. */
+                until?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored decodes, newest first, with the total the filter matches and the frames lost on the way to the log */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecoderLogResponse"];
+                };
+            };
+            /** @description Malformed filter (`since`/`until`, `limit`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    clear_decoder_log: {
+        parameters: {
+            query?: {
+                /** @description Restrict to one device set. */
+                device_set?: number;
+                /** @description Restrict to one decoder ([`crate::DecoderEvent::kind`]). */
+                kind?: string;
+                /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
+                limit?: number;
+                /** @description Substring match against `station` and `summary`, case-insensitive. */
+                q?: string;
+                /** @description Only entries at or after this RFC3339 timestamp. */
+                since?: string;
+                /** @description Only entries at or before this RFC3339 timestamp. */
+                until?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Entries removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedCount"];
+                };
+            };
+            /** @description Malformed filter (`since`/`until`, `limit`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    export_decoder_log: {
+        parameters: {
+            query?: {
+                /** @description Restrict to one device set. */
+                device_set?: number;
+                /** @description Restrict to one decoder ([`crate::DecoderEvent::kind`]). */
+                kind?: string;
+                /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
+                limit?: number;
+                /** @description Substring match against `station` and `summary`, case-insensitive. */
+                q?: string;
+                /** @description Only entries at or after this RFC3339 timestamp. */
+                since?: string;
+                /** @description Only entries at or before this RFC3339 timestamp. */
+                until?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Export encoding */
+                format: components["schemas"]["ExportFormat"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The matching entries as a downloadable file, capped at the server's export limit; `limit` is ignored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecoderLogEntry"][];
+                    "text/csv": string;
+                };
+            };
+            /** @description Unknown format or malformed filter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };

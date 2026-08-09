@@ -35,3 +35,6 @@ tokio = { workspace = true, features = ["sync"] }
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
 tempfile.workspace = true
+# Reference modulators for the decoder end-to-end runs (PLAN §14): one encoder per protocol,
+# shared with the channel unit tests and `xtask fixtures`.
+sdrmm-channels = { workspace = true, features = ["test-signals"] }

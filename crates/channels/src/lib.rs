@@ -1,21 +1,41 @@
 //! `sdrmm-channels` — the `ChannelRx` plugin surface (PLAN §8). Depends only on `dsp` + `wire`.
-//! Phase-1 analog demodulators (PLAN §13): NFM, AM, SSB, WFM mono. Each demod is one module
-//! whose descriptor and constructor sit in the same [`REGISTRY`] row, so the "add channel" UI
-//! and `create` dispatch cannot drift apart.
+//! Phase-1 analog demodulators plus the wave-1 data decoders (PLAN §13): NFM, AM, SSB, WFM
+//! mono (+RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse. Each mode is one module whose
+//! descriptor and constructor sit in the same [`REGISTRY`] row, so the "add channel" UI and
+//! `create` dispatch cannot drift apart.
 
+mod adsb;
+mod ais;
 mod am;
+mod aprs;
+mod morse;
 mod nfm;
+mod pocsag;
+mod rds;
+mod rtty;
 mod ssb;
 mod wfm;
 
 #[cfg(test)]
 mod testutil;
 
+/// Reference modulators for the decoder tests, fixtures and end-to-end runs (PLAN §14).
+/// Compiled for this crate's own tests, and for downstream crates that opt in with the
+/// `test-signals` feature — never in a production build.
+#[cfg(any(test, feature = "test-signals"))]
+pub mod testgen;
+
+pub use adsb::AdsbChannel;
+pub use ais::AisChannelRx;
 pub use am::AmChannel;
+pub use aprs::AprsChannel;
+pub use morse::MorseChannel;
 pub use nfm::NfmChannel;
 use num_complex::Complex;
+pub use pocsag::PocsagChannel;
+pub use rtty::RttyChannel;
 use sdrmm_dsp::{Agc, Decimator, FirC};
-use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, Sideband};
+use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, Sideband};
 pub use ssb::SsbChannel;
 pub use wfm::WfmChannel;
 
@@ -48,6 +68,12 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
             let half = WfmChannel::descriptor().bandwidth_hz / 2.0;
             (-half, half)
         }
+        ChannelParams::Pocsag(p) => pocsag::occupied_band(p),
+        ChannelParams::Adsb(_) => adsb::occupied_band(),
+        ChannelParams::Ais(p) => ais::occupied_band(p),
+        ChannelParams::Aprs(p) => aprs::occupied_band(p),
+        ChannelParams::Rtty(p) => rtty::occupied_band(p),
+        ChannelParams::Morse(p) => morse::occupied_band(p),
     }
 }
 
@@ -58,6 +84,9 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
 pub enum ChannelFilter {
     Symmetric(Decimator),
     Sideband(FirC),
+    /// No extra selectivity: the DDC's anti-alias response already bounds the band, and the
+    /// mode needs the full rise time (ADS-B's 0.5 µs pulses).
+    Passthrough,
 }
 
 impl ChannelFilter {
@@ -66,6 +95,10 @@ impl ChannelFilter {
         match self {
             Self::Symmetric(f) => f.process(input, out),
             Self::Sideband(f) => f.process(input, out),
+            Self::Passthrough => {
+                out.clear();
+                out.extend_from_slice(input);
+            }
         }
     }
 }
@@ -78,6 +111,12 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Am(p) => am::channel_filter(p),
         ChannelParams::Ssb(p) => Ok(ChannelFilter::Sideband(ssb::sideband_filter(p)?)),
         ChannelParams::Wfm(_) => Ok(wfm::channel_filter()),
+        ChannelParams::Pocsag(p) => pocsag::channel_filter(p),
+        ChannelParams::Adsb(_) => Ok(adsb::channel_filter()),
+        ChannelParams::Ais(p) => ais::channel_filter(p),
+        ChannelParams::Aprs(p) => aprs::channel_filter(p),
+        ChannelParams::Rtty(p) => rtty::channel_filter(p),
+        ChannelParams::Morse(p) => morse::channel_filter(p),
     }
 }
 
@@ -106,8 +145,9 @@ pub struct ChannelOutputs {
     /// Interleaved/mono PCM plus its sample rate, when the channel produced audio this block.
     pub audio_pcm: Vec<f32>,
     pub audio_rate: u32,
-    /// Serialized decoder events (JSON `ServerEvent`s), emitted to the WS hub.
-    pub events: Vec<String>,
+    /// Typed decoder frames produced this block (PLAN §5). The host stamps them with time and
+    /// frequency; a decoder never formats or serializes on the DSP thread.
+    pub events: Vec<DecoderEvent>,
     /// Decimated IQ for scope/constellation panels.
     pub iq_tap: Vec<Complex<f32>>,
 }
@@ -139,6 +179,13 @@ pub trait ChannelRx: Send {
     /// Reconfigure mode params in place. A params variant of another channel type is an
     /// [`ChannelError::InvalidSettings`] — the engine rebuilds the pipeline on type change.
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError>;
+
+    /// The host moved the channel to a different frequency. A demod carries no state tied to
+    /// a particular station, so it ignores this; a decoder does — whatever it has accreted
+    /// describes the signal it just left and must not follow the channel to the next one.
+    /// Retunes arrive here rather than through [`ChannelRx::apply`], which the host does not
+    /// call for an offset-only change.
+    fn retuned(&mut self) {}
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs);
 }
@@ -173,6 +220,30 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: WfmChannel::descriptor,
         create: boxed::<WfmChannel>,
+    },
+    Registration {
+        descriptor: PocsagChannel::descriptor,
+        create: boxed::<PocsagChannel>,
+    },
+    Registration {
+        descriptor: AdsbChannel::descriptor,
+        create: boxed::<AdsbChannel>,
+    },
+    Registration {
+        descriptor: AisChannelRx::descriptor,
+        create: boxed::<AisChannelRx>,
+    },
+    Registration {
+        descriptor: AprsChannel::descriptor,
+        create: boxed::<AprsChannel>,
+    },
+    Registration {
+        descriptor: RttyChannel::descriptor,
+        create: boxed::<RttyChannel>,
+    },
+    Registration {
+        descriptor: MorseChannel::descriptor,
+        create: boxed::<MorseChannel>,
     },
 ];
 
@@ -219,7 +290,10 @@ pub(crate) fn audio_agc() -> Agc {
 mod tests {
     use std::collections::HashSet;
 
-    use sdrmm_wire::{AmParams, ChannelParams, NfmParams, SsbParams, WfmParams};
+    use sdrmm_wire::{
+        AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, MorseParams, NfmParams,
+        PocsagParams, RttyParams, SsbParams, WfmParams,
+    };
 
     use super::*;
     use crate::testutil::settings;
@@ -230,6 +304,12 @@ mod tests {
             "am" => ChannelParams::Am(AmParams::default()),
             "ssb" => ChannelParams::Ssb(SsbParams::default()),
             "wfm" => ChannelParams::Wfm(WfmParams::default()),
+            "pocsag" => ChannelParams::Pocsag(PocsagParams::default()),
+            "adsb" => ChannelParams::Adsb(AdsbParams::default()),
+            "ais" => ChannelParams::Ais(AisParams::default()),
+            "aprs" => ChannelParams::Aprs(AprsParams::default()),
+            "rtty" => ChannelParams::Rtty(RttyParams::default()),
+            "morse" => ChannelParams::Morse(MorseParams::default()),
             other => panic!("unexpected type id {other}"),
         }
     }
@@ -237,20 +317,44 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 4);
+        assert_eq!(all.len(), 10);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
-        assert_eq!(ids, HashSet::from(["nfm", "am", "ssb", "wfm"]));
+        assert_eq!(
+            ids,
+            HashSet::from([
+                "nfm", "am", "ssb", "wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse",
+            ])
+        );
         for d in &all {
             let (bandwidth, rate) = match d.type_id.as_str() {
                 "nfm" => (12_500.0, 48_000.0),
                 "am" => (10_000.0, 48_000.0),
                 "ssb" => (3_000.0, 48_000.0),
                 "wfm" => (200_000.0, 240_000.0),
+                "pocsag" => (12_500.0, 48_000.0),
+                "adsb" => (2_000_000.0, 2_000_000.0),
+                "ais" => (25_000.0, 48_000.0),
+                "aprs" => (12_500.0, 48_000.0),
+                "rtty" => (1_000.0, 8_000.0),
+                "morse" => (400.0, 8_000.0),
                 other => panic!("unexpected type id {other}"),
             };
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);
             assert_eq!(d.input_rate_hz, rate, "{}", d.type_id);
             assert!(!d.name.is_empty(), "{}", d.type_id);
+            // Every channel type must be useful for something: audio, decoded frames, or
+            // both (WFM+RDS is the only current "both").
+            assert!(
+                d.has_audio || d.decoder_kind.is_some(),
+                "{} produces neither audio nor decoder events",
+                d.type_id
+            );
+            assert_eq!(
+                d.has_audio,
+                matches!(d.type_id.as_str(), "nfm" | "am" | "ssb" | "wfm"),
+                "{} audio flag does not match its mode class",
+                d.type_id
+            );
         }
     }
 

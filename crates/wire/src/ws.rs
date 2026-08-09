@@ -5,6 +5,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::decode::DecodedRecord;
+
 /// Granularity of a `StateChanged` invalidation. The client maps each scope to the
 /// TanStack Query keys it must invalidate (PLAN §10: the *only* cache-invalidation path).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -22,6 +24,10 @@ pub enum StateScope {
     Bookmarks,
     /// The recordings index changed; refetch `GET /api/recordings`.
     Recordings,
+    /// The stored decoder log changed *structurally* (cleared, pruned). Individual decodes
+    /// arrive as [`ServerEvent::Decoded`] and are appended client-side — invalidating per
+    /// decode would refetch the whole log hundreds of times a second under ADS-B traffic.
+    DecoderLog,
 }
 
 /// Which binary stream a control event refers to. Spectrum stream ids are device-set ids
@@ -56,6 +62,16 @@ pub enum ServerEvent {
     /// A subscribed stream stopped; `kind` says which one, since spectrum and audio ids
     /// come from different spaces.
     StreamStopped { stream_id: u16, kind: StreamKind },
+    /// A decoder produced a frame (PLAN §5: typed JSON decoder output). Pushed to every
+    /// connected client; the same record is persisted to the decoder log (PLAN §11).
+    ///
+    /// Boxed so one rare variant does not set the size of every `ServerEvent`: the control
+    /// broadcast carries hundreds of buffered `StateChanged`s, which would each pay for a
+    /// record they never hold. `Box` is transparent to serde and to the schema.
+    Decoded(Box<DecodedRecord>),
+    /// Decoder frames were dropped before reaching clients or the log because a consumer
+    /// fell behind. Loss is surfaced, never silent (PLAN §5).
+    DecodedLost { count: u64 },
     /// Non-fatal server-side error surfaced to the client.
     Error { message: String },
 }

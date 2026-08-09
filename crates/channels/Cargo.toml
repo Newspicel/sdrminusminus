@@ -10,6 +10,11 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Exposes `testgen`, the reference modulators the engine's end-to-end tests and
+# `cargo xtask fixtures` build signals with (PLAN §14). Test-only; never in a release build.
+test-signals = []
+
 [dependencies]
 sdrmm-wire.workspace = true
 sdrmm-dsp.workspace = true

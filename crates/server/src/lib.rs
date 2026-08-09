@@ -2,7 +2,15 @@
 //! HTTP+WS surface over a shared [`Engine`], and `serve()` binds it. The Tauri desktop app and
 //! the headless binary both consume this crate, so there is exactly one server implementation.
 
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use axum::Router;
 use sdrmm_engine::Engine;
@@ -14,13 +22,14 @@ use utoipa_swagger_ui::SwaggerUi;
 pub const HOTPLUG_INTERVAL: Duration = Duration::from_secs(5);
 
 mod assets;
+mod decoderlog;
 mod rest;
 mod store;
 mod ws;
 
 pub use store::{Store, StoreError};
 
-/// Shared application state handed to every handler (cheap to clone: three `Arc`s).
+/// Shared application state handed to every handler (cheap to clone: four `Arc`s).
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub engine: Arc<Engine>,
@@ -30,6 +39,9 @@ pub(crate) struct AppState {
     /// delete's unlink→row-delete window turns a successful delete into a 404 (skipping its
     /// Recordings emit), and stale-scan prunes churn row ids held by clients.
     pub recordings_gate: Arc<std::sync::Mutex<()>>,
+    /// Decoder frames the log writer itself lost. Shared with the writer task and reported by
+    /// `GET /api/decoderlog`.
+    decoder_log_dropped: Arc<AtomicU64>,
 }
 
 impl AppState {
@@ -38,7 +50,12 @@ impl AppState {
             engine,
             store,
             recordings_gate: Arc::new(std::sync::Mutex::new(())),
+            decoder_log_dropped: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    pub fn decoder_log_dropped(&self) -> u64 {
+        self.decoder_log_dropped.load(Ordering::Relaxed)
     }
 }
 
@@ -73,12 +90,19 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 }
 
 /// Build the full axum app: REST + WebSocket + Swagger UI + embedded SPA, over `engine` and
-/// `store`.
+/// `store`, and start the decoder-log writer that feeds `GET /api/decoderlog` (PLAN §11).
+/// The writer is left running until `engine` is dropped; [`serve`] ties it to its handle
+/// instead.
 pub fn router(engine: Arc<Engine>, store: Store, dev_cors: bool) -> Router {
-    router_with_state(AppState::new(engine, Arc::new(store)), dev_cors)
+    let (router, writer) = router_with_state(AppState::new(engine, Arc::new(store)), dev_cors);
+    writer.detach();
+    router
 }
 
-fn router_with_state(state: AppState, dev_cors: bool) -> Router {
+/// The router plus the decoder-log writer, so a caller that owns the server's lifetime can
+/// tear the writer down with it.
+fn router_with_state(state: AppState, dev_cors: bool) -> (Router, Writer) {
+    let writer = start_decoder_log_writer(&state);
     let (api_router, api) = rest::openapi_router().split_for_parts();
 
     let mut app = Router::new()
@@ -91,13 +115,71 @@ fn router_with_state(state: AppState, dev_cors: bool) -> Router {
     if dev_cors {
         app = app.layer(CorsLayer::very_permissive());
     }
-    app
+    (app, writer)
+}
+
+/// The running decoder-log writer. Both forms stop on their own once the engine is dropped
+/// (the decoded broadcast closes); the handle exists so the writer cannot outlive the server
+/// that started it.
+enum Writer {
+    Task(tokio::task::JoinHandle<()>),
+    /// The writer owns the thread and the runtime it runs on.
+    Owned,
+}
+
+impl Writer {
+    /// Let the writer run unsupervised — it still stops when the engine is dropped. Forgetting
+    /// the handle *is* the detach: dropping it would run [`Drop`] and abort the task.
+    fn detach(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for Writer {
+    fn drop(&mut self) {
+        if let Self::Task(task) = self {
+            task.abort();
+        }
+    }
+}
+
+/// [`router`] is also called from outside a tokio runtime — the desktop shell builds it in
+/// Tauri's synchronous `setup` — so the writer falls back to a thread with a runtime of its
+/// own rather than panicking on `tokio::spawn` (or, worse, skipping the log entirely).
+fn start_decoder_log_writer(state: &AppState) -> Writer {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let dropped = state.decoder_log_dropped.clone();
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        let _guard = handle.enter();
+        return Writer::Task(decoderlog::spawn_writer(engine, store, dropped));
+    }
+    let spawned = std::thread::Builder::new()
+        .name("sdrmm-decoderlog".to_string())
+        .spawn(move || {
+            match tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+            {
+                Ok(runtime) => runtime.block_on(async {
+                    if let Err(err) = decoderlog::spawn_writer(engine, store, dropped).await {
+                        tracing::error!(error = %err, "decoder log writer stopped");
+                    }
+                }),
+                Err(err) => tracing::error!(error = %err, "no runtime for the decoder log writer"),
+            }
+        });
+    if let Err(err) = spawned {
+        tracing::error!(error = %err, "failed to start the decoder log writer");
+    }
+    Writer::Owned
 }
 
 /// A running server plus the address it actually bound (the port may be ephemeral).
 pub struct ServerHandle {
     pub local_addr: SocketAddr,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
+    _decoder_log: Writer,
 }
 
 impl ServerHandle {
@@ -124,12 +206,16 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         None => tracing::info!("recording disabled (engine has no recordings directory)"),
     }
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
-    let app = router(engine, store, config.dev_cors);
+    let (app, writer) = router_with_state(AppState::new(engine, Arc::new(store)), config.dev_cors);
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     let local_addr = listener.local_addr()?;
     tracing::info!(%local_addr, "sdr-- server listening");
     let task = tokio::spawn(async move { axum::serve(listener, app).await });
-    Ok(ServerHandle { local_addr, task })
+    Ok(ServerHandle {
+        local_addr,
+        task,
+        _decoder_log: writer,
+    })
 }
 
 #[cfg(test)]
@@ -142,9 +228,10 @@ mod tests {
     };
     use http_body_util::BodyExt;
     use sdrmm_wire::{
-        ApiError, Bookmark, ChannelParams, ChannelSettings, ChannelTypesResponse, CreatedId,
-        CreatedRowId, DeviceSettings, NfmParams, PresetInfo, PresetSnapshot, RecordingStatus,
-        RecordingsResponse, StateSnapshot,
+        AdsbMessage, ApiError, AprsPacket, Bookmark, ChannelParams, ChannelSettings,
+        ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord, DecoderEvent,
+        DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NfmParams, PresetInfo,
+        PresetSnapshot, RecordingStatus, RecordingsResponse, StateSnapshot,
     };
     use tower::ServiceExt;
 
@@ -163,7 +250,9 @@ mod tests {
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
         let store = Arc::new(Store::open(None).expect("in-memory store"));
         let state = AppState::new(Engine::with_registry(registry, None), store.clone());
-        (router_with_state(state, false), store)
+        let (router, writer) = router_with_state(state, false);
+        writer.detach();
+        (router, store)
     }
 
     /// Hermetic recording setup: the virtual driver and the engine share one scoped temp
@@ -180,7 +269,9 @@ mod tests {
             Engine::with_registry(registry, Some(dir.to_path_buf())),
             Arc::new(Store::open(None).expect("in-memory store")),
         );
-        router_with_state(state, false)
+        let (router, writer) = router_with_state(state, false);
+        writer.detach();
+        router
     }
 
     async fn request(
@@ -249,6 +340,8 @@ mod tests {
             "/api/devicesets/{ds}/record",
             "/api/recordings",
             "/api/recordings/{id}",
+            "/api/decoderlog",
+            "/api/decoderlog/export/{format}",
         ] {
             assert!(spec.contains(path), "missing path {path}");
         }
@@ -265,12 +358,26 @@ mod tests {
             "PresetSnapshot",
             "RecordingStatus",
             "RecordingInfo",
+            "DecoderLogEntry",
+            "DecoderLogResponse",
+            "DecoderEvent",
+            "DeletedCount",
         ] {
             assert!(
                 spec.contains(&format!("\"{schema}\"")),
                 "{schema} schema missing"
             );
         }
+    }
+
+    /// The desktop shell builds the router from Tauri's synchronous `setup`, where there is no
+    /// ambient tokio runtime — starting the decoder-log writer must not panic there.
+    #[test]
+    fn router_builds_outside_a_tokio_runtime() {
+        let mut registry = sdrmm_device::DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        let store = Store::open(None).expect("in-memory store");
+        let _router = router(Engine::with_registry(registry, None), store, false);
     }
 
     #[tokio::test]
@@ -296,17 +403,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn channeltypes_lists_all_four_demods() {
+    async fn channeltypes_lists_every_demod_exactly_once() {
         let (status, body) = request(test_router(), "GET", "/api/channeltypes", None).await;
         assert_eq!(status, StatusCode::OK);
         let types: ChannelTypesResponse = serde_json::from_slice(&body).expect("json");
-        assert_eq!(types.types.len(), 4);
         for id in ["nfm", "am", "ssb", "wfm"] {
             assert!(
                 types.types.iter().any(|t| t.type_id == id),
                 "missing type {id}"
             );
         }
+        // `type_id` is the discriminator the client switches on; a duplicate would make the
+        // "add channel" UI ambiguous.
+        let unique: std::collections::HashSet<&str> =
+            types.types.iter().map(|t| t.type_id.as_str()).collect();
+        assert_eq!(unique.len(), types.types.len());
     }
 
     #[tokio::test]
@@ -866,6 +977,208 @@ mod tests {
         assert!(list_recordings(&app).await.is_empty());
         let (status, _) = request(app, "DELETE", "/api/recordings/1", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    fn adsb_record(at: &str, device_set: u32, icao: &str, callsign: &str) -> DecodedRecord {
+        DecodedRecord {
+            device_set,
+            channel: 0,
+            at: at.to_string(),
+            freq_hz: 1_090_000_000.0,
+            event: DecoderEvent::Adsb(AdsbMessage {
+                icao: icao.to_string(),
+                df: 17,
+                callsign: Some(callsign.to_string()),
+                raw: "8D3C6444".to_string(),
+                ..AdsbMessage::default()
+            }),
+        }
+    }
+
+    /// A summary carrying both CSV metacharacters, so the export's quoting is exercised.
+    fn awkward_record(at: &str) -> DecodedRecord {
+        DecodedRecord {
+            device_set: 1,
+            channel: 2,
+            at: at.to_string(),
+            freq_hz: 144_800_000.0,
+            event: DecoderEvent::Aprs(AprsPacket {
+                source: "DL1ABC-9".to_string(),
+                destination: "APRS".to_string(),
+                tnc2: "DL1ABC-9>APRS:hello, \"world\"".to_string(),
+                ..AprsPacket::default()
+            }),
+        }
+    }
+
+    fn seed_decoder_log(store: &Store) {
+        store
+            .insert_decoder_events(&[
+                adsb_record("2026-08-09T12:00:00Z", 0, "3C6444", "DLH123"),
+                awkward_record("2026-08-09T12:00:01Z"),
+                adsb_record("2026-08-09T12:00:02Z", 0, "4CA2D4", "RYR9AB"),
+            ])
+            .expect("insert");
+    }
+
+    #[tokio::test]
+    async fn decoder_log_lists_newest_first_and_filters() {
+        let (app, store) = test_router_with_store();
+        seed_decoder_log(&store);
+
+        let (status, body) = request(app.clone(), "GET", "/api/decoderlog", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed: DecoderLogResponse = serde_json::from_slice(&body).expect("json");
+        assert_eq!(listed.total, 3);
+        assert_eq!(listed.dropped, 0);
+        assert_eq!(listed.entries.len(), 3);
+        assert_eq!(listed.entries[0].station.as_deref(), Some("4CA2D4"));
+        assert_eq!(listed.entries[2].station.as_deref(), Some("3C6444"));
+
+        let (status, body) = request(
+            app.clone(),
+            "GET",
+            "/api/decoderlog?kind=aprs&device_set=1&limit=1",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let filtered: DecoderLogResponse = serde_json::from_slice(&body).expect("json");
+        assert_eq!(filtered.total, 1);
+        assert_eq!(filtered.entries[0].kind, "aprs");
+
+        // A malformed time bound is a 400 in the ApiError shape, not an empty page.
+        let (status, body) =
+            request(app.clone(), "GET", "/api/decoderlog?since=yesterday", None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+        // So is an unparseable query value, which never reaches the store.
+        let (status, body) = request(app, "GET", "/api/decoderlog?limit=lots", None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
+        assert_eq!(err.error, "invalid query parameter");
+    }
+
+    #[tokio::test]
+    async fn decoder_log_clear_removes_only_the_filtered_rows() {
+        let (app, store) = test_router_with_store();
+        seed_decoder_log(&store);
+
+        let (status, body) =
+            request(app.clone(), "DELETE", "/api/decoderlog?kind=adsb", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let deleted: DeletedCount = serde_json::from_slice(&body).expect("json");
+        assert_eq!(deleted.deleted, 2);
+
+        let (_, body) = request(app, "GET", "/api/decoderlog", None).await;
+        let listed: DecoderLogResponse = serde_json::from_slice(&body).expect("json");
+        assert_eq!(listed.total, 1);
+        assert_eq!(listed.entries[0].kind, "aprs");
+    }
+
+    /// The clear endpoint is the log's only structural change; clients only learn about it
+    /// through the DecoderLog scope (PLAN §10: WS invalidation is the sole refetch trigger).
+    #[tokio::test]
+    async fn decoder_log_clear_emits_the_decoder_log_scope() {
+        let mut registry = sdrmm_device::DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        let engine = Engine::with_registry(registry, None);
+        let store = Arc::new(Store::open(None).expect("in-memory store"));
+        seed_decoder_log(&store);
+        let mut events = engine.subscribe_events();
+        let (app, writer) = router_with_state(AppState::new(engine, store), false);
+        writer.detach();
+
+        let (status, _) = request(app, "DELETE", "/api/decoderlog?kind=adsb", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(matches!(
+            events.try_recv().expect("scope emitted"),
+            sdrmm_wire::ServerEvent::StateChanged {
+                scope: sdrmm_wire::StateScope::DecoderLog
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn decoder_log_exports_csv_and_json() {
+        let (app, store) = test_router_with_store();
+        seed_decoder_log(&store);
+
+        let (status, body) = request(
+            app.clone(),
+            "GET",
+            "/api/decoderlog/export/csv?limit=1",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let csv = String::from_utf8(body.to_vec()).expect("utf-8");
+        let mut lines = csv.split_terminator("\r\n");
+        assert_eq!(
+            lines.next(),
+            Some("at,device_set,channel,kind,freq_hz,station,summary,event")
+        );
+        // `limit` is a list-view concern: an export always covers the whole filter.
+        assert_eq!(csv.split_terminator("\r\n").count(), 4);
+        // RFC4180: a field with a comma and a quote is quoted, with the quotes doubled.
+        assert!(
+            csv.contains(r#""DL1ABC-9>APRS:hello, ""world""""#),
+            "unquoted CSV field: {csv}"
+        );
+
+        let (status, body) = request(app, "GET", "/api/decoderlog/export/json", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let exported: Vec<DecoderLogEntry> = serde_json::from_slice(&body).expect("json");
+        assert_eq!(exported.len(), 3);
+        assert_eq!(exported[0].station.as_deref(), Some("4CA2D4"));
+        assert_eq!(
+            exported[1].event,
+            awkward_record("2026-08-09T12:00:01Z").event
+        );
+    }
+
+    #[tokio::test]
+    async fn decoder_log_export_sets_download_headers() {
+        let (app, store) = test_router_with_store();
+        seed_decoder_log(&store);
+        for (format, content_type) in [
+            ("csv", "text/csv; charset=utf-8"),
+            ("json", "application/json"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("GET")
+                        .uri(format!("/api/decoderlog/export/{format}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::OK);
+            let headers = response.headers();
+            assert_eq!(
+                headers
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .expect("content-type"),
+                content_type
+            );
+            let disposition = headers
+                .get("content-disposition")
+                .and_then(|v| v.to_str().ok())
+                .expect("content-disposition");
+            assert!(
+                disposition.starts_with("attachment; filename=\"decoderlog-")
+                    && disposition.ends_with(&format!(".{format}\"")),
+                "unusable download name: {disposition}"
+            );
+        }
+
+        let (status, _) = request(app, "GET", "/api/decoderlog/export/xml", None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     /// Delete and list-triggered reconciles race on separate blocking threads; the

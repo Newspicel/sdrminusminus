@@ -5,14 +5,18 @@ import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useEffect, useState } from "react";
 import { BookmarksPanel } from "./components/BookmarksPanel";
 import { ChannelsPanel } from "./components/ChannelsPanel";
+import { DecoderLogPanel } from "./components/DecoderLogPanel";
+import { AprsView, PagerView, RdsView, TargetsView, TextView } from "./components/DecoderPanels";
 import { DeviceBar } from "./components/DeviceBar";
 import { DeviceSettingsPanel } from "./components/DeviceSettings";
+import { MapPanel } from "./components/MapPanel";
 import { PanelSection } from "./components/PanelSection";
 import { PresetsPanel } from "./components/PresetsPanel";
 import { RecordingsPanel } from "./components/RecordingsPanel";
 import { SpectrumDisplay } from "./components/SpectrumDisplay";
 import {
   BOOKMARKS_KEY,
+  DECODER_LOG_KEY,
   DEVICES_KEY,
   PRESETS_KEY,
   RECORDINGS_KEY,
@@ -20,7 +24,8 @@ import {
   stateQuery,
 } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
-import type { ServerEvent, StateScope } from "./lib/types";
+import { useDecodedStore } from "./lib/decoded";
+import type { ChannelInfo, ServerEvent, StateScope } from "./lib/types";
 import { SdrSocket } from "./lib/ws";
 
 export function App() {
@@ -37,6 +42,10 @@ export function App() {
   useEffect(() => {
     const s = new SdrSocket();
     s.onStatus = setConnected;
+    // Decoder frames bypass TanStack Query entirely (PLAN §5): under ADS-B traffic they
+    // arrive hundreds a second, so they go straight into the batched store. The action
+    // identity is stable, so this listener never needs re-registering.
+    s.addEventListener(useDecodedStore.getState().observe);
     setSocket(s);
     s.connect();
     return () => s.close();
@@ -70,13 +79,16 @@ export function App() {
   // Derive the active device set: the user's selection if it still exists, else the first one.
   // No effect needed — this recomputes whenever the WS-invalidated state query refetches.
   const active = deviceSets.find((d) => d.id === activeDs) ?? deviceSets[0] ?? null;
+  // Which live views to show follows from what is actually running: a decoder channel on the
+  // active set gets its panel, and nothing else takes up space.
+  const decoders = (active?.channels ?? []).filter((c) => DECODER_KINDS.has(kindOf(c)));
 
   return (
     <div className="flex h-full flex-col bg-bg text-ink">
       <header className="flex items-center justify-between border-b border-line px-4 py-2">
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-lg font-semibold tracking-tight text-accent">sdr--</span>
-          <span className="text-xs text-ink-dim">record &amp; replay · M3</span>
+          <span className="text-xs text-ink-dim">decoders wave 1 · M4</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-ink-dim">
           <span
@@ -121,6 +133,22 @@ export function App() {
         />
       )}
 
+      {decoders.length > 0 && (
+        <div className="flex shrink-0 flex-col border-t border-line lg:flex-row">
+          <div className="min-w-0 flex-1">
+            {decoderPanels(active?.id ?? 0, decoders, selectedChannel)}
+          </div>
+          {/* The map earns its width only when something can be plotted on it. */}
+          {decoders.some((c) => MAPPED_KINDS.has(kindOf(c))) && (
+            <div className="border-line max-lg:border-t lg:w-[28rem] lg:border-l">
+              <PanelSection title="Map">
+                <MapPanel className="h-72" />
+              </PanelSection>
+            </div>
+          )}
+        </div>
+      )}
+
       {socket && (
         <div className="flex max-h-[45dvh] shrink-0 flex-col overflow-y-auto border-t border-line md:flex-row md:overflow-hidden">
           {active && (
@@ -156,11 +184,51 @@ export function App() {
             <PanelSection title="Recordings" defaultOpen={false}>
               <RecordingsPanel onSelect={setActiveDs} />
             </PanelSection>
+            {/* Like recordings, the decoder log is a device-independent library. */}
+            <PanelSection title="Decoder log" defaultOpen={false}>
+              <DecoderLogPanel deviceSets={deviceSets} />
+            </PanelSection>
           </div>
         </div>
       )}
     </div>
   );
+}
+
+/// Channel type ids that emit decoder events. WFM is here because it carries RDS; the
+/// descriptor's `decoder_kind` says so, but the panel choice is per channel type.
+const DECODER_KINDS = new Set(["wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse"]);
+/// The subset whose events carry a position, and therefore justify showing the map.
+const MAPPED_KINDS = new Set(["adsb", "ais", "aprs"]);
+
+function kindOf(channel: ChannelInfo): string {
+  return channel.settings.params.type;
+}
+
+/// One live view per decoder channel, scoped to that channel so two POCSAG receivers on
+/// different frequencies do not pour into one list.
+function decoderPanels(
+  deviceSet: number,
+  channels: readonly ChannelInfo[],
+  selected: number | null,
+) {
+  return channels.map((channel) => {
+    const kind = kindOf(channel);
+    // Channel ids are allocated per device set, so two sets both have a channel 1. Scoping on
+    // the id alone would pour one set's frames into the other's panel.
+    const scope = { deviceSet, channel: channel.id };
+    const title = `${kind.toUpperCase()} · channel ${channel.id}`;
+    const open = selected === null || selected === channel.id;
+    return (
+      <PanelSection key={channel.id} title={title} defaultOpen={open}>
+        {kind === "wfm" && <RdsView scope={scope} />}
+        {(kind === "adsb" || kind === "ais") && <TargetsView scope={scope} />}
+        {kind === "aprs" && <AprsView scope={scope} />}
+        {kind === "pocsag" && <PagerView scope={scope} />}
+        {(kind === "rtty" || kind === "morse") && <TextView kind={kind} scope={scope} />}
+      </PanelSection>
+    );
+  });
 }
 
 // PLAN §5: each `StateChanged` scope maps to exactly the query keys it invalidates.
@@ -184,6 +252,11 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "recordings":
       void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });
+      break;
+    case "decoder_log":
+      // Only structural changes (cleared, pruned) land here; individual decodes arrive as
+      // `Decoded` and are appended client-side, so this never fires per frame.
+      void queryClient.invalidateQueries({ queryKey: DECODER_LOG_KEY });
       break;
   }
 }

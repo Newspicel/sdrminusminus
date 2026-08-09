@@ -5488,6 +5488,8 @@ dependencies = [
  "anyhow",
  "clap",
  "libc",
+ "num-complex",
+ "sdrmm-channels",
  "sdrmm-device-virtual",
  "sdrmm-recorder",
  "sdrmm-server",

@@ -23,7 +23,7 @@ use sdrmm_channels::{
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
 use sdrmm_dsp::{Ddc, SpectrumAnalyzer, Squelch};
-use sdrmm_wire::{ChannelParams, ChannelSettings};
+use sdrmm_wire::{ChannelParams, ChannelSettings, DecoderEvent};
 use tokio::sync::broadcast;
 
 use crate::{
@@ -63,6 +63,65 @@ pub struct DspMeta {
     pub sample_rate: f64,
 }
 
+/// A decoder frame as it leaves the DSP plane, before the control plane stamps wall-clock
+/// time onto it (the DSP thread never formats time).
+pub(crate) struct RawDecoded {
+    pub(crate) device_set: u32,
+    pub(crate) channel: u32,
+    /// Absolute RF frequency of the channel at the moment the frame was produced.
+    pub(crate) freq_hz: f64,
+    pub(crate) event: DecoderEvent,
+}
+
+/// The DSP plane's outlet for decoder frames. The queue is bounded, so a stalled control
+/// plane costs frames rather than blocking the DSP thread — and every loss is counted and
+/// surfaced (PLAN §5: bounded queue, never silent loss).
+#[derive(Clone)]
+pub(crate) struct DecodedSink {
+    tx: mpsc::SyncSender<RawDecoded>,
+    dropped: Arc<AtomicU64>,
+    device_set: u32,
+    channel: u32,
+}
+
+impl DecodedSink {
+    pub(crate) fn new(
+        tx: mpsc::SyncSender<RawDecoded>,
+        dropped: Arc<AtomicU64>,
+        device_set: u32,
+        channel: u32,
+    ) -> Self {
+        Self {
+            tx,
+            dropped,
+            device_set,
+            channel,
+        }
+    }
+
+    /// A sink that discards everything, for hosts built outside a device set (tests).
+    #[cfg(test)]
+    pub(crate) fn null() -> Self {
+        let (tx, rx) = mpsc::sync_channel(1);
+        // Keeping the receiver alive would leak a thread; dropping it makes every send fail,
+        // which the drop counter absorbs — exactly the "no decoder consumer" case.
+        drop(rx);
+        Self::new(tx, Arc::new(AtomicU64::new(0)), 0, 0)
+    }
+
+    fn publish(&self, freq_hz: f64, event: DecoderEvent) {
+        let record = RawDecoded {
+            device_set: self.device_set,
+            channel: self.channel,
+            freq_hz,
+            event,
+        };
+        if self.tx.try_send(record).is_err() {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
 /// One hosted channel on the DSP thread: DDC → channel filter → squelch gate → demod → PCM
 /// broadcast. The filter confines both the squelch measurement and the demod input to the
 /// mode's occupied bandwidth, so the gate cannot open on adjacent-channel energy and the
@@ -92,6 +151,16 @@ pub(crate) struct ChannelHost {
     /// suffices — the stamps consumers act on travel inside the messages themselves.
     pcm_pos: Arc<AtomicU64>,
     pcm_tx: broadcast::Sender<PcmBlock>,
+    /// Offset from the device center, mirrored from the settings so decoder frames can be
+    /// stamped with the absolute frequency they were heard on.
+    offset_hz: f64,
+    decoded: DecodedSink,
+    /// Whether this channel emits decoder frames, which decides what a closed squelch may do
+    /// to it (see [`ChannelHost::process`]).
+    emits_events: bool,
+    /// Zero-filled stand-in handed to a decoder while the gate is closed; reused, so the
+    /// substitution costs no allocation in steady state.
+    gated: Vec<Complex<f32>>,
 }
 
 impl ChannelHost {
@@ -100,6 +169,7 @@ impl ChannelHost {
         settings: &ChannelSettings,
         pcm_tx: broadcast::Sender<PcmBlock>,
         pcm_pos: Arc<AtomicU64>,
+        decoded: DecodedSink,
     ) -> Result<Box<Self>, ChannelError> {
         let type_id = settings.params.type_id();
         let descriptor = sdrmm_channels::descriptors()
@@ -134,10 +204,14 @@ impl ChannelHost {
             zero_carry: 0.0,
             pcm_pos,
             pcm_tx,
+            offset_hz: settings.offset_hz,
+            decoded,
+            emits_events: descriptor.decoder_kind.is_some(),
+            gated: Vec::new(),
         }))
     }
 
-    fn process(&mut self, input: &[Complex<f32>]) {
+    fn process(&mut self, input: &[Complex<f32>], center_hz: f64) {
         self.ddc.process(input, &mut self.scratch);
         if self.scratch.is_empty() {
             return;
@@ -151,6 +225,15 @@ impl ChannelHost {
         if open {
             self.outputs.reset();
             self.rx.process(&self.filtered, &mut self.outputs);
+            // Decoder frames are rare (a handful per second even under ADS-B traffic), so
+            // draining owned events here costs the same bounded, documented deviation from
+            // PLAN §7's no-allocation letter as the PCM hand-off below.
+            if !self.outputs.events.is_empty() {
+                let freq_hz = center_hz + self.offset_hz;
+                for event in self.outputs.events.drain(..) {
+                    self.decoded.publish(freq_hz, event);
+                }
+            }
             if !self.outputs.audio_pcm.is_empty() {
                 // Deliberate bounded deviation from PLAN §7's "no allocation/locks" letter:
                 // handing PCM to the encoder costs one Arc copy plus a tokio broadcast send
@@ -166,6 +249,25 @@ impl ChannelHost {
                 });
             }
         } else {
+            // A decoder measures time in the samples it has processed — its bit clock, its
+            // element timing, its inter-frame gaps. Skipping the gated span the way an audio
+            // demod can would splice those spans out and hand it a stream that never had a
+            // gap in it, so it is fed silence of the same length instead: the truth about
+            // what was on the air, at the right duration. Audio-only demods keep the cheap
+            // skip, which is where the squelch's CPU saving actually matters.
+            if self.emits_events {
+                self.gated.clear();
+                self.gated
+                    .resize(self.filtered.len(), Complex::new(0.0, 0.0));
+                self.outputs.reset();
+                self.rx.process(&self.gated, &mut self.outputs);
+                if !self.outputs.events.is_empty() {
+                    let freq_hz = center_hz + self.offset_hz;
+                    for event in self.outputs.events.drain(..) {
+                        self.decoded.publish(freq_hz, event);
+                    }
+                }
+            }
             // A closed gate still emits (zeroed) audio so client jitter buffers stay alive;
             // silence travels as a bare length, so this path allocates nothing.
             self.zero_carry += self.filtered.len() as f64 * self.pcm_per_input;
@@ -182,6 +284,7 @@ impl ChannelHost {
     }
 
     fn apply(&mut self, settings: ChannelSettings) {
+        self.offset_hz = settings.offset_hz;
         self.threshold_db = settings.squelch_db;
         if let Some(db) = settings.squelch_db {
             self.squelch.set_threshold_db(db);
@@ -405,7 +508,7 @@ fn dsp_loop(
                 tap = None;
             }
             for (_, host) in &mut channels {
-                host.process(slice);
+                host.process(slice, snapshot.center_hz);
             }
             for &s in slice {
                 hist[write_pos] = s;
@@ -453,6 +556,12 @@ fn drain_commands(
             DspCommand::Retune { id, offset_hz } => {
                 if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
                     host.ddc.set_offset(offset_hz);
+                    host.offset_hz = offset_hz;
+                    // The channel is now listening to a different signal; anything it accreted
+                    // about the previous one has to go (`ChannelRx::retuned`). The control
+                    // plane sends no `ApplySettings` for an offset-only patch, so this is the
+                    // only place a decoder learns it moved.
+                    host.rx.retuned();
                 } else {
                     // Benign: the patch raced a removal; the removal already won.
                     tracing::debug!(id, "retune for a channel no longer hosted");
@@ -502,8 +611,14 @@ mod tests {
 
     fn host(settings: &ChannelSettings) -> (Box<ChannelHost>, broadcast::Receiver<PcmBlock>) {
         let (pcm_tx, pcm_rx) = broadcast::channel(4096);
-        let host = ChannelHost::build(RATE, settings, pcm_tx, Arc::new(AtomicU64::new(0)))
-            .expect("host builds");
+        let host = ChannelHost::build(
+            RATE,
+            settings,
+            pcm_tx,
+            Arc::new(AtomicU64::new(0)),
+            DecodedSink::null(),
+        )
+        .expect("host builds");
         (host, pcm_rx)
     }
 
@@ -524,7 +639,7 @@ mod tests {
     ) -> Vec<PcmBlock> {
         let mut blocks = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk);
+            host.process(chunk, 0.0);
             while let Ok(block) = rx.try_recv() {
                 blocks.push(block);
             }
@@ -611,7 +726,7 @@ mod tests {
 
         let mut audio: Vec<f32> = Vec::new();
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk);
+            host.process(chunk, 0.0);
             while let Ok(block) = rx.try_recv() {
                 if let PcmPayload::Samples(samples) = block.payload {
                     audio.extend_from_slice(&samples);
@@ -635,16 +750,23 @@ mod tests {
         let (pcm_tx, mut rx) = broadcast::channel(4096);
         let pos = Arc::new(AtomicU64::new(0));
         let settings = nfm_settings(None);
-        let mut host =
-            ChannelHost::build(RATE, &settings, pcm_tx.clone(), pos.clone()).expect("host");
+        let mut host = ChannelHost::build(
+            RATE,
+            &settings,
+            pcm_tx.clone(),
+            pos.clone(),
+            DecodedSink::null(),
+        )
+        .expect("host");
         let input = tone(1_000.0, 0.5, 24_000);
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk);
+            host.process(chunk, 0.0);
         }
         // Swap in a fresh host the way a device rate change does.
-        let mut host = ChannelHost::build(RATE, &settings, pcm_tx, pos).expect("rebuilt host");
+        let mut host = ChannelHost::build(RATE, &settings, pcm_tx, pos, DecodedSink::null())
+            .expect("rebuilt host");
         for chunk in input.chunks(BLOCK) {
-            host.process(chunk);
+            host.process(chunk, 0.0);
         }
 
         let mut expected = 0u64;
