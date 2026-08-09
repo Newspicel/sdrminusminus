@@ -754,7 +754,7 @@ Low:
 
 ---
 
-## Native drivers taken in-tree (post-M5, `PLAN-NATIVE-DRIVERS.md`)
+## Native drivers taken in-tree (post-M5)
 
 Both native backends now own their radio driver, on one shared transport. The trigger was not
 maintenance but correctness: each of the two crates this project depended on hand-rolled its own
@@ -820,8 +820,8 @@ of them went unnoticed for a whole milestone.
 ### Two-tier recovery
 - [x] The engine's fault path is one-shot and destructive by design (`RxSink::fail` →
   `mark_device_fault` → `CaptureRuntime::stop`, which *takes and drops* the device so a replug
-  can re-open it), so a cheap restart cannot live above that seam. Tier 1 is now inside each
-  capture loop and runs *before* `fail`; tier 2 is the engine's existing path, unchanged
+  can re-open it), so a cheap restart cannot live above that seam. Tier 1 is now inside the
+  capture supervisor and runs *before* `fail`; tier 2 is the engine's existing path, unchanged
 - [x] The policy is device-agnostic, pure and unit-tested, in `crates/device`: three attempts,
   20 ms doubling to 80 ms, and an uptime rule — a stream that stayed up for five seconds earns a
   fresh budget, so stalls minutes apart never accumulate, while a stream that keeps dying
@@ -919,7 +919,10 @@ Run against the built release artifact, not in CI.
 while physically touching the antenna — has no harness. Nothing here reproduces a stalled pipe on
 demand, so the tier-1 supervisor is proven in three pieces (the policy under unit tests, the
 transport's error handling against a scripted mock, and the restart primitive timed on both
-radios) rather than end-to-end against a real stall. Replug recovery is likewise untested here.
+radios) rather than end-to-end against a real stall. Every restart timing above measured the
+*clean* path: `clear_halt` is now on the restart path, which is the strongest medicine short of
+a re-open, but it is unproven against a genuinely halted pipe. Replug recovery is likewise
+untested here.
 
 ---
 
@@ -937,7 +940,7 @@ primitive, the block size and the word in the log line — and had already diver
 | half-duplex arbitration | private `Direction`/`claim`/`select` in the HackRF driver | `Duplex` + `DuplexState`, pure and unit-tested, for any radio |
 | the capture thread and tier-1 supervisor | one copy per native backend | `Capture` + `CaptureRadio`/`CaptureStream`; a backend writes `arm`/`disarm` |
 | 8-bit IQ conversion | `IqConverter` twice, identical but for the table | `LutConverter`; a backend supplies 256 floats |
-| thread/stop-flag/join plumbing | four copies (rtlsdr, hackrf, siggen, playback, soapy) | `Worker` |
+| thread/stop-flag/join plumbing | five copies (rtlsdr, hackrf, siggen, playback, soapy) | `Worker` |
 | the bulk-OUT transfer queue | `device-hackrf` only | `crates/usb-stream`, beside bulk-IN, same policy |
 | the scripted bulk-OUT endpoint | a second mock in `device-hackrf`'s tests | `usb-stream`'s `test-util` feature |
 

@@ -1,5 +1,5 @@
 //! `sdrmm-usb-stream` — the bulk USB transport the native SDR backends share, in both
-//! directions (PLAN §3, `PLAN-NATIVE-DRIVERS.md` §2.1).
+//! directions (PLAN §3).
 //!
 //! Transport only: raw bytes in, raw bytes out. It knows nothing about registers, tuners or
 //! sample formats — conversion belongs at the device edge, where the two radios genuinely

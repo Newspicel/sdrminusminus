@@ -3,8 +3,9 @@
 //!
 //! Keeping several transfers in flight is what stops the radio's FIFO from overflowing — the
 //! endpoint is never empty between completions — and the bounded blocking handoff is what stops
-//! a busy consumer from losing samples silently instead of slowing the producer down. Both come
-//! from the measurement in `PLAN-NATIVE-DRIVERS.md` §1.
+//! a busy consumer from losing samples silently instead of slowing the producer down. Both were
+//! measured rather than assumed (PLAN §18): under 16 spinning threads a queued driver delivered
+//! 100.0% of the stream where a one-transfer-in-flight driver lost ~2.2% of it.
 
 use std::{
     ops::Deref,
@@ -553,7 +554,7 @@ mod tests {
         assert_eq!(second.as_ptr(), address, "pump must not allocate per block");
     }
 
-    /// The `PLAN-NATIVE-DRIVERS.md` §1 regression, at the pump level: a stall aborts everything
+    /// The regression this transport exists for, at the pump level: a stall aborts everything
     /// queued behind it, and the stream has to survive the whole burst.
     #[test]
     fn a_stall_and_its_cancellation_fallout_keeps_the_stream_alive() {

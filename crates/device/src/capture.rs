@@ -1,5 +1,5 @@
 //! The capture thread and its tier-1 supervisor, written once for every backend that streams
-//! blocks of bytes from a radio (`PLAN-NATIVE-DRIVERS.md` §2.2).
+//! blocks of bytes from a radio (PLAN §6, §18).
 //!
 //! Both native backends had their own copy of this loop, identical but for the restart
 //! primitive, the block size and the word in the log line — and the copies had already diverged
