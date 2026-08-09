@@ -2,12 +2,16 @@
 //! HTTP+WS surface over a shared [`Engine`], and `serve()` binds it. The Tauri desktop app and
 //! the headless binary both consume this crate, so there is exactly one server implementation.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::Router;
 use sdrmm_engine::Engine;
 use tower_http::cors::CorsLayer;
 use utoipa_swagger_ui::SwaggerUi;
+
+/// Hotplug probe cadence (PLAN §16 M1). Public so the desktop shell, which embeds the router
+/// without going through [`serve`], starts the same prober.
+pub const HOTPLUG_INTERVAL: Duration = Duration::from_secs(5);
 
 mod assets;
 mod rest;
@@ -80,6 +84,7 @@ impl ServerHandle {
 
 /// Bind and start serving on `config.bind`, returning once the socket is listening.
 pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<ServerHandle> {
+    engine.start_hotplug_prober(HOTPLUG_INTERVAL)?;
     let app = router(engine, config.dev_cors);
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     let local_addr = listener.local_addr()?;
@@ -101,7 +106,7 @@ mod tests {
     use super::*;
 
     fn test_router() -> Router {
-        router(Arc::new(Engine::new()), false)
+        router(Engine::new(), false)
     }
 
     /// OpenAPI snapshot (PLAN §14): the REST paths must be present, and the WS-only enums must

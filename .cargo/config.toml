@@ -1,3 +1,7 @@
+# `cargo xtask …` — the only entry points (CLAUDE.md); CI invokes them verbatim.
+[alias]
+xtask = "run --package xtask --"
+
 # Next-gen borrow checker (PLAN §15). One line to drop if a nightly pin misbehaves.
 [build]
 rustflags = ["-Zpolonius=next"]

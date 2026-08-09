@@ -232,8 +232,8 @@ get first-class custom UI; the rest render generically.
   LimeSDR, PlutoSDR, BladeRF, USRP… wherever a Soapy module exists. C dependency documented
   per platform (`apt: libsoapysdr-dev soapysdr-module-all`, `brew: soapysdr soapyrtlsdr soapyhackrf`).
   Risk: the Rust binding's maintenance — fallback is a minimal own FFI layer or the `seify`
-  crate (FutureSDR's abstraction; evaluate at M1 — we keep our own trait either way because
-  the capability-schema is ours).
+  crate (FutureSDR's abstraction; evaluated at M1 → rejected, see §18 — we keep our own
+  trait either way because the capability-schema is ours).
 - **`device-rtlsdr`** (native, feature): exposes what Soapy hides or half-hides — direct
   sampling (HF!), offset tuning, bias-T, exact PPM, tuner-specific gain tables, USB buffer
   tuning. Prefer a pure-Rust driver over `nusb`/`rusb` (e.g. `rtl-sdr`-style crates, evaluate;
@@ -703,7 +703,7 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
 
 | Risk | Mitigation |
 |---|---|
-| `soapysdr` Rust binding maintenance | own trait isolates it; fallback minimal FFI or seify (decision at M1) |
+| `soapysdr` Rust binding maintenance | own trait isolates it; decided at M1: `soapysdr` 0.5 adopted, seify rejected (§18); fallback minimal FFI stays available |
 | Pi CPU budget (many channels, spectrum) | per-connection throttling, decimation discipline, benches + on-Pi gates, PFB channelizer in back pocket |
 | Browser audio (latency, autoplay) | AudioWorklet + jitter buffer + gesture unlock; WebCodecs fast path |
 | AMBE/IMBE patents, fdk-aac license | accepted — personal, non-distributed project; default-on |
@@ -739,6 +739,7 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
 | HackRF/PortaPack/Flipper RX parity | in scope for the RX half (§8b); Sub-GHz OOK/FSK channel + capture |
 | TX & RF security testing (future) | in scope behind a default-off "controlled RF environment / authorized test" gate: siggen, IQ-to-air, modulators, bench loopback, **sub-GHz capture/replay/fixed-code (de Bruijn)/rolling-code analysis**, **jam-susceptibility testing**, **flood/spam/malformed-broadcast testing against a DUT**, **targeted fuzzing** — all framed for contained (direct-connect/dummy-load/shielded) authorized use (§12a) |
 | NanoVNA | planned as tools-tab integration via USB serial (P4) |
+| Soapy binding (M1 evaluation) | `soapysdr` 0.5 over seify: seify duplicates our device/capability abstraction, its production path is the same libSoapySDR, and it had 3 breaking releases in 6 weeks; its native drivers are self-declared experimental. Binding gaps worked around: no `setFrequencyCorrection` wrapper (PPM via the `"CORR"` frequency component), no `getSettingInfo` (per-driver extra-settings tables in `device-soapy`) |
 
 ---
 

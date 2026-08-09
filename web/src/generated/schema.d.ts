@@ -234,6 +234,11 @@ export interface components {
         /** @description A mutation applied to a device. Absent fields are left unchanged (PLAN §5 PATCH device). */
         DeviceSettings: {
             antenna?: string | null;
+            /**
+             * Format: double
+             * @description Hardware baseband filter bandwidth in Hz.
+             */
+            bandwidth?: number | null;
             /** Format: double */
             center_hz?: number | null;
             extra?: components["schemas"]["ExtraValue"][];

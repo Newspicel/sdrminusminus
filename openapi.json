@@ -610,6 +610,14 @@
               "null"
             ]
           },
+          "bandwidth": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Hardware baseband filter bandwidth in Hz."
+          },
           "center_hz": {
             "type": [
               "number",

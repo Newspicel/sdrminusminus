@@ -1,7 +1,7 @@
 //! `sdrmm` — the headless server binary (PLAN §3), a thin wrapper over `crates/server`. This is
 //! the Raspberry Pi target: one binary, embedded UI, browse to `http://host:8080`.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 use anyhow::Context;
 use clap::Parser;
@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
-    let engine = Arc::new(Engine::new());
+    let engine = Engine::new();
     let config = Config {
         bind: args.bind,
         dev_cors: args.dev_cors,

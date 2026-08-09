@@ -15,7 +15,7 @@ use std::{
 use arc_swap::ArcSwap;
 use num_complex::Complex;
 use rtrb::RingBuffer;
-use sdrmm_device::{RxSink, SdrDevice};
+use sdrmm_device::{DeviceError, RxSink, SdrDevice};
 use sdrmm_dsp::SpectrumAnalyzer;
 use tokio::sync::broadcast;
 
@@ -58,30 +58,36 @@ pub struct CaptureRuntime {
 }
 
 impl CaptureRuntime {
-    /// Wire the device to a fresh ring + DSP thread and start streaming.
+    /// Wire the device to a fresh ring + DSP thread and start streaming. `on_fatal` is the
+    /// cold path a dying capture thread reports through (see [`RxSink::fail`]); the engine
+    /// routes it to its fault drainer so device death becomes visible state.
     pub fn start(
         mut device: Box<dyn SdrDevice>,
         center_hz: f64,
         sample_rate: f64,
-    ) -> Result<Self, sdrmm_device::DeviceError> {
+        on_fatal: impl FnOnce(DeviceError) + Send + 'static,
+    ) -> Result<Self, DeviceError> {
         let (mut producer, mut consumer) = RingBuffer::<Complex<f32>>::new(RING_CAPACITY);
         let overruns = Arc::new(AtomicU64::new(0));
         let ov = overruns.clone();
 
         // Capture sink: lock-free write into the ring; dropped samples are counted, never
         // silently lost (PLAN §5 backpressure, CLAUDE.md no-silent-failure).
-        let sink = RxSink::new(move |samples: &[Complex<f32>]| {
-            let free = producer.slots();
-            let take = free.min(samples.len());
-            if take > 0
-                && let Ok(chunk) = producer.write_chunk_uninit(take)
-            {
-                chunk.fill_from_iter(samples[..take].iter().copied());
-            }
-            if take < samples.len() {
-                ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
-            }
-        });
+        let sink = RxSink::with_fatal_handler(
+            move |samples: &[Complex<f32>]| {
+                let free = producer.slots();
+                let take = free.min(samples.len());
+                if take > 0
+                    && let Ok(chunk) = producer.write_chunk_uninit(take)
+                {
+                    chunk.fill_from_iter(samples[..take].iter().copied());
+                }
+                if take < samples.len() {
+                    ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
+                }
+            },
+            on_fatal,
+        );
 
         let meta = Arc::new(ArcSwap::from_pointee(DspMeta {
             center_hz,
@@ -100,7 +106,7 @@ impl CaptureRuntime {
             std::thread::Builder::new()
                 .name("sdrmm-dsp".to_string())
                 .spawn(move || dsp_loop(&mut consumer, &meta, &tx, &stop, &overruns))
-                .map_err(|e| sdrmm_device::DeviceError::Io(format!("spawn dsp thread: {e}")))?
+                .map_err(|e| DeviceError::Io(format!("spawn dsp thread: {e}")))?
         };
 
         Ok(Self {
@@ -124,10 +130,7 @@ impl CaptureRuntime {
         }));
     }
 
-    pub fn apply(
-        &mut self,
-        settings: &sdrmm_wire::DeviceSettings,
-    ) -> Result<(), sdrmm_device::DeviceError> {
+    pub fn apply(&mut self, settings: &sdrmm_wire::DeviceSettings) -> Result<(), DeviceError> {
         self.device.apply(settings)
     }
 

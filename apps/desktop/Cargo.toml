@@ -15,6 +15,11 @@ path = "src/main.rs"
 [lints]
 workspace = true
 
+# Passthrough so the desktop app mirrors the server binary's backend gate (PLAN §3).
+[features]
+default = ["soapy"]
+soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

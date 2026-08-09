@@ -43,6 +43,21 @@ impl From<EngineError> for AppError {
     }
 }
 
+/// A panicked/cancelled `spawn_blocking` engine task. Handlers below run every engine call
+/// that reaches real hardware (USB I/O, thread joins) on the blocking pool so a slow device
+/// never stalls the tokio workers; only `get_state` stays direct (pure in-memory).
+impl From<tokio::task::JoinError> for AppError {
+    fn from(err: tokio::task::JoinError) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            body: ApiError {
+                error: "engine task failed".to_string(),
+                detail: Some(err.to_string()),
+            },
+        }
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         (self.status, Json(self.body)).into_response()
@@ -61,10 +76,10 @@ async fn get_state(State(state): State<AppState>) -> Json<StateSnapshot> {
     get, path = "/api/devices",
     responses((status = 200, description = "Discovered devices", body = DevicesResponse)),
 )]
-async fn get_devices(State(state): State<AppState>) -> Json<DevicesResponse> {
-    Json(DevicesResponse {
-        devices: state.engine.probe_devices(),
-    })
+async fn get_devices(State(state): State<AppState>) -> Result<Json<DevicesResponse>, AppError> {
+    let engine = state.engine.clone();
+    let devices = tokio::task::spawn_blocking(move || engine.probe_devices()).await?;
+    Ok(Json(DevicesResponse { devices }))
 }
 
 #[utoipa::path(
@@ -80,7 +95,9 @@ async fn create_device_set(
     State(state): State<AppState>,
     Json(req): Json<CreateDeviceSetRequest>,
 ) -> Result<Json<CreatedId>, AppError> {
-    let id = state.engine.create_device_set(&req.device_id)?;
+    let engine = state.engine.clone();
+    let id =
+        tokio::task::spawn_blocking(move || engine.create_device_set(&req.device_id)).await??;
     Ok(Json(CreatedId { id }))
 }
 
@@ -96,7 +113,8 @@ async fn delete_device_set(
     State(state): State<AppState>,
     Path(ds): Path<u32>,
 ) -> Result<StatusCode, AppError> {
-    state.engine.remove_device_set(ds)?;
+    let engine = state.engine.clone();
+    tokio::task::spawn_blocking(move || engine.remove_device_set(ds)).await??;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -115,7 +133,8 @@ async fn patch_device(
     Path(ds): Path<u32>,
     Json(settings): Json<DeviceSettings>,
 ) -> Result<StatusCode, AppError> {
-    state.engine.patch_device(ds, settings)?;
+    let engine = state.engine.clone();
+    tokio::task::spawn_blocking(move || engine.patch_device(ds, settings)).await??;
     Ok(StatusCode::NO_CONTENT)
 }
 

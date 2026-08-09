@@ -4,6 +4,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { DeviceBar } from "./components/DeviceBar";
+import { DeviceSettingsPanel } from "./components/DeviceSettings";
 import { SpectrumDisplay } from "./components/SpectrumDisplay";
 import { DEVICES_KEY, STATE_KEY, stateQuery } from "./lib/api";
 import type { ServerEvent } from "./lib/types";
@@ -56,7 +57,7 @@ export function App() {
       <header className="flex items-center justify-between border-b border-line px-4 py-2">
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-lg font-semibold tracking-tight text-accent">sdr--</span>
-          <span className="text-xs text-ink-dim">walking skeleton · M0</span>
+          <span className="text-xs text-ink-dim">real hardware · M1</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-ink-dim">
           <span
@@ -69,6 +70,8 @@ export function App() {
       <div className="border-b border-line px-4 py-3">
         {socket && <DeviceBar active={active} onSelect={setActiveDs} />}
       </div>
+
+      {active && <DeviceSettingsPanel active={active} />}
 
       {socket && (
         <SpectrumDisplay socket={socket} deviceSet={active?.id ?? null} connected={connected} />

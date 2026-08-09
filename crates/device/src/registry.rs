@@ -60,8 +60,10 @@ impl DeviceRegistry {
         out
     }
 
-    /// Open the device identified by `driver:key` (PLAN §5 `device_id`).
-    pub fn open(&self, device_id: &str) -> Result<Box<dyn SdrDevice>, DeviceError> {
+    /// Open the device identified by `driver:key` (PLAN §5 `device_id`), returning the probed
+    /// [`DeviceInfo`] alongside it so callers keep the real label/serial instead of
+    /// reconstructing one from the id string.
+    pub fn open(&self, device_id: &str) -> Result<(DeviceInfo, Box<dyn SdrDevice>), DeviceError> {
         let (driver_id, key) = device_id
             .split_once(':')
             .ok_or_else(|| DeviceError::NotFound(device_id.to_string()))?;
@@ -71,7 +73,8 @@ impl DeviceRegistry {
                 continue;
             }
             if let Some(info) = driver.probe().into_iter().find(|d| d.key == key) {
-                return driver.open(&info);
+                let device = driver.open(&info)?;
+                return Ok((info, device));
             }
         }
         Err(DeviceError::NotFound(device_id.to_string()))

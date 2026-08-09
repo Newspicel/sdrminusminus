@@ -29,22 +29,49 @@ pub enum DeviceError {
 /// *block*, not per sample, so the indirect call is off the sample-rate hot path.
 /// The per-block delivery closure behind an [`RxSink`].
 type PushFn = Box<dyn FnMut(&[Sample]) + Send>;
+/// The one-shot unrecoverable-error report behind [`RxSink::fail`].
+type FatalFn = Box<dyn FnOnce(DeviceError) + Send>;
 
 pub struct RxSink {
     push_fn: PushFn,
+    fatal_fn: Option<FatalFn>,
 }
 
 impl RxSink {
+    /// Sink without a fatal handler — for tests and simple captures. [`RxSink::fail`] then
+    /// discards the error, so real backends must get the engine-wired sink instead.
     #[must_use]
     pub fn new(push_fn: impl FnMut(&[Sample]) + Send + 'static) -> Self {
         Self {
             push_fn: Box::new(push_fn),
+            fatal_fn: None,
+        }
+    }
+
+    /// Sink whose [`RxSink::fail`] reports to `fatal_fn` (the engine's fault channel), so a
+    /// dead capture surfaces as device-set state instead of vanishing with its thread.
+    #[must_use]
+    pub fn with_fatal_handler(
+        push_fn: impl FnMut(&[Sample]) + Send + 'static,
+        fatal_fn: impl FnOnce(DeviceError) + Send + 'static,
+    ) -> Self {
+        Self {
+            push_fn: Box::new(push_fn),
+            fatal_fn: Some(Box::new(fatal_fn)),
         }
     }
 
     /// Deliver one block of captured samples downstream.
     pub fn push(&mut self, samples: &[Sample]) {
         (self.push_fn)(samples);
+    }
+
+    /// Report an unrecoverable stream error, right before the capture thread exits. Cold path;
+    /// the handler is one-shot, so a second call is a no-op rather than a double report.
+    pub fn fail(&mut self, err: DeviceError) {
+        if let Some(fatal_fn) = self.fatal_fn.take() {
+            fatal_fn(err);
+        }
     }
 }
 
@@ -81,3 +108,34 @@ pub trait SdrDevice: Send {
 
 pub mod registry;
 pub use registry::DeviceRegistry;
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use super::*;
+
+    #[test]
+    fn fail_invokes_fatal_handler_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let mut sink = RxSink::with_fatal_handler(
+            |_| {},
+            move |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        sink.fail(DeviceError::Io("first".into()));
+        sink.fail(DeviceError::Io("second".into()));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn fail_without_handler_is_a_noop() {
+        let mut sink = RxSink::new(|_| {});
+        sink.fail(DeviceError::Io("dropped".into()));
+    }
+}

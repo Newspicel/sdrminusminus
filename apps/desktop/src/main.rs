@@ -3,8 +3,6 @@
 //! browser run the exact same frontend over the same origin model. The UI talks to the server
 //! purely over HTTP/WebSocket, so no Tauri IPC (and no capability grant) is required.
 
-use std::sync::Arc;
-
 use sdrmm_engine::Engine;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
@@ -20,7 +18,10 @@ fn main() {
                 tauri::async_runtime::block_on(tokio::net::TcpListener::bind(("127.0.0.1", 0u16)))?;
             let port = listener.local_addr()?.port();
 
-            let engine = Arc::new(Engine::new());
+            let engine = Engine::new();
+            // The desktop shell bypasses `serve()` (it needs the pre-bound listener), so it
+            // must start the hotplug prober itself to match the headless binary.
+            engine.start_hotplug_prober(sdrmm_server::HOTPLUG_INTERVAL)?;
             let router = sdrmm_server::router(engine, false);
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = axum::serve(listener, router).await {
