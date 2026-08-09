@@ -29,6 +29,11 @@ const BULK_ENDPOINT: u8 = 0x81;
 /// `Endpoint::submit` requires, and the size librtlsdr has used since forever.
 pub const TRANSFER_BUF_SIZE: usize = 16_384;
 
+/// The demodulator's resampler-correction register pair (page 1, 0x3f/0x3e) is 14 bits signed,
+/// and one ppm is `2^24 / 1e6` counts — so this is the largest correction the hardware can
+/// actually hold. Real dongles are within ±100 ppm; the backend advertises a tighter range.
+pub const MAX_PPM: i32 = 488;
+
 /// Demodulator FIR defaults: 16 taps, the first 8 signed 8-bit, the last 8 signed 12-bit.
 const DEFAULT_FIR: [i16; 16] = [
     -54, -36, -41, -40, -32, -14, 14, 53, 101, 156, 215, 273, 327, 372, 404, 421,
@@ -164,6 +169,11 @@ pub struct RtlSdr {
     center_freq: u32,
     sample_rate: u32,
     rtl_xtal_freq: u32,
+    /// The tuner's nominal crystal. The tuner itself is told a *corrected* value (see
+    /// [`RtlSdr::set_freq_correction`]), so the nominal one has to be kept here to correct from.
+    tuner_xtal_freq: u32,
+    /// Crystal correction in ppm, applied to both the resampler and the tuner.
+    ppm: i32,
     /// Set by the EEPROM on dongles wired to power the antenna port unconditionally.
     force_bias_t: bool,
     board_variant: BoardVariant,
@@ -211,6 +221,8 @@ impl RtlSdr {
             center_freq: 0,
             sample_rate: 0,
             rtl_xtal_freq: DEF_RTL_XTAL_FREQ,
+            tuner_xtal_freq: DEF_RTL_XTAL_FREQ,
+            ppm: 0,
             force_bias_t: false,
             board_variant: info.board_variant,
         };
@@ -234,6 +246,7 @@ impl RtlSdr {
         } else {
             DEF_RTL_XTAL_FREQ
         };
+        self.tuner_xtal_freq = tuner_xtal;
         self.tuner = R82xx::new(tuner_type, i2c_addr, tuner_xtal, is_blog_v4);
         self.tuner.init(&self.dev)?;
         self.dev.set_i2c_repeater(false)?;
@@ -420,8 +433,51 @@ impl RtlSdr {
             .demod_write_reg(1, 0x9f, (rsamp_ratio >> 16) as u16, 2)?;
         self.dev
             .demod_write_reg(1, 0xa1, (rsamp_ratio & 0xffff) as u16, 2)?;
+        // The correction registers sit beside the ratio and are not carried over by a rate
+        // change; librtlsdr re-writes them here for the same reason.
+        self.write_sample_freq_correction(self.ppm)?;
         self.dev.demod_write_reg(1, 0x01, 0x14, 1)?;
         self.dev.demod_write_reg(1, 0x01, 0x10, 1)
+    }
+
+    /// The crystal correction in ppm the device is currently applying.
+    #[must_use]
+    pub fn freq_correction(&self) -> i32 {
+        self.ppm
+    }
+
+    /// Correct for a crystal that is not at its nominal frequency, librtlsdr-shaped.
+    ///
+    /// Both halves matter and they are different mechanisms. The RTL2832U's *resampler* is
+    /// corrected through a dedicated register pair, which fixes the sample rate. The *tuner* has
+    /// no such register — its PLL is programmed by dividing the crystal — so it is corrected by
+    /// telling it the crystal is somewhere else and re-tuning. Doing only the first leaves every
+    /// received frequency off by `ppm`; doing only the second leaves the sample rate wrong,
+    /// which mistimes every decoder downstream.
+    pub fn set_freq_correction(&mut self, ppm: i32) -> Result<()> {
+        if !(-MAX_PPM..=MAX_PPM).contains(&ppm) {
+            return Err(Error::InvalidParam(format!(
+                "ppm {ppm} outside the demodulator's ±{MAX_PPM} correction range"
+            )));
+        }
+        self.ppm = ppm;
+        self.write_sample_freq_correction(ppm)?;
+        self.tuner
+            .set_xtal_freq(corrected_xtal(self.tuner_xtal_freq, ppm));
+        if self.center_freq != 0 {
+            self.set_center_freq(self.center_freq)?;
+        }
+        Ok(())
+    }
+
+    /// Write the resampler's correction. The value is negated because the register shifts the
+    /// resampler's *phase increment*, which moves the output rate the opposite way.
+    fn write_sample_freq_correction(&self, ppm: i32) -> Result<()> {
+        let offset = -(i64::from(ppm) << 24) / 1_000_000;
+        self.dev
+            .demod_write_reg(1, 0x3f, (offset & 0xff) as u16, 1)?;
+        self.dev
+            .demod_write_reg(1, 0x3e, ((offset >> 8) & 0x3f) as u16, 1)
     }
 
     /// Tell the demodulator where the tuner put the IF, so it can mix it back down to zero.
@@ -495,6 +551,12 @@ impl Drop for RtlSdr {
     }
 }
 
+/// A crystal frequency scaled by a ppm correction.
+fn corrected_xtal(nominal_hz: u32, ppm: i32) -> u32 {
+    let corrected = f64::from(nominal_hz) * (1.0 + f64::from(ppm) / 1e6);
+    corrected.round().clamp(0.0, f64::from(u32::MAX)) as u32
+}
+
 /// The demodulator's resampler ratio, and the rate it actually produces.
 ///
 /// The ratio is a 28-bit field with the low two bits masked off, so a requested rate can come
@@ -551,6 +613,25 @@ mod tests {
             assert_eq!(ratio & 0x3, 0, "rate {rate}: low ratio bits must be clear");
             assert_eq!(ratio & 0xf000_0000, 0, "rate {rate}: ratio is 28 bits");
         }
+    }
+
+    /// The register pair is 14 bits signed; the published limit must be the largest ppm that
+    /// still fits, or a correction would silently wrap into the opposite sign.
+    #[test]
+    fn the_ppm_limit_is_the_register_width() {
+        let offset = |ppm: i32| -(i64::from(ppm) << 24) / 1_000_000;
+        assert!(offset(MAX_PPM).abs() <= 0x1fff, "{}", offset(MAX_PPM));
+        assert!(offset(MAX_PPM + 1).abs() > 0x1fff);
+    }
+
+    #[test]
+    fn a_ppm_correction_scales_the_crystal_both_ways() {
+        assert_eq!(corrected_xtal(DEF_RTL_XTAL_FREQ, 0), DEF_RTL_XTAL_FREQ);
+        // +50 ppm of 28.8 MHz is 1440 Hz.
+        assert_eq!(corrected_xtal(DEF_RTL_XTAL_FREQ, 50), 28_801_440);
+        assert_eq!(corrected_xtal(DEF_RTL_XTAL_FREQ, -50), 28_798_560);
+        // A correction smaller than the rounding step must not move the crystal at all.
+        assert_eq!(corrected_xtal(1_000_000, 0), 1_000_000);
     }
 
     // No test may open or enumerate a device: both walk the USB bus, so what they find is

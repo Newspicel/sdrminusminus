@@ -156,6 +156,7 @@ impl RtlSdrDevice {
         let settings = DeviceSettings {
             center_hz: Some(f64::from(sdr.center_freq())),
             sample_rate: Some(f64::from(sdr.sample_rate())),
+            ppm: Some(f64::from(sdr.freq_correction())),
             antenna: Some("RX".to_string()),
             extra: vec![
                 ExtraValue {
@@ -188,6 +189,11 @@ fn apply_to_hardware(sdr: &mut RtlSdr, plan: &Plan) -> Result<(), DeviceError> {
     // would be overwritten.
     if let Some(rate) = plan.sample_rate {
         sdr.set_sample_rate(rate).map_err(map_err)?;
+    }
+    // Correction next: it re-tunes from the *cached* centre, so it has to land before a new
+    // centre is written, and it also updates the crystal every later tune divides by.
+    if let Some(ppm) = plan.ppm {
+        sdr.set_freq_correction(ppm).map_err(map_err)?;
     }
     if let Some(hz) = plan.center_hz {
         sdr.set_center_freq(hz).map_err(map_err)?;
@@ -230,10 +236,15 @@ impl SdrDevice for RtlSdrDevice {
             &self.settings,
             &self.gain_table,
         )?;
-        let (result, center_hz, sample_rate) = {
+        let (result, center_hz, sample_rate, ppm) = {
             let mut sdr = lock(&self.sdr);
             let result = apply_to_hardware(&mut sdr, &plan);
-            (result, sdr.center_freq(), sdr.sample_rate())
+            (
+                result,
+                sdr.center_freq(),
+                sdr.sample_rate(),
+                sdr.freq_correction(),
+            )
         };
         // The driver caches the values it last wrote successfully — including the resampler's
         // *actual* rate, which integer division can move off the request — so these two
@@ -242,6 +253,7 @@ impl SdrDevice for RtlSdrDevice {
         // reporting pre-batch values (the Soapy backend resyncs for the same reason).
         self.settings.center_hz = Some(f64::from(center_hz));
         self.settings.sample_rate = Some(f64::from(sample_rate));
+        self.settings.ppm = Some(f64::from(ppm));
         result?;
         self.settings.merge_from(&plan.applied);
         // `merge_from` cannot clear a field, and an automatic filter width is the absence of

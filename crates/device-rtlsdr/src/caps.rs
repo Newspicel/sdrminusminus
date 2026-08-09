@@ -44,6 +44,11 @@ const RATE_MENU: [f64; 9] = [
     3_200_000.0,
 ];
 
+/// Advertised crystal-correction range. Well inside the demodulator's own ±488 ppm register
+/// limit ([`sdrmm_rtl_driver::MAX_PPM`]) — every dongle worth correcting is within ±100, and a
+/// range that wide is a slider users can actually aim with.
+const PPM_MAX: f64 = 200.0;
+
 /// Widest R82xx IF filter mode (`set_bandwidth`'s 8 MHz branch). The wire capability model has
 /// no bandwidth *range* — only a discrete list, which the filter does not have — so this
 /// envelope is what validation enforces; 0 means "track the sample rate".
@@ -63,6 +68,8 @@ pub(crate) const AGC: &str = "agc";
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Plan {
     pub(crate) sample_rate: Option<u32>,
+    /// Crystal correction in whole ppm — the only granularity the correction registers have.
+    pub(crate) ppm: Option<i32>,
     pub(crate) center_hz: Option<u32>,
     /// Tuner IF filter in Hz; `Some(0)` selects the automatic width.
     pub(crate) bandwidth: Option<u32>,
@@ -176,7 +183,8 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
 
 /// The device-specific knobs the driver can actually drive. Direct sampling, offset tuning and
 /// the RTL2832U digital AGC are deliberately absent: nothing programs them yet, and advertising
-/// a control that silently does nothing is worse than not offering it.
+/// a control that silently does nothing is worse than not offering it. Crystal correction is
+/// *not* here — `DeviceSettings` carries `ppm` as a first-class field, so it needs no extra.
 fn extra_settings() -> Vec<ExtraSetting> {
     vec![
         ExtraSetting::Bool {
@@ -272,10 +280,16 @@ pub(crate) fn validate(
         plan.applied.antenna = Some(antenna.clone());
     }
 
-    if delta.ppm.is_some() {
-        return Err(DeviceError::Unsupported(
-            "ppm: crystal-frequency correction is not implemented".to_string(),
-        ));
+    if let Some(ppm) = delta.ppm {
+        if !ppm.is_finite() || !(-PPM_MAX..=PPM_MAX).contains(&ppm) {
+            return Err(DeviceError::Unsupported(format!(
+                "ppm {ppm} outside ±{PPM_MAX}"
+            )));
+        }
+        // The correction registers count in whole ppm, so a fractional request has no
+        // representation; it is rounded, and `settings()` reports the rounded value back so the
+        // choice is visible rather than silent (the gain table is snapped for the same reason).
+        plan.ppm = Some(ppm.round() as i32);
     }
 
     let mut requested_gain = None;
@@ -760,14 +774,43 @@ mod tests {
         }
     }
 
+    /// The correction registers count in whole ppm, so a fractional request is rounded rather
+    /// than refused — and the rounding must be visible, which is why `apply` reports the
+    /// hardware's own value back afterwards.
     #[test]
-    fn validate_rejects_ppm_and_unknown_antennas() {
-        let ppm = DeviceSettings {
-            ppm: Some(1.5),
-            ..DeviceSettings::default()
-        };
-        assert!(matches!(plan_for(&ppm), Err(DeviceError::Unsupported(_))));
+    fn ppm_is_rounded_to_the_registers_granularity() {
+        for (requested, expected) in [
+            (0.0, 0),
+            (1.5, 2),
+            (-1.5, -2),
+            (12.4, 12),
+            (-200.0, -200),
+            (200.0, 200),
+        ] {
+            let delta = DeviceSettings {
+                ppm: Some(requested),
+                ..DeviceSettings::default()
+            };
+            assert_eq!(plan_for(&delta).unwrap().ppm, Some(expected), "{requested}");
+        }
+    }
 
+    #[test]
+    fn validate_rejects_ppm_outside_the_advertised_range() {
+        for requested in [200.001, -200.001, 1e9, f64::NAN, f64::INFINITY] {
+            let delta = DeviceSettings {
+                ppm: Some(requested),
+                ..DeviceSettings::default()
+            };
+            assert!(
+                matches!(plan_for(&delta), Err(DeviceError::Unsupported(_))),
+                "ppm {requested} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_rejects_unknown_antennas() {
         let antenna = DeviceSettings {
             antenna: Some("TX/RX".to_string()),
             ..DeviceSettings::default()
