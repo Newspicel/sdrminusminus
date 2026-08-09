@@ -367,6 +367,14 @@ impl DeviceSetState {
     }
 }
 
+/// Where a fault from a reconnect's fresh capture goes. Before the swap installs the new
+/// runtime the fault has nowhere to be applied (the set still describes the old, dead one), so
+/// it is parked; afterwards it takes the normal fault path like any other.
+enum FaultGate {
+    Pending(Option<DeviceError>),
+    Armed,
+}
+
 /// Who is retuning a device set. A scan owns its set's centre frequency, so its own retunes
 /// must skip the guard that keeps clients from fighting it — and must stay silent, because a
 /// `StateChanged` per scan step would cost every client a full-state refetch several times a
@@ -567,11 +575,17 @@ impl Engine {
             // A dead device accepts no more retunes, so the scan is over; take it here and
             // join outside the lock — the scan thread takes `inner` on every step.
             let scanner = state.scanner.take();
+            let runtime = state.runtime.clone();
             inner.revision += 1;
             drop(inner);
             if let Some(scanner) = scanner {
                 scanner.stop_and_join();
             }
+            // Release the dead device. Its capture thread is already gone, but a USB backend
+            // holds its interface claim until the handle drops — and auto-reconnect re-opens
+            // this exact radio, so keeping it would make every replug recovery fail "busy".
+            // Outside `inner`, like every other runtime lock (the per-set lock rule).
+            lock_runtime(&runtime).stop();
             if let Some(recording) = recording {
                 recording.join();
                 // The implicit stop just finalized a playable pair; without this scope
@@ -632,6 +646,16 @@ impl Engine {
     /// set per tick, and clients then read the cumulative count from `DeviceSet.overruns`.
     /// Live-recording progress (and writer faults) ride the same diff, so a recording's
     /// counters refresh for clients without any extra event source.
+    /// [`Engine::hotplug_tick`] for the server's tests, which have to drive a replug without
+    /// waiting out the prober's interval.
+    pub fn hotplug_tick_for_test(
+        &self,
+        known: &mut Option<Vec<String>>,
+        missing_once: &mut HashSet<u32>,
+    ) -> bool {
+        self.hotplug_tick(known, missing_once)
+    }
+
     fn hotplug_tick(
         &self,
         known: &mut Option<Vec<String>>,
@@ -782,9 +806,23 @@ impl Engine {
         settings.merge_from(&stored_settings);
         let center = settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
         let rate = sample_rate_of(&settings);
+        // A fault from the *fresh* capture that lands before the swap below would be applied
+        // to a set that is still `Error` and then overwritten by the swap — leaving a dead
+        // capture advertised as Running forever. The gate parks such a fault until the swap
+        // has finished, and the normal fault path takes over from there.
+        let gate = Arc::new(Mutex::new(FaultGate::Pending(None)));
         let fault_tx = self.fault_tx.clone();
+        let handler_gate = gate.clone();
         let runtime = match CaptureRuntime::start(device, center, rate, move |err| {
-            let _ = fault_tx.send((ds, err));
+            let mut gate = handler_gate
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match &mut *gate {
+                FaultGate::Pending(slot) => *slot = Some(err),
+                FaultGate::Armed => {
+                    let _ = fault_tx.send((ds, err));
+                }
+            }
         }) {
             Ok(runtime) => runtime,
             Err(e) => {
@@ -798,7 +836,7 @@ impl Engine {
 
         // Swap under `inner` so a concurrent removal or a fault on the new capture cannot
         // interleave into a half-replaced set.
-        let (old_runtime, rebuilds) = {
+        let (old_runtime, rebuilds, early_fault) = {
             let mut inner = self.lock();
             let Some(state) = inner.device_sets.get_mut(&ds) else {
                 drop(inner);
@@ -811,6 +849,17 @@ impl Engine {
                 lock_runtime(&runtime).stop();
                 return;
             }
+            // Arming under `inner` closes the window: the handler only ever takes the gate
+            // lock, never `inner`, so a fault racing this line lands on exactly one side.
+            let early_fault = match std::mem::replace(
+                &mut *gate
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+                FaultGate::Armed,
+            ) {
+                FaultGate::Pending(slot) => slot,
+                FaultGate::Armed => None,
+            };
             let old_runtime = std::mem::replace(&mut state.runtime, runtime);
             state.cmd_tx = cmd_tx;
             // The fresh counter starts at zero, so the seen-watermark has to follow it or the
@@ -835,7 +884,7 @@ impl Engine {
                 })
                 .collect();
             inner.revision += 1;
-            (old_runtime, rebuilds)
+            (old_runtime, rebuilds, early_fault)
         };
         // The old DSP thread still runs (only the capture half died); stop it before the
         // replacements start, so one channel is never hosted on two threads at once.
@@ -848,6 +897,13 @@ impl Engine {
         }
         for handle in dead {
             handle.shutdown();
+        }
+        if let Some(err) = early_fault {
+            // The replacement died before it was installed; hand it to the normal fault path
+            // so the set is faulted, its device released, and the next probe can try again.
+            tracing::warn!(ds, error = %err, "reconnected capture died immediately");
+            self.mark_device_fault(ds, err);
+            return;
         }
         tracing::info!(ds, device = %device_id, "device set reconnected after replug");
         self.emit(ServerEvent::StateChanged {
@@ -1252,6 +1308,49 @@ impl Engine {
             }
             return;
         }
+    }
+
+    /// Pre-flight a whole replacement configuration (a preset or a template) against a device
+    /// set, without changing anything.
+    ///
+    /// Applying one is destructive by construction — the existing channels have to go before
+    /// the rate can move (`patch_device` validates a new rate against the channels hosted
+    /// *now*, which would veto a perfectly good preset on behalf of channels the apply is
+    /// about to delete). That ordering is only acceptable if the configuration is known to be
+    /// applicable first; otherwise a request the device was always going to reject leaves the
+    /// operator with an empty device set.
+    pub fn validate_configuration(
+        &self,
+        ds: u32,
+        settings: &DeviceSettings,
+        channels: &[ChannelSettings],
+    ) -> Result<(), EngineError> {
+        let inner = self.lock();
+        let state = inner
+            .device_sets
+            .get(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let rate = settings
+            .sample_rate
+            .unwrap_or_else(|| sample_rate_of(&state.settings));
+        let caps = &state.capabilities;
+        if let Some(center) = settings.center_hz
+            && !caps.freq_ranges.is_empty()
+            && !caps
+                .freq_ranges
+                .iter()
+                .any(|r| center >= r.min && center <= r.max)
+        {
+            return Err(DeviceError::Unsupported(format!(
+                "{center} Hz is outside this device's tuning range"
+            ))
+            .into());
+        }
+        for channel in channels {
+            let descriptor = descriptor_for(&channel.params)?;
+            validate_channel(&descriptor, channel, rate)?;
+        }
+        Ok(())
     }
 
     /// Add a channel to a device set (PLAN §5 POST channels): validate and build the whole
@@ -2345,6 +2444,91 @@ mod tests {
         }
     }
 
+    /// Driver whose device can only be open once at a time — which every USB backend is, and
+    /// which is what makes releasing the handle on fault load-bearing for replug recovery.
+    struct ExclusiveDriver {
+        claimed: Arc<AtomicBool>,
+        die: Arc<AtomicBool>,
+    }
+
+    impl DeviceDriver for ExclusiveDriver {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+
+        fn probe(&self) -> Vec<DeviceInfo> {
+            vec![mock_info("exclusive", Some("MOCK-X"))]
+        }
+
+        fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+            if self.claimed.swap(true, Ordering::SeqCst) {
+                return Err(DeviceError::Io("device is busy".to_string()));
+            }
+            Ok(Box::new(ExclusiveDevice {
+                capabilities: empty_capabilities(),
+                settings: DeviceSettings::default(),
+                claimed: self.claimed.clone(),
+                die: self.die.clone(),
+                stop: Arc::new(AtomicBool::new(false)),
+                worker: None,
+            }))
+        }
+    }
+
+    struct ExclusiveDevice {
+        capabilities: Capabilities,
+        settings: DeviceSettings,
+        claimed: Arc<AtomicBool>,
+        die: Arc<AtomicBool>,
+        stop: Arc<AtomicBool>,
+        worker: Option<JoinHandle<()>>,
+    }
+
+    impl Drop for ExclusiveDevice {
+        fn drop(&mut self) {
+            self.claimed.store(false, Ordering::SeqCst);
+        }
+    }
+
+    impl SdrDevice for ExclusiveDevice {
+        fn capabilities(&self) -> &Capabilities {
+            &self.capabilities
+        }
+
+        fn settings(&self) -> &DeviceSettings {
+            &self.settings
+        }
+
+        fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+            self.settings.merge_from(settings);
+            Ok(())
+        }
+
+        fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+            let die = self.die.clone();
+            let stop = self.stop.clone();
+            self.worker = Some(std::thread::spawn(move || {
+                let block = [Complex::new(0.1f32, 0.0); 2_048];
+                while !stop.load(Ordering::SeqCst) {
+                    if die.load(Ordering::SeqCst) {
+                        sink.fail(DeviceError::Io("mock stream died".to_string()));
+                        return;
+                    }
+                    sink.push(&block);
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }));
+            Ok(())
+        }
+
+        fn rx_stop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = self.worker.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
     /// Driver that opens exactly once and then refuses, so a reconnect attempt against a
     /// present-but-claimed device can be driven deterministically.
     struct UnopenableDriver {
@@ -3298,6 +3482,48 @@ mod tests {
             .expect("audio within timeout")
             .expect("audio packet after reconnect");
         assert!(!packet.opus.is_empty());
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    /// A faulted set must let go of its device. Every USB backend claims its interface for as
+    /// long as the handle lives, so a set that kept it would make the replug recovery try to
+    /// re-open a radio it is itself still holding — and fail, forever.
+    #[tokio::test]
+    async fn a_faulted_set_releases_its_device_so_the_replug_can_reopen_it() {
+        let claimed = Arc::new(AtomicBool::new(false));
+        let die = Arc::new(AtomicBool::new(false));
+        let mut registry = DeviceRegistry::new();
+        registry.register(
+            50,
+            Box::new(ExclusiveDriver {
+                claimed: claimed.clone(),
+                die: die.clone(),
+            }),
+        );
+        let engine = Engine::with_registry(registry, None);
+        let ds = engine.create_device_set("mock:exclusive").unwrap();
+        assert!(claimed.load(Ordering::SeqCst), "the open must claim it");
+
+        let mut events = engine.subscribe_events();
+        die.store(true, Ordering::SeqCst);
+        loop {
+            wait_for_deviceset_event(&mut events, ds).await;
+            if engine.snapshot().device_sets[0].status == DeviceSetStatus::Error {
+                break;
+            }
+        }
+        assert!(
+            !claimed.load(Ordering::SeqCst),
+            "the faulted set is still holding the device"
+        );
+
+        die.store(false, Ordering::SeqCst);
+        let mut known = None;
+        let mut missing_once = HashSet::new();
+        engine.hotplug_tick(&mut known, &mut missing_once);
+        let set = &engine.snapshot().device_sets[0];
+        assert_eq!(set.status, DeviceSetStatus::Running, "{:?}", set.error);
+        assert!(claimed.load(Ordering::SeqCst));
         engine.remove_device_set(ds).unwrap();
     }
 

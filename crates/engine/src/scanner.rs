@@ -111,14 +111,21 @@ impl ScanPlan {
                     range.start_hz, range.stop_hz
                 )));
             }
+            // Bounded *before* the cast: `f64 as usize` saturates in release and panics in
+            // debug, so checking the count after converting would let a 1 Hz step over a GHz
+            // through on one profile and abort on the other.
             let steps = ((range.stop_hz - range.start_hz) / range.step_hz).floor();
-            let count = steps as usize + 1;
-            if !steps.is_finite() || targets.len() + count > MAX_SCAN_TARGETS {
+            let too_many = !steps.is_finite()
+                || steps < 0.0
+                || steps >= MAX_SCAN_TARGETS as f64
+                || targets.len() + (steps as usize) + 1 > MAX_SCAN_TARGETS;
+            if too_many {
                 return Err(bad(format!(
                     "scan expands to more than {MAX_SCAN_TARGETS} targets; widen the step or \
                      narrow the range"
                 )));
             }
+            let count = steps as usize + 1;
             for i in 0..count {
                 targets.push(range.start_hz + range.step_hz * i as f64);
             }

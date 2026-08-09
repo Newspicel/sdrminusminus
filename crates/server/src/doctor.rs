@@ -35,6 +35,7 @@ pub fn report(
         "storage.db",
         "Database",
         db_path,
+        PathKind::File,
         "presets, bookmarks, recordings index and decoder log are kept in memory and lost on \
          exit",
     ));
@@ -42,6 +43,7 @@ pub fn report(
         "storage.recordings",
         "Recordings directory",
         recordings_dir,
+        PathKind::Directory,
         "recording is disabled",
     ));
     DoctorReport {
@@ -169,7 +171,23 @@ fn usb_checks() -> Vec<DoctorCheck> {
     }
 }
 
-fn path_check(id: &str, name: &str, path: Option<&Path>, absent_consequence: &str) -> DoctorCheck {
+/// Whether a configured path names a file or the directory itself. Never inferred from the
+/// extension: `--db /data/sdrmm` would be read as a directory and the probe would *create* one
+/// where the database belongs, and a recordings directory called `sdr.captures` would be read
+/// as a file and its parent probed instead. The caller always knows which it is.
+#[derive(Clone, Copy)]
+enum PathKind {
+    File,
+    Directory,
+}
+
+fn path_check(
+    id: &str,
+    name: &str,
+    path: Option<&Path>,
+    kind: PathKind,
+    absent_consequence: &str,
+) -> DoctorCheck {
     let Some(path) = path else {
         return DoctorCheck {
             id: id.to_string(),
@@ -181,10 +199,9 @@ fn path_check(id: &str, name: &str, path: Option<&Path>, absent_consequence: &st
     };
     // The directory is what has to be writable: the file itself may not exist yet, and the
     // engine creates the recordings directory on the first recording.
-    let dir = if path.extension().is_some() {
-        path.parent().unwrap_or(path)
-    } else {
-        path
+    let dir = match kind {
+        PathKind::File => path.parent().unwrap_or(path),
+        PathKind::Directory => path,
     };
     let (status, detail, hint) = match writable(dir) {
         Ok(()) => (CheckStatus::Ok, path.display().to_string(), None),
@@ -272,20 +289,52 @@ mod tests {
     /// A missing path is a warning with the consequence spelled out, not a bare "none".
     #[test]
     fn path_check_reports_absence_and_writability() {
-        let absent = path_check("x", "X", None, "nothing persists");
+        let absent = path_check("x", "X", None, PathKind::File, "nothing persists");
         assert_eq!(absent.status, CheckStatus::Warn);
         assert!(absent.detail.contains("nothing persists"));
 
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let ok = path_check("x", "X", Some(dir.path()), "unused");
+        let ok = path_check("x", "X", Some(dir.path()), PathKind::Directory, "unused");
         assert_eq!(ok.status, CheckStatus::Ok, "{}", ok.detail);
 
         // A file path is judged by the directory that has to hold it — the file itself is
         // created later, on first use.
         let file = dir.path().join("sub").join("sdrmm.db");
-        let ok = path_check("x", "X", Some(&file), "unused");
+        let ok = path_check("x", "X", Some(&file), PathKind::File, "unused");
         assert_eq!(ok.status, CheckStatus::Ok, "{}", ok.detail);
         assert!(file.parent().is_some_and(Path::exists));
+        assert!(
+            !file.exists(),
+            "the probe must not create the database itself"
+        );
+    }
+
+    /// The old heuristic keyed on the extension: an extension-less database path was read as a
+    /// directory and *created* as one, and a dotted recordings directory had its parent probed.
+    #[test]
+    fn path_kind_is_told_not_guessed() {
+        let root = tempfile::TempDir::new().expect("tempdir");
+        let db = root.path().join("sdrmm");
+        let ok = path_check("db", "DB", Some(&db), PathKind::File, "unused");
+        assert_eq!(ok.status, CheckStatus::Ok, "{}", ok.detail);
+        assert!(
+            !db.exists(),
+            "an extension-less db path must not become a directory"
+        );
+
+        let recordings = root.path().join("sdr.captures");
+        let ok = path_check(
+            "rec",
+            "Rec",
+            Some(&recordings),
+            PathKind::Directory,
+            "unused",
+        );
+        assert_eq!(ok.status, CheckStatus::Ok, "{}", ok.detail);
+        assert!(
+            recordings.is_dir(),
+            "a dotted directory must be probed itself"
+        );
     }
 
     /// A build with only the virtual driver can decode recordings but cannot receive; that

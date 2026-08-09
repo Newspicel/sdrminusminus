@@ -113,15 +113,21 @@ fn percent_decode(value: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         match bytes[i] {
+            // Sliced as BYTES, never as `&str`: a `%` followed by a multi-byte character
+            // would otherwise split it and panic — on an unauthenticated request, from the
+            // network.
             b'%' if i + 2 < bytes.len() => {
-                match u8::from_str_radix(&value[i + 1..i + 3], 16) {
-                    Ok(byte) => {
+                match std::str::from_utf8(&bytes[i + 1..i + 3])
+                    .ok()
+                    .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+                {
+                    Some(byte) => {
                         out.push(byte);
                         i += 3;
                     }
                     // Not a valid escape: keep it verbatim rather than dropping characters,
                     // so a mistyped token fails comparison instead of silently matching.
-                    Err(_) => {
+                    None => {
                         out.push(b'%');
                         i += 1;
                     }
@@ -275,6 +281,23 @@ mod tests {
         assert_eq!(query_token("x=1&token=a+b&y=2").as_deref(), Some("a b"));
         assert_eq!(query_token("token=100%").as_deref(), Some("100%"));
         assert_eq!(query_token("nope=1"), None);
+    }
+
+    /// A `%` followed by a multi-byte character used to slice a `&str` off a char boundary
+    /// and panic — reachable from an unauthenticated request.
+    #[test]
+    fn malformed_escapes_never_panic() {
+        for query in [
+            "token=%ää",
+            "token=%",
+            "token=%4",
+            "token=%zz",
+            "token=%e2%82%ac",
+        ] {
+            let _ = query_token(query);
+        }
+        assert_eq!(query_token("token=%e2%82%ac").as_deref(), Some("€"));
+        assert_eq!(query_token("token=%zz").as_deref(), Some("%zz"));
     }
 
     #[test]

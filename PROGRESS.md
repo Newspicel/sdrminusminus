@@ -617,13 +617,38 @@ backends → self-contained binaries · Tauri packaging/signing · Docker/Pi ima
 ### Gates
 - [x] `cargo xtask check` green: fmt · clippy `-D warnings` · Soapy-free build · release-shaped
   native build · `biome ci` · `oxlint --type-aware` · `tsgo` · web build · codegen drift
-- [x] `cargo xtask test` green: Rust suite + web vitest
+- [x] `cargo xtask test` green: 564 Rust tests + 171 web tests
+- [x] `cargo xtask dist` produces a 24 MB `dist/sdrmm` that links no libSoapySDR, libusb,
+  libopus or libsqlite (checked with `otool -L`) — PLAN §15's "release artifacts just run"
+
+### Field session (first real hardware on the native backend)
+Run against the built release artifact and a Nooelec NESDR SMArt v5 (R820T), not in CI:
+- [x] The native RTL-SDR backend enumerated, opened and streamed the dongle with no SoapySDR
+  and no C library present: `rtlsdr:89084597`, 24 MHz–1.766 GHz, one TUNER stage of 29 steps,
+  `bias_tee`/`agc` extras — and `sdrmm --doctor` reported exactly that
+- [x] `GET /api/doctor` and the MCP `spectrum_snapshot` tool over real RF: a broadcast carrier
+  at 100.976 MHz, 30 dB above the noise floor, through the full rs-rtl → ring → DSP → FFT path
+- [x] The scanner swept 88–108 MHz (201 targets) and held on a real station at −21 dBFS
+- [x] **Auto-reconnect earned its keep on its first live session.** The dongle stalled
+  spontaneously after 40 s (`kIOReturnNotResponding`, then four cancelled bulk transfers, which
+  rs-rtl reports as "dongle disconnected"); the set faulted, released the device, and the next
+  probe re-opened it and restored the channel ~9 s later with no operator action. Confirmed
+  *not* self-inflicted: eight rapid `GET /api/devices` probes during streaming (which
+  re-enumerate and read string descriptors) disturbed nothing
 
 ### Known gaps (honest, not deferred silently)
+- A *transient* USB stall costs a full teardown and re-open — about nine seconds of dead air —
+  because rs-rtl turns five consecutive transfer errors into "disconnected" and the backend
+  can only report that as a fault. Recovering the stream in place would be better; it needs a
+  retry inside the capture loop (or upstream), and is not something to guess at without more
+  live sessions.
+- RDS did not decode in the short live window on the station tested. Inconclusive rather than a
+  regression — the station may carry no RDS, and the window was tens of seconds — but it means
+  the M4 decoders still have no off-air proof, exactly as PROGRESS said at M4.
 - Workspaces/tabs (dockview) were never built in M0–M2 despite PLAN §16's parenthetical; the
   plan is corrected in the same change and the shell is deferred to M6.
-- The native backends are proven against their crates' APIs and unit-tested hardware-free; they
-  have had no off-air session yet, exactly like the M4 decoders (PLAN §14).
+- The HackRF backend is proven against its crate's API and unit-tested hardware-free; unlike
+  the RTL-SDR one it has had no live session (no HackRF to hand).
 - rs-rtl exposes no PPM or direct sampling, and hackrf-nusb no independent baseband-filter
   bandwidth or hardware sweep; those settings are *rejected* rather than advertised and faked.
   Soapy still covers them, which is what the `soapy` feature is for.
@@ -631,3 +656,52 @@ backends → self-contained binaries · Tauri packaging/signing · Docker/Pi ima
   produces unsigned bundles until they are configured.
 - The Docker image has not been built here (no daemon in this environment); the workflow builds
   it on every tag.
+
+### Post-review hardening (adversarial multi-agent review: 29 findings, 10 refuted, 19 confirmed & fixed)
+High:
+- [x] **The RTL-SDR backend mistuned the radio on any bandwidth change** (high): rs-rtl's
+  `set_bandwidth` reassigns the tuner's IF and rewrites only the demodulator's IF register, so
+  the PLL was left at `centre + old_IF` — the dongle received `centre + (old_IF − new_IF)` while
+  `settings()`, the spectrum metadata, every channel offset and the recorder's SigMF centre all
+  still said `centre`. A 300 kHz filter at 2.048 Msps mistunes by 500 kHz, an 8 MHz one by
+  2.9 MHz. librtlsdr re-tunes after a width change for exactly this reason; the backend now does
+- [x] **The release image name was never lowercased** (high): `ghcr.io/${{ github.repository }}`
+  expands to `ghcr.io/Newspicel/…` and an OCI reference must be lowercase, so every tagged
+  release would have failed at the push and published no GitHub Release at all
+- [x] **Desktop bundles were uploaded under `dmg/`, `deb/`, `appimage/`** (high): the release job
+  attaches every downloaded entry as a file, and would have handed `gh release create`
+  directories; bundles are flattened before upload and the asset list is now explicit
+
+Medium:
+- [x] **A faulted set kept its device open, so no replug could ever recover it**: a USB backend
+  holds its interface claim for as long as the handle lives, and `reconnect` re-opens the very
+  same radio — it would have failed "busy" every time. `CaptureRuntime::stop` now drops the
+  device, and a fault stops the runtime. Regression-tested with a driver that can only be
+  opened once, which is what every real one is
+- [x] **A fault from the fresh capture during a reconnect was discarded**, leaving a dead
+  capture advertised as Running forever; such a fault is now parked and handed to the normal
+  fault path once the swap lands
+- [x] **Every client's waterfall froze permanently after a reconnect**: replacing the runtime
+  closes the spectrum broadcast, and the per-connection task treated that as "the set is gone".
+  It now re-subscribes and only stops when the set really is gone (the test fails without it)
+- [x] **Unauthenticated remote panic**: `percent_decode` sliced a `&str` at `i+1..i+3`, which a
+  `%` followed by a multi-byte character splits off a char boundary. Now sliced as bytes
+- [x] **A wrong or stale token bricked the UI**: nothing ever cleared it, so every request 401'd
+  behind a UI that looked fine. A 401 now forgets the token and the gate asks again, saying so
+- [x] **A rejected preset or template destroyed the device set**: the apply deletes the channels
+  before it can retune, so a configuration the device was always going to refuse left the
+  operator with nothing. `Engine::validate_configuration` pre-flights the whole thing first
+- [x] `docs/` claimed `--no-default-features` keeps the native backends (it drops them), and
+  that auto-reconnect was unbuilt (it ships here)
+
+Low:
+- [x] `ScanPlan::build` cast the step count to `usize` before bounding it — `f64 as usize`
+  saturates in release and panics in debug, so a 1 Hz step over a GHz behaved differently per
+  profile; bounded before the cast now
+- [x] `retryNow()` could leave two live sockets fanning duplicate frames into the same handlers
+- [x] The MCP `record` stop never indexed the finished recording nor invalidated the recordings
+  scope, so an agent-finalized recording vanished from the library
+- [x] The doctor inferred file-vs-directory from the extension, so `--db /data/sdrmm` had a
+  *directory* created where the database belongs; the caller says which it is now
+- [x] MCP `query_decoder_log` reported database failures as invalid parameters
+- [x] `SHA256SUMS` hashed itself, while empty, because the redirect created it before `find` ran

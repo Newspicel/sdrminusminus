@@ -83,11 +83,29 @@ export class SdrSocket {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    this.ws?.close();
+    this.detach();
+  }
+
+  /** Silence and close the current socket, so nothing it does afterwards reaches this
+   * instance's handlers. */
+  private detach(): void {
+    const ws = this.ws;
     this.ws = null;
+    if (ws === null) {
+      return;
+    }
+    ws.onopen = null;
+    ws.onerror = null;
+    ws.onclose = null;
+    ws.onmessage = null;
+    ws.close();
   }
 
   private open(): void {
+    // Detach the previous socket first: a close that arrives after its replacement exists
+    // would otherwise schedule a *second* reconnect, and both sockets would fan duplicate
+    // frames into the same handlers.
+    this.detach();
     const ws = new WebSocket(this.url());
     ws.binaryType = "arraybuffer";
     ws.onopen = () => {
@@ -175,7 +193,6 @@ export class SdrSocket {
     }
     this.backoffMs = RECONNECT_MS;
     if (!this.closed && this.ws?.readyState !== WebSocket.OPEN) {
-      this.ws?.close();
       this.open();
     }
   }

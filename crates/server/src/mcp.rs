@@ -36,9 +36,19 @@ const SPECTRUM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 /// Mount the MCP endpoint. Returned with the router's state type still open (`nest_service`
 /// binds none), so it merges into the app *before* the auth layer and is gated with everything
 /// else.
-pub(crate) fn router(engine: Arc<Engine>, store: Arc<Store>) -> Router<AppState> {
+pub(crate) fn router(
+    engine: Arc<Engine>,
+    store: Arc<Store>,
+    recordings_gate: Arc<std::sync::Mutex<()>>,
+) -> Router<AppState> {
     let service = StreamableHttpService::new(
-        move || Ok(SdrMcp::new(engine.clone(), store.clone())),
+        move || {
+            Ok(SdrMcp::new(
+                engine.clone(),
+                store.clone(),
+                recordings_gate.clone(),
+            ))
+        },
         Arc::new(LocalSessionManager::default()),
         StreamableHttpServerConfig::default()
             // Stateless: one POST, one JSON reply, no session to garbage-collect and nothing
@@ -59,17 +69,25 @@ pub(crate) fn router(engine: Arc<Engine>, store: Arc<Store>) -> Router<AppState>
 struct SdrMcp {
     engine: Arc<Engine>,
     store: Arc<Store>,
+    /// Shared with the REST handlers: a reconcile that interleaves into a delete's
+    /// unlink→row-delete window turns a successful delete into a 404 (see `AppState`).
+    recordings_gate: Arc<std::sync::Mutex<()>>,
     tool_router: ToolRouter<Self>,
 }
 
 impl SdrMcp {
-    fn new(engine: Arc<Engine>, store: Arc<Store>) -> Self {
+    fn new(
+        engine: Arc<Engine>,
+        store: Arc<Store>,
+        recordings_gate: Arc<std::sync::Mutex<()>>,
+    ) -> Self {
         // The factory runs per request in stateless mode; rebuilding the whole tool map each
         // time would be pure waste, so it is built once and cloned.
         static ROUTER: LazyLock<ToolRouter<SdrMcp>> = LazyLock::new(SdrMcp::tool_router);
         Self {
             engine,
             store,
+            recordings_gate,
             tool_router: ROUTER.clone(),
         }
     }
@@ -375,24 +393,37 @@ impl SdrMcp {
         Parameters(req): Parameters<RecordRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let engine = self.engine.clone();
+        let store = self.store.clone();
+        let gate = self.recordings_gate.clone();
         let ds = req.device_set;
         let result = tokio::task::spawn_blocking(move || {
             if req.start {
-                engine.start_recording(ds)?;
-                Ok(serde_json::json!({ "recording": true }))
-            } else {
-                let finalized = engine.stop_recording(ds)?;
-                Ok(serde_json::json!({
-                    "recording": false,
-                    "file": finalized.stem.display().to_string(),
-                    "samples": finalized.samples,
-                    "error": finalized.error,
-                }))
+                engine.start_recording(ds).map_err(engine_error)?;
+                return Ok(serde_json::json!({ "recording": true }));
             }
+            let finalized = engine.stop_recording(ds).map_err(engine_error)?;
+            // Exactly what the REST stop path does after the same call: without the
+            // reconcile the finalized pair is never indexed, and without the scope no client
+            // ever learns the library changed (the DeviceSet scope invalidates state, not
+            // recordings).
+            if let Some(dir) = engine.recordings_dir() {
+                {
+                    let _gate = crate::rest::lock_gate(&gate);
+                    crate::rest::reconcile_recordings(dir, &store).map_err(|e| {
+                        ErrorData::internal_error(format!("indexing the recording: {e:?}"), None)
+                    })?;
+                }
+                engine.emit_scope(sdrmm_wire::StateScope::Recordings);
+            }
+            Ok(serde_json::json!({
+                "recording": false,
+                "file": finalized.stem.display().to_string(),
+                "samples": finalized.samples,
+                "error": finalized.error,
+            }))
         })
         .await
-        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
-        .map_err(engine_error)?;
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))??;
         structured(&result)
     }
 

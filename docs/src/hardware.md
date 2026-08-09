@@ -150,9 +150,12 @@ A device that vanishes mid-stream does not hang the server:
 - The faulted set surfaces `status: error` with the reason, a live recording is finalized
   rather than left as a stub, and the UI shows a banner.
 
-Recovery is manual today: close the faulted set and open the device again. Auto-reconnect on
-replug — the set re-opens and restores its channels once the device re-enumerates — is M5
-work (`PLAN.md` §16).
+Recovery is automatic since M5: once the device re-enumerates, the hotplug probe re-opens it,
+re-applies the tuning it had, and rebuilds its channels — ids and live audio subscriptions
+included, so a listener does not have to re-subscribe. A device that is present but still
+unopenable (settling, or claimed by another process) keeps the set faulted with that reason and
+is retried on the next probe. Closing and re-opening the set by hand still works and is the way
+out if the device comes back as something else.
 
 > [!IMPORTANT]
 > All Soapy enumerate calls in the server serialize behind a process-wide lock. Concurrent

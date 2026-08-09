@@ -3,9 +3,9 @@
 // indistinguishable from "server down", so without this probe a wrong token would look like
 // an outage and reconnect forever.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { authQuery } from "../lib/api";
-import { getToken, setToken } from "../lib/auth";
+import { getToken, onTokenRejected, setToken } from "../lib/auth";
 import { BTN, FIELD } from "./controls";
 
 /** Renders `children` once the server is reachable without a prompt, or the prompt itself when
@@ -15,6 +15,18 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
   const auth = useQuery(authQuery());
   const [entry, setEntry] = useState("");
   const [saved, setSaved] = useState(getToken() !== null);
+  const [refused, setRefused] = useState(false);
+
+  // The token the browser had was refused (wrong, or the server's was changed). Come back and
+  // ask, rather than leaving every request failing behind a UI that looks fine.
+  useEffect(
+    () =>
+      onTokenRejected(() => {
+        setSaved(false);
+        setRefused(true);
+      }),
+    [],
+  );
 
   // While the probe is in flight the app renders: the probe is the only unauthenticated call,
   // so a slow one must not blank the UI, and every other request will 401 harmlessly until it
@@ -35,6 +47,7 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
           }
           setToken(token);
           setSaved(true);
+          setRefused(false);
           // Everything fetched before the token existed was a 401; start clean.
           void queryClient.invalidateQueries();
           onToken();
@@ -46,6 +59,11 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
             This server requires its shared token (the value it was started with as
             <code className="mx-1 font-mono">--token</code>).
           </p>
+          {refused && (
+            <p role="alert" className="mt-1 font-mono text-sm text-danger">
+              That token was refused.
+            </p>
+          )}
         </div>
         <input
           className={FIELD}
