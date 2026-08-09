@@ -491,24 +491,7 @@ mod tests {
         assert_eq!(identity.key, args.to_string());
     }
 
-    #[test]
-    fn open_of_unknown_device_is_not_found() {
-        let driver = SoapyDriver::new();
-        let info = DeviceInfo {
-            driver: DRIVER_ID.to_string(),
-            key: "no-such-serial".to_string(),
-            label: "ghost".to_string(),
-            serial: Some("no-such-serial".to_string()),
-        };
-        assert!(matches!(
-            driver.open(&info),
-            Err(DeviceError::NotFound(_) | DeviceError::Io(_))
-        ));
-    }
-
-    /// No hardware in CI: only asserts the probe path is panic-free, whatever it returns.
-    #[test]
-    fn probe_does_not_panic() {
-        let _ = SoapyDriver::new().probe();
-    }
+    // No test may call `SoapyDriver::probe`/`open`: live enumerate loads whatever Soapy
+    // modules the machine has (SoapyUHD aborts the process headless, SoapyRemote scans the
+    // network) — environment-dependent by construction (PLAN §14: no hardware in CI, ever).
 }

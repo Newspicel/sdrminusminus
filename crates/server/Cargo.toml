@@ -40,3 +40,6 @@ tracing.workspace = true
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
+# Hermetic test engine (virtual driver only): tests must never enumerate live Soapy modules.
+sdrmm-device.workspace = true
+sdrmm-device-virtual.workspace = true

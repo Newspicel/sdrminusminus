@@ -881,9 +881,17 @@ mod tests {
         );
     }
 
+    /// Hermetic engine: virtual driver only. `Engine::new()` registers the Soapy driver, whose
+    /// probe enumerates live system modules — forbidden in tests (PLAN §14: no hardware in CI).
+    fn virtual_engine() -> Arc<Engine> {
+        let mut registry = DeviceRegistry::new();
+        registry.register(VIRTUAL_PRIORITY, Box::new(VirtualDriver::new()));
+        Engine::with_registry(registry)
+    }
+
     #[tokio::test]
     async fn probes_virtual_device() {
-        let engine = Engine::new();
+        let engine = virtual_engine();
         assert!(
             engine
                 .probe_devices()
@@ -894,7 +902,7 @@ mod tests {
 
     #[tokio::test]
     async fn spectrum_flows_with_a_visible_tone() {
-        let engine = Engine::new();
+        let engine = virtual_engine();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
         let mut rx = engine.subscribe_spectrum(ds).unwrap();
 
@@ -919,7 +927,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_emits_state_changed() {
-        let engine = Engine::new();
+        let engine = virtual_engine();
         let mut events = engine.subscribe_events();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
 
@@ -938,7 +946,7 @@ mod tests {
 
     #[tokio::test]
     async fn channel_crud_updates_state() {
-        let engine = Engine::new();
+        let engine = virtual_engine();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
         let ch = engine
             .add_channel(
@@ -959,7 +967,7 @@ mod tests {
 
     #[tokio::test]
     async fn patch_retunes_without_error() {
-        let engine = Engine::new();
+        let engine = virtual_engine();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
         engine
             .patch_device(

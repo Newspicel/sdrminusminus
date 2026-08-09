@@ -3050,6 +3050,8 @@ dependencies = [
  "http-body-util",
  "mime_guess",
  "rust-embed",
+ "sdrmm-device",
+ "sdrmm-device-virtual",
  "sdrmm-dsp",
  "sdrmm-engine",
  "sdrmm-wire",

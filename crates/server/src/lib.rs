@@ -105,8 +105,12 @@ mod tests {
 
     use super::*;
 
+    /// Hermetic engine: virtual driver only — `Engine::new()` would register the Soapy driver,
+    /// whose probe enumerates live system modules (PLAN §14: no hardware in CI, ever).
     fn test_router() -> Router {
-        router(Engine::new(), false)
+        let mut registry = sdrmm_device::DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        router(Engine::with_registry(registry), false)
     }
 
     /// OpenAPI snapshot (PLAN §14): the REST paths must be present, and the WS-only enums must
