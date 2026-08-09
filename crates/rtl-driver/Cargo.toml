@@ -1,5 +1,5 @@
 [package]
-name = "sdrmm-device-rtlsdr"
+name = "sdrmm-rtl-driver"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -11,9 +11,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-sdrmm-wire.workspace = true
-sdrmm-device.workspace = true
-sdrmm-rtl-driver.workspace = true
 sdrmm-usb-stream.workspace = true
-num-complex.workspace = true
+nusb.workspace = true
+thiserror.workspace = true
 tracing.workspace = true

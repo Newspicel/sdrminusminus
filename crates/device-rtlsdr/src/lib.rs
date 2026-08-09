@@ -1,12 +1,11 @@
-//! `sdrmm-device-rtlsdr` — native RTL-SDR backend (PLAN §6, §15): pure Rust over `nusb`, so a
-//! release artifact ships with no libSoapySDR, no librtlsdr, no C dependency at all. It also
-//! exposes what the Soapy path hides for these dongles — the bias tee and the tuner AGC as
-//! typed extra settings — and reports the tuner's own gain table instead of a range.
+//! `sdrmm-device-rtlsdr` — native RTL-SDR backend (PLAN §6, §15): pure Rust over `nusb` via the
+//! vendored `sdrmm-rtl-driver`, so a release artifact ships with no libSoapySDR, no librtlsdr,
+//! no C dependency at all. It also exposes what the Soapy path hides for these dongles — the
+//! bias tee and the tuner AGC as typed extra settings — and reports the tuner's own gain table
+//! instead of a range.
 //!
-//! What rs-rtl 0.4.2 cannot reach is not advertised: direct sampling, crystal (ppm) correction,
-//! offset tuning and the RTL2832U digital AGC have no public API, and the low-level register
-//! layer of an *opened* device is not reachable either (`RtlSdr` owns its `Device` privately).
-//! `apply` rejects those settings rather than accepting them silently.
+//! What the driver does not program is not advertised: direct sampling, offset tuning and the
+//! RTL2832U digital AGC. `apply` rejects those settings rather than accepting them silently.
 
 use std::{
     sync::{
@@ -18,11 +17,9 @@ use std::{
 
 use caps::{GainMode, Plan};
 use convert::IqConverter;
-use rs_rtl::{
-    AsyncReadControlHandle, AsyncReadHandle, DeviceDescriptor, DeviceDescriptors, DeviceId, RtlSdr,
-    TRANSFER_BUF_SIZE,
-};
 use sdrmm_device::{DeviceDriver, DeviceError, RxSink, SdrDevice};
+use sdrmm_rtl_driver::{DeviceDescriptor, DeviceDescriptors, DeviceId, RtlSdr, TRANSFER_BUF_SIZE};
+use sdrmm_usb_stream::{RxStream, Stopper};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, ExtraValue};
 
 mod caps;
@@ -37,19 +34,17 @@ pub(crate) const DRIVER_ID: &str = "rtlsdr";
 const DEFAULT_SAMPLE_RATE_HZ: u32 = 2_048_000;
 const DEFAULT_CENTER_HZ: u32 = 100_000_000;
 
-fn map_err(err: rs_rtl::Error) -> DeviceError {
+fn map_err(err: sdrmm_rtl_driver::Error) -> DeviceError {
     let text = err.to_string();
     match err {
-        rs_rtl::Error::DeviceNotFound => DeviceError::NotFound(text),
-        rs_rtl::Error::InvalidSampleRate { .. } | rs_rtl::Error::InvalidParam(_) => {
-            DeviceError::Unsupported(text)
-        }
-        rs_rtl::Error::AlreadyStreaming => DeviceError::AlreadyStreaming,
+        sdrmm_rtl_driver::Error::DeviceNotFound => DeviceError::NotFound(text),
+        sdrmm_rtl_driver::Error::InvalidSampleRate { .. }
+        | sdrmm_rtl_driver::Error::InvalidParam(_) => DeviceError::Unsupported(text),
         _ => DeviceError::Io(text),
     }
 }
 
-fn enumerate() -> Result<Vec<DeviceDescriptor>, rs_rtl::Error> {
+fn enumerate() -> Result<Vec<DeviceDescriptor>, sdrmm_rtl_driver::Error> {
     Ok(DeviceDescriptors::new()?.iter().cloned().collect())
 }
 
@@ -104,14 +99,10 @@ impl DeviceDriver for RtlSdrDriver {
 
 /// An opened RTL-SDR receiver.
 ///
-/// The capture thread owns rs-rtl's read handle; every setter stays on this side. Retunes while
-/// streaming deliberately do *not* go through [`AsyncReadControlHandle`]: its commands are
-/// fire-and-forget (a failed tune reaches only rs-rtl's own `warn!`, and the call returns `Ok`
-/// as soon as the command is queued), which would make a rejected retune look applied. The
-/// `RtlSdr` setters return the real result, and they ride the USB *control* endpoint on a
-/// clone-backed `nusb::Interface`, independent of the streaming thread's bulk queue. Because we
-/// never send control commands, the tuner-register shadow that rs-rtl clones into the streaming
-/// thread stays unused and cannot drift from ours.
+/// The capture thread owns the transport's [`RxStream`]; every setter stays on this side. The
+/// `RtlSdr` setters ride the USB *control* endpoint on a clone-backed `nusb::Interface`,
+/// independent of the streaming thread's bulk queue, so a retune while streaming costs the
+/// sample path nothing and still returns the hardware's real answer.
 pub struct RtlSdrDevice {
     sdr: RtlSdr,
     capabilities: Capabilities,
@@ -119,9 +110,9 @@ pub struct RtlSdrDevice {
     /// The tuner's discrete gain table in tenths of a dB; `apply` snaps to it.
     gain_table: Vec<i32>,
     running: Arc<AtomicBool>,
-    /// Live only while streaming: the one way to reach rs-rtl's streaming thread once the read
-    /// handle has moved to the capture thread.
-    control: Option<AsyncReadControlHandle>,
+    /// Live only while streaming: the one way to stop the transfer pump once the stream has
+    /// moved to the capture thread.
+    stopper: Option<Stopper>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -142,7 +133,7 @@ impl RtlSdrDevice {
         sdr.set_gain_auto().map_err(map_err)?;
         // GPIO0 keeps its previous level across a re-open, so phantom power must be driven
         // low explicitly — a bias tee left on can damage whatever is on the antenna port.
-        // A dongle whose EEPROM forces it on ignores this (rs-rtl `set_bias_t`).
+        // A dongle whose EEPROM forces it on ignores this (`RtlSdr::set_bias_t`).
         sdr.set_bias_t(false).map_err(map_err)?;
 
         let settings = DeviceSettings {
@@ -168,14 +159,14 @@ impl RtlSdrDevice {
             settings,
             gain_table,
             running: Arc::new(AtomicBool::new(false)),
-            control: None,
+            stopper: None,
             worker: None,
         })
     }
 
     fn apply_to_hardware(&mut self, plan: &Plan) -> Result<(), DeviceError> {
         // Rate first: `set_sample_rate` re-tunes the tuner and recomputes its filter from the
-        // new rate (rs-rtl mirrors librtlsdr here), so a center or bandwidth written before it
+        // new rate (the driver mirrors librtlsdr here), so a center or bandwidth written before it
         // would be overwritten.
         if let Some(rate) = plan.sample_rate {
             self.sdr.set_sample_rate(rate).map_err(map_err)?;
@@ -189,7 +180,7 @@ impl RtlSdrDevice {
             // register — the tuner PLL still sits at `centre + old_IF`, so the radio quietly
             // receives `centre + (old_IF - new_IF)` while every consumer is told `centre`.
             // librtlsdr's `r820t_set_bw` ends with a re-tune for exactly this reason, and
-            // rs-rtl keeps that re-tune in `set_sample_rate` but not here. Re-programming the
+            // the driver keeps that re-tune in `set_sample_rate` but not here. Re-programming the
             // PLL from the cached centre closes the loop.
             let center = self.sdr.center_freq();
             self.sdr.set_center_freq(center).map_err(map_err)?;
@@ -225,7 +216,7 @@ impl SdrDevice for RtlSdrDevice {
             &self.gain_table,
         )?;
         let result = self.apply_to_hardware(&plan);
-        // rs-rtl caches the values it last wrote successfully — including the resampler's
+        // The driver caches the values it last wrote successfully — including the resampler's
         // *actual* rate, which integer division can move off the request — so these two
         // getters are the device's own truth. Resync them either way: a mid-batch failure
         // leaves the hardware partially retuned, and the control plane must not keep
@@ -246,15 +237,15 @@ impl SdrDevice for RtlSdrDevice {
         if self.worker.is_some() {
             return Err(DeviceError::AlreadyStreaming);
         }
-        let handle = self.sdr.start_streaming().map_err(map_err)?;
-        let control = handle.control_handle();
+        let stream = self.sdr.start_streaming().map_err(map_err)?;
+        let stopper = stream.stopper();
         self.running.store(true, Ordering::Release);
         let running = self.running.clone();
         let worker = std::thread::Builder::new()
             .name("sdrmm-rtlsdr-rx".to_string())
-            .spawn(move || capture_loop(&handle, &running, sink))
+            .spawn(move || capture_loop(&stream, &running, sink))
             .map_err(|e| DeviceError::Io(format!("spawn capture thread: {e}")))?;
-        self.control = Some(control);
+        self.stopper = Some(stopper);
         self.worker = Some(worker);
         Ok(())
     }
@@ -262,10 +253,10 @@ impl SdrDevice for RtlSdrDevice {
     fn rx_stop(&mut self) {
         self.running.store(false, Ordering::Release);
         // The capture thread is parked in a blocking `recv`, so the stop has to come from the
-        // far end: rs-rtl's streaming thread closes the sample channel on its way out, which
-        // is what releases that `recv`.
-        if let Some(control) = self.control.take() {
-            control.stop();
+        // far end: the transfer pump closes the block channel on its way out, which is what
+        // releases that `recv`.
+        if let Some(stopper) = self.stopper.take() {
+            stopper.stop();
         }
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
@@ -279,28 +270,31 @@ impl Drop for RtlSdrDevice {
     }
 }
 
-/// Blocking capture loop on our own thread. Owns rs-rtl's read handle, so dropping it on any
-/// exit path stops the streaming thread and releases the bulk endpoint.
-fn capture_loop(handle: &AsyncReadHandle, running: &AtomicBool, mut sink: RxSink) {
+/// Blocking capture loop on our own thread. Borrows the transport stream, which is dropped on
+/// every exit path, stopping the transfer pump and releasing the bulk endpoint.
+fn capture_loop(stream: &RxStream, running: &AtomicBool, mut sink: RxSink) {
     let mut converter = IqConverter::with_capacity(TRANSFER_BUF_SIZE / 2);
     let mut dropped = 0u64;
     while running.load(Ordering::Acquire) {
-        let Some(block) = handle.recv() else {
-            // rs-rtl closes the channel when its streaming thread gives up on the endpoint
-            // (five consecutive transfer errors = unplugged) or when it was told to stop.
-            // `running` still set means nobody asked, so the dongle is gone.
+        let Some(block) = stream.recv() else {
+            // The pump closes the channel when its error policy gives up on the endpoint or
+            // when it was told to stop. `running` still set means nobody asked, so it faulted.
             if running.load(Ordering::Acquire) {
-                sink.fail(DeviceError::Io("device lost: usb stream ended".to_string()));
+                let reason = stream.error().map_or_else(
+                    || "usb stream ended".to_string(),
+                    std::string::ToString::to_string,
+                );
+                sink.fail(DeviceError::Io(format!("device lost: {reason}")));
             }
             break;
         };
         sink.push(converter.convert(&block));
-        // USB-level loss is a different failure from the engine's ring overruns and must not
-        // be silent. rs-rtl 0.4.2 hands samples over with a blocking send, so this counter
-        // only moves if a later version adopts a drop policy — surface it if it ever does.
-        let total = handle.dropped_chunks();
+        // USB-level loss is a different failure from the engine's ring overruns and must not be
+        // silent: a dropped transfer is a gap in the sample stream that no counter downstream
+        // can see.
+        let total = stream.stats().dropped;
         if total > dropped {
-            tracing::warn!(dropped = total, "rtlsdr dropped usb chunks");
+            tracing::warn!(dropped = total, "rtlsdr dropped usb transfers");
             dropped = total;
         }
     }

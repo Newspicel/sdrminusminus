@@ -2,26 +2,26 @@
 //! model (PLAN §6), plus the pre-flight validation `apply` runs before touching hardware. No
 //! I/O here, so every mapping is unit-testable against fabricated descriptors and gain tables.
 
-use rs_rtl::{BoardVariant, DeviceDescriptor};
 use sdrmm_device::DeviceError;
+use sdrmm_rtl_driver::{BoardVariant, DeviceDescriptor};
 use sdrmm_wire::{
     Capabilities, DeviceInfo, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
 };
 
 use crate::DRIVER_ID;
 
-/// The R820T/R828D PLL envelope. Both tuners rs-rtl supports share it, so the tuner type does
+/// The R820T/R828D PLL envelope. Both tuners the driver supports share it, so the tuner type does
 /// not change the ranges — only the board variant does (see [`capabilities`]).
 const TUNER_MIN_HZ: f64 = 24e6;
 const TUNER_MAX_HZ: f64 = 1_766e6;
-/// RTL-SDR Blog V4: rs-rtl's `set_freq` upconverts anything below the 28.8 MHz crystal through
-/// the board's built-in HF path, which the vendor specifies from ~500 kHz. Plain dongles have
-/// no such path — reaching HF there needs direct sampling, which rs-rtl does not expose, so the
-/// low end honestly stays at [`TUNER_MIN_HZ`].
+/// RTL-SDR Blog V4: the tuner's `set_freq` upconverts anything below the 28.8 MHz crystal
+/// through the board's built-in HF path, which the vendor specifies from ~500 kHz. Plain dongles
+/// have no such path — reaching HF there needs direct sampling, which the driver does not
+/// implement yet, so the low end honestly stays at [`TUNER_MIN_HZ`].
 const V4_HF_MIN_HZ: f64 = 500e3;
 const V4_HF_MAX_HZ: f64 = 28.8e6;
 
-/// The RTL2832U resampler's two valid windows (rs-rtl `set_sample_rate`, librtlsdr's
+/// The RTL2832U resampler's two valid windows (`RtlSdr::set_sample_rate`, librtlsdr's
 /// `rtlsdr_set_sample_rate`): everything between them aliases.
 const RATE_WINDOWS: [(f64, f64); 2] = [(225_001.0, 300_000.0), (900_001.0, 3_200_000.0)];
 
@@ -54,7 +54,8 @@ const BANDWIDTH_MAX_HZ: f64 = 8e6;
 pub(crate) const TUNER_STAGE: &str = "TUNER";
 /// Phantom power on the antenna port (RTL2832U GPIO0).
 pub(crate) const BIAS_TEE: &str = "bias_tee";
-/// R82xx tuner AGC (LNA + mixer). Not the RTL2832U's digital AGC, which rs-rtl cannot reach.
+/// R82xx tuner AGC (LNA + mixer). Not the RTL2832U's digital AGC, which the driver does not
+/// program.
 pub(crate) const AGC: &str = "agc";
 
 /// What `apply` will write, resolved and range-checked. Built entirely before the first setter
@@ -164,7 +165,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         gains: gain_stages,
         antennas: vec!["RX".to_string()],
         // The R82xx filter is continuous from the caller's side (it snaps internally to its own
-        // cutoff steps, which rs-rtl does not expose), and the wire model can only carry a
+        // cutoff steps, which the tuner does not report back), and the wire model can only carry a
         // discrete list — so none is advertised, exactly as the Soapy path reports for the same
         // dongle. `BANDWIDTH_MAX_HZ` still bounds what `apply` will write.
         bandwidths: Vec::new(),
@@ -173,10 +174,9 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
     }
 }
 
-/// The device-specific knobs rs-rtl can actually drive. Direct sampling, crystal (ppm)
-/// correction, offset tuning and the RTL2832U digital AGC are deliberately absent: rs-rtl 0.4.2
-/// exposes no public API for them and no way to reach the register layer of an opened device,
-/// and advertising a control that silently does nothing is worse than not offering it.
+/// The device-specific knobs the driver can actually drive. Direct sampling, offset tuning and
+/// the RTL2832U digital AGC are deliberately absent: nothing programs them yet, and advertising
+/// a control that silently does nothing is worse than not offering it.
 fn extra_settings() -> Vec<ExtraSetting> {
     vec![
         ExtraSetting::Bool {
@@ -246,7 +246,7 @@ pub(crate) fn validate(
         plan.sample_rate = Some(rate.round() as u32);
     }
 
-    // rs-rtl's `set_sample_rate` re-runs the tuner's bandwidth calculation against the new rate
+    // `RtlSdr::set_sample_rate` re-runs the tuner's bandwidth calculation against the new rate
     // (as librtlsdr does), silently reverting an explicit filter width. Carry the recorded one
     // forward so the reported bandwidth stays true after a rate change.
     let bandwidth = delta.bandwidth.or_else(|| {
@@ -274,7 +274,7 @@ pub(crate) fn validate(
 
     if delta.ppm.is_some() {
         return Err(DeviceError::Unsupported(
-            "ppm: rs-rtl exposes no crystal-frequency correction".to_string(),
+            "ppm: crystal-frequency correction is not implemented".to_string(),
         ));
     }
 
@@ -384,7 +384,7 @@ fn current_manual_tenths(current: &DeviceSettings) -> Option<i32> {
 
 #[cfg(test)]
 mod tests {
-    use rs_rtl::GAIN_VALUES;
+    use sdrmm_rtl_driver::GAIN_VALUES;
 
     use super::*;
 
@@ -481,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    fn extras_are_only_what_rs_rtl_can_drive() {
+    fn extras_are_only_what_the_driver_can_drive() {
         let extra = capabilities(BoardVariant::Generic, GAIN_VALUES).extra;
         let names: Vec<&str> = extra.iter().map(extra_name).collect();
         assert_eq!(names, vec![BIAS_TEE, AGC]);

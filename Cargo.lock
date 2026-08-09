@@ -3173,17 +3173,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rs-rtl"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b14d2eb2473e57beeefdcdca0d7cbc51c5f312e0a9c96ff6374393d5ff4b54b1"
-dependencies = [
- "nusb",
- "thiserror 2.0.20",
- "tracing",
-]
-
-[[package]]
 name = "rsqlite-vfs"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3447,8 +3436,9 @@ name = "sdrmm-device-rtlsdr"
 version = "0.0.0"
 dependencies = [
  "num-complex",
- "rs-rtl",
  "sdrmm-device",
+ "sdrmm-rtl-driver",
+ "sdrmm-usb-stream",
  "sdrmm-wire",
  "tracing",
 ]
@@ -3522,6 +3512,16 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "sdrmm-rtl-driver"
+version = "0.0.0"
+dependencies = [
+ "nusb",
+ "sdrmm-usb-stream",
+ "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]
