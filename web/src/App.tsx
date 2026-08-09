@@ -1,22 +1,11 @@
 // App shell (PLAN §10). Owns the WebSocket, turns `StateChanged` events into TanStack Query
-// invalidations (the only invalidation path — no polling), and lays out the device bar over the
-// spectrum/waterfall with the channel + library panels underneath.
+// invalidations (the only invalidation path — no polling), and frames the workspace: chrome on
+// top (device bar and its settings strip), the server-persisted panel layout underneath.
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { BookmarksPanel } from "./components/BookmarksPanel";
-import { ChannelsPanel } from "./components/ChannelsPanel";
-import { DecoderLogPanel } from "./components/DecoderLogPanel";
-import { AprsView, PagerView, RdsView, TargetsView, TextView } from "./components/DecoderPanels";
 import { DeviceBar } from "./components/DeviceBar";
 import { DeviceSettingsPanel } from "./components/DeviceSettings";
 import { FirstRun } from "./components/FirstRun";
-import { MapPanel } from "./components/MapPanel";
-import { PanelSection } from "./components/PanelSection";
-import { PresetsPanel } from "./components/PresetsPanel";
-import { RecordingsPanel } from "./components/RecordingsPanel";
-import { ScannerPanel } from "./components/ScannerPanel";
-import { SpectrumDisplay } from "./components/SpectrumDisplay";
-import { TemplatesPanel } from "./components/TemplatesPanel";
 import { TokenGate } from "./components/TokenGate";
 import {
   BOOKMARKS_KEY,
@@ -28,12 +17,18 @@ import {
   RECORDINGS_KEY,
   STATE_KEY,
   stateQuery,
+  WORKSPACES_KEY,
 } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
 import { useDecodedStore } from "./lib/decoded";
 import { useScannerStore } from "./lib/scanner";
-import type { ChannelInfo, ServerEvent, StateScope } from "./lib/types";
+import type { ServerEvent, StateScope } from "./lib/types";
 import { SdrSocket } from "./lib/ws";
+import { ShellProvider } from "./shell/context";
+import { useNarrow } from "./shell/useNarrow";
+import { useWorkspace } from "./shell/useWorkspace";
+import { WorkspaceBar } from "./shell/WorkspaceBar";
+import { WorkspaceDock } from "./shell/WorkspaceDock";
 
 export function App() {
   const queryClient = useQueryClient();
@@ -45,6 +40,8 @@ export function App() {
 
   const state = useQuery(stateQuery());
   const clients = useQuery(clientsQuery());
+  const workspace = useWorkspace();
+  const narrow = useNarrow();
   const deviceSets = state.data?.device_sets ?? [];
 
   useEffect(() => {
@@ -90,9 +87,17 @@ export function App() {
   // Derive the active device set: the user's selection if it still exists, else the first one.
   // No effect needed — this recomputes whenever the WS-invalidated state query refetches.
   const active = deviceSets.find((d) => d.id === activeDs) ?? deviceSets[0] ?? null;
-  // Which live views to show follows from what is actually running: a decoder channel on the
-  // active set gets its panel, and nothing else takes up space.
-  const decoders = (active?.channels ?? []).filter((c) => DECODER_KINDS.has(kindOf(c)));
+  // Channel ids are allocated per device set, so a selection made on one set would silently
+  // match a different channel on another.
+  const [selectionSet, setSelectionSet] = useState<number | null>(null);
+  if (selectionSet !== (active?.id ?? null)) {
+    setSelectionSet(active?.id ?? null);
+    setSelectedChannel(null);
+  }
+
+  const snapshot = workspace.active?.snapshot ?? null;
+  const tabs = snapshot?.tabs ?? [];
+  const tab = tabs.find((t) => t.id === snapshot?.active_tab) ?? tabs[0] ?? null;
 
   return (
     <TokenGate onToken={() => socket?.retryNow()}>
@@ -102,7 +107,7 @@ export function App() {
             <span className="font-mono text-lg font-semibold tracking-tight text-accent">
               sdr--
             </span>
-            <span className="text-xs text-ink-dim">ops &amp; UX polish · M5</span>
+            <span className="text-xs text-ink-dim">the UI shell · M6</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-ink-dim">
             {/* Only worth saying when someone else is here: a solo operator does not need a
@@ -117,20 +122,22 @@ export function App() {
           </div>
         </header>
 
-        {serverError !== null && (
+        {(serverError !== null || workspace.error !== null) && (
           <div className="border-b border-line px-4 py-2">
             <div
               role="alert"
               className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
             >
-              <span>Server error: {serverError}</span>
-              <button
-                type="button"
-                className="shrink-0 underline"
-                onClick={() => setServerError(null)}
-              >
-                dismiss
-              </button>
+              <span>{serverError ?? `Workspace: ${workspace.error}`}</span>
+              {serverError !== null && (
+                <button
+                  type="button"
+                  className="shrink-0 underline"
+                  onClick={() => setServerError(null)}
+                >
+                  dismiss
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -143,120 +150,48 @@ export function App() {
 
         {active && <DeviceSettingsPanel active={active} />}
 
-        {socket && (
-          <SpectrumDisplay
-            socket={socket}
-            deviceSet={active?.id ?? null}
-            connected={connected}
-            channels={active?.channels ?? []}
-            selectedChannel={selectedChannel}
-            onSelectChannel={setSelectedChannel}
-          />
-        )}
+        <WorkspaceBar
+          workspaces={workspace.workspaces}
+          activeId={workspace.active?.id ?? null}
+          snapshot={snapshot}
+          onSnapshot={workspace.saveSnapshot}
+          onActivate={workspace.activate}
+          onCreate={workspace.create}
+          onRemove={workspace.remove}
+        />
 
-        {decoders.length > 0 && (
-          <div className="flex shrink-0 flex-col border-t border-line lg:flex-row">
-            <div className="min-w-0 flex-1">
-              {decoderPanels(active?.id ?? 0, decoders, selectedChannel)}
-            </div>
-            {/* The map earns its width only when something can be plotted on it. */}
-            {decoders.some((c) => MAPPED_KINDS.has(kindOf(c))) && (
-              <div className="border-line max-lg:border-t lg:w-[28rem] lg:border-l">
-                <PanelSection title="Map">
-                  <MapPanel className="h-72" />
-                </PanelSection>
-              </div>
-            )}
-          </div>
-        )}
-
-        {socket && (
-          <div className="flex max-h-[45dvh] shrink-0 flex-col overflow-y-auto border-t border-line md:flex-row md:overflow-hidden">
-            {active && (
-              <div className="min-w-0 flex-1 md:overflow-y-auto">
-                <PanelSection title="Channels">
-                  <ChannelsPanel
-                    socket={socket}
-                    deviceSet={active}
-                    selected={selectedChannel}
-                    onSelect={setSelectedChannel}
-                  />
-                </PanelSection>
-              </div>
-            )}
-            {/* Recordings are a device-independent library: they must stay browsable (and
-              playable — Play opens a set) with zero device sets open, unlike the set-bound
-              panels above. */}
-            <div
-              className={`shrink-0 md:overflow-y-auto ${
-                active ? "border-line max-md:border-t md:w-80 md:border-l" : "min-w-0 flex-1"
-              }`}
-            >
-              {active && (
-                <>
-                  <PanelSection title="Scanner" defaultOpen={false}>
-                    <ScannerPanel active={active} />
-                  </PanelSection>
-                  <PanelSection title="Templates" defaultOpen={false}>
-                    <TemplatesPanel active={active} />
-                  </PanelSection>
-                  <PanelSection title="Presets" defaultOpen={false}>
-                    <PresetsPanel active={active} />
-                  </PanelSection>
-                  <PanelSection title="Bookmarks" defaultOpen={false}>
-                    <BookmarksPanel active={active} />
-                  </PanelSection>
-                </>
-              )}
-              <PanelSection title="Recordings" defaultOpen={false}>
-                <RecordingsPanel onSelect={setActiveDs} />
-              </PanelSection>
-              {/* Like recordings, the decoder log is a device-independent library. */}
-              <PanelSection title="Decoder log" defaultOpen={false}>
-                <DecoderLogPanel deviceSets={deviceSets} />
-              </PanelSection>
-            </div>
-          </div>
+        {socket && tab !== null && snapshot !== null && (
+          <ShellProvider
+            value={{
+              socket,
+              connected,
+              deviceSets,
+              active,
+              setActiveDs,
+              selectedChannel,
+              setSelectedChannel,
+            }}
+          >
+            <WorkspaceDock
+              // A tab switch must rebuild the dock, not diff into it: panel ids repeat across
+              // tabs, and dockview would move the live panel instead of creating a second one.
+              key={`${workspace.active?.id ?? 0}:${tab.id}`}
+              tab={tab}
+              readOnly={narrow}
+              onChange={(next) =>
+                workspace.saveSnapshot({
+                  ...snapshot,
+                  tabs: snapshot.tabs.map((existing) =>
+                    existing.id === next.id ? next : existing,
+                  ),
+                })
+              }
+            />
+          </ShellProvider>
         )}
       </div>
     </TokenGate>
   );
-}
-
-/// Channel type ids that emit decoder events. WFM is here because it carries RDS; the
-/// descriptor's `decoder_kind` says so, but the panel choice is per channel type.
-const DECODER_KINDS = new Set(["wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse"]);
-/// The subset whose events carry a position, and therefore justify showing the map.
-const MAPPED_KINDS = new Set(["adsb", "ais", "aprs"]);
-
-function kindOf(channel: ChannelInfo): string {
-  return channel.settings.params.type;
-}
-
-/// One live view per decoder channel, scoped to that channel so two POCSAG receivers on
-/// different frequencies do not pour into one list.
-function decoderPanels(
-  deviceSet: number,
-  channels: readonly ChannelInfo[],
-  selected: number | null,
-) {
-  return channels.map((channel) => {
-    const kind = kindOf(channel);
-    // Channel ids are allocated per device set, so two sets both have a channel 1. Scoping on
-    // the id alone would pour one set's frames into the other's panel.
-    const scope = { deviceSet, channel: channel.id };
-    const title = `${kind.toUpperCase()} · channel ${channel.id}`;
-    const open = selected === null || selected === channel.id;
-    return (
-      <PanelSection key={channel.id} title={title} defaultOpen={open}>
-        {kind === "wfm" && <RdsView scope={scope} />}
-        {(kind === "adsb" || kind === "ais") && <TargetsView scope={scope} />}
-        {kind === "aprs" && <AprsView scope={scope} />}
-        {kind === "pocsag" && <PagerView scope={scope} />}
-        {(kind === "rtty" || kind === "morse") && <TextView kind={kind} scope={scope} />}
-      </PanelSection>
-    );
-  });
 }
 
 // PLAN §5: each `StateChanged` scope maps to exactly the query keys it invalidates.
@@ -283,6 +218,10 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "clients":
       void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+      break;
+    case "workspaces":
+      // Covers the list and every open layout: the layout queries are keyed under this prefix.
+      void queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
       break;
     case "decoder_log":
       // Only structural changes (cleared, pruned) land here; individual decodes arrive as

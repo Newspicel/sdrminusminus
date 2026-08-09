@@ -38,13 +38,23 @@ export function SpectrumDisplay({
   const lineRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<WaterfallRenderer | null>(null);
   const [meta, setMeta] = useState<FrameMeta | null>(null);
+  const [glError, setGlError] = useState<string | null>(null);
 
   useEffect(() => {
     const canvas = waterfallRef.current;
     if (!canvas) {
       return;
     }
-    const renderer = new WaterfallRenderer(canvas);
+    let renderer: WaterfallRenderer;
+    try {
+      renderer = new WaterfallRenderer(canvas);
+    } catch (error) {
+      // No WebGL2, a driver that refuses the shader, a lost context: the waterfall is the
+      // centerpiece, but throwing out of a dock panel's mount takes the whole UI down with it.
+      // The spectrum line, the controls and every other panel still work without it.
+      setGlError(error instanceof Error ? error.message : String(error));
+      return;
+    }
     rendererRef.current = renderer;
     return () => {
       renderer.dispose();
@@ -104,6 +114,13 @@ export function SpectrumDisplay({
     <div className="relative flex flex-1 flex-col overflow-hidden">
       <canvas ref={lineRef} className="h-32 w-full shrink-0 bg-panel" />
       <canvas ref={waterfallRef} className="w-full flex-1 bg-bg" />
+      {glError !== null && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
+          <span className="rounded border border-danger bg-bg/90 px-2 py-1 font-mono text-xs text-danger">
+            waterfall unavailable: {glError}
+          </span>
+        </div>
+      )}
       {deviceSet === null ? (
         <div className="absolute inset-0 flex items-center justify-center text-ink-dim">
           Open a device to see the spectrum.

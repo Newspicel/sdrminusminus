@@ -27,6 +27,10 @@ import type {
   ScanSettings,
   StateSnapshot,
   TemplatesResponse,
+  WorkspaceDetail,
+  WorkspaceInfo,
+  WorkspaceSnapshot,
+  WorkspacesResponse,
 } from "./types";
 
 export const client = createClient<paths>({ baseUrl: "/" });
@@ -62,6 +66,7 @@ export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
 export const AUTH_KEY = ["get", "/api/auth"] as const;
 export const CLIENTS_KEY = ["get", "/api/clients"] as const;
 export const DOCTOR_KEY = ["get", "/api/doctor"] as const;
+export const WORKSPACES_KEY = ["get", "/api/workspaces"] as const;
 
 export function stateQuery() {
   return queryOptions({
@@ -255,6 +260,60 @@ export function clientsQuery() {
     queryKey: CLIENTS_KEY,
     queryFn: async (): Promise<ClientsResponse> => unwrap(await client.GET("/api/clients")),
   });
+}
+
+/** The workspace switcher's view: every workspace plus the active one (PLAN §10 — the shell is
+ * station config, so it is server-side and every client converges on it). */
+export function workspacesQuery() {
+  return queryOptions({
+    queryKey: WORKSPACES_KEY,
+    queryFn: async (): Promise<WorkspacesResponse> => unwrap(await client.GET("/api/workspaces")),
+  });
+}
+
+/** One workspace with its layout. Keyed under `WORKSPACES_KEY` so a `workspaces` scope
+ * invalidates the list and every open layout together. */
+export function workspaceQuery(id: number | null) {
+  return queryOptions({
+    queryKey: [...WORKSPACES_KEY, id] as const,
+    queryFn: async (): Promise<WorkspaceDetail> =>
+      unwrap(
+        await client.GET("/api/workspaces/{id}", {
+          params: { path: { id: id ?? 0 } },
+        }),
+      ),
+    enabled: id !== null,
+  });
+}
+
+export async function createWorkspace(name: string, snapshot?: WorkspaceSnapshot): Promise<number> {
+  return unwrap(
+    await client.POST("/api/workspaces", {
+      body: { name, ...(snapshot ? { snapshot } : {}) },
+    }),
+  ).id;
+}
+
+/** Rename and/or re-lay-out. `revision` is the one the caller last saw: the server answers 409
+ * rather than letting a stale layout overwrite the one another client is arranging. */
+export async function updateWorkspace(
+  id: number,
+  update: { revision: number; name?: string; snapshot?: WorkspaceSnapshot },
+): Promise<WorkspaceInfo> {
+  return unwrap(
+    await client.PUT("/api/workspaces/{id}", {
+      params: { path: { id } },
+      body: update,
+    }),
+  );
+}
+
+export async function deleteWorkspace(id: number): Promise<void> {
+  unwrap(await client.DELETE("/api/workspaces/{id}", { params: { path: { id } } }));
+}
+
+export async function activateWorkspace(id: number): Promise<void> {
+  unwrap(await client.POST("/api/workspaces/{id}/activate", { params: { path: { id } } }));
 }
 
 export function doctorQuery(enabled: boolean) {

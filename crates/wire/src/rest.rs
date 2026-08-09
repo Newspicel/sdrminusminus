@@ -232,6 +232,10 @@ pub struct TemplateInfo {
     /// cannot reach instead of failing on apply.
     pub min_freq_hz: f64,
     pub max_freq_hz: f64,
+    /// Panel layout the template opens as a tab in the active workspace (M6, PLAN §16). A
+    /// template that names none leaves the workspace alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<crate::workspace::LayoutNode>,
 }
 
 /// `GET /api/templates`.

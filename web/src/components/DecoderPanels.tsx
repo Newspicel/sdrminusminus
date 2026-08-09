@@ -329,7 +329,7 @@ export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?:
         // reachable from the keyboard.
         tabIndex={0}
         aria-label={`${kind} transcript`}
-        className="h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-panel px-2 py-1.5 font-mono text-xs text-ink"
+        className="max-h-72 min-h-32 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-panel px-2 py-1.5 font-mono text-xs text-ink"
         onScroll={(e) => {
           stick.current = isAtBottom(e.currentTarget);
         }}

@@ -115,6 +115,11 @@ export class WaterfallRenderer {
     this.gl.deleteProgram(this.program);
     this.gl.deleteVertexArray(this.vao);
     this.gl.deleteBuffer(this.quadBuffer);
+    // Deleting the objects does not free the *context*, and browsers cap how many a document
+    // may hold (~16). A dock creates and destroys panels for the life of the session, so
+    // without this the oldest context is dropped by the browser and some other canvas — not
+    // this one — goes black.
+    this.gl.getExtension("WEBGL_lose_context")?.loseContext();
   }
 
   private allocate(width: number): void {
@@ -138,6 +143,11 @@ export class WaterfallRenderer {
   private render(): void {
     const gl = this.gl;
     this.resizeToDisplay();
+    // A panel in a background tab, or one dragged to zero width, measures 0×0. Drawing into it
+    // is wasted GPU work every frame, and the rows keep accumulating either way.
+    if (this.canvas.width === 0 || this.canvas.height === 0) {
+      return;
+    }
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.useProgram(this.program);
     gl.bindVertexArray(this.vao);

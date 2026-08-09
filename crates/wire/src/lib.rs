@@ -14,6 +14,7 @@ pub mod frame;
 pub mod rest;
 pub mod scan;
 pub mod state;
+pub mod workspace;
 pub mod ws;
 
 pub use channel::{
@@ -42,6 +43,12 @@ pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
 pub use state::{DeviceSet, DeviceSetStatus, RecordingStatus, StateSnapshot};
+pub use workspace::{
+    CreateWorkspaceRequest, FloatingGroup, LayoutChild, LayoutNode, MAX_PANELS_PER_TAB,
+    MAX_SPLIT_DEPTH, MAX_TABS, PanelGroup, PanelKind, PanelSpec, SplitDirection, SplitNode,
+    TabSpec, UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,
+    WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
+};
 pub use ws::{ClientCommand, ServerEvent, StateScope, StreamKind};
 
 #[cfg(test)]
@@ -85,6 +92,7 @@ mod contract_tests {
             (StateScope::Bookmarks, "bookmarks"),
             (StateScope::Recordings, "recordings"),
             (StateScope::DecoderLog, "decoder_log"),
+            (StateScope::Workspaces, "workspaces"),
         ] {
             let json = serde_json::to_value(&scope).unwrap();
             assert_eq!(json["scope"], tag);

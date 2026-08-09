@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "5.101.4",
+    "dockview-react": "7.0.4",
     "maplibre-gl": "6.2.0",
     "openapi-fetch": "0.17.0",
     "opus-decoder": "0.7.11",

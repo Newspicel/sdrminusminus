@@ -978,3 +978,146 @@ a scripted radio, the converter's carry, and the transmit queue split across its
 test touches USB. Nothing was re-verified on hardware: this change moves code between crates
 without altering the register writes, the transfer policy or the restart timings the field
 session measured, and the field evidence above stands unamended.
+
+---
+
+## M6 — The UI shell ✅
+
+Goal (PLAN §16): workspaces → tabs → dockview panel layouts, server-persisted (§10); templates
+gain layouts. M0–M5 shipped a fixed arrangement, so this is a shell change: every panel it hosts
+already existed.
+
+**Status: complete.** `cargo xtask check` + `cargo xtask test` green (77 server tests, 181 web
+tests); verified live in a browser against `device-virtual` — layout restore, tab switch, panel
+add, reload, and the phone breakpoint (screenshots in the session; the behaviours are listed
+under *Verified live* below).
+
+### Wire (single source of truth, PLAN §4)
+- [x] `crates/wire/src/workspace.rs` — `PanelKind`, `PanelSpec`/`PanelGroup`, `LayoutNode`
+  (`split`/`group`, adjacently tagged like `ChannelParams`), `SplitNode`/`LayoutChild`,
+  `FloatingGroup`, `TabSpec`, `WorkspaceSnapshot` + `WorkspaceInfo`/`WorkspaceDetail`/requests,
+  `StateScope::Workspaces`
+- [x] **The layout tree is ours, not dockview's** — templates author layouts in Rust, and a dock
+  major cannot invalidate stored workspaces (PLAN §10 decision)
+- [x] Weights in **permille (`u16`)**, not fractions: a float drifts across load→save cycles and
+  serializes `null` for NaN, which would fail the *whole* snapshot on the way back in
+- [x] Ids, never indices, for "which panel/tab is active" — an index goes stale the moment a
+  panel closes
+- [x] `#[schema(no_recursion)]` on the `LayoutChild → LayoutNode` back edge; without it utoipa
+  recurses forever and `cargo xtask codegen` never finishes
+- [x] Pure `WorkspaceSnapshot::validate()` in `wire` (one rejection point, no I/O): version,
+  tab/panel caps, nesting depth, degenerate splits, zero weights, duplicate ids, dangling
+  `active`, floating geometry outside the dock
+- [x] `WorkspaceSnapshot::station_default()` — the M0–M5 arrangement expressed as two tabs, so a
+  first run lands on a working station and nothing reachable before M6 became unreachable
+- [x] `TemplateInfo.layout` + contract tests for every new tag, default and absent-field case
+
+### Server (`crates/server`)
+- [x] Migration 4: `workspaces` (one JSON snapshot per row, like presets — written atomically,
+  read whole, never queried by inner field) + a single-row `active_workspace` table, because
+  "exactly one is active" belongs in the schema rather than in a per-row flag someone will
+  eventually set twice
+- [x] `tabs` denormalized onto the row so the switcher never parses a layout: a snapshot this
+  build cannot read breaks opening *that* workspace, never the list that lets you leave it
+- [x] `active_workspace` is maintained in the delete transaction, not by a foreign key —
+  rusqlite leaves `PRAGMA foreign_keys` off, so `ON DELETE SET NULL` would be inert
+  documentation and the pointer would dangle
+- [x] Deleting the active workspace promotes the lowest-id survivor; deleting the last one
+  reports `active: null` honestly instead of 500-ing
+- [x] Revision-checked updates: an update carrying a revision the caller no longer holds is a
+  409, so an idle browser cannot overwrite the layout someone is arranging
+- [x] REST: `GET`/`POST /api/workspaces`, `GET`/`PUT`/`DELETE /api/workspaces/{id}`,
+  `POST /api/workspaces/{id}/activate`, all emitting `StateScope::Workspaces`
+- [x] Seeding runs on every `Store::open` and only acts on an empty table
+- [x] Templates gained layouts: applying one also upserts a `template:<slug>` tab into the active
+  workspace and activates it, so re-applying replaces that tab instead of stacking copies. The
+  device configuration is what the user asked for, so a workspace that cannot take the tab
+  (none active, or another client wrote first) does not turn a successful apply into an error
+- [x] Tests: store CRUD + seeding + stale-revision + name-collision + bad-layout rejection;
+  handler tests for the whole REST surface and for the template tab (twice-applied, one tab)
+
+### Web (`web/src/shell`, PLAN §10)
+- [x] `dockview-react` 7.0.4 — v7 moved the React flavour out of the `dockview` package, which
+  is now vanilla; one dependency, styles from `dockview-react/dist/styles/dockview.css`
+- [x] `dockLayout.ts` — the two mappers, pure and unit-tested: our tree ⇄ `SerializedDockview`.
+  It carries the two shape differences: dockview's grid **alternates axis at every depth** (so
+  same-direction nesting is collapsed on the way in, which makes alternation an invariant), and
+  it stores **pixels** where we store permille
+- [x] Round-trip tests: the default layout unchanged, idempotent across repeated passes (or every
+  load would rewrite the layout and fan a state change for nothing), pixel sizes → permille
+  shares, floating groups through every corner anchor, same-direction collapse, empty groups and
+  degenerate splits dropped, unknown component names ignored, single-group root wrapped (dockview
+  refuses a leaf root: *"root must be of type branch"*)
+- [x] `WorkspaceDock.tsx` — applies the stored layout, maps every gesture back, and breaks the
+  echo loop three ways: writes are suppressed while a layout is being applied, a layout that maps
+  back to what is already stored is not written, and an incoming tab equal to the one just
+  emitted is not re-applied. Writes debounce to the end of a gesture
+- [x] `defaultRenderer: "always"` — panels are never detached, so the waterfall's GL context, the
+  map's camera and every scroll position survive a tab switch (a detached element also measures
+  0×0, which is how canvas code gets resized to nothing)
+- [x] Narrow viewports (< `md`) lay every panel out as one stack and **never persist**: dockview
+  clamps panels to their minimum size there, and writing the clamp back would flatten the layout
+  a desktop client authored
+- [x] `WorkspaceBar.tsx` — workspace switcher, create/remove, tab strip with inline rename, add
+  tab, add panel (offering only kinds the tab lacks)
+- [x] `panels.tsx` — the `PanelKind → component` registry; `context.tsx` carries the socket, the
+  active set and the selection, because dockview serializes panel params into the layout and a
+  socket or a setter cannot travel that way
+- [x] Selection is scoped to the active device set — channel ids are per set, so the old shared
+  selection silently matched a different channel after a set switch
+- [x] Instrumentation dock theme from the existing palette via `--dv-*` variables (no fork of
+  dockview's stylesheet); square corners, 1px separators, 28px tab strip
+- [x] `PanelSection` deleted — a dock tab *is* the header it drew, and its collapse was
+  mobile-only
+
+### Fixed where found (CLAUDE.md #4)
+- [x] **A failing waterfall took the whole UI down.** `WaterfallRenderer` throws on a missing
+  WebGL2 context or a rejected shader, and the throw escaped a dock panel's mount. It is caught
+  now: the spectrum line, the controls and every other panel keep working, with the reason shown
+  on the panel. Found live — headless Chrome's GL refused the shader
+- [x] `WaterfallRenderer::dispose` releases the GL *context* (`WEBGL_lose_context`), not just its
+  objects: browsers cap contexts per document (~16), and a dock creates and destroys panels for
+  the life of a session — the browser would drop the oldest context, blacking out some *other*
+  canvas
+- [x] The renderer skips frames at 0×0 instead of burning GPU on a panel nobody can see
+- [x] Fixed heights that fight a resizable panel: the decoder log's `max-h-80` table and the
+  transcript's `h-48` now fill their panel; the map fills instead of `h-72`
+
+### Verified live (browser, `device-virtual`)
+- [x] Seeded workspace restores as two tabs; the Station tab streams spectrum from the signal
+  generator through the docked panel
+- [x] Tab switch, add panel and a dock tab click each persist exactly one revision and then
+  **settle** — no echo loop between the save and the `StateChanged` it triggers
+- [x] Reload is a fixed point: the restored layout produces no write
+- [x] At phone width every panel becomes one stack, nothing is persisted, and returning to
+  desktop width restores the split layout with the revision untouched
+- [x] Two bugs this found and fixed: a single-group layout was refused by dockview (leaf root),
+  and the layout listener closed over the narrow-mode flag captured at mount — a dock first
+  opened on a phone kept discarding writes after the viewport widened
+
+### Gates
+- [x] `cargo fmt` + `cargo clippy -D warnings` clean; Soapy-free and release-shaped builds green
+- [x] `cargo xtask test` green; `biome ci` + `oxlint` (type-aware) + `tsgo` + web build clean
+- [x] OpenAPI regenerated, TS aliases added, zero drift
+
+### Known gaps (honest, not deferred silently)
+- **Per-channel decoder panels.** One `Decoders` panel renders every decoder channel of the
+  active set, as the fixed layout did. A panel *per channel* needs channel identity that survives
+  a restart, which the engine does not have — the same reason panels carry no device-set binding.
+- **Panels do not pin a radio.** With two receivers open, every panel follows the one selected in
+  the device bar. Pinning needs the stable `driver:key` a preset uses, plus UI to choose it.
+- **Floating windows hosting more than one group** are dropped by the reverse mapper rather than
+  half-placed; dockview writes those as a nested grid the wire model does not describe. A single
+  floating group round-trips. **Popout windows** are not persisted at all — an OS window position
+  is per-machine state, and the plan does not name popouts.
+- **A layout written by a newer build is refused, not migrated.** `WorkspaceSnapshot.version`
+  gates the write; `PresetSnapshot` has had the same unfilled promise since M3, and neither has a
+  migration path yet.
+- **A stored snapshot naming an unknown `PanelKind` fails the whole workspace open** (loudly —
+  the row is never rewritten without it). Only reachable by downgrading the binary or editing the
+  database by hand, since the UI ships inside the server.
+- **One spectrum panel at a time.** `SdrSocket.onSpectrum` is a single handler, so two spectrum
+  panels in one tab would fight; the add-panel menu only offers kinds the tab lacks, which makes
+  it unreachable rather than fixed.
+- **No Playwright smoke flow** still (PLAN §14): the live verification above was manual, and the
+  mappers carry the automated coverage.

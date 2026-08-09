@@ -10,8 +10,8 @@
 use std::sync::LazyLock;
 
 use sdrmm_wire::{
-    AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, ChannelSettings, NfmParams,
-    PocsagParams, TemplateInfo, WfmParams,
+    AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, ChannelSettings, LayoutNode,
+    NfmParams, PanelKind, PocsagParams, SplitDirection, TemplateInfo, WfmParams,
 };
 
 /// One channel in a template: its absolute frequency and a constructor for its params.
@@ -29,6 +29,54 @@ struct Entry {
     sample_rate: f64,
     /// `(absolute frequency, params)` — absolute so the table reads like a band plan.
     channels: &'static [Channel],
+    /// Panels the template opens as its own workspace tab (M6, PLAN §16). Two shapes cover
+    /// every entry: what you *listen* to, and what you *plot*.
+    layout: fn() -> LayoutNode,
+}
+
+/// Spectrum over the channel controls and whatever the channel decodes — the shape for a
+/// template you tune and listen to.
+fn listening_layout() -> LayoutNode {
+    LayoutNode::split(
+        SplitDirection::Column,
+        vec![
+            (600, LayoutNode::group(&[PanelKind::Spectrum])),
+            (
+                400,
+                LayoutNode::split(
+                    SplitDirection::Row,
+                    vec![
+                        (500, LayoutNode::group(&[PanelKind::Channels])),
+                        (500, LayoutNode::group(&[PanelKind::Decoders])),
+                    ],
+                ),
+            ),
+        ],
+    )
+}
+
+/// Spectrum over the decoder views beside the map — the shape for a template whose output has
+/// positions (ADS-B, AIS, APRS).
+fn mapping_layout() -> LayoutNode {
+    LayoutNode::split(
+        SplitDirection::Row,
+        vec![
+            (
+                550,
+                LayoutNode::split(
+                    SplitDirection::Column,
+                    vec![
+                        (450, LayoutNode::group(&[PanelKind::Spectrum])),
+                        (
+                            550,
+                            LayoutNode::group(&[PanelKind::Decoders, PanelKind::Channels]),
+                        ),
+                    ],
+                ),
+            ),
+            (450, LayoutNode::group(&[PanelKind::Map])),
+        ],
+    )
 }
 
 /// Every template. Keep the sample rates conservative: the Pi 4 is the performance floor
@@ -50,6 +98,7 @@ static TEMPLATES: &[Entry] = &[
                 ..WfmParams::default()
             })
         })],
+        layout: listening_layout,
     },
     Entry {
         id: "airband",
@@ -63,6 +112,7 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 118_100_000.0,
         sample_rate: 2_400_000.0,
         channels: &[(118_100_000.0, || ChannelParams::Am(AmParams::default()))],
+        layout: listening_layout,
     },
     Entry {
         id: "adsb",
@@ -79,6 +129,7 @@ static TEMPLATES: &[Entry] = &[
         channels: &[(1_090_000_000.0, || {
             ChannelParams::Adsb(AdsbParams::default())
         })],
+        layout: mapping_layout,
     },
     Entry {
         id: "ais",
@@ -97,6 +148,7 @@ static TEMPLATES: &[Entry] = &[
                 })
             }),
         ],
+        layout: mapping_layout,
     },
     Entry {
         id: "aprs",
@@ -108,6 +160,7 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 144_800_000.0,
         sample_rate: 1_024_000.0,
         channels: &[(144_800_000.0, || ChannelParams::Aprs(AprsParams::default()))],
+        layout: mapping_layout,
     },
     Entry {
         id: "pagers",
@@ -122,6 +175,7 @@ static TEMPLATES: &[Entry] = &[
         channels: &[(466_075_000.0, || {
             ChannelParams::Pocsag(PocsagParams::default())
         })],
+        layout: listening_layout,
     },
     Entry {
         id: "ham-2m",
@@ -133,6 +187,7 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 145_700_000.0,
         sample_rate: 1_024_000.0,
         channels: &[(145_700_000.0, || ChannelParams::Nfm(NfmParams::default()))],
+        layout: listening_layout,
     },
     Entry {
         id: "marine-vhf",
@@ -144,6 +199,7 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 156_800_000.0,
         sample_rate: 1_024_000.0,
         channels: &[(156_800_000.0, || ChannelParams::Nfm(NfmParams::default()))],
+        layout: listening_layout,
     },
 ];
 
@@ -177,6 +233,7 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                     channels,
                     min_freq_hz: min.min(entry.center_hz),
                     max_freq_hz: max.max(entry.center_hz),
+                    layout: Some((entry.layout)()),
                 }
             })
             .collect()
@@ -243,6 +300,29 @@ mod tests {
         assert_eq!(adsb.sample_rate, 2_000_000.0);
         assert_eq!(adsb.channels.len(), 1);
         assert_eq!(adsb.channels[0].offset_hz, 0.0);
+    }
+
+    /// A template's tab is upserted into the live workspace, so a layout that fails validation
+    /// would be discovered only when someone clicks Apply.
+    #[test]
+    fn every_template_layout_is_a_valid_tab() {
+        use sdrmm_wire::{TabSpec, WORKSPACE_SNAPSHOT_VERSION, WorkspaceSnapshot};
+        for template in all() {
+            let layout = template.layout.clone().expect("templates carry a layout");
+            let snapshot = WorkspaceSnapshot {
+                version: WORKSPACE_SNAPSHOT_VERSION,
+                tabs: vec![TabSpec {
+                    id: format!("template:{}", template.id),
+                    name: template.name.clone(),
+                    layout,
+                    floating: Vec::new(),
+                }],
+                active_tab: None,
+            };
+            snapshot
+                .validate()
+                .unwrap_or_else(|e| panic!("{}: {e}", template.id));
+        }
     }
 
     #[test]

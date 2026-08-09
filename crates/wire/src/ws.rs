@@ -32,6 +32,11 @@ pub enum StateScope {
     /// arrive as [`ServerEvent::Decoded`] and are appended client-side — invalidating per
     /// decode would refetch the whole log hundreds of times a second under ADS-B traffic.
     DecoderLog,
+    /// The stored workspaces changed: created, renamed, deleted, switched, or the active
+    /// layout was re-persisted (M6, PLAN §10). Layout writes are debounced to the end of a
+    /// user gesture at the writer — one event per resize frame would be the decoder-traffic
+    /// mistake repeated on the control plane.
+    Workspaces,
 }
 
 /// Which binary stream a control event refers to. Spectrum stream ids are device-set ids

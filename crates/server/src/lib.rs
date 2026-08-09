@@ -1387,6 +1387,170 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
+    /// A template also opens its panels as a tab in the active workspace (M6): the layout is
+    /// the other half of "apply", and re-applying must replace that tab, never stack copies.
+    #[tokio::test]
+    async fn applying_a_template_upserts_its_tab_in_the_active_workspace() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+        let before = workspaces(&app).await;
+        let active = before.active.expect("seeded workspace");
+        let tabs_before = before.workspaces[0].tabs;
+
+        for _ in 0..2 {
+            let (status, body) = request(
+                app.clone(),
+                "POST",
+                "/api/templates/fm-radio/apply",
+                Some(&format!(r#"{{"device_set":{ds}}}"#)),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::NO_CONTENT,
+                "{}",
+                String::from_utf8_lossy(&body)
+            );
+        }
+
+        let (status, body) = request(
+            app.clone(),
+            "GET",
+            &format!("/api/workspaces/{active}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let detail: sdrmm_wire::WorkspaceDetail = serde_json::from_slice(&body).expect("json");
+        assert_eq!(
+            u32::try_from(detail.snapshot.tabs.len()).unwrap(),
+            tabs_before + 1
+        );
+        let tab = detail
+            .snapshot
+            .tabs
+            .iter()
+            .find(|t| t.id == "template:fm-radio")
+            .expect("template tab");
+        assert_eq!(tab.name, "FM radio");
+        assert_eq!(
+            detail.snapshot.active_tab.as_deref(),
+            Some("template:fm-radio")
+        );
+        let (_, body) = request(app.clone(), "GET", "/api/templates", None).await;
+        let listed: sdrmm_wire::TemplatesResponse = serde_json::from_slice(&body).expect("json");
+        let template = listed
+            .templates
+            .iter()
+            .find(|t| t.id == "fm-radio")
+            .expect("template");
+        assert_eq!(Some(&tab.layout), template.layout.as_ref());
+    }
+
+    #[tokio::test]
+    async fn workspace_crud_over_http() {
+        let app = test_router();
+        let seeded = workspaces(&app).await;
+        let station = seeded.workspaces[0].id;
+        assert_eq!(seeded.active, Some(station));
+
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/workspaces",
+            Some(r#"{"name":"Bench"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let created: sdrmm_wire::CreatedRowId = serde_json::from_slice(&body).expect("json");
+
+        // A name already in use is a 409 the UI can act on, not a 500.
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/workspaces",
+            Some(r#"{"name":"Bench"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+        let (status, _) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/workspaces/{}/activate", created.id),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(workspaces(&app).await.active, Some(created.id));
+
+        // A layout the client could not render back is refused at the edge.
+        let (status, body) = request(
+            app.clone(),
+            "PUT",
+            &format!("/api/workspaces/{}", created.id),
+            Some(r#"{"revision":1,"snapshot":{"version":1,"tabs":[]}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+        let snapshot = serde_json::to_string(&sdrmm_wire::WorkspaceSnapshot::station_default())
+            .expect("snapshot");
+        let (status, body) = request(
+            app.clone(),
+            "PUT",
+            &format!("/api/workspaces/{}", created.id),
+            Some(&format!(r#"{{"revision":1,"snapshot":{snapshot}}}"#)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let info: sdrmm_wire::WorkspaceInfo = serde_json::from_slice(&body).expect("json");
+        assert_eq!(info.revision, 2);
+
+        // Replaying the same write is the stale-revision case, and it must not land.
+        let (status, _) = request(
+            app.clone(),
+            "PUT",
+            &format!("/api/workspaces/{}", created.id),
+            Some(&format!(r#"{{"revision":1,"snapshot":{snapshot}}}"#)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        let (status, _) = request(
+            app.clone(),
+            "DELETE",
+            &format!("/api/workspaces/{}", created.id),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let after = workspaces(&app).await;
+        assert_eq!(after.workspaces.len(), 1);
+        assert_eq!(
+            after.active,
+            Some(station),
+            "deleting the active one promotes"
+        );
+
+        let (status, _) = request(
+            app.clone(),
+            "GET",
+            &format!("/api/workspaces/{}", created.id),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    async fn workspaces(app: &Router) -> sdrmm_wire::WorkspacesResponse {
+        let (status, body) = request(app.clone(), "GET", "/api/workspaces", None).await;
+        assert_eq!(status, StatusCode::OK);
+        serde_json::from_slice(&body).expect("json")
+    }
+
     #[tokio::test]
     async fn scanner_start_stop_and_error_mapping_over_http() {
         let app = test_router();
