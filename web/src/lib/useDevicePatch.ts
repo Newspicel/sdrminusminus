@@ -36,6 +36,15 @@ export function mergeSettings(current: DeviceSettings, delta: DeviceSettings): D
   return next;
 }
 
+/**
+ * A debounce-flushed patch can outlive its device set (Close during a slider drag). A patch
+ * whose target is gone is meaningless: it must be dropped, not sent and then surfaced as a
+ * stale "Rejected" banner over whatever device the user opens next.
+ */
+export function patchTargetExists(snapshot: StateSnapshot | undefined, ds: number): boolean {
+  return snapshot?.device_sets.some((d) => d.id === ds) ?? false;
+}
+
 function mergeByKey<T>(current: T[] | undefined, delta: T[], key: (item: T) => string): T[] {
   const merged = [...(current ?? [])];
   for (const item of delta) {
@@ -82,14 +91,15 @@ export function useDevicePatch(): {
     // it — cancel in-flight fetches before touching the cache (TanStack optimistic contract).
     void queryClient.cancelQueries({ queryKey: STATE_KEY });
     const prev = queryClient.getQueryData<StateSnapshot>(STATE_KEY);
-    if (prev) {
-      queryClient.setQueryData<StateSnapshot>(STATE_KEY, {
-        ...prev,
-        device_sets: prev.device_sets.map((d) =>
-          d.id === ds ? { ...d, settings: mergeSettings(d.settings, delta) } : d,
-        ),
-      });
+    if (!prev || !patchTargetExists(prev, ds)) {
+      return;
     }
+    queryClient.setQueryData<StateSnapshot>(STATE_KEY, {
+      ...prev,
+      device_sets: prev.device_sets.map((d) =>
+        d.id === ds ? { ...d, settings: mergeSettings(d.settings, delta) } : d,
+      ),
+    });
     patchMut.mutate({ ds, settings: delta });
   };
 

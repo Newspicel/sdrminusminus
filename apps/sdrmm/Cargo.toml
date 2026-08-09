@@ -26,5 +26,6 @@ sdrmm-engine.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 clap.workspace = true
 anyhow.workspace = true
+dirs.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

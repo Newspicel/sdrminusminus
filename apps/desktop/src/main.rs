@@ -4,7 +4,7 @@
 //! purely over HTTP/WebSocket, so no Tauri IPC (and no capability grant) is required.
 
 use sdrmm_engine::Engine;
-use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 fn main() {
     tracing_subscriber::fmt()
@@ -22,7 +22,10 @@ fn main() {
             // The desktop shell bypasses `serve()` (it needs the pre-bound listener), so it
             // must start the hotplug prober itself to match the headless binary.
             engine.start_hotplug_prober(sdrmm_server::HOTPLUG_INTERVAL)?;
-            let router = sdrmm_server::router(engine, false);
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            let store = sdrmm_server::Store::open(Some(&data_dir.join("sdrmm.db")))?;
+            let router = sdrmm_server::router(engine, store, false);
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = axum::serve(listener, router).await {
                     tracing::error!("embedded server exited: {e}");

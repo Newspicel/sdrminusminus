@@ -16,7 +16,13 @@
 //!   f32 db_max
 //!   u16 n
 //!   u8[n] bins          (quantized magnitude over [db_min, db_max])
+//! AUDIO_OPUS payload:
+//!   u8  ch_layout       (1 = mono)
+//!   u8[] opus           (one Opus packet, to end of frame)
 //! ```
+//!
+//! AUDIO_OPUS timestamps count 48 kHz-domain samples since the channel's audio started
+//! (PLAN §9: demods emit 48 kHz PCM before Opus encoding).
 
 /// Protocol version in every frame header. Bump on any layout change.
 pub const PROTOCOL_VERSION: u8 = 1;
@@ -86,6 +92,41 @@ impl SpectrumFrame<'_> {
     }
 }
 
+/// An Opus audio frame ready to encode. The payload length is implicit: the opus packet
+/// runs from byte `HEADER_LEN + 1` to the end of the WS frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AudioFrame<'a> {
+    pub stream_id: u16,
+    pub seq: u32,
+    /// 48 kHz-domain sample count since the channel's audio started.
+    pub timestamp: u64,
+    /// Channel layout; 1 = mono.
+    pub ch_layout: u8,
+    pub opus: &'a [u8],
+}
+
+impl AudioFrame<'_> {
+    /// Serialized length: header + ch_layout + opus packet.
+    #[must_use]
+    pub fn encoded_len(&self) -> usize {
+        HEADER_LEN + 1 + self.opus.len()
+    }
+
+    /// Encode into a fresh little-endian byte buffer.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(self.encoded_len());
+        buf.push(PROTOCOL_VERSION);
+        buf.push(FrameKind::AudioOpus as u8);
+        buf.extend_from_slice(&self.stream_id.to_le_bytes());
+        buf.extend_from_slice(&self.seq.to_le_bytes());
+        buf.extend_from_slice(&self.timestamp.to_le_bytes());
+        buf.push(self.ch_layout);
+        buf.extend_from_slice(self.opus);
+        buf
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,5 +176,40 @@ mod tests {
         assert_eq!(dmin, -120.0);
         assert_eq!(dmax, -20.0);
         assert_eq!(out, bins);
+    }
+
+    /// Decode just enough to prove the layout matches the documented offsets.
+    fn decode_audio(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, u8, Vec<u8>) {
+        let ver = buf[0];
+        let kind = FrameKind::from_u8(buf[1]).expect("known kind");
+        let stream_id = u16::from_le_bytes([buf[2], buf[3]]);
+        let seq = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+        let timestamp = u64::from_le_bytes(buf[8..16].try_into().unwrap());
+        let ch_layout = buf[16];
+        let opus = buf[17..].to_vec();
+        (ver, kind, stream_id, seq, timestamp, ch_layout, opus)
+    }
+
+    #[test]
+    fn audio_roundtrip() {
+        let opus: Vec<u8> = (0..96u8).map(|i| i.wrapping_mul(3)).collect();
+        let frame = AudioFrame {
+            stream_id: 3,
+            seq: 512,
+            timestamp: 96_000,
+            ch_layout: 1,
+            opus: &opus,
+        };
+        let buf = frame.encode();
+        assert_eq!(buf.len(), frame.encoded_len());
+
+        let (ver, kind, sid, seq, ts, layout, out) = decode_audio(&buf);
+        assert_eq!(ver, PROTOCOL_VERSION);
+        assert_eq!(kind, FrameKind::AudioOpus);
+        assert_eq!(sid, 3);
+        assert_eq!(seq, 512);
+        assert_eq!(ts, 96_000);
+        assert_eq!(layout, 1);
+        assert_eq!(out, opus);
     }
 }

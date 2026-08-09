@@ -1,6 +1,16 @@
-// One WebSocket per client (PLAN §5): JSON `ServerEvent`s + binary spectrum frames in, JSON
-// `ClientCommand`s out. Auto-reconnects; the caller sets the handler fields.
-import { decodeSpectrum, type SpectrumFrame } from "./frame";
+// One WebSocket per client (PLAN §5): JSON `ServerEvent`s + binary frames in, JSON
+// `ClientCommand`s out. Auto-reconnects. The app shell owns the single-handler fields
+// (`onEvent`/`onSpectrum`/`onStatus`/`onAudio`); subsystems that must observe the same
+// events without stealing those use the add/remove listener methods.
+import {
+  type AudioFrame,
+  decodeAudio,
+  decodeSpectrum,
+  FRAME_KIND_AUDIO_OPUS,
+  FRAME_KIND_SPECTRUM,
+  frameKind,
+  type SpectrumFrame,
+} from "./frame";
 import type { ClientCommand, ServerEvent } from "./types";
 
 const RECONNECT_MS = 1000;
@@ -10,10 +20,13 @@ export class SdrSocket {
   private reconnectTimer: number | null = null;
   private closed = false;
   private readonly url: string;
+  private readonly eventListeners = new Set<(event: ServerEvent) => void>();
+  private readonly statusListeners = new Set<(connected: boolean) => void>();
 
   onEvent: (event: ServerEvent) => void = () => {};
   onSpectrum: (frame: SpectrumFrame) => void = () => {};
   onStatus: (connected: boolean) => void = () => {};
+  onAudio: (frame: AudioFrame) => void = () => {};
 
   constructor(path = "/api/ws") {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -31,6 +44,26 @@ export class SdrSocket {
     }
   }
 
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  addEventListener(listener: (event: ServerEvent) => void): void {
+    this.eventListeners.add(listener);
+  }
+
+  removeEventListener(listener: (event: ServerEvent) => void): void {
+    this.eventListeners.delete(listener);
+  }
+
+  addStatusListener(listener: (connected: boolean) => void): void {
+    this.statusListeners.add(listener);
+  }
+
+  removeStatusListener(listener: (connected: boolean) => void): void {
+    this.statusListeners.delete(listener);
+  }
+
   close(): void {
     this.closed = true;
     if (this.reconnectTimer !== null) {
@@ -44,30 +77,62 @@ export class SdrSocket {
   private open(): void {
     const ws = new WebSocket(this.url);
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => this.onStatus(true);
+    ws.onopen = () => this.emitStatus(true);
     ws.onerror = () => ws.close();
     ws.onclose = () => {
-      this.onStatus(false);
+      this.emitStatus(false);
       this.scheduleReconnect();
     };
     ws.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
       if (typeof event.data === "string") {
         this.dispatchText(event.data);
       } else {
-        const frame = decodeSpectrum(event.data);
-        if (frame) {
-          this.onSpectrum(frame);
-        }
+        this.dispatchBinary(event.data);
       }
     };
     this.ws = ws;
   }
 
   private dispatchText(text: string): void {
+    let event: ServerEvent;
     try {
-      this.onEvent(JSON.parse(text) as ServerEvent);
+      event = JSON.parse(text) as ServerEvent;
     } catch {
       // Ignore malformed frames; the server is the source of truth and will resend state.
+      return;
+    }
+    this.onEvent(event);
+    for (const listener of this.eventListeners) {
+      listener(event);
+    }
+  }
+
+  private dispatchBinary(buffer: ArrayBuffer): void {
+    switch (frameKind(buffer)) {
+      case FRAME_KIND_SPECTRUM: {
+        const frame = decodeSpectrum(buffer);
+        if (frame) {
+          this.onSpectrum(frame);
+        }
+        break;
+      }
+      case FRAME_KIND_AUDIO_OPUS: {
+        const frame = decodeAudio(buffer);
+        if (frame) {
+          this.onAudio(frame);
+        }
+        break;
+      }
+      default:
+        // Unknown kinds (e.g. future IQ_F32) are ignorable by design (PLAN §5).
+        break;
+    }
+  }
+
+  private emitStatus(connected: boolean): void {
+    this.onStatus(connected);
+    for (const listener of this.statusListeners) {
+      listener(connected);
     }
   }
 

@@ -15,3 +15,6 @@ sdrmm-wire.workspace = true
 sdrmm-device.workspace = true
 num-complex.workspace = true
 arc-swap.workspace = true
+
+[dev-dependencies]
+rustfft.workspace = true

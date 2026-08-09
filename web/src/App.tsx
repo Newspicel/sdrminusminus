@@ -1,13 +1,18 @@
 // App shell (PLAN §10). Owns the WebSocket, turns `StateChanged` events into TanStack Query
 // invalidations (the only invalidation path — no polling), and lays out the device bar over the
-// spectrum/waterfall.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+// spectrum/waterfall with the channel + library panels underneath.
+import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { BookmarksPanel } from "./components/BookmarksPanel";
+import { ChannelsPanel } from "./components/ChannelsPanel";
 import { DeviceBar } from "./components/DeviceBar";
 import { DeviceSettingsPanel } from "./components/DeviceSettings";
+import { PanelSection } from "./components/PanelSection";
+import { PresetsPanel } from "./components/PresetsPanel";
 import { SpectrumDisplay } from "./components/SpectrumDisplay";
-import { DEVICES_KEY, STATE_KEY, stateQuery } from "./lib/api";
-import type { ServerEvent } from "./lib/types";
+import { BOOKMARKS_KEY, DEVICES_KEY, PRESETS_KEY, STATE_KEY, stateQuery } from "./lib/api";
+import { audioEngine } from "./lib/audio/useChannelAudio";
+import type { ServerEvent, StateScope } from "./lib/types";
 import { SdrSocket } from "./lib/ws";
 
 export function App() {
@@ -15,6 +20,8 @@ export function App() {
   const [socket, setSocket] = useState<SdrSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const [activeDs, setActiveDs] = useState<number | null>(null);
+  const [selectedChannel, setSelectedChannel] = useState<number | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   const state = useQuery(stateQuery());
   const deviceSets = state.data?.device_sets ?? [];
@@ -37,9 +44,13 @@ export function App() {
           void queryClient.invalidateQueries();
           break;
         case "StateChanged":
-          void queryClient.invalidateQueries({ queryKey: STATE_KEY });
-          if (event.data.scope.scope === "devices") {
-            void queryClient.invalidateQueries({ queryKey: DEVICES_KEY });
+          invalidateScope(queryClient, event.data.scope);
+          break;
+        case "Error":
+          // The wire carries no coordinates: the audio engine claims errors answering its
+          // in-flight subscribes (surfaced on the channel row); the rest surface here.
+          if (!audioEngine.claimServerError(event.data.message)) {
+            setServerError(event.data.message);
           }
           break;
         default:
@@ -57,7 +68,7 @@ export function App() {
       <header className="flex items-center justify-between border-b border-line px-4 py-2">
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-lg font-semibold tracking-tight text-accent">sdr--</span>
-          <span className="text-xs text-ink-dim">real hardware · M1</span>
+          <span className="text-xs text-ink-dim">listen · M2</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-ink-dim">
           <span
@@ -67,6 +78,24 @@ export function App() {
         </div>
       </header>
 
+      {serverError !== null && (
+        <div className="border-b border-line px-4 py-2">
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
+          >
+            <span>Server error: {serverError}</span>
+            <button
+              type="button"
+              className="shrink-0 underline"
+              onClick={() => setServerError(null)}
+            >
+              dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="border-b border-line px-4 py-3">
         {socket && <DeviceBar active={active} onSelect={setActiveDs} />}
       </div>
@@ -74,8 +103,60 @@ export function App() {
       {active && <DeviceSettingsPanel active={active} />}
 
       {socket && (
-        <SpectrumDisplay socket={socket} deviceSet={active?.id ?? null} connected={connected} />
+        <SpectrumDisplay
+          socket={socket}
+          deviceSet={active?.id ?? null}
+          connected={connected}
+          channels={active?.channels ?? []}
+          selectedChannel={selectedChannel}
+          onSelectChannel={setSelectedChannel}
+        />
+      )}
+
+      {socket && active && (
+        <div className="flex max-h-[45dvh] shrink-0 flex-col overflow-y-auto border-t border-line md:flex-row md:overflow-hidden">
+          <div className="min-w-0 flex-1 md:overflow-y-auto">
+            <PanelSection title="Channels">
+              <ChannelsPanel
+                socket={socket}
+                deviceSet={active}
+                selected={selectedChannel}
+                onSelect={setSelectedChannel}
+              />
+            </PanelSection>
+          </div>
+          <div className="shrink-0 border-line max-md:border-t md:w-80 md:overflow-y-auto md:border-l">
+            <PanelSection title="Presets" defaultOpen={false}>
+              <PresetsPanel active={active} />
+            </PanelSection>
+            <PanelSection title="Bookmarks" defaultOpen={false}>
+              <BookmarksPanel active={active} />
+            </PanelSection>
+          </div>
+        </div>
       )}
     </div>
   );
+}
+
+// PLAN §5: each `StateChanged` scope maps to exactly the query keys it invalidates.
+function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
+  switch (scope.scope) {
+    case "all":
+      void queryClient.invalidateQueries();
+      break;
+    case "devices":
+      void queryClient.invalidateQueries({ queryKey: STATE_KEY });
+      void queryClient.invalidateQueries({ queryKey: DEVICES_KEY });
+      break;
+    case "device_set":
+      void queryClient.invalidateQueries({ queryKey: STATE_KEY });
+      break;
+    case "presets":
+      void queryClient.invalidateQueries({ queryKey: PRESETS_KEY });
+      break;
+    case "bookmarks":
+      void queryClient.invalidateQueries({ queryKey: BOOKMARKS_KEY });
+      break;
+  }
 }

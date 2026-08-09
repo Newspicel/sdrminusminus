@@ -3,7 +3,20 @@
 
 export const PROTOCOL_VERSION = 1;
 export const FRAME_KIND_SPECTRUM = 0;
+export const FRAME_KIND_AUDIO_OPUS = 1;
 const HEADER_LEN = 16;
+
+/** The `kind` header byte, or null if the buffer can't be a frame we understand. */
+export function frameKind(buffer: ArrayBuffer): number | null {
+  if (buffer.byteLength < HEADER_LEN) {
+    return null;
+  }
+  const view = new DataView(buffer);
+  if (view.getUint8(0) !== PROTOCOL_VERSION) {
+    return null;
+  }
+  return view.getUint8(1);
+}
 
 export interface SpectrumFrame {
   streamId: number;
@@ -38,4 +51,32 @@ export function decodeSpectrum(buffer: ArrayBuffer): SpectrumFrame | null {
   }
   const bins = new Uint8Array(buffer, 38, n);
   return { streamId, seq, timestamp, centerHz, spanHz, dbMin, dbMax, bins };
+}
+
+export interface AudioFrame {
+  streamId: number;
+  seq: number;
+  /** 48 kHz-domain sample count since the channel's audio started (PLAN §5). */
+  timestamp: bigint;
+  /** 1 = mono. */
+  chLayout: number;
+  /** One Opus packet: byte `HEADER_LEN + 1` to the end of the WS frame. */
+  opus: Uint8Array;
+}
+
+/** Decode an AUDIO_OPUS frame, or return null if the buffer is not one we understand. */
+export function decodeAudio(buffer: ArrayBuffer): AudioFrame | null {
+  if (buffer.byteLength < HEADER_LEN + 1) {
+    return null;
+  }
+  const view = new DataView(buffer);
+  if (view.getUint8(0) !== PROTOCOL_VERSION || view.getUint8(1) !== FRAME_KIND_AUDIO_OPUS) {
+    return null;
+  }
+  const streamId = view.getUint16(2, true);
+  const seq = view.getUint32(4, true);
+  const timestamp = view.getBigUint64(8, true);
+  const chLayout = view.getUint8(16);
+  const opus = new Uint8Array(buffer, HEADER_LEN + 1);
+  return { streamId, seq, timestamp, chLayout, opus };
 }

@@ -1,9 +1,8 @@
 // Numeric input that keeps a local buffer while typing and commits on blur/Enter — per-keystroke
 // PATCHes would flood the server and fight the WS-refreshed value. Commits clamp to the declared
-// range. `FIELD` is the shared look for all form controls in the instrument strips (PLAN §10).
+// range.
 import { useState } from "react";
-
-export const FIELD = "rounded border border-line bg-panel-2 px-2 py-1 font-mono text-ink";
+import { FIELD } from "./controls";
 
 export function NumberField({
   label,

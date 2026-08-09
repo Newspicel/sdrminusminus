@@ -1,8 +1,8 @@
 // Mirrors the `DeviceSettings::merge_from` tests (crates/wire/src/device.rs): the optimistic
 // cache must merge exactly like the server, or accumulated edits drift from the applied state.
 import { describe, expect, it } from "vitest";
-import type { DeviceSettings } from "./types";
-import { mergeSettings } from "./useDevicePatch";
+import type { DeviceSettings, StateSnapshot } from "./types";
+import { mergeSettings, patchTargetExists } from "./useDevicePatch";
 
 function gain(stage: string, value_db: number) {
   return { stage, value_db };
@@ -37,5 +37,32 @@ describe("mergeSettings", () => {
     expect(next.center_hz).toBe(100_000_000);
     expect(next.bandwidth).toBe(1_750_000);
     expect(mergeSettings(next, {}).bandwidth).toBe(1_750_000);
+  });
+});
+
+function snapshot(...ids: number[]): StateSnapshot {
+  return {
+    revision: 1,
+    device_sets: ids.map((id) => ({
+      id,
+      device: { driver: "virtual", key: "0", label: "Virtual" },
+      settings: {},
+      capabilities: { antennas: [], bandwidths: [], freq_ranges: [], gains: [], sample_rates: [] },
+      status: "running",
+      channels: [],
+    })),
+  };
+}
+
+// Guards the debounce-flush-after-close path: a patch for a deleted set must be dropped, not
+// sent and then surfaced as a stale "Rejected" banner on the next device.
+describe("patchTargetExists", () => {
+  it("is true only for a set present in the snapshot", () => {
+    expect(patchTargetExists(snapshot(0, 3), 3)).toBe(true);
+    expect(patchTargetExists(snapshot(0, 3), 1)).toBe(false);
+  });
+
+  it("is false with no snapshot at all", () => {
+    expect(patchTargetExists(undefined, 0)).toBe(false);
   });
 });

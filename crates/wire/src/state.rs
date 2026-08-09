@@ -27,6 +27,11 @@ pub struct DeviceSet {
     pub settings: DeviceSettings,
     pub status: DeviceSetStatus,
     pub channels: Vec<ChannelInfo>,
+    /// Cumulative device samples dropped at the capture ring since the set opened. Growth
+    /// means the DSP thread cannot keep up — audio and spectrum have gaps even while
+    /// `status` stays `running` (PLAN §5 backpressure; CLAUDE.md no-silent-failure).
+    #[serde(default)]
+    pub overruns: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }

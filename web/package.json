@@ -15,6 +15,7 @@
   "dependencies": {
     "@tanstack/react-query": "5.101.4",
     "openapi-fetch": "0.17.0",
+    "opus-decoder": "0.7.11",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "zustand": "5.0.14"

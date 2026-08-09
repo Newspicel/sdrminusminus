@@ -13,6 +13,4 @@ workspace = true
 [dependencies]
 num-complex.workspace = true
 rustfft.workspace = true
-
-[dev-dependencies]
-# Deterministic PRNG for noise-floor test signals (no rand in the crate itself).
+thiserror.workspace = true

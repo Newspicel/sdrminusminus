@@ -22,6 +22,7 @@ sdrmm-device.workspace = true
 sdrmm-device-virtual.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 sdrmm-channels.workspace = true
+opus.workspace = true
 num-complex.workspace = true
 rtrb.workspace = true
 arc-swap.workspace = true

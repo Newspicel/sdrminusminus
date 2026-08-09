@@ -13,6 +13,120 @@
     "version": "0.0.0"
   },
   "paths": {
+    "/api/bookmarks": {
+      "get": {
+        "operationId": "list_bookmarks",
+        "responses": {
+          "200": {
+            "description": "Stored bookmarks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Bookmark"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_bookmark",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBookmarkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Bookmark stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRowId"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bookmarks/{id}": {
+      "delete": {
+        "operationId": "delete_bookmark",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Bookmark id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Bookmark removed"
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bookmark not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/channeltypes": {
+      "get": {
+        "operationId": "get_channel_types",
+        "responses": {
+          "200": {
+            "description": "Available channel types",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelTypesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devices": {
       "get": {
         "operationId": "get_devices",
@@ -73,6 +187,16 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -96,6 +220,16 @@
         "responses": {
           "204": {
             "description": "Device set removed"
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           },
           "404": {
             "description": "Device set not found",
@@ -147,8 +281,28 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid channel settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
             "content": {
               "application/json": {
                 "schema": {
@@ -191,8 +345,90 @@
           "204": {
             "description": "Channel removed"
           },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Device set or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patch_channel",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "ch",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Settings applied"
+          },
+          "400": {
+            "description": "Invalid channel settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
             "content": {
               "application/json": {
                 "schema": {
@@ -253,6 +489,185 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/presets": {
+      "get": {
+        "operationId": "list_presets",
+        "responses": {
+          "200": {
+            "description": "Stored presets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PresetInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_preset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePresetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Preset stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRowId"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/presets/{id}": {
+      "delete": {
+        "operationId": "delete_preset",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Preset id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Preset removed"
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Preset not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/presets/{id}/apply": {
+      "post": {
+        "operationId": "apply_preset",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Preset id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyPresetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Preset applied"
+          },
+          "400": {
+            "description": "Preset rejected by the target device; `detail` reports what state a partial application left behind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Preset or device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -277,6 +692,18 @@
   },
   "components": {
     "schemas": {
+      "AmParams": {
+        "type": "object",
+        "properties": {
+          "agc": {
+            "type": "boolean"
+          },
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "ApiError": {
         "type": "object",
         "description": "Uniform error body for REST failures.",
@@ -292,6 +719,55 @@
           },
           "error": {
             "type": "string"
+          }
+        }
+      },
+      "ApplyPresetRequest": {
+        "type": "object",
+        "description": "Apply a stored preset to a live device set.",
+        "required": [
+          "device_set"
+        ],
+        "properties": {
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "Bookmark": {
+        "type": "object",
+        "description": "A stored frequency bookmark (PLAN §11).",
+        "required": [
+          "id",
+          "label",
+          "freq_hz"
+        ],
+        "properties": {
+          "freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "label": {
+            "type": "string"
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Suggested channel type id (e.g. `\"nfm\"`), if any."
           }
         }
       },
@@ -362,6 +838,36 @@
           }
         }
       },
+      "ChannelDescriptor": {
+        "type": "object",
+        "description": "Static description of a channel type, surfaced to drive the \"add channel\" UI (PLAN §8).",
+        "required": [
+          "type_id",
+          "name",
+          "bandwidth_hz",
+          "input_rate_hz"
+        ],
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Nominal RF bandwidth the channel needs, in Hz."
+          },
+          "input_rate_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "IQ rate the demod expects from the DDC, in Hz."
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name, e.g. `\"NFM\"`, `\"WFM (mono)\"`."
+          },
+          "type_id": {
+            "type": "string",
+            "description": "Stable type id, e.g. `\"nfm\"`, `\"am\"`, `\"ssb\"`, `\"wfm\"`."
+          }
+        }
+      },
       "ChannelInfo": {
         "type": "object",
         "description": "A live channel instance inside a device set.",
@@ -380,11 +886,88 @@
           }
         }
       },
+      "ChannelParams": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/NfmParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "nfm"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/AmParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "am"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/SsbParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ssb"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/WfmParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "wfm"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Type-discriminated demod parameters. Adjacently tagged so the generated TS is a\ndiscriminated union on `type`, and `{\"type\":\"nfm\",\"settings\":{}}` deserializes with\nevery field at its default."
+      },
       "ChannelSettings": {
         "type": "object",
-        "description": "Per-channel settings envelope. Concrete typed settings land with each demod (PLAN §8);\nuntil then this carries the type id plus a free-form params blob validated server-side.",
+        "description": "Per-channel settings: where the channel sits and how it demodulates.",
         "required": [
-          "type_id"
+          "params"
         ],
         "properties": {
           "offset_hz": {
@@ -393,10 +976,30 @@
             "description": "Offset from the device center frequency, in Hz."
           },
           "params": {
-            "description": "Type-specific parameters. Replaced by generated typed structs as demods land."
+            "$ref": "#/components/schemas/ChannelParams"
           },
-          "type_id": {
-            "type": "string"
+          "squelch_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Squelch threshold in dBFS, measured on the channel-filtered IQ (the mode's occupied\nbandwidth, not the full DDC passband); `None` = squelch open."
+          }
+        }
+      },
+      "ChannelTypesResponse": {
+        "type": "object",
+        "description": "The channel types this server build offers, driving the \"add channel\" UI (PLAN §8).",
+        "required": [
+          "types"
+        ],
+        "properties": {
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelDescriptor"
+            }
           }
         }
       },
@@ -475,9 +1078,110 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "Start receiving Opus audio frames for a channel; answered with `AudioStreamStarted`.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Start receiving Opus audio frames for a channel; answered with `AudioStreamStarted`.",
+                "required": [
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SubscribeAudio"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Stop the audio stream for a channel.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Stop the audio stream for a channel.",
+                "required": [
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "UnsubscribeAudio"
+                ]
+              }
+            }
           }
         ],
         "description": "Client → server commands over the same socket (PLAN §5). Stream subscriptions are\nper-connection, so a phone can request a lighter stream than a desktop."
+      },
+      "CreateBookmarkRequest": {
+        "type": "object",
+        "description": "`POST /api/bookmarks`.",
+        "required": [
+          "label",
+          "freq_hz"
+        ],
+        "properties": {
+          "freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "CreateChannelRequest": {
         "type": "object",
@@ -504,9 +1208,27 @@
           }
         }
       },
+      "CreatePresetRequest": {
+        "type": "object",
+        "description": "`POST /api/presets` — snapshot a live device set under a name.",
+        "required": [
+          "name",
+          "device_set"
+        ],
+        "properties": {
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "CreatedId": {
         "type": "object",
-        "description": "Identifier returned when a resource is created.",
+        "description": "Identifier returned when an engine resource (device set, channel) is created.",
         "required": [
           "id"
         ],
@@ -515,6 +1237,19 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "CreatedRowId": {
+        "type": "object",
+        "description": "Identifier returned when a persistence row (preset, bookmark) is created.",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -581,6 +1316,12 @@
           "id": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          },
+          "overruns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cumulative device samples dropped at the capture ring since the set opened. Growth\nmeans the DSP thread cannot keep up — audio and spectrum have gaps even while\n`status` stays `running` (PLAN §5 backpressure; CLAUDE.md no-silent-failure).",
             "minimum": 0
           },
           "settings": {
@@ -797,6 +1538,73 @@
           }
         }
       },
+      "NfmParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "PresetInfo": {
+        "type": "object",
+        "description": "`GET /api/presets` list entry.",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "device_id"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          },
+          "device_id": {
+            "type": "string",
+            "description": "`driver:key` of the device the preset applies to."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PresetSnapshot": {
+        "type": "object",
+        "description": "The stored body of a preset: a full device-set + channels snapshot (PLAN §11).",
+        "required": [
+          "version",
+          "device_id",
+          "settings",
+          "channels"
+        ],
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelSettings"
+            }
+          },
+          "device_id": {
+            "type": "string",
+            "description": "`driver:key` of the device the preset was taken from."
+          },
+          "settings": {
+            "$ref": "#/components/schemas/DeviceSettings"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Snapshot schema version, currently 1. Bump on any incompatible shape change so\nstored presets can be migrated or rejected explicitly.",
+            "minimum": 0
+          }
+        }
+      },
       "Range": {
         "type": "object",
         "description": "An inclusive numeric range with an optional step, in the setting's native unit.",
@@ -920,7 +1728,7 @@
           },
           {
             "type": "object",
-            "description": "A subscribed stream stopped.",
+            "description": "A subscribed audio stream is now active. Stream ids are allocated per-connection\nfrom the audio range (see [`StreamKind`]); clients demux binary frames by\n`(kind, stream_id)`.",
             "required": [
               "data",
               "type"
@@ -928,11 +1736,57 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "A subscribed stream stopped.",
+                "description": "A subscribed audio stream is now active. Stream ids are allocated per-connection\nfrom the audio range (see [`StreamKind`]); clients demux binary frames by\n`(kind, stream_id)`.",
                 "required": [
-                  "stream_id"
+                  "stream_id",
+                  "device_set",
+                  "channel"
                 ],
                 "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "stream_id": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "AudioStreamStarted"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A subscribed stream stopped; `kind` says which one, since spectrum and audio ids\ncome from different spaces.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "A subscribed stream stopped; `kind` says which one, since spectrum and audio ids\ncome from different spaces.",
+                "required": [
+                  "stream_id",
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "$ref": "#/components/schemas/StreamKind"
+                  },
                   "stream_id": {
                     "type": "integer",
                     "format": "int32",
@@ -978,6 +1832,28 @@
           }
         ],
         "description": "Server → client push (PLAN §5). Adjacently tagged so unit variants stay compact."
+      },
+      "Sideband": {
+        "type": "string",
+        "enum": [
+          "usb",
+          "lsb"
+        ]
+      },
+      "SsbParams": {
+        "type": "object",
+        "properties": {
+          "agc": {
+            "type": "boolean"
+          },
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "sideband": {
+            "$ref": "#/components/schemas/Sideband"
+          }
+        }
       },
       "StateScope": {
         "oneOf": [
@@ -1032,6 +1908,36 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "The stored presets changed; refetch `GET /api/presets`.",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "presets"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The stored bookmarks changed; refetch `GET /api/bookmarks`.",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "bookmarks"
+                ]
+              }
+            }
           }
         ],
         "description": "Granularity of a `StateChanged` invalidation. The client maps each scope to the\nTanStack Query keys it must invalidate (PLAN §10: the *only* cache-invalidation path)."
@@ -1055,6 +1961,24 @@
             "format": "int64",
             "description": "Monotonic revision; bumps on every mutation so clients can detect missed events.",
             "minimum": 0
+          }
+        }
+      },
+      "StreamKind": {
+        "type": "string",
+        "description": "Which binary stream a control event refers to. Spectrum stream ids are device-set ids\n(< 0x8000) and audio ids are connection-allocated from `0x8000..=0xFFFF`, but only the\npair `(kind, stream_id)` identifies a stream — events must carry the kind or a spectrum\nstop is indistinguishable from an audio stop.",
+        "enum": [
+          "spectrum",
+          "audio"
+        ]
+      },
+      "WfmParams": {
+        "type": "object",
+        "properties": {
+          "deemphasis_us": {
+            "type": "number",
+            "format": "float",
+            "description": "De-emphasis time constant in µs (50 in most of the world, 75 in the Americas)."
           }
         }
       }

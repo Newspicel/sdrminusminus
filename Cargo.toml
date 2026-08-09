@@ -56,6 +56,9 @@ axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
 futures = "0.3"
+# WS client for exercising the hub in server tests only. Tracks the version axum's `ws`
+# feature uses (0.30 exists) so tungstenite isn't built twice just for tests.
+tokio-tungstenite = "0.29"
 
 # Serde + OpenAPI
 serde = { version = "1", features = ["derive"] }
@@ -74,8 +77,14 @@ rustfft = "6"
 realfft = "3"
 rtrb = "0.3"
 
+# Audio (libopus via vendored build, PLAN §9)
+opus = "0.3"
+
 # Persistence
 rusqlite = { version = "0.40", features = ["bundled"] }
+jiff = "0.2"
+# Platform data dir for the headless binary's default DB location (PLAN §11).
+dirs = "6"
 
 # Static asset embedding
 rust-embed = "8"
