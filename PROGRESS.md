@@ -637,6 +637,15 @@ Run against the built release artifact, not in CI.
   probe re-opened it and restored the channel ~9 s later with no operator action. Confirmed
   *not* self-inflicted: eight rapid `GET /api/devices` probes during streaming (which
   re-enumerate and read string descriptors) disturbed nothing
+- [x] **Driver bench-off against the real dongle** (PLAN §17, post-M5 re-evaluation). The
+  earlier survey passed `rtlsdr-pure` over on a claim that had never been run: that its
+  one-transfer-at-a-time read starves the RTL2832U FIFO at 2.4 MS/s. Measured with the
+  RTL2832U's test-mode counter ramp (every lost byte is a countable discontinuity), the claim
+  is **wrong on an idle machine** — 8 breaks in 131 MB at 2.4 MS/s, full rate delivered — and
+  **right under load**, which is the condition that matters: with 16 spinning threads it drops
+  ~2.2% of the stream (241–254 breaks per 131 MB, ~1 discontinuity per 0.1 s). rs-rtl on the
+  same machine, load, rates and byte count delivered 100.0% with 0 dropped chunks. The
+  recommendation is unchanged — stay — but it now rests on a measurement instead of a README
 
 **HackRF One (serial 230865dc3170af47):**
 - [x] Enumerated, opened and streamed through the native backend with no libhackrf present.
@@ -687,6 +696,16 @@ committed.
   `start_streaming()` after the channel closes restarts in place — no re-open, no re-tune, no
   bias-tee reset. It needs `sdr` behind an `Arc<Mutex<…>>` so the capture thread can become a
   supervisor loop with bounded retries before it faults the set.
+  **Now measured on the dongle, not just read out of the source:** three consecutive
+  `start_streaming()` calls on one open `RtlSdr` each returned in **3 ms** and streamed real
+  samples, with `center_freq`/`sample_rate` intact across all three; the full teardown +
+  re-open the backend does today cost **1622 ms** on the same device — and that is the bare
+  driver cost, before the engine's probe and reconnect backoff turn it into the ~9 s of dead
+  air the field session saw. One caveat the source reading cannot settle: this exercised the
+  *clean-stop* path, and rs-rtl never calls `nusb`'s `Endpoint::clear_halt`, so a restart after
+  a genuinely halted pipe is unproven. The supervisor must therefore treat in-place restart as
+  the fast path and fall back to the existing full re-open when it fails — which is strictly
+  better than today, where every stall pays the re-open.
 - The other M4 decoders (POCSAG, ADS-B, AIS, APRS, RTTY, Morse) still have no off-air proof at
   all; only RDS has been tried against the air.
 - Workspaces/tabs (dockview) were never built in M0–M2 despite PLAN §16's parenthetical; the
@@ -697,7 +716,14 @@ committed.
   concrete defect, and it is the first thing to pick up.
 - rs-rtl exposes no PPM or direct sampling, and hackrf-nusb no independent baseband-filter
   bandwidth or hardware sweep; those settings are *rejected* rather than advertised and faked.
-  Soapy still covers them, which is what the `soapy` feature is for.
+  Soapy still covers them, which is what the `soapy` feature is for. The two RTL gaps are not
+  equal, though, and the re-evaluation separated them: **direct sampling is genuinely
+  upstream-only** (it means bypassing the tuner, and rs-rtl's whole tune path goes through a
+  private `R82xx`), but **PPM is arithmetic we could do at our own boundary** — asking for
+  `f / (1 + ppm/1e6)` puts the PLL on the wanted frequency, and reporting `rate × (1 + ppm/1e6)`
+  gives the DSP the true sample rate. Both survive retunes because every retune goes through
+  `caps.rs`. That is a correction, not a fake, and the residual is the demodulator's ~3.57 MHz
+  IF NCO (~36 Hz at 10 ppm). Worth prototyping before the upstream PR lands; not built here.
 - macOS signing/notarisation needs Apple secrets the repo does not have; the release workflow
   produces unsigned bundles until they are configured.
 - The Docker image has not been built here (no daemon in this environment); the workflow builds
