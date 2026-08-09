@@ -1,0 +1,5 @@
+[toolchain]
+# Pinned deliberately (PLAN §15). Bump only with CI green.
+channel = "nightly-2026-08-01"
+components = ["rustfmt", "clippy", "rust-src"]
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]

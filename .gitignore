@@ -4,12 +4,18 @@
 # Rust
 /target
 **/target
-Cargo.lock
+# Cargo.lock IS committed: this workspace ships binaries (reproducible builds, PLAN §15).
 
 # Node / web
 node_modules
 dist
 .pnpm-store
+
+# Tauri
+apps/desktop/gen
+
+# Generated (checked in, but ignore local build noise)
+web/src/generated/*.tsbuildinfo
 
 # Editor
 .idea

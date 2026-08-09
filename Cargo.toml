@@ -1,0 +1,94 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/wire",
+    "crates/dsp",
+    "crates/device",
+    "crates/device-virtual",
+    "crates/channels",
+    "crates/engine",
+    "crates/server",
+    "apps/sdrmm",
+    "apps/desktop",
+    "xtask",
+]
+# The default gate (cargo build/clippy/test) skips the Tauri app: it pulls the platform
+# webview toolchain (webkit2gtk on Linux) and a built frontend, handled at M5 packaging.
+# Build it explicitly with `cargo build -p sdrmm-desktop` / `cargo tauri`.
+default-members = [
+    "crates/wire",
+    "crates/dsp",
+    "crates/device",
+    "crates/device-virtual",
+    "crates/channels",
+    "crates/engine",
+    "crates/server",
+    "apps/sdrmm",
+    "xtask",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.0.0"
+license = "MIT"
+authors = ["sdr-- contributors"]
+repository = "https://github.com/newspicel/sdrminusminus"
+rust-version = "1.99"
+
+[workspace.dependencies]
+# Internal crates
+sdrmm-wire = { path = "crates/wire" }
+sdrmm-dsp = { path = "crates/dsp" }
+sdrmm-device = { path = "crates/device" }
+sdrmm-device-virtual = { path = "crates/device-virtual" }
+sdrmm-channels = { path = "crates/channels" }
+sdrmm-engine = { path = "crates/engine" }
+sdrmm-server = { path = "crates/server" }
+
+# Async runtime / web
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
+futures = "0.3"
+
+# Serde + OpenAPI
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-axum = "0.2"
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
+mime_guess = "2"
+
+# DSP
+num-complex = "0.4"
+rustfft = "6"
+realfft = "3"
+rtrb = "0.3"
+
+# Persistence
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+# Static asset embedding
+rust-embed = "8"
+
+# Errors / logging / util
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+arc-swap = "1"
+clap = { version = "4", features = ["derive"] }
+
+[workspace.lints.clippy]
+# Hot-path discipline (PLAN §7, CLAUDE.md): no panics outside tests/startup.
+unwrap_used = "warn"
+expect_used = "warn"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

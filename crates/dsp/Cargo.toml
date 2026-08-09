@@ -1,0 +1,18 @@
+[package]
+name = "sdrmm-dsp"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+num-complex.workspace = true
+rustfft.workspace = true
+
+[dev-dependencies]
+# Deterministic PRNG for noise-floor test signals (no rand in the crate itself).

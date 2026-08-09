@@ -1,0 +1,16 @@
+[package]
+name = "sdrmm-device"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sdrmm-wire.workspace = true
+num-complex.workspace = true
+thiserror.workspace = true
