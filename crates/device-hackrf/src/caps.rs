@@ -2,8 +2,8 @@
 //! runs before touching hardware. Nothing here does USB I/O, so every mapping and every
 //! rejection path is unit-testable without a radio (PLAN §14: no hardware in CI, ever).
 
-use hackrf_nusb::Config;
 use sdrmm_device::DeviceError;
+use sdrmm_hackrf_driver::Config;
 use sdrmm_wire::{
     Capabilities, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
 };
@@ -22,7 +22,7 @@ pub(crate) const AMP_SETTING: &str = "amp";
 /// Antenna-port bias power (bias tee), for powering an LNA up the coax.
 pub(crate) const BIAS_TEE_SETTING: &str = "bias_tee";
 
-/// Everything `hackrf-nusb` will accept (its `config` module enforces exactly these bounds,
+/// Everything the driver will accept (its `config` module enforces exactly these bounds,
 /// which are the LPC/MAX2837/RFFC5072 limits libhackrf publishes).
 const FREQ_MIN_HZ: f64 = 1e6;
 const FREQ_MAX_HZ: f64 = 6e9;
@@ -73,9 +73,9 @@ pub(crate) fn capabilities() -> Capabilities {
             },
         ],
         antennas: vec![ANTENNA.to_string()],
-        // `hackrf-nusb` ties the MAX2837 baseband filter to the sample rate — its
+        // The driver ties the MAX2837 baseband filter to the sample rate — its
         // `set_sample_rate_hz` issues BASEBAND_FILTER_BANDWIDTH_SET with the same value and
-        // there is no independent public setter — so there is no bandwidth to offer. An
+        // there is no independent setter — so there is no bandwidth to offer. An
         // empty list here means "no such control", and [`validate`] rejects one rather than
         // accepting a value nothing would honour.
         bandwidths: Vec::new(),
@@ -599,15 +599,13 @@ mod tests {
 
     #[test]
     fn settings_mirror_the_drivers_applied_config() {
-        let config = Config::builder()
-            .frequency_hz(100_000_000)
-            .sample_rate_hz(2_000_000)
-            .lna_gain_db(16)
-            .vga_gain_db(30)
-            .amp_enable(true)
-            .bias_tee(false)
-            .build()
-            .unwrap();
+        let mut config = Config::default();
+        config.set_frequency_hz(100_000_000);
+        config.set_sample_rate_hz(2_000_000);
+        config.set_lna_gain_db(16);
+        config.set_vga_gain_db(30);
+        config.set_amp_enabled(true);
+        config.set_bias_tee_enabled(false);
         let settings = settings_from_config(&config);
         assert_eq!(settings.center_hz, Some(100e6));
         assert_eq!(settings.sample_rate, Some(2e6));
