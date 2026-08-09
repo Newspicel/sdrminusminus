@@ -11,7 +11,7 @@ use std::{
     sync::{
         Arc, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{self, Receiver, Sender, SyncSender},
+        mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender},
     },
     thread::JoinHandle,
     time::Duration,
@@ -131,11 +131,17 @@ pub struct RxStream {
 }
 
 impl RxStream {
-    /// Block until the next block arrives, or the stream ends. `None` means ended: consult
-    /// [`RxStream::error`] to find out whether that was a fault or a requested stop.
-    #[must_use]
-    pub fn recv(&self) -> Option<Block> {
-        self.rx.as_ref()?.recv().ok()
+    /// Wait up to `timeout` for the next block.
+    ///
+    /// [`RecvTimeoutError::Disconnected`] means the stream is over — consult [`RxStream::error`]
+    /// to find out whether that was a fault or a requested stop. A timeout is not an error and
+    /// not proof of anything: it is how a consumer stays responsive to its own stop flag, and
+    /// how it notices a radio that has gone silent without failing a single transfer.
+    pub fn recv_timeout(&self, timeout: Duration) -> std::result::Result<Block, RecvTimeoutError> {
+        self.rx
+            .as_ref()
+            .ok_or(RecvTimeoutError::Disconnected)?
+            .recv_timeout(timeout)
     }
 
     /// A handle that can stop this stream from another thread.

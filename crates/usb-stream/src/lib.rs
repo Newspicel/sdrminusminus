@@ -17,7 +17,7 @@
 //! # fn example(interface: &nusb::Interface) -> Result<(), sdrmm_usb_stream::StreamError> {
 //! let endpoint = NusbBulkIn::open(interface, 0x81)?;
 //! let stream = start(endpoint, StreamConfig::new(16_384, "example-rx"))?;
-//! while let Some(block) = stream.recv() {
+//! while let Ok(block) = stream.recv_timeout(std::time::Duration::from_millis(100)) {
 //!     println!("{} bytes", block.len());
 //! }
 //! # Ok(())

@@ -71,6 +71,13 @@ impl IqConverter {
         self.carry = remainder.first().copied();
         &self.out
     }
+
+    /// Forget any half sample. Called on the restart path: the byte left over from the block
+    /// that stalled belongs to a sample whose other half will never arrive, and prepending it to
+    /// the fresh stream would swap I and Q for the rest of the session.
+    pub(crate) fn reset(&mut self) {
+        self.carry = None;
+    }
 }
 
 #[cfg(test)]
@@ -134,6 +141,19 @@ mod tests {
             split.extend_from_slice(converter.convert(chunk));
         }
         assert_eq!(split, whole);
+    }
+
+    /// A stalled transfer can complete on an odd length. Carrying that byte into the restarted
+    /// stream would swap I and Q for good, so the restart path resets the converter.
+    #[test]
+    fn reset_drops_a_half_sample_left_by_a_stall() {
+        let mut converter = IqConverter::with_capacity(4);
+        assert!(converter.convert(&[0x11]).is_empty());
+        converter.reset();
+        let samples = converter.convert(&[0x22, 0x33]);
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].re, code_to_f32(0x22));
+        assert_eq!(samples[0].im, code_to_f32(0x33));
     }
 
     #[test]

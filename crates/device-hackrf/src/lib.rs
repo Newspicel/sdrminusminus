@@ -8,14 +8,18 @@
 
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
+        mpsc::RecvTimeoutError,
     },
     thread::JoinHandle,
+    time::{Duration, Instant},
 };
 
 use convert::IqConverter;
-use sdrmm_device::{DeviceDriver, DeviceError, RxSink, SdrDevice};
+use sdrmm_device::{
+    DeviceDriver, DeviceError, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, SdrDevice,
+};
 use sdrmm_hackrf_driver::{DeviceDescriptor, RX_TRANSFER_SIZE};
 use sdrmm_usb_stream::{RxStream, Stopper};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings};
@@ -34,6 +38,14 @@ const NOSERIAL_KEY_PREFIX: &str = "noserial-";
 /// split before it goes downstream. Small enough to keep latency low, large enough that the
 /// per-block indirect call stays off the sample-rate hot path.
 const BLOCK_SAMPLES: usize = 32_768;
+/// How often the capture loop wakes to re-check its stop flag and the silence clock.
+const RECV_POLL: Duration = Duration::from_millis(100);
+
+/// A mutex this crate holds is only ever held across control transfers, so a poisoned one
+/// carries no half-written state worth refusing — and refusing would mean losing the radio.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// The driver's error taxonomy onto the four `DeviceError`s. `InvalidConfig` becomes
 /// `Unsupported` because it means "the hardware will not take this value", which is what the
@@ -149,14 +161,18 @@ impl DeviceDriver for HackRfDriver {
 /// The capture thread owns the transport's [`RxStream`], which holds its own bulk endpoint and
 /// borrows nothing from the device, so `apply` retunes through the control endpoint while
 /// samples keep flowing.
+///
+/// The radio is behind a mutex because the capture thread needs it too: an in-place stream
+/// restart (tier 1, `PLAN-NATIVE-DRIVERS.md` §2.2) cycles the transceiver mode from there. The
+/// lock is never held across a blocking read — `apply` takes the same one.
 pub struct HackRfDevice {
-    device: sdrmm_hackrf_driver::Device,
+    device: Arc<Mutex<sdrmm_hackrf_driver::Device>>,
     capabilities: Capabilities,
     settings: DeviceSettings,
     running: Arc<AtomicBool>,
-    /// Live only while streaming: the one way to stop the transfer pump once the stream has
-    /// moved to the capture thread.
-    stopper: Option<Stopper>,
+    /// Live only while streaming, and replaced by the capture thread on every restart, so
+    /// `rx_stop` always reaches the stream that is actually running.
+    stopper: Arc<Mutex<Option<Stopper>>>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -164,36 +180,39 @@ impl HackRfDevice {
     fn new(device: sdrmm_hackrf_driver::Device) -> Self {
         let settings = caps::settings_from_config(device.config());
         Self {
-            device,
+            device: Arc::new(Mutex::new(device)),
             capabilities: caps::capabilities(),
             settings,
             running: Arc::new(AtomicBool::new(false)),
-            stopper: None,
+            stopper: Arc::new(Mutex::new(None)),
             worker: None,
         }
     }
+}
 
-    fn write_to_hardware(&mut self, applied: &caps::Applied) -> Result<(), DeviceError> {
-        if let Some(hz) = applied.frequency_hz {
-            self.device.set_frequency_hz(hz).map_err(map_err)?;
-        }
-        if let Some(rate) = applied.sample_rate_hz {
-            self.device.set_sample_rate_hz(rate).map_err(map_err)?;
-        }
-        if let Some(db) = applied.lna_gain_db {
-            self.device.set_lna_gain_db(db).map_err(map_err)?;
-        }
-        if let Some(db) = applied.vga_gain_db {
-            self.device.set_vga_gain_db(db).map_err(map_err)?;
-        }
-        if let Some(enabled) = applied.amp {
-            self.device.set_amp_enable(enabled).map_err(map_err)?;
-        }
-        if let Some(enabled) = applied.bias_tee {
-            self.device.set_bias_tee(enabled).map_err(map_err)?;
-        }
-        Ok(())
+fn write_to_hardware(
+    device: &mut sdrmm_hackrf_driver::Device,
+    applied: &caps::Applied,
+) -> Result<(), DeviceError> {
+    if let Some(hz) = applied.frequency_hz {
+        device.set_frequency_hz(hz).map_err(map_err)?;
     }
+    if let Some(rate) = applied.sample_rate_hz {
+        device.set_sample_rate_hz(rate).map_err(map_err)?;
+    }
+    if let Some(db) = applied.lna_gain_db {
+        device.set_lna_gain_db(db).map_err(map_err)?;
+    }
+    if let Some(db) = applied.vga_gain_db {
+        device.set_vga_gain_db(db).map_err(map_err)?;
+    }
+    if let Some(enabled) = applied.amp {
+        device.set_amp_enable(enabled).map_err(map_err)?;
+    }
+    if let Some(enabled) = applied.bias_tee {
+        device.set_bias_tee(enabled).map_err(map_err)?;
+    }
+    Ok(())
 }
 
 impl SdrDevice for HackRfDevice {
@@ -207,12 +226,16 @@ impl SdrDevice for HackRfDevice {
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         let applied = caps::validate(settings, &self.capabilities)?;
-        let result = self.write_to_hardware(&applied);
+        let (result, config) = {
+            let mut device = lock(&self.device);
+            let result = write_to_hardware(&mut device, &applied);
+            (result, *device.config())
+        };
         // The driver records a field only once its control transfer succeeded, so rebuilding
         // from `config()` reports exactly what the hardware holds: gains as the step grid
         // snapped them, and — when a batch failed halfway — the prefix that did land, never
         // the values that were asked for.
-        self.settings = caps::settings_from_config(self.device.config());
+        self.settings = caps::settings_from_config(&config);
         result
     }
 
@@ -220,25 +243,27 @@ impl SdrDevice for HackRfDevice {
         if self.worker.is_some() {
             return Err(DeviceError::AlreadyStreaming);
         }
-        let stream = self.device.start_rx().map_err(map_err)?;
-        let stopper = stream.stopper();
+        let stream = lock(&self.device).start_rx().map_err(map_err)?;
+        *lock(&self.stopper) = Some(stream.stopper());
         self.running.store(true, Ordering::Release);
         let running = self.running.clone();
+        let device = self.device.clone();
+        let stopper = self.stopper.clone();
         match std::thread::Builder::new()
             .name("sdrmm-hackrf-rx".to_string())
-            .spawn(move || capture_loop(&stream, &running, sink))
+            .spawn(move || capture_loop(stream, &device, &stopper, &running, sink))
         {
             Ok(worker) => {
-                self.stopper = Some(stopper);
                 self.worker = Some(worker);
                 Ok(())
             }
             Err(e) => {
                 // The un-spawned closure drops the stream, which releases the endpoint; turn
-                // the radio back off and clear the flag so a retry is not left looking like a
+                // the radio back off and clear the state so a retry is not left looking like a
                 // live capture.
                 self.running.store(false, Ordering::Release);
-                if let Err(stop) = self.device.stop_rx() {
+                *lock(&self.stopper) = None;
+                if let Err(stop) = lock(&self.device).stop_rx() {
                     tracing::debug!("hackrf stop after failed spawn: {stop}");
                 }
                 Err(DeviceError::Io(format!("spawn capture thread: {e}")))
@@ -250,15 +275,20 @@ impl SdrDevice for HackRfDevice {
         self.running.store(false, Ordering::Release);
         // Radio off first, then the queue: the front end must stop filling transfers that are
         // about to be cancelled.
-        if let Err(e) = self.device.stop_rx() {
+        if let Err(e) = lock(&self.device).stop_rx() {
             tracing::debug!("hackrf stop_rx failed: {e}");
         }
-        if let Some(stopper) = self.stopper.take() {
+        // Cloned rather than taken: the capture thread may be mid-restart and about to publish
+        // a fresh stopper. It re-checks `running` after publishing, so whichever of the two
+        // happens second still ends the stream and the join below cannot hang.
+        let stopper = lock(&self.stopper).clone();
+        if let Some(stopper) = stopper {
             stopper.stop();
         }
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+        *lock(&self.stopper) = None;
     }
 }
 
@@ -268,35 +298,139 @@ impl Drop for HackRfDevice {
     }
 }
 
-/// Blocking capture loop on the capture thread. Borrows the transport stream, which is dropped
-/// on every exit path, releasing the device's bulk endpoint so a later `rx_start` can take it.
-fn capture_loop(stream: &RxStream, running: &AtomicBool, mut sink: RxSink) {
+/// Why a stream stopped delivering, when nobody asked it to.
+struct Failure {
+    reason: String,
+    /// The radio left the bus. Restarting in place cannot help — the endpoint, the interface
+    /// claim and the device handle went with it — so tier 2 is the only option.
+    fatal: bool,
+}
+
+/// Blocking capture loop on the capture thread, and tier-1 supervisor for its stream.
+///
+/// Owns the stream, so every exit path drops it, releasing the device's bulk endpoint. A stream
+/// that ends by itself is restarted in place under [`RestartPolicy`] — mode off, mode receive,
+/// fresh queue — and only a restart that runs out of attempts reaches `sink.fail` and the
+/// engine's destructive fault path. This backend needs it most: before the transport was
+/// shared, a single errored transfer of any kind killed the stream outright.
+fn capture_loop(
+    mut stream: RxStream,
+    device: &Mutex<sdrmm_hackrf_driver::Device>,
+    stopper: &Mutex<Option<Stopper>>,
+    running: &AtomicBool,
+    mut sink: RxSink,
+) {
     let mut converter = IqConverter::with_capacity(RX_TRANSFER_SIZE / 2);
+    let mut policy = RestartPolicy::default();
     let mut dropped = 0u64;
-    while running.load(Ordering::Acquire) {
-        let Some(block) = stream.recv() else {
-            // The pump closes the channel when its error policy gives up on the endpoint or
-            // when it was told to stop. `running` still set means nobody asked, so it faulted.
-            if running.load(Ordering::Acquire) {
-                let reason = stream.error().map_or_else(
-                    || "usb stream ended".to_string(),
-                    std::string::ToString::to_string,
-                );
-                sink.fail(DeviceError::Io(format!("device lost: {reason}")));
-            }
-            break;
+    loop {
+        let started = Instant::now();
+        let Some(failure) = drain(&stream, running, &mut sink, &mut converter, &mut dropped) else {
+            return;
         };
-        for chunk in converter.convert(&block).chunks(BLOCK_SAMPLES) {
-            sink.push(chunk);
+        if !running.load(Ordering::Acquire) {
+            return;
         }
-        // A dropped transfer is a gap in the sample stream that no counter downstream can see,
-        // and is a different failure from the engine's ring overruns.
-        let total = stream.stats().dropped;
-        if total > dropped {
-            tracing::warn!(dropped = total, "hackrf dropped usb transfers");
-            dropped = total;
+        if failure.fatal {
+            sink.fail(DeviceError::Io(format!("device lost: {}", failure.reason)));
+            return;
+        }
+        let Recovery::RetryAfter { attempt, delay } = policy.on_failure(started.elapsed()) else {
+            sink.fail(DeviceError::Io(format!(
+                "device lost after {} restart attempts: {}",
+                policy.attempts() - 1,
+                failure.reason
+            )));
+            return;
+        };
+        // A restart drops whatever the pipe had in flight, so it is never free and never silent.
+        tracing::warn!(
+            attempt,
+            ?delay,
+            reason = %failure.reason,
+            "hackrf stream failed; restarting in place"
+        );
+        drop(stream);
+        std::thread::sleep(delay);
+        // A stalled transfer can complete on an odd length, and that half sample's partner is
+        // never coming; carried into the fresh stream it would swap I and Q for good.
+        converter.reset();
+        let restarted = {
+            let mut device = lock(device);
+            // The radio is still in receive mode as far as the firmware knows, and `start_rx`
+            // refuses a second stream; take it back to off first.
+            device.stop_rx().and_then(|()| device.start_rx())
+        };
+        match restarted {
+            Ok(fresh) => {
+                // Published before the re-check, so a concurrent `rx_stop` either stops this
+                // stream or is seen by the check below. One of the two always happens.
+                *lock(stopper) = Some(fresh.stopper());
+                if !running.load(Ordering::Acquire) {
+                    return;
+                }
+                tracing::info!(attempt, "hackrf stream restarted");
+                stream = fresh;
+            }
+            Err(e) => {
+                sink.fail(DeviceError::Io(format!("stream restart failed: {e}")));
+                return;
+            }
         }
     }
+}
+
+/// Consume blocks until the stream ends or goes quiet. `None` means the caller asked to stop.
+fn drain(
+    stream: &RxStream,
+    running: &AtomicBool,
+    sink: &mut RxSink,
+    converter: &mut IqConverter,
+    dropped: &mut u64,
+) -> Option<Failure> {
+    let mut last_block = Instant::now();
+    while running.load(Ordering::Acquire) {
+        match stream.recv_timeout(RECV_POLL) {
+            Ok(block) => {
+                last_block = Instant::now();
+                for chunk in converter.convert(&block).chunks(BLOCK_SAMPLES) {
+                    sink.push(chunk);
+                }
+                // A dropped transfer is a gap in the sample stream that no counter downstream
+                // can see, and is a different failure from the engine's ring overruns.
+                let total = stream.stats().dropped;
+                if total > *dropped {
+                    tracing::warn!(dropped = total, "hackrf dropped usb transfers");
+                    *dropped = total;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                // A streaming HackRF free-runs and cannot go quiet while healthy, and an unplug
+                // fails its queued transfers rather than going silent — so this fires only for
+                // a wedged board, which would otherwise park this thread forever behind a dead
+                // waterfall with no fault reported.
+                if last_block.elapsed() >= SILENT_STREAM_TIMEOUT {
+                    return Some(Failure {
+                        reason: format!("no samples for {SILENT_STREAM_TIMEOUT:?}"),
+                        fatal: false,
+                    });
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Some(stream.error().map_or_else(
+                    || Failure {
+                        reason: "usb stream ended".to_string(),
+                        fatal: false,
+                    },
+                    |error| Failure {
+                        reason: error.to_string(),
+                        fatal: error.is_disconnected(),
+                    },
+                ));
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
