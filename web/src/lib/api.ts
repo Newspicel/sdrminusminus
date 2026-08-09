@@ -27,80 +27,57 @@ export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
 export function stateQuery() {
   return queryOptions({
     queryKey: STATE_KEY,
-    queryFn: async (): Promise<StateSnapshot> => {
-      const { data, error } = await client.GET("/api/state");
-      if (error) {
-        throw asError(error);
-      }
-      return data;
-    },
+    queryFn: async (): Promise<StateSnapshot> => unwrap(await client.GET("/api/state")),
   });
 }
 
 export function devicesQuery() {
   return queryOptions({
     queryKey: DEVICES_KEY,
-    queryFn: async (): Promise<DevicesResponse> => {
-      const { data, error } = await client.GET("/api/devices");
-      if (error) {
-        throw asError(error);
-      }
-      return data;
-    },
+    queryFn: async (): Promise<DevicesResponse> => unwrap(await client.GET("/api/devices")),
   });
 }
 
 export async function createDeviceSet(deviceId: string): Promise<number> {
-  const { data, error } = await client.POST("/api/devicesets", {
-    body: { device_id: deviceId },
-  });
-  if (error) {
-    throw asError(error);
-  }
-  return data.id;
+  return unwrap(
+    await client.POST("/api/devicesets", {
+      body: { device_id: deviceId },
+    }),
+  ).id;
 }
 
 export async function deleteDeviceSet(ds: number): Promise<void> {
-  const { error } = await client.DELETE("/api/devicesets/{ds}", {
-    params: { path: { ds } },
-  });
-  if (error) {
-    throw asError(error);
-  }
+  unwrap(
+    await client.DELETE("/api/devicesets/{ds}", {
+      params: { path: { ds } },
+    }),
+  );
 }
 
 export async function patchDevice(ds: number, settings: DeviceSettings): Promise<void> {
-  const { error } = await client.PATCH("/api/devicesets/{ds}/device", {
-    params: { path: { ds } },
-    body: settings,
-  });
-  if (error) {
-    throw asError(error);
-  }
+  unwrap(
+    await client.PATCH("/api/devicesets/{ds}/device", {
+      params: { path: { ds } },
+      body: settings,
+    }),
+  );
 }
 
 export function channelTypesQuery() {
   return queryOptions({
     queryKey: CHANNEL_TYPES_KEY,
-    queryFn: async (): Promise<ChannelTypesResponse> => {
-      const { data, error } = await client.GET("/api/channeltypes");
-      if (error) {
-        throw asError(error);
-      }
-      return data;
-    },
+    queryFn: async (): Promise<ChannelTypesResponse> =>
+      unwrap(await client.GET("/api/channeltypes")),
   });
 }
 
 export async function createChannel(ds: number, settings: ChannelSettings): Promise<number> {
-  const { data, error } = await client.POST("/api/devicesets/{ds}/channels", {
-    params: { path: { ds } },
-    body: { settings },
-  });
-  if (error) {
-    throw asError(error);
-  }
-  return data.id;
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/channels", {
+      params: { path: { ds } },
+      body: { settings },
+    }),
+  ).id;
 }
 
 export async function patchChannel(
@@ -108,98 +85,101 @@ export async function patchChannel(
   ch: number,
   settings: ChannelSettings,
 ): Promise<void> {
-  const { error } = await client.PATCH("/api/devicesets/{ds}/channels/{ch}", {
-    params: { path: { ds, ch } },
-    body: settings,
-  });
-  if (error) {
-    throw asError(error);
-  }
+  unwrap(
+    await client.PATCH("/api/devicesets/{ds}/channels/{ch}", {
+      params: { path: { ds, ch } },
+      body: settings,
+    }),
+  );
 }
 
 export async function deleteChannel(ds: number, ch: number): Promise<void> {
-  const { error } = await client.DELETE("/api/devicesets/{ds}/channels/{ch}", {
-    params: { path: { ds, ch } },
-  });
-  if (error) {
-    throw asError(error);
-  }
+  unwrap(
+    await client.DELETE("/api/devicesets/{ds}/channels/{ch}", {
+      params: { path: { ds, ch } },
+    }),
+  );
 }
 
 export function presetsQuery() {
   return queryOptions({
     queryKey: PRESETS_KEY,
-    queryFn: async (): Promise<PresetInfo[]> => {
-      const { data, error } = await client.GET("/api/presets");
-      if (error) {
-        throw asError(error);
-      }
-      return data;
-    },
+    queryFn: async (): Promise<PresetInfo[]> => unwrap(await client.GET("/api/presets")),
   });
 }
 
 export async function createPreset(name: string, ds: number): Promise<number> {
-  const { data, error } = await client.POST("/api/presets", {
-    body: { name, device_set: ds },
-  });
-  if (error) {
-    throw asError(error);
-  }
-  return data.id;
+  return unwrap(
+    await client.POST("/api/presets", {
+      body: { name, device_set: ds },
+    }),
+  ).id;
 }
 
 export async function applyPreset(id: number, ds: number): Promise<void> {
-  const { error } = await client.POST("/api/presets/{id}/apply", {
-    params: { path: { id } },
-    body: { device_set: ds },
-  });
-  if (error) {
-    throw asError(error);
-  }
+  unwrap(
+    await client.POST("/api/presets/{id}/apply", {
+      params: { path: { id } },
+      body: { device_set: ds },
+    }),
+  );
 }
 
 export async function deletePreset(id: number): Promise<void> {
-  const { error } = await client.DELETE("/api/presets/{id}", {
-    params: { path: { id } },
-  });
-  if (error) {
-    throw asError(error);
-  }
+  unwrap(
+    await client.DELETE("/api/presets/{id}", {
+      params: { path: { id } },
+    }),
+  );
 }
 
 export function bookmarksQuery() {
   return queryOptions({
     queryKey: BOOKMARKS_KEY,
-    queryFn: async (): Promise<Bookmark[]> => {
-      const { data, error } = await client.GET("/api/bookmarks");
-      if (error) {
-        throw asError(error);
-      }
-      return data;
-    },
+    queryFn: async (): Promise<Bookmark[]> => unwrap(await client.GET("/api/bookmarks")),
   });
 }
 
 export async function createBookmark(bookmark: CreateBookmarkRequest): Promise<number> {
-  const { data, error } = await client.POST("/api/bookmarks", {
-    body: bookmark,
-  });
-  if (error) {
-    throw asError(error);
-  }
-  return data.id;
+  return unwrap(
+    await client.POST("/api/bookmarks", {
+      body: bookmark,
+    }),
+  ).id;
 }
 
 export async function deleteBookmark(id: number): Promise<void> {
-  const { error } = await client.DELETE("/api/bookmarks/{id}", {
-    params: { path: { id } },
-  });
-  if (error) {
-    throw asError(error);
-  }
+  unwrap(
+    await client.DELETE("/api/bookmarks/{id}", {
+      params: { path: { id } },
+    }),
+  );
 }
 
-function asError(error: ApiError): Error {
-  return new Error(error.detail ? `${error.error}: ${error.detail}` : error.error);
+/** Narrows the `ApiError` contract at runtime: openapi-fetch yields `{ error: undefined }`
+ * for an error response with an empty body and a plain string for a non-JSON one — both are
+ * what the dev proxy serves while the server is down, so gating on the parsed `error` alone
+ * turned a dead backend into `data.id` crashes and silently "successful" deletes. */
+export function unwrap<T>(result: { data?: T; error?: unknown; response: Response }): T {
+  const { data, error, response } = result;
+  if (response.ok) {
+    return data as T;
+  }
+  if (isApiError(error)) {
+    throw new Error(error.detail ? `${error.error}: ${error.detail}` : error.error);
+  }
+  const body = typeof error === "string" ? error.trim().slice(0, 200) : "";
+  throw new Error(
+    body.length > 0
+      ? `HTTP ${response.status}: ${body}`
+      : `HTTP ${response.status}: no response from the server`,
+  );
+}
+
+function isApiError(error: unknown): error is ApiError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    typeof (error as { error?: unknown }).error === "string"
+  );
 }

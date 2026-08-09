@@ -5,7 +5,7 @@
 
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     thread::JoinHandle,
@@ -35,6 +35,23 @@ const PROBE_MIN_INTERVAL: Duration = Duration::from_secs(1);
 /// Lower bound for the capture buffer when the reported MTU is tiny (or the query fails).
 const MIN_BLOCK: usize = 8192;
 const OVERFLOW_LOG_EVERY: u64 = 1000;
+
+/// Serializes every enumerate in the process. SoapySDR runs each module's find in a parallel
+/// `std::async` per call, and SoapyHackRF's refcounted `hackrf_init`/`hackrf_exit` is not safe
+/// against *overlapping* calls: one call can tear down libhackrf's libusb context while
+/// another is still inside `hackrf_device_list` (observed twice as SIGSEGV in
+/// `libusb_get_device_list`, both during USB re-enumeration after an RTL-SDR brownout). The
+/// engine overlaps enumerates by design — hotplug prober, REST device probe, and the capture
+/// thread's liveness probe all fire together exactly when USB topology churns — so they must
+/// queue here instead.
+static ENUMERATE_LOCK: Mutex<()> = Mutex::new(());
+
+fn enumerate_serialized(filter: &str) -> Result<Vec<soapysdr::Args>, soapysdr::Error> {
+    let _guard = ENUMERATE_LOCK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    soapysdr::enumerate(filter)
+}
 
 /// Soapy's NotSupported becomes the wire-visible Unsupported; every other code is I/O.
 fn map_err(err: soapysdr::Error) -> DeviceError {
@@ -97,7 +114,7 @@ impl ProbeIdentity {
 
     /// Whether the device still enumerates. `Err` is an enumerate failure, not absence.
     fn is_present(&self) -> Result<bool, soapysdr::Error> {
-        Ok(soapysdr::enumerate(self.filter.as_str())?
+        Ok(enumerate_serialized(self.filter.as_str())?
             .iter()
             .any(|args| args_key(args) == self.key))
     }
@@ -120,7 +137,7 @@ impl DeviceDriver for SoapyDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        match soapysdr::enumerate("") {
+        match enumerate_serialized("") {
             Ok(found) => found.iter().map(device_info).collect(),
             Err(e) => {
                 // probe() cannot return errors; an enumerate failure must not pass as a
@@ -132,7 +149,7 @@ impl DeviceDriver for SoapyDriver {
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
-        let found = soapysdr::enumerate("")
+        let found = enumerate_serialized("")
             .map_err(|e| DeviceError::Io(format!("soapy enumerate: {e}")))?;
         let args = found
             .into_iter()
