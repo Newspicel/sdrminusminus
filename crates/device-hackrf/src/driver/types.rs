@@ -3,7 +3,7 @@
 /// Board identity as the firmware reports it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum BoardId {
+pub(crate) enum BoardId {
     /// Pre-production Jellybean board.
     Jellybean,
     /// HackRF Jawbreaker beta board.
@@ -41,7 +41,7 @@ impl BoardId {
 
     /// Board name in libhackrf's terminology.
     #[must_use]
-    pub const fn name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Jellybean => "Jellybean",
             Self::Jawbreaker => "Jawbreaker",
@@ -57,22 +57,22 @@ impl BoardId {
 
 /// What the firmware said about itself while the device was being opened.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DeviceInfo {
+pub(crate) struct DeviceInfo {
     /// Firmware-reported board identity.
-    pub board_id: BoardId,
+    pub(crate) board_id: BoardId,
     /// Firmware version string.
-    pub firmware_version: String,
+    pub(crate) firmware_version: String,
     /// HackRF USB API version from the USB `bcdDevice` field: high byte major, low byte minor,
     /// read as hexadecimal `MM.mm` exactly as libhackrf does.
-    pub usb_api_version: u16,
+    pub(crate) usb_api_version: u16,
     /// The MCU's 128-bit serial, when it is nonzero.
-    pub serial: Option<u128>,
+    pub(crate) serial: Option<u128>,
 }
 
 impl DeviceInfo {
     /// Board name for display.
     #[must_use]
-    pub const fn board_name(&self) -> &'static str {
+    pub(crate) const fn board_name(&self) -> &'static str {
         self.board_id.name()
     }
 }

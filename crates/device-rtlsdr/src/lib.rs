@@ -1,8 +1,19 @@
-//! `sdrmm-device-rtlsdr` — native RTL-SDR backend (PLAN §6, §15): pure Rust over `nusb` via the
-//! vendored `sdrmm-rtl-driver`, so a release artifact ships with no libSoapySDR, no librtlsdr,
-//! no C dependency at all. It also exposes what the Soapy path hides for these dongles — the
-//! bias tee and the tuner AGC as typed extra settings — and reports the tuner's own gain table
-//! instead of a range.
+//! `sdrmm-device-rtlsdr` — native RTL-SDR backend (PLAN §6, §15): the RTL2832U driver and the
+//! `SdrDevice` implementation over it, pure Rust on `nusb`, so a release artifact ships with no
+//! libSoapySDR, no librtlsdr, no C dependency at all. It exposes what the Soapy path hides for
+//! these dongles — the bias tee, the tuner AGC and crystal correction as typed settings — and
+//! reports the tuner's own gain table instead of a range.
+//!
+//! Four layers, in dependency order:
+//!
+//! - [`driver`] — the radio: enumeration, registers, I2C, the R82xx tuner. No wire types.
+//! - `convert` — the RTL2832U's unsigned 8-bit IQ to the one `cf32` format the pipeline speaks.
+//! - `caps` — the pure translation to the wire capability model, and `apply`'s validation.
+//! - this module — `DeviceDriver`/`SdrDevice`, the capture thread and its tier-1 supervisor.
+//!
+//! Streaming lives in `sdrmm-usb-stream`, shared with the HackRF backend: the transfer queue and
+//! the USB error policy are the one thing both radios genuinely have in common, and getting that
+//! policy wrong on each side separately is the defect this driver exists to fix (PLAN §17).
 //!
 //! What the driver does not program is not advertised: direct sampling, offset tuning and the
 //! RTL2832U digital AGC. `apply` rejects those settings rather than accepting them silently.
@@ -19,15 +30,16 @@ use std::{
 
 use caps::{GainMode, Plan};
 use convert::IqConverter;
+use driver::{DeviceDescriptor, DeviceDescriptors, RtlSdr, TRANSFER_BUF_SIZE};
 use sdrmm_device::{
     DeviceDriver, DeviceError, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, SdrDevice,
 };
-use sdrmm_rtl_driver::{DeviceDescriptor, DeviceDescriptors, DeviceId, RtlSdr, TRANSFER_BUF_SIZE};
 use sdrmm_usb_stream::{RxStream, Stopper};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, ExtraValue};
 
 mod caps;
 mod convert;
+mod driver;
 
 pub(crate) const DRIVER_ID: &str = "rtlsdr";
 
@@ -47,17 +59,18 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 const DEFAULT_SAMPLE_RATE_HZ: u32 = 2_048_000;
 const DEFAULT_CENTER_HZ: u32 = 100_000_000;
 
-fn map_err(err: sdrmm_rtl_driver::Error) -> DeviceError {
+fn map_err(err: driver::Error) -> DeviceError {
     let text = err.to_string();
     match err {
-        sdrmm_rtl_driver::Error::DeviceNotFound => DeviceError::NotFound(text),
-        sdrmm_rtl_driver::Error::InvalidSampleRate { .. }
-        | sdrmm_rtl_driver::Error::InvalidParam(_) => DeviceError::Unsupported(text),
+        driver::Error::DeviceNotFound => DeviceError::NotFound(text),
+        driver::Error::InvalidSampleRate { .. } | driver::Error::InvalidParam(_) => {
+            DeviceError::Unsupported(text)
+        }
         _ => DeviceError::Io(text),
     }
 }
 
-fn enumerate() -> Result<Vec<DeviceDescriptor>, sdrmm_rtl_driver::Error> {
+fn enumerate() -> Result<Vec<DeviceDescriptor>, driver::Error> {
     Ok(DeviceDescriptors::new()?.iter().cloned().collect())
 }
 
@@ -105,7 +118,7 @@ impl DeviceDriver for RtlSdrDriver {
             .get(position)
             .ok_or_else(|| DeviceError::NotFound(info.id()))?
             .index;
-        let sdr = RtlSdr::open(DeviceId::Index(index)).map_err(map_err)?;
+        let sdr = RtlSdr::open(index).map_err(map_err)?;
         Ok(Box::new(RtlSdrDevice::from_sdr(sdr)?))
     }
 }

@@ -1,6 +1,6 @@
 //! The validated receiver configuration, mirroring what the hardware last accepted.
 
-use crate::error::{Error, Result};
+use super::error::{Error, Result};
 
 /// Defaults `hackrf_transfer` starts from.
 const DEFAULT_FREQUENCY_HZ: u64 = 900_000_000;
@@ -16,19 +16,19 @@ const DEFAULT_VGA_GAIN_DB: u8 = 20;
 /// their control transfer succeeded, so it is the device's own truth, including gains as the
 /// MAX2837's step grid snapped them rather than as they were asked for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Config {
+pub(crate) struct Config {
     /// Tuned centre frequency in Hz.
-    pub frequency_hz: u64,
+    pub(crate) frequency_hz: u64,
     /// Complex IQ sample rate in Hz.
-    pub sample_rate_hz: u32,
+    pub(crate) sample_rate_hz: u32,
     /// MAX2837 RX IF/LNA gain in dB.
-    pub lna_gain_db: u8,
+    pub(crate) lna_gain_db: u8,
     /// MAX2837 baseband/VGA gain in dB.
-    pub vga_gain_db: u8,
+    pub(crate) vga_gain_db: u8,
     /// Whether the RF amplifier is on.
-    pub amp_enabled: bool,
+    pub(crate) amp_enabled: bool,
     /// Whether the antenna port is powered.
-    pub bias_tee_enabled: bool,
+    pub(crate) bias_tee_enabled: bool,
 }
 
 impl Default for Config {

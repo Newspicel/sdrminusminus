@@ -12,7 +12,7 @@ use nusb::{
     transfer::{ControlIn, ControlOut, ControlType, Recipient},
 };
 
-use crate::{
+use super::{
     commands::{TransceiverMode, VendorRequest},
     error::{Error, Result},
     types::PartIdSerial,

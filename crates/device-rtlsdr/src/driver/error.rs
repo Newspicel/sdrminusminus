@@ -1,13 +1,14 @@
-//! Errors from RTL2832U operations.
+//! Errors from RTL2832U operations. `map_err` in the crate root turns these into the
+//! `DeviceError`s the control plane renders.
 
 use sdrmm_usb_stream::StreamError;
 
 /// Convenience result alias.
-pub type Result<T> = std::result::Result<T, Error>;
+pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 /// Everything that can go wrong talking to a dongle.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub(crate) enum Error {
     /// No matching dongle was enumerated.
     #[error("RTL-SDR device not found")]
     DeviceNotFound,

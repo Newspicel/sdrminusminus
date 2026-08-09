@@ -18,9 +18,9 @@ radio attached.
 > run** — no libSoapySDR, no librtlsdr, no C dependency at all, so a missing system library
 > costs exotic-device support, not startup.
 
-Both native drivers are vendored in this repository (`crates/rtl-driver`,
-`crates/hackrf-driver`) over one shared USB transport, `crates/usb-stream`, which owns the
-transfer queue and the transfer-error policy for both. That policy is librtlsdr's: a cancelled
+Each native backend owns its radio driver in-tree (`crates/device-rtlsdr/src/driver/`,
+`crates/device-hackrf/src/driver/`) over one shared USB transport, `crates/usb-stream`, which
+owns the transfer queue and the transfer-error policy for both. That policy is librtlsdr's: a cancelled
 transfer is never an error, only genuine failures count, and the threshold is the queue depth.
 It also means a stalled pipe is re-armed in place — milliseconds — instead of faulting the
 device and paying for a full re-open.
