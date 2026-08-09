@@ -9,7 +9,9 @@ import {
   Map as MapLibreMap,
   type MapOptions,
   NavigationControl,
+  setWorkerUrl,
 } from "maplibre-gl";
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { useEffect, useRef, useState } from "react";
 import { useDecodedStore } from "../lib/decoded";
 import {
@@ -28,6 +30,12 @@ import {
   targetDetail,
 } from "../lib/map/layers";
 import { formatMhz } from "./format";
+
+// MapLibre v6 ships its worker as a separate file and derives its URL from `import.meta.url`,
+// which under a bundler points at the bundle rather than the package — so every bundler consumer
+// has to hand it the worker itself. `?worker&url` and not `?url`: the dist worker imports a
+// sibling chunk that a verbatim asset copy would leave behind.
+setWorkerUrl(workerUrl);
 
 /** PLAN §10: OpenFreeMap vector tiles — free, no API key, no usage cap. A self-hosted PMTiles
  * basemap replaces this URL when the server grows one; nothing else here changes. */
