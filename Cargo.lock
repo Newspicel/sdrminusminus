@@ -3559,6 +3559,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-usb-stream"
+version = "0.0.0"
+dependencies = [
+ "nusb",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-wire"
 version = "0.0.0"
 dependencies = [
