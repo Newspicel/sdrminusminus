@@ -217,3 +217,15 @@ Medium/low:
 - [x] Headless DB defaults to the platform data dir (`dirs`); virtual device rejects out-of-range
   `center_hz`; per-block hot-path zero-fill allocation removed (documented bounded-cost note on the
   remaining Arc/broadcast audio send)
+
+### Field hardening (first real-hardware sessions, post-M2)
+Found live with an RTL-SDR — none reachable in CI (no hardware there, PLAN §14):
+- [x] **Server SIGSEGV during USB churn** (critical): concurrent `soapysdr::enumerate` calls
+  (hotplug prober · capture liveness probe · REST device probe) race SoapyHackRF's
+  `hackrf_init`/`hackrf_exit` refcount and tear down its libusb context mid-find — all
+  enumerates now serialize behind a process-wide lock (`device-soapy`)
+- [x] `xtask dev` orphaned Vite on server exit (killed pnpm, not the tree) — own process
+  group + group kill + null stdin; no more prompt spam / `EIO` crash
+- [x] Dead backend read as success in the web client: openapi-fetch yields
+  `{ error: undefined }` for empty error bodies (proxy 502), crashing on `data.id` and
+  faking successful deletes — REST helpers now gate on `response.ok` (vitest-covered)
