@@ -1,7 +1,7 @@
 //! The opened radio: control-plane setters plus RX stream lifecycle.
 
 use nusb::MaybeFuture;
-use sdrmm_usb_stream::{NusbBulkIn, RxStream, StreamConfig};
+use sdrmm_usb_stream::{NusbBulkIn, NusbBulkOut, RxStream, StreamConfig};
 use tracing::{debug, info};
 
 use super::{
@@ -13,7 +13,7 @@ use super::{
     },
     discovery::{self, DeviceDescriptor},
     error::{Error, Result},
-    tx::{NusbBulkOut, TxQueue},
+    tx::BurstQueue,
     types::{BoardId, DeviceInfo},
 };
 
@@ -33,40 +33,19 @@ const RX_CHANNEL_DEPTH: usize = 8;
 /// Firmware older than USB API 1.18 cannot be asked for its buffer size; libhackrf assumes this.
 const DEFAULT_FLUSH_SIZE: usize = 32 * 1024;
 
-/// Which way the radio is pointed. It is half duplex: the LPC's transceiver mode selects one
-/// data path, so a direction change means stopping the other first.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Direction {
-    Rx,
-    Tx,
-}
-
-impl Direction {
-    const fn name(self) -> &'static str {
-        match self {
-            Self::Rx => "receiving",
-            Self::Tx => "transmitting",
-        }
-    }
-
-    const fn mode(self) -> TransceiverMode {
-        match self {
-            Self::Rx => TransceiverMode::Receive,
-            Self::Tx => TransceiverMode::Transmit,
-        }
-    }
-}
-
 /// An opened HackRF.
 ///
 /// Every setter writes through to the radio and only then updates [`HackRf::config`], so the
 /// reported configuration is what the hardware holds — including a gain the MAX2837's step grid
 /// moved, and, when a batch fails halfway, only the prefix that landed.
+///
+/// Mechanism only: this will point the radio whichever way it is told. *Whether* it may be
+/// pointed that way is `sdrmm-device`'s [`DuplexState`](sdrmm_device::DuplexState), held one
+/// level up — the radio is half duplex, and that is a rule about the device, not about the
+/// register writes that carry it out.
 pub(crate) struct HackRf {
     control: Control,
     config: Config,
-    /// The direction currently selected, if any. `None` is transceiver mode off.
-    active: Option<Direction>,
     /// Length of the zero-filled transfer that marks the end of a transmit burst, as the
     /// firmware reports it.
     flush_size: usize,
@@ -112,6 +91,7 @@ impl HackRf {
         control.control_out(&VendorControlRequest::transceiver_mode(
             TransceiverMode::Off,
         ))?;
+        debug!("hackrf transceiver mode off on open");
 
         // Read and logged rather than stored: the backend labels devices from the USB
         // descriptor, so this is the one place the firmware's own account of itself is useful.
@@ -127,7 +107,6 @@ impl HackRf {
         let mut opened = Self {
             control,
             config: Config::default(),
-            active: None,
             flush_size,
         };
         // The radio powers up with no usable tuning, so the defaults are written through and the
@@ -229,14 +208,13 @@ impl HackRf {
     ///
     /// The transfer queue is filled before the radio is switched into receive mode, so the
     /// first samples the front end produces already have a transfer waiting for them. Safe to
-    /// call again after [`HackRf::stop`], which is what an in-place restart does.
+    /// call again after [`HackRf::set_mode_off`], which is what an in-place restart does.
     pub(crate) fn start_rx(&mut self) -> Result<RxStream> {
-        self.claim(Direction::Rx)?;
         let endpoint = NusbBulkIn::open(self.control.interface(), RX_ENDPOINT)?;
         let mut config = StreamConfig::new(RX_TRANSFER_SIZE, "sdrmm-hackrf-usb");
         config.channel_depth = RX_CHANNEL_DEPTH;
         let stream = sdrmm_usb_stream::start(endpoint, config)?;
-        self.select(Direction::Rx)?;
+        self.select(TransceiverMode::Receive)?;
         Ok(stream)
     }
 
@@ -246,46 +224,29 @@ impl HackRf {
     /// mode only once the queue exists, because a transmit pipe with nothing in it radiates
     /// nothing, whereas a receive pipe that is not ready loses the first samples the front end
     /// produced.
-    ///
-    /// Returns [`Error::AlreadyStreaming`] while the other direction is live — the radio is half
-    /// duplex, and switching under a running stream would strand its endpoint.
-    pub(crate) fn start_tx(&mut self) -> Result<TxQueue<NusbBulkOut>> {
-        self.claim(Direction::Tx)?;
+    pub(crate) fn start_tx(&mut self) -> Result<BurstQueue<NusbBulkOut>> {
         let endpoint = NusbBulkOut::open(self.control.interface(), TX_ENDPOINT)?;
-        let queue = TxQueue::start(endpoint, self.flush_size)?;
-        self.select(Direction::Tx)?;
+        let queue = BurstQueue::start(endpoint, self.flush_size)?;
+        self.select(TransceiverMode::Transmit)?;
         Ok(queue)
     }
 
     /// Switch the radio off, whichever way it was pointed.
     ///
     /// Call it before dropping an [`RxStream`], so the front end stops filling a queue that is
-    /// about to go away — and *after* draining a [`TxQueue`], so the burst it was asked to send
-    /// actually leaves.
-    pub(crate) fn stop(&mut self) -> Result<()> {
-        self.active = None;
+    /// about to go away — and *after* draining a [`BurstQueue`], so the burst it was asked to
+    /// send actually leaves. Idempotent: the firmware takes the same request from any mode.
+    pub(crate) fn set_mode_off(&self) -> Result<()> {
         self.control
             .control_out(&VendorControlRequest::transceiver_mode(
                 TransceiverMode::Off,
             ))
     }
 
-    /// Refuse a second direction while one is live.
-    fn claim(&self, direction: Direction) -> Result<()> {
-        match self.active {
-            Some(active) => Err(Error::AlreadyStreaming(active.name())),
-            None => {
-                debug!(?direction, "hackrf direction claimed");
-                Ok(())
-            }
-        }
-    }
-
-    fn select(&mut self, direction: Direction) -> Result<()> {
+    fn select(&mut self, mode: TransceiverMode) -> Result<()> {
+        debug!(?mode, "hackrf transceiver mode");
         self.control
-            .control_out(&VendorControlRequest::transceiver_mode(direction.mode()))?;
-        self.active = Some(direction);
-        Ok(())
+            .control_out(&VendorControlRequest::transceiver_mode(mode))
     }
 }
 
@@ -293,7 +254,7 @@ impl Drop for HackRf {
     fn drop(&mut self) {
         // Best effort, and not optional for transmit: a radio left in transmit mode keeps
         // radiating until it is physically unplugged.
-        if let Err(e) = self.stop() {
+        if let Err(e) = self.set_mode_off() {
             debug!("hackrf shutdown failed: {e}");
         }
     }

@@ -3404,8 +3404,10 @@ name = "sdrmm-device"
 version = "0.0.0"
 dependencies = [
  "num-complex",
+ "sdrmm-usb-stream",
  "sdrmm-wire",
  "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]

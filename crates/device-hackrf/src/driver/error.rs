@@ -44,22 +44,8 @@ pub(crate) enum Error {
         reason: &'static str,
     },
 
-    /// A stream is already running on this device. The radio is half duplex: one direction at
-    /// a time, and the other must be stopped first.
-    #[error("HackRF is already streaming ({0})")]
-    AlreadyStreaming(&'static str),
-
-    /// The transmit queue gave up: `attempts` consecutive transfer errors with no success in
-    /// between (`sdrmm-usb-stream`'s policy, counted the same as on the receive side).
-    #[error("transmit failed {attempts} times in a row: {error}")]
-    TxFailed {
-        /// Consecutive errored completions that reached the threshold.
-        attempts: u32,
-        /// The completion status that tripped it.
-        error: nusb::transfer::TransferError,
-    },
-
-    /// The bulk-IN transport could not be started or ended on its own.
+    /// The shared USB transport could not be started, or gave up on its own — in either
+    /// direction: both halves count transfer errors under the same policy.
     #[error("streaming: {0}")]
     Stream(#[from] StreamError),
 }

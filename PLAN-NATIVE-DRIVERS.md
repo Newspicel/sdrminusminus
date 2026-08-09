@@ -188,6 +188,16 @@ pure `convert.rs` per §2.3. Bigger than a rename — budget for it.
 ### Phase 4 — supervisor
 Shared policy in `sdrmm-device` per §2.2, driven from each applicable backend's capture loop.
 
+**Landed differently, and better:** the *policy* is shared as planned, but so is the loop it
+drives. Both backends' capture loops turned out to be the same ~105 lines bar the restart
+primitive and the block size, so `sdrmm-device` owns the whole supervisor (`Capture`,
+`CaptureRadio`, `CaptureStream`, `SampleConverter`) and a backend supplies only `arm`/`disarm`
+and its sample table. Two lifecycle bugs fell out of the split rather than being found by
+inspection — see `PLAN.md` §18, "Shared device machinery". Half-duplex arbitration moved up with
+it: `Duplex`/`DuplexState` in `sdrmm-device` replaced the HackRF driver's private `claim`/
+`select`, and the abstraction now carries the TX half (§12a), which is what made the HackRF's
+restored transmit path reachable through `SdrDevice` instead of only through its concrete type.
+
 Constraints:
 - **Tier 2 stays the fallback.** A failed restart must fault the set exactly as today. Strictly
   better than current behaviour, never worse. `clear_halt` on the restart path is now a
@@ -264,5 +274,6 @@ Two things the PR must state plainly rather than imply:
 - **Direct sampling** (HF). Unblocked by the vendoring — it means bypassing the tuner, which was
   impossible while `rs-rtl` held its `R82xx` privately — but not built here. Record it in
   `PROGRESS.md` as the next gap.
-- **`device-virtual`** gets no supervisor (§2.2).
+- **`device-virtual`** gets no supervisor (§2.2) — it shares the thread plumbing (`Worker`) and
+  nothing else, having no transport that can stall.
 - **Upstream contributions.** None.

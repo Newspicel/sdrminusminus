@@ -7,10 +7,12 @@
 //! policy wrong was the defect this driver exists to fix (PLAN §17,
 //! `PLAN-NATIVE-DRIVERS.md`).
 //!
-//! The radio is half duplex — one direction at a time — and [`HackRf`] is what arbitrates that.
-//! Transmit stops at this layer: PLAN §12a gates every application-level TX feature behind an
-//! explicit authorized-use switch, and nothing above `driver` offers one, so `Capabilities`
-//! still reports `tx_capable: false`.
+//! The radio is half duplex — one direction at a time — but nothing here arbitrates that: the
+//! rule is `sdrmm-device`'s [`DuplexState`](sdrmm_device::DuplexState), shared with every other
+//! radio that has the same constraint, and this layer only carries out what it is told. Transmit
+//! reaches `SdrDevice::tx_start` and stops there: PLAN §12a gates every application-level TX
+//! feature behind an explicit authorized-use switch that has not been built, so `Capabilities`
+//! still reports `tx_capable: false` and no engine, server or UI path calls it.
 
 mod commands;
 mod config;
@@ -25,6 +27,4 @@ pub(crate) use config::Config;
 pub(crate) use discovery::DeviceDescriptor;
 pub(crate) use error::Error;
 pub(crate) use radio::{HackRf, RX_TRANSFER_SIZE};
-/// The one driver type that reaches the crate's public API, through [`crate::TxStream`].
-pub use tx::TxStats;
-pub(crate) use tx::{NusbBulkOut, TX_TRANSFER_SIZE, TxQueue};
+pub(crate) use tx::{BurstQueue, TX_TRANSFER_SIZE};

@@ -12,9 +12,14 @@ workspace = true
 
 [dependencies]
 sdrmm-wire.workspace = true
-sdrmm-device.workspace = true
+sdrmm-device = { workspace = true, features = ["usb"] }
 sdrmm-usb-stream.workspace = true
 nusb.workspace = true
 thiserror.workspace = true
 num-complex.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+# The scripted bulk-OUT endpoint the transport tests itself with: the burst semantics layered
+# on top of it are this crate's, and deserve the same mock rather than a second copy.
+sdrmm-usb-stream = { workspace = true, features = ["test-util"] }

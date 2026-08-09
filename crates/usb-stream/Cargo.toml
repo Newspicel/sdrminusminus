@@ -10,6 +10,11 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Scripted endpoints for the backends above this crate, so the burst semantics a radio layers
+# on the shared queue are tested against the same mock this crate's own tests use.
+test-util = []
+
 [dependencies]
 nusb.workspace = true
 thiserror.workspace = true

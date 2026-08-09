@@ -1,5 +1,5 @@
-//! `sdrmm-usb-stream` — the bulk-IN transport both native SDR backends share (PLAN §3,
-//! `PLAN-NATIVE-DRIVERS.md` §2.1).
+//! `sdrmm-usb-stream` — the bulk USB transport the native SDR backends share, in both
+//! directions (PLAN §3, `PLAN-NATIVE-DRIVERS.md` §2.1).
 //!
 //! Transport only: raw bytes in, raw bytes out. It knows nothing about registers, tuners or
 //! sample formats — conversion belongs at the device edge, where the two radios genuinely
@@ -28,8 +28,12 @@ mod bulk;
 mod error;
 mod policy;
 mod stream;
+#[cfg(any(test, feature = "test-util"))]
+pub mod testing;
+mod tx;
 
 pub use bulk::{BulkIn, Completion, NusbBulkIn};
 pub use error::{Result, StreamError};
 pub use policy::{Action, TransferPolicy};
 pub use stream::{Block, RxStream, Stopper, StreamConfig, StreamingStats, start};
+pub use tx::{BulkOut, NusbBulkOut, OutCompletion, TxConfig, TxQueue, TxStats};

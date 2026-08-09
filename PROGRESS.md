@@ -920,3 +920,56 @@ while physically touching the antenna — has no harness. Nothing here reproduce
 demand, so the tier-1 supervisor is proven in three pieces (the policy under unit tests, the
 transport's error handling against a scripted mock, and the restart primitive timed on both
 radios) rather than end-to-end against a real stall. Replug recovery is likewise untested here.
+
+---
+
+## Review follow-up: the abstraction absorbs what the backends were repeating
+
+A review of the vendoring PR found the change had fixed its own thesis in one place and violated
+it in another: the transfer-error policy was shared, and then each backend hand-rolled the
+supervisor that drives it. The two copies were ~105 identical lines apart from the restart
+primitive, the block size and the word in the log line — and had already diverged on a real bug.
+
+**Moved into `crates/device`, the abstract layer, once each:**
+
+| what | was | now |
+|---|---|---|
+| half-duplex arbitration | private `Direction`/`claim`/`select` in the HackRF driver | `Duplex` + `DuplexState`, pure and unit-tested, for any radio |
+| the capture thread and tier-1 supervisor | one copy per native backend | `Capture` + `CaptureRadio`/`CaptureStream`; a backend writes `arm`/`disarm` |
+| 8-bit IQ conversion | `IqConverter` twice, identical but for the table | `LutConverter`; a backend supplies 256 floats |
+| thread/stop-flag/join plumbing | four copies (rtlsdr, hackrf, siggen, playback, soapy) | `Worker` |
+| the bulk-OUT transfer queue | `device-hackrf` only | `crates/usb-stream`, beside bulk-IN, same policy |
+| the scripted bulk-OUT endpoint | a second mock in `device-hackrf`'s tests | `usb-stream`'s `test-util` feature |
+
+`crates/device` stays I/O-free by default: the `CaptureStream` impl for the USB transport sits
+behind its `usb` feature, so a Soapy-only or virtual-only build still compiles no USB stack.
+
+**The abstraction now carries TX, both ways.** `SdrDevice::duplex()` reports `RxOnly`, `TxOnly`,
+`Half` or `Full`; `SdrDevice::tx_start()` hands back a `TxStream`. RX-only backends inherit the
+defaults and change nothing. The HackRF declares `Half` and implements both, so its restored
+transmit path is reachable through the trait instead of only through its concrete type. Nothing
+above the device layer moved: `tx_capable` is false on every backend, no wire type can request a
+transmit, and no `engine`/`server`/MCP/UI path calls `tx_start` (PLAN §12a).
+
+**Two lifecycle bugs the split fixed by construction, both found by the review:**
+
+- **`rx_stop` could silence a live transmit burst.** A `TxStream` holds its own handle on the
+  radio, so the device could be stopped or dropped while transmitting — and `rx_stop`
+  unconditionally switched the transceiver off and cleared "the active direction". Now each
+  direction releases only its own claim, and a `Capture` that is not running holds no radio at
+  all, so a stray `rx_stop` reaches neither the mode register nor the transmit claim.
+- **A stop racing a tier-1 restart could strand the radio armed.** If `rx_stop` ran while the
+  capture thread was inside its restart backoff, the thread re-armed the radio, saw the stop flag
+  and returned without switching it off — leaving the device permanently `AlreadyStreaming` until
+  it was re-opened. The control thread now disarms *after* joining, which no interleaving can
+  get behind. Asserted as an invariant over 32 randomly-raced starts and stops.
+
+Neither bug was reachable from the running application (the transmit API is gated, and the race
+needed a stop inside a 20–80 ms window on a failing stream), which is why they had not been seen.
+
+**Gates:** `cargo xtask check` green; `cargo xtask test` green with **667 Rust tests**, up from
+615 — the new ones are the arbitration rules, the supervisor's restart/teardown behaviour against
+a scripted radio, the converter's carry, and the transmit queue split across its two layers. No
+test touches USB. Nothing was re-verified on hardware: this change moves code between crates
+without altering the register writes, the transfer policy or the restart timings the field
+session measured, and the field evidence above stands unamended.
