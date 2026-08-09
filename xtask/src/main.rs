@@ -32,8 +32,12 @@ enum Cmd {
     Test,
     /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
     Fixtures,
-    /// Release artifacts (stub until M5 packaging).
-    Dist,
+    /// Build the self-contained release artifact for this host (PLAN §15).
+    Dist {
+        /// Cross-compile for this target triple instead of the host.
+        #[arg(long)]
+        target: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -43,10 +47,7 @@ fn main() -> Result<()> {
         Cmd::Check => check(&root()),
         Cmd::Test => test(&root()),
         Cmd::Fixtures => fixtures(&root()),
-        Cmd::Dist => {
-            println!("dist: release packaging lands at M5 (PLAN §16).");
-            Ok(())
-        }
+        Cmd::Dist { target } => dist(&root(), target.as_deref()),
     }
 }
 
@@ -151,10 +152,24 @@ fn check(root: &Path) -> Result<()> {
         &["clippy", "--all-targets", "--", "-D", "warnings"],
         root,
     )?;
-    // The Soapy-free build must stay buildable (PLAN §3: minimal Pi images).
+    // Every backend must stay optional (PLAN §3: minimal Pi images).
     run(
         "cargo",
         &["check", "-p", "sdrmm", "--no-default-features"],
+        root,
+    )?;
+    // …and the shape a release artifact actually ships must build: native backends in, Soapy
+    // out, so a missing libSoapySDR costs exotic-device support and not startup (PLAN §15).
+    run(
+        "cargo",
+        &[
+            "check",
+            "-p",
+            "sdrmm",
+            &release_features()[0],
+            &release_features()[1],
+            &release_features()[2],
+        ],
         root,
     )?;
 
@@ -167,7 +182,7 @@ fn check(root: &Path) -> Result<()> {
         root,
     )?;
     run("pnpm", &["--dir", "web", "exec", "tsgo", "--noEmit"], root)?;
-    run("pnpm", &["--dir", "web", "build"], root)?;
+    web_build(root)?;
 
     // Codegen must be reproducible: regenerate and fail on any diff (PLAN §4 step 5).
     codegen(root)?;
@@ -184,6 +199,76 @@ fn check(root: &Path) -> Result<()> {
     )
     .context("codegen drift: regenerate with `cargo xtask codegen` and commit")?;
     println!("check: all gates green");
+    Ok(())
+}
+
+/// The cargo flags a release artifact is built with: native RTL-SDR and HackRF compiled in
+/// (pure Rust, no C library to install), SoapySDR left out (`soapysdr-sys` dynamically links
+/// libSoapySDR, which PLAN §15 forbids as a launch dependency of a release artifact).
+fn release_features() -> [String; 3] {
+    [
+        "--no-default-features".to_string(),
+        "--features".to_string(),
+        "rtl-native,hackrf-native".to_string(),
+    ]
+}
+
+/// `pnpm --dir web build` — typechecks and emits `web/dist`, which `crates/server` embeds.
+/// Shared by `check` and `dist` so they can never build the UI differently.
+fn web_build(root: &Path) -> Result<()> {
+    ensure_web_deps(root)?;
+    run("pnpm", &["--dir", "web", "build"], root)
+}
+
+/// Build the self-contained headless artifact (PLAN §15: "release artifacts just run").
+///
+/// The web build comes first and is then *asserted*: `crates/server/build.rs` creates an empty
+/// `web/dist` so the crate compiles on a fresh clone, which means a release built without the
+/// UI succeeds and silently ships the "not built" placeholder page instead of failing.
+fn dist(root: &Path, target: Option<&str>) -> Result<()> {
+    web_build(root)?;
+    let index = root.join("web/dist/index.html");
+    if !index.exists() {
+        bail!(
+            "{} is missing after the web build: the binary would embed an empty UI",
+            index.display()
+        );
+    }
+    // rust-embed only embeds bytes in non-debug builds, so a debug artifact serves nothing.
+    let features = release_features();
+    let mut args = vec![
+        "build",
+        "--release",
+        "-p",
+        "sdrmm",
+        &features[0],
+        &features[1],
+        &features[2],
+    ];
+    if let Some(triple) = target {
+        args.push("--target");
+        args.push(triple);
+    }
+    run("cargo", &args, root)?;
+
+    let built = match target {
+        Some(triple) => root
+            .join("target")
+            .join(triple)
+            .join("release")
+            .join("sdrmm"),
+        None => root.join("target/release/sdrmm"),
+    };
+    let out = root.join("dist");
+    std::fs::create_dir_all(&out).with_context(|| format!("cannot create {}", out.display()))?;
+    let name = match target {
+        Some(triple) => format!("sdrmm-{triple}"),
+        None => "sdrmm".to_string(),
+    };
+    let staged = out.join(&name);
+    std::fs::copy(&built, &staged)
+        .with_context(|| format!("cannot copy {} to {}", built.display(), staged.display()))?;
+    println!("dist: {}", staged.display());
     Ok(())
 }
 

@@ -23,14 +23,15 @@ use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
     Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DecodedRecord,
-    DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, RecordingStatus, ServerEvent,
-    StateScope, StateSnapshot,
+    DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, RecordingStatus, ScanSettings,
+    ScannerStatus, ServerEvent, StateScope, StateSnapshot,
 };
 use tokio::sync::broadcast;
 
 pub mod audio;
 pub mod recording;
 pub mod runtime;
+pub mod scanner;
 pub use audio::AudioPacket;
 pub use recording::FinalizedRecording;
 pub use runtime::{SpectrumSnapshot, adaptive_db_window};
@@ -39,13 +40,19 @@ use crate::{
     audio::PcmBlock,
     recording::RecordingShared,
     runtime::{CaptureRuntime, ChannelHost, DecodedSink, DspCommand, RawDecoded},
+    scanner::{ScanPlan, ScannerState},
 };
 
 /// Merge priority for the built-in virtual driver (native backends register higher, PLAN §6).
 const VIRTUAL_PRIORITY: u8 = 10;
-/// Soapy sits above virtual; native backends (rtlsdr/hackrf) will claim higher (PLAN §6).
+/// Soapy sits above virtual.
 #[cfg(feature = "soapy")]
 const SOAPY_PRIORITY: u8 = 20;
+/// Native backends win the serial merge against Soapy for the same physical device (PLAN §6):
+/// they expose what Soapy hides — direct sampling, bias-T, per-stage gain — and they need no
+/// C library to be installed.
+#[cfg(any(feature = "rtl-native", feature = "hackrf-native"))]
+const NATIVE_PRIORITY: u8 = 30;
 const EVENT_CHANNEL_CAP: usize = 256;
 /// Decoder frames buffered between the DSP plane and the stamping pump. Deep enough to
 /// absorb an ADS-B burst; overflow is counted and reported, never silently swallowed.
@@ -56,6 +63,36 @@ const DECODED_CHANNEL_CAP: usize = 1024;
 /// Fallbacks for devices that report no tuning/rate; mirrored wherever settings are read.
 const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
 const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
+
+/// The driver registry every binary gets: the virtual driver plus whichever hardware backends
+/// this build compiled in (PLAN §6 merge priority — native above Soapy above virtual). Split
+/// out of [`Engine::new`] so `sdrmm --doctor` reports the same set the server would open,
+/// rather than forking the registration policy.
+#[must_use]
+pub fn builtin_registry(recordings_dir: Option<PathBuf>) -> DeviceRegistry {
+    let mut registry = DeviceRegistry::new();
+    let virtual_driver = match recordings_dir {
+        Some(dir) => VirtualDriver::with_recordings(dir),
+        None => VirtualDriver::new(),
+    };
+    registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
+    #[cfg(feature = "soapy")]
+    registry.register(
+        SOAPY_PRIORITY,
+        Box::new(sdrmm_device_soapy::SoapyDriver::new()),
+    );
+    #[cfg(feature = "rtl-native")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_rtlsdr::RtlSdrDriver::new()),
+    );
+    #[cfg(feature = "hackrf-native")]
+    registry.register(
+        NATIVE_PRIORITY,
+        Box::new(sdrmm_device_hackrf::HackRfDriver::new()),
+    );
+    registry
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -75,6 +112,8 @@ pub enum EngineError {
     /// 500, unlike [`EngineError::Recording`]'s client mistakes.
     #[error("recording: {0}")]
     RecordingIo(String),
+    #[error("scan: {0}")]
+    Scan(String),
 }
 
 impl EngineError {
@@ -93,6 +132,7 @@ impl EngineError {
             Self::Device(DeviceError::Unsupported(_) | DeviceError::AlreadyStreaming)
                 | Self::Channel(_)
                 | Self::Recording(_)
+                | Self::Scan(_)
         )
     }
 }
@@ -271,6 +311,9 @@ struct DeviceSetState {
     next_channel_id: u32,
     error: Option<String>,
     recording: Option<RecordingState>,
+    /// Running frequency scan (M5). The scan thread drives this set's centre frequency, so
+    /// while it is present client retunes are refused rather than fought over.
+    scanner: Option<ScannerState>,
     /// In-flight `patch_device` calls that will change the sample rate (pre-validated, device
     /// I/O or merge still pending). `start_recording`'s commit refuses while non-zero: a
     /// recording committed inside that window would pin a rate the patch is about to change —
@@ -310,6 +353,7 @@ impl DeviceSetState {
             overruns,
             error: self.error.clone(),
             recording: self.recording.as_ref().map(|r| r.status(overruns)),
+            scanner: self.scanner.as_ref().map(ScannerState::status),
         }
     }
 
@@ -321,6 +365,16 @@ impl DeviceSetState {
             tracing::error!("dsp command queue closed while its device set is still listed");
         }
     }
+}
+
+/// Who is retuning a device set. A scan owns its set's centre frequency, so its own retunes
+/// must skip the guard that keeps clients from fighting it — and must stay silent, because a
+/// `StateChanged` per scan step would cost every client a full-state refetch several times a
+/// second (progress rides [`ServerEvent::ScannerUpdate`] instead).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PatchOrigin {
+    Client,
+    Scan,
 }
 
 /// Clears a device set's `rate_patches` claim on drop, so no `patch_device` exit path
@@ -377,17 +431,7 @@ impl Engine {
     /// a finalized recording is immediately replayable.
     #[must_use]
     pub fn new(recordings_dir: Option<PathBuf>) -> Arc<Self> {
-        let mut registry = DeviceRegistry::new();
-        let virtual_driver = match recordings_dir.clone() {
-            Some(dir) => VirtualDriver::with_recordings(dir),
-            None => VirtualDriver::new(),
-        };
-        registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
-        #[cfg(feature = "soapy")]
-        registry.register(
-            SOAPY_PRIORITY,
-            Box::new(sdrmm_device_soapy::SoapyDriver::new()),
-        );
+        let registry = builtin_registry(recordings_dir.clone());
         Self::with_registry(registry, recordings_dir)
     }
 
@@ -520,8 +564,14 @@ impl Engine {
             if recording.is_some() {
                 state.send_dsp(DspCommand::StopRecording);
             }
+            // A dead device accepts no more retunes, so the scan is over; take it here and
+            // join outside the lock — the scan thread takes `inner` on every step.
+            let scanner = state.scanner.take();
             inner.revision += 1;
             drop(inner);
+            if let Some(scanner) = scanner {
+                scanner.stop_and_join();
+            }
             if let Some(recording) = recording {
                 recording.join();
                 // The implicit stop just finalized a playable pair; without this scope
@@ -642,16 +692,24 @@ impl Engine {
             .map(DeviceInfo::id)
             .collect();
 
-        let absent: HashSet<u32> = {
+        let (absent, returned): (HashSet<u32>, Vec<u32>) = {
             let inner = self.lock();
-            inner
+            let absent = inner
                 .device_sets
                 .iter()
                 .filter(|(_, s)| {
                     s.status == DeviceSetStatus::Running && !ids.contains(&s.info.id())
                 })
                 .map(|(id, _)| *id)
-                .collect()
+                .collect();
+            // A faulted set whose device is attached again is the replug case (PLAN §16 M5).
+            let returned = inner
+                .device_sets
+                .iter()
+                .filter(|(_, s)| s.status == DeviceSetStatus::Error && ids.contains(&s.info.id()))
+                .map(|(id, _)| *id)
+                .collect();
+            (absent, returned)
         };
         for ds in absent.intersection(missing_once) {
             self.mark_device_fault(
@@ -660,6 +718,9 @@ impl Engine {
             );
         }
         *missing_once = absent;
+        for ds in returned {
+            self.reconnect(ds);
+        }
 
         let changed = known.as_ref().is_some_and(|prev| *prev != ids);
         *known = Some(ids);
@@ -669,6 +730,154 @@ impl Engine {
             });
         }
         changed
+    }
+
+    /// Re-open a faulted device set whose device has re-enumerated, restoring its tuning and
+    /// its channels (PLAN §16 M5: auto-reconnect on replug). Driven by the hotplug tick, so an
+    /// attempt costs one open per probe interval at worst, and a device that is present but
+    /// still unopenable (settling, claimed elsewhere) simply keeps the set faulted with the
+    /// live reason. Best-effort by nature: failures update the visible error, never panic and
+    /// never leave the set half-swapped.
+    ///
+    /// Not restored: a scan that was running when the device died (it was stopped with the
+    /// device and the operator chooses when to sweep again), and a recording (already
+    /// finalized into a playable pair by [`Engine::mark_device_fault`]).
+    fn reconnect(&self, ds: u32) {
+        let stored = {
+            let inner = self.lock();
+            let Some(state) = inner.device_sets.get(&ds) else {
+                return;
+            };
+            if state.status != DeviceSetStatus::Error {
+                return;
+            }
+            (state.info.id(), state.settings.clone())
+        };
+        let (device_id, stored_settings) = stored;
+
+        // All device I/O outside `inner`: an unresponsive USB stack must not stall snapshots
+        // or the other sets, exactly as in `patch_device`.
+        let opened = self
+            .registry
+            .open(&device_id)
+            .and_then(|(info, mut device)| {
+                // Restore the tuning before the stream starts, so the set comes back on the
+                // frequency the operator left it on rather than the driver's power-on default.
+                device.apply(&stored_settings)?;
+                Ok((info, device))
+            });
+        let (info, device) = match opened {
+            Ok(opened) => opened,
+            Err(e) => {
+                self.note_reconnect_failure(ds, &e.to_string());
+                return;
+            }
+        };
+        let capabilities = device.capabilities().clone();
+        // A reconnect is a create followed by a patch, and it projects state the same way
+        // both of those do: the fresh device's own settings as the base, the stored ones
+        // merged over them. Reading `device.settings()` alone would depend on every backend
+        // reflecting `apply` back into its own state, which the trait does not require.
+        let mut settings = device.settings().clone();
+        settings.merge_from(&stored_settings);
+        let center = settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
+        let rate = sample_rate_of(&settings);
+        let fault_tx = self.fault_tx.clone();
+        let runtime = match CaptureRuntime::start(device, center, rate, move |err| {
+            let _ = fault_tx.send((ds, err));
+        }) {
+            Ok(runtime) => runtime,
+            Err(e) => {
+                self.note_reconnect_failure(ds, &e.to_string());
+                return;
+            }
+        };
+        let cmd_tx = runtime.command_sender();
+        let overruns = runtime.overruns_counter();
+        let runtime = Arc::new(Mutex::new(runtime));
+
+        // Swap under `inner` so a concurrent removal or a fault on the new capture cannot
+        // interleave into a half-replaced set.
+        let (old_runtime, rebuilds) = {
+            let mut inner = self.lock();
+            let Some(state) = inner.device_sets.get_mut(&ds) else {
+                drop(inner);
+                lock_runtime(&runtime).stop();
+                return;
+            };
+            if state.status != DeviceSetStatus::Error {
+                // Something already revived or replaced the set; drop the spare device.
+                drop(inner);
+                lock_runtime(&runtime).stop();
+                return;
+            }
+            let old_runtime = std::mem::replace(&mut state.runtime, runtime);
+            state.cmd_tx = cmd_tx;
+            // The fresh counter starts at zero, so the seen-watermark has to follow it or the
+            // next tick would compute a negative delta.
+            state.overruns = overruns;
+            state.overruns_seen = 0;
+            state.info = info;
+            state.capabilities = capabilities;
+            state.settings = settings;
+            state.status = DeviceSetStatus::Running;
+            state.error = None;
+            let rebuilds: Vec<RebuildEntry> = state
+                .channels
+                .iter()
+                .filter_map(|c| {
+                    state.audio.get(&c.id).map(|a| RebuildEntry {
+                        id: c.id,
+                        settings: c.settings.clone(),
+                        pcm_tx: a.pcm_tx.clone(),
+                        pcm_pos: a.pcm_pos.clone(),
+                    })
+                })
+                .collect();
+            inner.revision += 1;
+            (old_runtime, rebuilds)
+        };
+        // The old DSP thread still runs (only the capture half died); stop it before the
+        // replacements start, so one channel is never hosted on two threads at once.
+        lock_runtime(&old_runtime).stop();
+        drop(old_runtime);
+
+        let mut dead: Vec<ChannelAudio> = Vec::new();
+        for rebuild in rebuilds {
+            self.rebuild_channel(ds, rebuild, rate, &mut dead);
+        }
+        for handle in dead {
+            handle.shutdown();
+        }
+        tracing::info!(ds, device = %device_id, "device set reconnected after replug");
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
+    }
+
+    /// Record why a reconnect attempt failed, emitting only when the reason changes: the
+    /// hotplug tick retries every interval, and a device that stays unopenable would
+    /// otherwise invalidate every client's state on a timer.
+    fn note_reconnect_failure(&self, ds: u32, reason: &str) {
+        let message = format!("device present but not reopenable: {reason}");
+        let changed = {
+            let mut inner = self.lock();
+            let Some(state) = inner.device_sets.get_mut(&ds) else {
+                return;
+            };
+            if state.status != DeviceSetStatus::Error || state.error.as_deref() == Some(&message) {
+                false
+            } else {
+                state.error = Some(message);
+                inner.revision += 1;
+                true
+            }
+        };
+        if changed {
+            self.emit(ServerEvent::StateChanged {
+                scope: StateScope::DeviceSet(ds),
+            });
+        }
     }
 
     /// Subscribe to the low-rate `ServerEvent` stream (state changes, errors).
@@ -687,6 +896,14 @@ impl Engine {
     #[must_use]
     pub fn probe_devices(&self) -> Vec<DeviceInfo> {
         self.registry.probe_all()
+    }
+
+    /// The registry this engine opens devices through. Exposed so diagnostics report the same
+    /// backends the server would actually use, instead of building a second registry — a
+    /// concurrent second enumerate is what crashed libusb in the post-M2 field sessions.
+    #[must_use]
+    pub fn registry(&self) -> &DeviceRegistry {
+        &self.registry
     }
 
     /// Full authoritative snapshot (PLAN §5 `GET /api/state`).
@@ -758,6 +975,7 @@ impl Engine {
                     next_channel_id: 1,
                     error: pending.as_ref().map(ToString::to_string),
                     recording: None,
+                    scanner: None,
                     rate_patches: 0,
                     cmd_tx,
                     overruns,
@@ -841,12 +1059,29 @@ impl Engine {
     /// pipeline at the new rate (ids and audio streams preserved); center-frequency changes
     /// need nothing — channel offsets are center-relative.
     pub fn patch_device(&self, ds: u32, delta: DeviceSettings) -> Result<(), EngineError> {
+        self.patch_device_from(ds, delta, PatchOrigin::Client)
+    }
+
+    /// [`Engine::patch_device`] with the caller's identity: a scan owns its set's centre
+    /// frequency, so its own retunes skip the anti-fighting guard and stay silent (progress
+    /// rides [`ServerEvent::ScannerUpdate`] instead of a state refetch per step).
+    fn patch_device_from(
+        &self,
+        ds: u32,
+        delta: DeviceSettings,
+        origin: PatchOrigin,
+    ) -> Result<(), EngineError> {
         let (runtime, _rate_guard) = {
             let mut inner = self.lock();
             let state = inner
                 .device_sets
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            if origin == PatchOrigin::Client && state.scanner.is_some() {
+                return Err(EngineError::Scan(
+                    "the device is being tuned by a running scan; stop the scan first".to_string(),
+                ));
+            }
             // Refuse a rate the hosted channels cannot run at, before any device I/O —
             // rejecting up front beats stranding a channel after the device already retuned.
             let mut rate_change = false;
@@ -940,9 +1175,11 @@ impl Engine {
         for handle in dead {
             handle.shutdown();
         }
-        self.emit(ServerEvent::StateChanged {
-            scope: StateScope::DeviceSet(ds),
-        });
+        if origin == PatchOrigin::Client {
+            self.emit(ServerEvent::StateChanged {
+                scope: StateScope::DeviceSet(ds),
+            });
+        }
         Ok(())
     }
 
@@ -1405,6 +1642,159 @@ impl Engine {
         sdrmm_channels::descriptors()
     }
 
+    /// Start a frequency scan on a device set (PLAN §13 P2, M5). The scan owns the set's
+    /// centre frequency until it is stopped, so client retunes are refused meanwhile.
+    pub fn start_scan(
+        self: &Arc<Self>,
+        ds: u32,
+        settings: ScanSettings,
+    ) -> Result<ScannerStatus, EngineError> {
+        let plan = ScanPlan::build(&settings)?;
+        {
+            let inner = self.lock();
+            let state = inner
+                .device_sets
+                .get(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            if state.scanner.is_some() {
+                return Err(EngineError::Scan("a scan is already running".to_string()));
+            }
+            if state.status != DeviceSetStatus::Running {
+                return Err(EngineError::Scan(
+                    "the device set is not running".to_string(),
+                ));
+            }
+            // Reject targets the tuner cannot reach up front: discovering it mid-sweep would
+            // stop the scan halfway through with a device error instead of a usable message.
+            if !state.capabilities.freq_ranges.is_empty() {
+                let reachable = |hz: f64| {
+                    state
+                        .capabilities
+                        .freq_ranges
+                        .iter()
+                        .any(|r| hz >= r.min && hz <= r.max)
+                };
+                if let Some(&bad) = plan.targets.iter().find(|&&hz| !reachable(hz)) {
+                    let ranges = state
+                        .capabilities
+                        .freq_ranges
+                        .iter()
+                        .map(|r| format!("{}–{} Hz", r.min, r.max))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(EngineError::Scan(format!(
+                        "{bad} Hz is outside this device's tuning range ({ranges})"
+                    )));
+                }
+            }
+            if let Some(channel) = settings.hold_channel
+                && !state.channels.iter().any(|c| c.id == channel)
+            {
+                return Err(EngineError::ChannelNotFound(channel, ds));
+            }
+        }
+        let scanner = scanner::spawn(self, ds, plan, settings)?;
+        let status = scanner.status();
+        {
+            let mut inner = self.lock();
+            let Some(state) = inner.device_sets.get_mut(&ds) else {
+                // The set went away while the thread was starting; stop it outside the lock.
+                drop(inner);
+                scanner.stop_and_join();
+                return Err(EngineError::DeviceSetNotFound(ds));
+            };
+            if state.scanner.is_some() {
+                drop(inner);
+                scanner.stop_and_join();
+                return Err(EngineError::Scan("a scan is already running".to_string()));
+            }
+            state.scanner = Some(scanner);
+            inner.revision += 1;
+        }
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
+        Ok(status)
+    }
+
+    /// Stop a running scan and return its final status. The device stays wherever the scan
+    /// left it — that is the frequency the operator was listening to.
+    pub fn stop_scan(&self, ds: u32) -> Result<ScannerStatus, EngineError> {
+        let scanner = {
+            let mut inner = self.lock();
+            let state = inner
+                .device_sets
+                .get_mut(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            let scanner = state
+                .scanner
+                .take()
+                .ok_or_else(|| EngineError::Scan("no scan is running".to_string()))?;
+            inner.revision += 1;
+            scanner
+        };
+        // Outside `inner`: the scan thread takes that lock on every step.
+        let status = scanner.stop_and_join();
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
+        Ok(status)
+    }
+
+    /// The device set's current sample rate, or `None` if it is gone — the scan thread's
+    /// "is this set still mine to drive" check.
+    pub(crate) fn scan_sample_rate(&self, ds: u32) -> Option<f64> {
+        let inner = self.lock();
+        let state = inner.device_sets.get(&ds)?;
+        (state.status == DeviceSetStatus::Running).then(|| sample_rate_of(&state.settings))
+    }
+
+    /// Retune for a scan step and hand back a fresh spectrum subscription. Subscribing per
+    /// tuning (rather than once per scan) is what lets a scan survive a runtime replacement:
+    /// after an auto-reconnect the old broadcast is closed, and the next step picks up the
+    /// new one instead of ending the scan.
+    pub(crate) fn scan_retune(
+        &self,
+        ds: u32,
+        center_hz: f64,
+    ) -> Result<broadcast::Receiver<SpectrumSnapshot>, EngineError> {
+        self.patch_device_from(
+            ds,
+            DeviceSettings {
+                center_hz: Some(center_hz),
+                ..DeviceSettings::default()
+            },
+            PatchOrigin::Scan,
+        )?;
+        self.subscribe_spectrum(ds)
+    }
+
+    /// Park the scan's listening channel on `offset_hz` from the current centre.
+    pub(crate) fn scan_park_channel(
+        &self,
+        ds: u32,
+        ch: u32,
+        offset_hz: f64,
+    ) -> Result<(), EngineError> {
+        let settings = {
+            let inner = self.lock();
+            let state = inner
+                .device_sets
+                .get(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            let info = state
+                .channels
+                .iter()
+                .find(|c| c.id == ch)
+                .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+            ChannelSettings {
+                offset_hz,
+                ..info.settings.clone()
+            }
+        };
+        self.patch_channel(ds, ch, settings)
+    }
+
     /// Subscribe to a device set's spectrum stream (PLAN §5 SubscribeSpectrum).
     pub fn subscribe_spectrum(
         &self,
@@ -1445,6 +1835,11 @@ fn lock_runtime(runtime: &Mutex<CaptureRuntime>) -> std::sync::MutexGuard<'_, Ca
 /// PCM senders — only then can the writer and encoder joins complete. Returns whether a live
 /// recording was finalized.
 fn teardown_set(mut removed: DeviceSetState) -> bool {
+    // The scan goes first: it drives the device, and it exits on its own once the set is
+    // unlisted (its retunes then report the set gone), so this join cannot hang.
+    if let Some(scanner) = removed.scanner.take() {
+        scanner.stop_and_join();
+    }
     lock_runtime(&removed.runtime).stop();
     let finalized = removed.recording.take().map(RecordingState::join).is_some();
     for (_, handle) in removed.audio.drain() {
@@ -1475,7 +1870,7 @@ mod tests {
 
     use num_complex::Complex;
     use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice};
-    use sdrmm_wire::{ChannelSettings, NfmParams, Sideband, SsbParams};
+    use sdrmm_wire::{ChannelSettings, NfmParams, ScanState, Sideband, SsbParams};
 
     use super::*;
 
@@ -1838,6 +2233,144 @@ mod tests {
         }
 
         fn rx_stop(&mut self) {}
+    }
+
+    /// Absolute frequency of [`SignalDriver`]'s synthesized carrier.
+    const SIGNAL_HZ: f64 = 100_100_000.0;
+    /// [`SignalDriver`]'s fixed rate. Small so the spectrum tap's hop (rate/30) is short and a
+    /// dwell sees several frames while the mock pushes faster than real time.
+    const SIGNAL_RATE_HZ: f64 = 240_000.0;
+
+    /// Driver whose device synthesizes one carrier at a fixed *absolute* frequency: retuning
+    /// moves the carrier within the passband and out of it, which is what a scan reacts to.
+    /// Without this a scanner test could only assert that it stepped, not that it heard.
+    struct SignalDriver;
+
+    impl DeviceDriver for SignalDriver {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+
+        fn probe(&self) -> Vec<DeviceInfo> {
+            vec![mock_info("signal", Some("MOCK-SIG"))]
+        }
+
+        fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+            Ok(Box::new(SignalDevice {
+                capabilities: Capabilities {
+                    freq_ranges: vec![sdrmm_wire::Range {
+                        min: 80_000_000.0,
+                        max: 120_000_000.0,
+                        step: None,
+                    }],
+                    sample_rates: vec![SIGNAL_RATE_HZ],
+                    ..empty_capabilities()
+                },
+                settings: DeviceSettings {
+                    center_hz: Some(100_000_000.0),
+                    sample_rate: Some(SIGNAL_RATE_HZ),
+                    ..DeviceSettings::default()
+                },
+                center: Arc::new(Mutex::new(100_000_000.0)),
+                stop: Arc::new(AtomicBool::new(false)),
+                worker: None,
+            }))
+        }
+    }
+
+    struct SignalDevice {
+        capabilities: Capabilities,
+        settings: DeviceSettings,
+        /// Read by the capture thread every block so a retune takes effect immediately.
+        center: Arc<Mutex<f64>>,
+        stop: Arc<AtomicBool>,
+        worker: Option<JoinHandle<()>>,
+    }
+
+    impl SdrDevice for SignalDevice {
+        fn capabilities(&self) -> &Capabilities {
+            &self.capabilities
+        }
+
+        fn settings(&self) -> &DeviceSettings {
+            &self.settings
+        }
+
+        fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+            if let Some(center) = settings.center_hz {
+                *self
+                    .center
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = center;
+            }
+            self.settings.merge_from(settings);
+            Ok(())
+        }
+
+        fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+            let center = self.center.clone();
+            let stop = self.stop.clone();
+            self.worker = Some(std::thread::spawn(move || {
+                let mut phase = 0.0f64;
+                let mut block = vec![Complex::new(0.0f32, 0.0); 2_048];
+                while !stop.load(Ordering::SeqCst) {
+                    let center = *center
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let offset = SIGNAL_HZ - center;
+                    // Outside the passband the receiver hears nothing at all — the mirror of
+                    // a real tuner, and what makes an inactive target read as inactive.
+                    if offset.abs() >= SIGNAL_RATE_HZ / 2.0 {
+                        block.fill(Complex::new(0.0, 0.0));
+                    } else {
+                        let step = std::f64::consts::TAU * offset / SIGNAL_RATE_HZ;
+                        for slot in &mut block {
+                            phase = (phase + step).rem_euclid(std::f64::consts::TAU);
+                            *slot =
+                                Complex::new(0.5 * phase.cos() as f32, 0.5 * phase.sin() as f32);
+                        }
+                    }
+                    sink.push(&block);
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }));
+            Ok(())
+        }
+
+        fn rx_stop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = self.worker.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    /// Driver that opens exactly once and then refuses, so a reconnect attempt against a
+    /// present-but-claimed device can be driven deterministically.
+    struct UnopenableDriver {
+        opens: AtomicUsize,
+    }
+
+    impl DeviceDriver for UnopenableDriver {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+
+        fn probe(&self) -> Vec<DeviceInfo> {
+            vec![mock_info("refuse", None)]
+        }
+
+        fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+            if self.opens.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Ok(Box::new(SilentDevice {
+                    capabilities: empty_capabilities(),
+                    settings: DeviceSettings::default(),
+                }));
+            }
+            Err(DeviceError::Io(
+                "still claimed by another process".to_string(),
+            ))
+        }
     }
 
     /// Driver whose probe result grows after the first call, simulating an attach.
@@ -2699,6 +3232,273 @@ mod tests {
         let snap = engine.snapshot();
         assert_eq!(snap.device_sets[0].settings.center_hz, Some(88_500_000.0));
         assert_eq!(snap.device_sets[0].settings.sample_rate, Some(2_400_000.0));
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    /// A device set that faulted and whose device is attached again must come back with its
+    /// tuning and its channels — including live audio subscriptions, which is the whole point
+    /// of preserving the channel's PCM identity across the swap (PLAN §16 M5).
+    #[tokio::test]
+    async fn faulted_set_reconnects_and_restores_its_channels() {
+        let die = Arc::new(AtomicBool::new(false));
+        let mut registry = DeviceRegistry::new();
+        registry.register(50, Box::new(FaultOnDemandDriver { die: die.clone() }));
+        let engine = Engine::with_registry(registry, None);
+        let ds = engine.create_device_set("mock:ondemand").unwrap();
+        engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    center_hz: Some(145_000_000.0),
+                    ..DeviceSettings::default()
+                },
+            )
+            .unwrap();
+        let ch = engine
+            .add_channel(
+                ds,
+                ChannelSettings {
+                    offset_hz: 25_000.0,
+                    squelch_db: None,
+                    params: ChannelParams::Nfm(NfmParams::default()),
+                },
+            )
+            .unwrap();
+        let mut audio = engine.subscribe_audio(ds, ch).unwrap();
+
+        // Subscribe only now: `patch_device` and `add_channel` emit this same scope, so an
+        // earlier subscription would satisfy the wait below before the device ever died.
+        let mut events = engine.subscribe_events();
+        die.store(true, Ordering::SeqCst);
+        loop {
+            wait_for_deviceset_event(&mut events, ds).await;
+            if engine.snapshot().device_sets[0].status == DeviceSetStatus::Error {
+                break;
+            }
+        }
+
+        // The device is attached again; the next probe tick is what notices.
+        die.store(false, Ordering::SeqCst);
+        let mut known = None;
+        let mut missing_once = HashSet::new();
+        engine.hotplug_tick(&mut known, &mut missing_once);
+
+        let set = &engine.snapshot().device_sets[0];
+        assert_eq!(set.status, DeviceSetStatus::Running);
+        assert_eq!(set.error, None);
+        assert_eq!(set.settings.center_hz, Some(145_000_000.0));
+        assert_eq!(set.channels.len(), 1);
+        assert_eq!(set.channels[0].id, ch);
+        assert_eq!(set.channels[0].settings.offset_hz, 25_000.0);
+
+        // The rebuilt pipeline feeds the same encoder, so a subscription taken before the
+        // fault keeps delivering without being re-established.
+        let packet = tokio::time::timeout(Duration::from_secs(10), audio.recv())
+            .await
+            .expect("audio within timeout")
+            .expect("audio packet after reconnect");
+        assert!(!packet.opus.is_empty());
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    /// A device that stays unopenable must not thrash: the set keeps its live reason and the
+    /// retry emits only when that reason changes (clients refetch on every emit).
+    #[tokio::test]
+    async fn reconnect_failure_reports_once_and_keeps_the_set_faulted() {
+        let mut registry = DeviceRegistry::new();
+        registry.register(
+            50,
+            Box::new(UnopenableDriver {
+                opens: AtomicUsize::new(0),
+            }),
+        );
+        let engine = Engine::with_registry(registry, None);
+        let ds = engine.create_device_set("mock:refuse").unwrap();
+        engine.mark_device_fault(ds, DeviceError::Io("unplugged".to_string()));
+        let mut events = engine.subscribe_events();
+
+        let mut known = None;
+        let mut missing_once = HashSet::new();
+        engine.hotplug_tick(&mut known, &mut missing_once);
+        let set = &engine.snapshot().device_sets[0];
+        assert_eq!(set.status, DeviceSetStatus::Error);
+        let reported = set.error.clone().expect("reason");
+        assert!(
+            reported.contains("not reopenable") && reported.contains("still claimed"),
+            "unhelpful reason: {reported}"
+        );
+        assert!(
+            events.try_recv().is_ok(),
+            "the first failure must reach clients"
+        );
+
+        // Second identical failure: same reason, so no further invalidation.
+        while events.try_recv().is_ok() {}
+        engine.hotplug_tick(&mut known, &mut missing_once);
+        assert!(
+            events.try_recv().is_err(),
+            "an unchanged reason must not re-invalidate every client"
+        );
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    /// End-to-end scan against a synthesized carrier: the sweep must find it, park on it,
+    /// retune the hold channel onto it, and refuse client retunes while it owns the device.
+    #[tokio::test]
+    async fn scan_finds_a_carrier_holds_and_owns_the_tuning() {
+        let mut registry = DeviceRegistry::new();
+        registry.register(50, Box::new(SignalDriver));
+        let engine = Engine::with_registry(registry, None);
+        let ds = engine.create_device_set("mock:signal").unwrap();
+        let ch = engine
+            .add_channel(
+                ds,
+                ChannelSettings {
+                    offset_hz: 0.0,
+                    squelch_db: None,
+                    params: ChannelParams::Nfm(NfmParams::default()),
+                },
+            )
+            .unwrap();
+
+        let settings = sdrmm_wire::ScanSettings {
+            ranges: vec![sdrmm_wire::ScanRange {
+                start_hz: 100_000_000.0,
+                stop_hz: 100_200_000.0,
+                step_hz: 25_000.0,
+            }],
+            threshold_db: -60.0,
+            dwell_ms: 60,
+            resume_ms: 60_000,
+            hold_channel: Some(ch),
+            ..sdrmm_wire::ScanSettings::default()
+        };
+        let status = engine.start_scan(ds, settings).unwrap();
+        assert_eq!(status.targets, 9);
+
+        // While a scan owns the tuning, a client retune is refused rather than fought over.
+        let err = engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    center_hz: Some(101_000_000.0),
+                    ..DeviceSettings::default()
+                },
+            )
+            .unwrap_err();
+        assert!(err.is_bad_request(), "expected bad request, got {err}");
+        assert!(
+            engine
+                .start_scan(ds, sdrmm_wire::ScanSettings::default())
+                .is_err()
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let held = loop {
+            let set = &engine.snapshot().device_sets[0];
+            let scanner = set.scanner.clone().expect("scan listed on the set");
+            assert_eq!(scanner.error, None, "scan failed");
+            if scanner.state == ScanState::Holding {
+                break (
+                    scanner,
+                    set.settings.center_hz.expect("center"),
+                    set.channels[0].settings.offset_hz,
+                );
+            }
+            assert!(Instant::now() < deadline, "scan never found the carrier");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        let (scanner, center_hz, offset_hz) = held;
+        assert_eq!(scanner.current_hz, SIGNAL_HZ);
+        assert!(scanner.hits >= 1);
+        // The hold channel follows the hit, so its audio is the signal the scan stopped on.
+        assert!(
+            (center_hz + offset_hz - SIGNAL_HZ).abs() < 1.0,
+            "hold channel parked at {} Hz, carrier at {SIGNAL_HZ} Hz",
+            center_hz + offset_hz
+        );
+
+        let final_status = engine.stop_scan(ds).unwrap();
+        assert_eq!(final_status.state, ScanState::Holding);
+        assert!(
+            engine.stop_scan(ds).is_err(),
+            "double stop must be an error"
+        );
+        assert!(engine.snapshot().device_sets[0].scanner.is_none());
+        // The tuning is the client's again once the scan lets go.
+        engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    center_hz: Some(101_000_000.0),
+                    ..DeviceSettings::default()
+                },
+            )
+            .unwrap();
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    /// Removing a set with a scan running must not hang: the scan thread takes the engine
+    /// lock on every step, so teardown has to signal it and join outside that lock.
+    #[tokio::test]
+    async fn removing_a_scanning_set_tears_the_scan_down() {
+        let mut registry = DeviceRegistry::new();
+        registry.register(50, Box::new(SignalDriver));
+        let engine = Engine::with_registry(registry, None);
+        let ds = engine.create_device_set("mock:signal").unwrap();
+        engine
+            .start_scan(
+                ds,
+                sdrmm_wire::ScanSettings {
+                    ranges: vec![sdrmm_wire::ScanRange {
+                        start_hz: 100_000_000.0,
+                        stop_hz: 100_400_000.0,
+                        step_hz: 25_000.0,
+                    }],
+                    // Never trips, so the sweep keeps retuning for the whole test.
+                    threshold_db: 100.0,
+                    dwell_ms: 40,
+                    ..sdrmm_wire::ScanSettings::default()
+                },
+            )
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        engine.remove_device_set(ds).unwrap();
+        assert!(engine.snapshot().device_sets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn scan_rejects_targets_the_tuner_cannot_reach() {
+        let mut registry = DeviceRegistry::new();
+        registry.register(50, Box::new(SignalDriver));
+        let engine = Engine::with_registry(registry, None);
+        let ds = engine.create_device_set("mock:signal").unwrap();
+        let err = engine
+            .start_scan(
+                ds,
+                sdrmm_wire::ScanSettings {
+                    frequencies: vec![2_400_000_000.0],
+                    ..sdrmm_wire::ScanSettings::default()
+                },
+            )
+            .unwrap_err();
+        assert!(err.is_bad_request(), "expected bad request, got {err}");
+        assert!(
+            err.to_string().contains("tuning range"),
+            "unhelpful message: {err}"
+        );
+        // A hold channel that does not exist is a not-found, not a silent scan without audio.
+        let err = engine
+            .start_scan(
+                ds,
+                sdrmm_wire::ScanSettings {
+                    frequencies: vec![100_000_000.0],
+                    hold_channel: Some(42),
+                    ..sdrmm_wire::ScanSettings::default()
+                },
+            )
+            .unwrap_err();
+        assert!(err.is_not_found(), "expected not found, got {err}");
         engine.remove_device_set(ds).unwrap();
     }
 }

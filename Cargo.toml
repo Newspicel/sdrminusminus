@@ -6,6 +6,8 @@ members = [
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
+    "crates/device-rtlsdr",
+    "crates/device-hackrf",
     "crates/channels",
     "crates/recorder",
     "crates/engine",
@@ -23,6 +25,8 @@ default-members = [
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
+    "crates/device-rtlsdr",
+    "crates/device-hackrf",
     "crates/channels",
     "crates/recorder",
     "crates/engine",
@@ -46,6 +50,8 @@ sdrmm-dsp = { path = "crates/dsp" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
+sdrmm-device-rtlsdr = { path = "crates/device-rtlsdr" }
+sdrmm-device-hackrf = { path = "crates/device-hackrf" }
 sdrmm-channels = { path = "crates/channels" }
 sdrmm-recorder = { path = "crates/recorder" }
 # default-features = false so binaries opt into `soapy` themselves — a member manifest cannot
@@ -63,6 +69,11 @@ futures = "0.3"
 # feature uses (0.30 exists) so tungstenite isn't built twice just for tests.
 tokio-tungstenite = "0.29"
 
+# MCP server (PLAN §5, §18): streamable HTTP mounted on the same axum app. `schemars` derives
+# the tool argument schemas and must match the version rmcp itself depends on.
+rmcp = { version = "3.1", features = ["server", "macros", "transport-streamable-http-server"] }
+schemars = "1.2"
+
 # Serde + OpenAPI
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -73,6 +84,10 @@ mime_guess = "2"
 
 # Device backends
 soapysdr = "0.5"
+# Native backends (PLAN §15: release artifacts must launch with no C dependency). Both are
+# pure-Rust over `nusb`; the soapysdr crate stays for exotic hardware only.
+rs-rtl = "0.4.2"
+hackrf-nusb = "0.3"
 
 # DSP
 num-complex = "0.4"
@@ -99,7 +114,7 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 arc-swap = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 
 # Scoped temp dirs for filesystem tests (SigMF IO, recordings REST); dev-dependency only.
 tempfile = "3"

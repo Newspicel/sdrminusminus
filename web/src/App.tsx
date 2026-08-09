@@ -9,13 +9,19 @@ import { DecoderLogPanel } from "./components/DecoderLogPanel";
 import { AprsView, PagerView, RdsView, TargetsView, TextView } from "./components/DecoderPanels";
 import { DeviceBar } from "./components/DeviceBar";
 import { DeviceSettingsPanel } from "./components/DeviceSettings";
+import { FirstRun } from "./components/FirstRun";
 import { MapPanel } from "./components/MapPanel";
 import { PanelSection } from "./components/PanelSection";
 import { PresetsPanel } from "./components/PresetsPanel";
 import { RecordingsPanel } from "./components/RecordingsPanel";
+import { ScannerPanel } from "./components/ScannerPanel";
 import { SpectrumDisplay } from "./components/SpectrumDisplay";
+import { TemplatesPanel } from "./components/TemplatesPanel";
+import { TokenGate } from "./components/TokenGate";
 import {
   BOOKMARKS_KEY,
+  CLIENTS_KEY,
+  clientsQuery,
   DECODER_LOG_KEY,
   DEVICES_KEY,
   PRESETS_KEY,
@@ -25,6 +31,7 @@ import {
 } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
 import { useDecodedStore } from "./lib/decoded";
+import { useScannerStore } from "./lib/scanner";
 import type { ChannelInfo, ServerEvent, StateScope } from "./lib/types";
 import { SdrSocket } from "./lib/ws";
 
@@ -37,6 +44,7 @@ export function App() {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const state = useQuery(stateQuery());
+  const clients = useQuery(clientsQuery());
   const deviceSets = state.data?.device_sets ?? [];
 
   useEffect(() => {
@@ -46,6 +54,9 @@ export function App() {
     // arrive hundreds a second, so they go straight into the batched store. The action
     // identity is stable, so this listener never needs re-registering.
     s.addEventListener(useDecodedStore.getState().observe);
+    // Scanner progress is its own high-rate event for the same reason (PLAN §13): a sweep
+    // steps several times a second and must not invalidate server state per step.
+    s.addEventListener(useScannerStore.getState().observe);
     setSocket(s);
     s.connect();
     return () => s.close();
@@ -84,114 +95,131 @@ export function App() {
   const decoders = (active?.channels ?? []).filter((c) => DECODER_KINDS.has(kindOf(c)));
 
   return (
-    <div className="flex h-full flex-col bg-bg text-ink">
-      <header className="flex items-center justify-between border-b border-line px-4 py-2">
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-lg font-semibold tracking-tight text-accent">sdr--</span>
-          <span className="text-xs text-ink-dim">decoders wave 1 · M4</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-ink-dim">
-          <span
-            className={`inline-block h-2 w-2 rounded-full ${connected ? "bg-accent" : "bg-danger"}`}
-          />
-          {connected ? "connected" : "reconnecting…"}
-        </div>
-      </header>
+    <TokenGate onToken={() => socket?.retryNow()}>
+      <div className="flex h-full flex-col bg-bg text-ink">
+        <header className="flex items-center justify-between border-b border-line px-4 py-2">
+          <div className="flex items-baseline gap-2">
+            <span className="font-mono text-lg font-semibold tracking-tight text-accent">
+              sdr--
+            </span>
+            <span className="text-xs text-ink-dim">ops &amp; UX polish · M5</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-ink-dim">
+            {/* Only worth saying when someone else is here: a solo operator does not need a
+                client count, but "another browser is driving this radio" explains a lot. */}
+            {(clients.data?.clients ?? 0) > 1 && (
+              <span className="font-mono">{clients.data?.clients} clients</span>
+            )}
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${connected ? "bg-accent" : "bg-danger"}`}
+            />
+            {connected ? "connected" : "reconnecting…"}
+          </div>
+        </header>
 
-      {serverError !== null && (
-        <div className="border-b border-line px-4 py-2">
-          <div
-            role="alert"
-            className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-          >
-            <span>Server error: {serverError}</span>
-            <button
-              type="button"
-              className="shrink-0 underline"
-              onClick={() => setServerError(null)}
+        {serverError !== null && (
+          <div className="border-b border-line px-4 py-2">
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
             >
-              dismiss
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="border-b border-line px-4 py-3">
-        {socket && <DeviceBar active={active} onSelect={setActiveDs} />}
-      </div>
-
-      {active && <DeviceSettingsPanel active={active} />}
-
-      {socket && (
-        <SpectrumDisplay
-          socket={socket}
-          deviceSet={active?.id ?? null}
-          connected={connected}
-          channels={active?.channels ?? []}
-          selectedChannel={selectedChannel}
-          onSelectChannel={setSelectedChannel}
-        />
-      )}
-
-      {decoders.length > 0 && (
-        <div className="flex shrink-0 flex-col border-t border-line lg:flex-row">
-          <div className="min-w-0 flex-1">
-            {decoderPanels(active?.id ?? 0, decoders, selectedChannel)}
-          </div>
-          {/* The map earns its width only when something can be plotted on it. */}
-          {decoders.some((c) => MAPPED_KINDS.has(kindOf(c))) && (
-            <div className="border-line max-lg:border-t lg:w-[28rem] lg:border-l">
-              <PanelSection title="Map">
-                <MapPanel className="h-72" />
-              </PanelSection>
+              <span>Server error: {serverError}</span>
+              <button
+                type="button"
+                className="shrink-0 underline"
+                onClick={() => setServerError(null)}
+              >
+                dismiss
+              </button>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {socket && (
-        <div className="flex max-h-[45dvh] shrink-0 flex-col overflow-y-auto border-t border-line md:flex-row md:overflow-hidden">
-          {active && (
-            <div className="min-w-0 flex-1 md:overflow-y-auto">
-              <PanelSection title="Channels">
-                <ChannelsPanel
-                  socket={socket}
-                  deviceSet={active}
-                  selected={selectedChannel}
-                  onSelect={setSelectedChannel}
-                />
-              </PanelSection>
+        <FirstRun active={active} onSelectDeviceSet={setActiveDs} />
+
+        <div className="border-b border-line px-4 py-3">
+          {socket && <DeviceBar active={active} onSelect={setActiveDs} />}
+        </div>
+
+        {active && <DeviceSettingsPanel active={active} />}
+
+        {socket && (
+          <SpectrumDisplay
+            socket={socket}
+            deviceSet={active?.id ?? null}
+            connected={connected}
+            channels={active?.channels ?? []}
+            selectedChannel={selectedChannel}
+            onSelectChannel={setSelectedChannel}
+          />
+        )}
+
+        {decoders.length > 0 && (
+          <div className="flex shrink-0 flex-col border-t border-line lg:flex-row">
+            <div className="min-w-0 flex-1">
+              {decoderPanels(active?.id ?? 0, decoders, selectedChannel)}
             </div>
-          )}
-          {/* Recordings are a device-independent library: they must stay browsable (and
+            {/* The map earns its width only when something can be plotted on it. */}
+            {decoders.some((c) => MAPPED_KINDS.has(kindOf(c))) && (
+              <div className="border-line max-lg:border-t lg:w-[28rem] lg:border-l">
+                <PanelSection title="Map">
+                  <MapPanel className="h-72" />
+                </PanelSection>
+              </div>
+            )}
+          </div>
+        )}
+
+        {socket && (
+          <div className="flex max-h-[45dvh] shrink-0 flex-col overflow-y-auto border-t border-line md:flex-row md:overflow-hidden">
+            {active && (
+              <div className="min-w-0 flex-1 md:overflow-y-auto">
+                <PanelSection title="Channels">
+                  <ChannelsPanel
+                    socket={socket}
+                    deviceSet={active}
+                    selected={selectedChannel}
+                    onSelect={setSelectedChannel}
+                  />
+                </PanelSection>
+              </div>
+            )}
+            {/* Recordings are a device-independent library: they must stay browsable (and
               playable — Play opens a set) with zero device sets open, unlike the set-bound
               panels above. */}
-          <div
-            className={`shrink-0 md:overflow-y-auto ${
-              active ? "border-line max-md:border-t md:w-80 md:border-l" : "min-w-0 flex-1"
-            }`}
-          >
-            {active && (
-              <>
-                <PanelSection title="Presets" defaultOpen={false}>
-                  <PresetsPanel active={active} />
-                </PanelSection>
-                <PanelSection title="Bookmarks" defaultOpen={false}>
-                  <BookmarksPanel active={active} />
-                </PanelSection>
-              </>
-            )}
-            <PanelSection title="Recordings" defaultOpen={false}>
-              <RecordingsPanel onSelect={setActiveDs} />
-            </PanelSection>
-            {/* Like recordings, the decoder log is a device-independent library. */}
-            <PanelSection title="Decoder log" defaultOpen={false}>
-              <DecoderLogPanel deviceSets={deviceSets} />
-            </PanelSection>
+            <div
+              className={`shrink-0 md:overflow-y-auto ${
+                active ? "border-line max-md:border-t md:w-80 md:border-l" : "min-w-0 flex-1"
+              }`}
+            >
+              {active && (
+                <>
+                  <PanelSection title="Scanner" defaultOpen={false}>
+                    <ScannerPanel active={active} />
+                  </PanelSection>
+                  <PanelSection title="Templates" defaultOpen={false}>
+                    <TemplatesPanel active={active} />
+                  </PanelSection>
+                  <PanelSection title="Presets" defaultOpen={false}>
+                    <PresetsPanel active={active} />
+                  </PanelSection>
+                  <PanelSection title="Bookmarks" defaultOpen={false}>
+                    <BookmarksPanel active={active} />
+                  </PanelSection>
+                </>
+              )}
+              <PanelSection title="Recordings" defaultOpen={false}>
+                <RecordingsPanel onSelect={setActiveDs} />
+              </PanelSection>
+              {/* Like recordings, the decoder log is a device-independent library. */}
+              <PanelSection title="Decoder log" defaultOpen={false}>
+                <DecoderLogPanel deviceSets={deviceSets} />
+              </PanelSection>
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </TokenGate>
   );
 }
 
@@ -252,6 +280,9 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "recordings":
       void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });
+      break;
+    case "clients":
+      void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
       break;
     case "decoder_log":
       // Only structural changes (cleared, pruned) land here; individual decodes arrive as

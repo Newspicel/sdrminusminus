@@ -324,12 +324,12 @@ Opus.
 - [x] Lows: SigMF-optional `sample_rate`, 500-vs-400 honesty for record I/O, 404-before-400
   ordering, writer-fault-glue test via injected shared error, honest queue-cap comment
 
-## M4 — Decoders wave 1 🚧
+## M4 — Decoders wave 1 ✅
 
 Goal (PLAN §16): RDS · POCSAG · ADS-B + map · AIS · APRS/AX.25 · RTTY · Morse ·
 decoder-log database + export.
 
-**Status: in progress.**
+**Status: complete.**
 
 ### Wire (single source of truth, PLAN §4)
 - [x] `crates/wire/src/decode.rs` — `DecoderEvent` tagged union (rds/pocsag/adsb/ais/aprs/rtty/
@@ -484,3 +484,150 @@ Medium/low:
 - [x] The RTTY alphabet guard spot-checked 9 of 30 code points while the modulator shared the
   same tables; it now transcribes the whole chart independently — which immediately caught that
   the transcription, not the decoder, had mixed ITA2 variants
+
+## M5 — Ops & UX polish ✅
+
+Goal (PLAN §16): frequency scanner · auto-reconnect on replug · multi-client polish · token
+auth · MCP server · template gallery + first-run wizard · native `rtl-native`/`hackrf-native`
+backends → self-contained binaries · Tauri packaging/signing · Docker/Pi image · docs site ·
+`--doctor`.
+
+**Status: complete.** `cargo xtask check` + `cargo xtask test` green; no hardware in CI.
+
+### Wire (single source of truth, PLAN §4)
+- [x] `crates/wire/src/scan.rs` — `ScanRange`/`ScanSettings`/`ScanState`/`ScannerStatus`,
+  `ScanRequest`+`ScanAction`, `MAX_SCAN_TARGETS`; `DeviceSet.scanner` and
+  `ServerEvent::ScannerUpdate` (its own event, not a `StateChanged` — a sweep retunes several
+  times a second, PLAN §5)
+- [x] `crates/wire/src/doctor.rs` — `DoctorReport`/`DoctorCheck`/`CheckStatus`, shared by
+  `sdrmm --doctor` and `GET /api/doctor` so the CLI and the web UI cannot disagree
+- [x] `TemplateInfo`/`TemplatesResponse`/`ApplyTemplateRequest`, `AuthInfo`, `ClientsResponse`,
+  `StateScope::Clients`; contract tests lock every new tag, default and absent-field case
+- [x] OpenAPI regenerated, TS aliases added, zero drift
+
+### Frequency scanner (`crates/engine/src/scanner.rs`, PLAN §13 P2)
+- [x] The unit of work is a *device tuning*, not a target: targets are grouped into
+  passband-sized tunings and every target inside one is measured from the same spectrum
+  frames, so a 2 MHz receiver sweeps a whole band per dwell. Costs retunes and a max over FFT
+  bins — no extra DSP, which is what keeps it inside the Pi 4 budget (PLAN §14)
+- [x] Peak-hold over the dwell (a burst mid-dwell counts), measurement over a configurable
+  bandwidth by *max* bin so a threshold picked off the waterfall means the same thing, and a
+  post-retune settle + drain so the ring backlog is never measured at the old frequency
+- [x] Hold: parks the configured channel on the hit so audio/decoding follows, resumes after
+  `resume_ms` of quiet; a hold channel the user deletes mid-scan drops the listening half
+  instead of killing the scan
+- [x] A running scan owns its set's centre frequency: client retunes are refused (`PatchOrigin`)
+  rather than fought over, and the scan's own retunes are silent — progress rides
+  `ScannerUpdate`, throttled to 5 Hz with state transitions exempt
+- [x] Targets outside the device's tuning range, an unreachable hold channel, and unusable
+  settings (zero/NaN step, inverted range, >20 000 targets) are all rejected at `start_scan`
+  with a message naming the problem
+- [x] Teardown ordering: `stop_scan`, device fault and set removal all take the handle under
+  `inner` and join outside it (the scan thread takes that lock on every step)
+- [x] Tests: plan expansion/dedup/rejection, tuning coverage, bin measurement; an end-to-end
+  scan against a mock device synthesizing a carrier at a fixed *absolute* frequency — it finds
+  it, holds, parks the channel on it, refuses a client retune, and tears down mid-sweep
+
+### Auto-reconnect on replug (`crates/engine`, PLAN §16 M5)
+- [x] A faulted set whose device re-enumerates is re-opened by the hotplug tick, its stored
+  tuning re-applied and its channels rebuilt — ids, PCM identity and live audio subscriptions
+  all preserved, so a listener never re-subscribes
+- [x] Device I/O outside `inner`, swap under it, old runtime stopped before the replacements
+  start (one channel is never hosted on two DSP threads)
+- [x] A device that is present but unopenable keeps the set faulted with the live reason, and
+  re-reports only when that reason changes — a retry every probe interval must not invalidate
+  every client on a timer
+- [x] Tests: reconnect restores channels and keeps a pre-fault audio subscription alive;
+  repeated failure reports once
+
+### Token auth (PLAN §12)
+- [x] `crates/server/src/auth.rs` — one `route_layer` middleware over REST + WS + MCP, and
+  deliberately *not* the SPA fallback (the login UI must load before a token can be typed, and
+  an unmatched `/api/*` stays a typed 404 rather than a 401). CORS stays outermost so a
+  preflight is never 401'd
+- [x] `Authorization: Bearer` **or** `?token=` — the browser WebSocket API cannot set headers
+  and the decoder-log export is a plain navigation; constant-time comparison; an empty token
+  reads as "no auth" with a warning instead of half-enabling it
+- [x] `/api/auth` (unauthenticated), `/api/openapi.json` and `/api/docs` stay public: they
+  describe the API's shape, never its data
+- [x] `sdrmm --token` (also `SDRMM_TOKEN`, so it need not appear in the process list); the
+  desktop app stays loopback-only and unauthenticated
+- [x] Web: fetch middleware, token in the WS URL and the export href, a login gate driven by
+  `GET /api/auth` (the browser reports a rejected handshake as a plain close, so without the
+  probe a wrong token is indistinguishable from an outage), reconnect backoff 1 s→30 s
+
+### MCP server (`crates/server/src/mcp.rs`, PLAN §5, §18)
+- [x] `rmcp` 3.1 streamable-HTTP at `/mcp`, stateless, behind the same token layer
+- [x] 13 tools over the *same* engine/store calls REST uses — state, devices, channel types,
+  open/close, tune, add/remove channel, start/stop scan, record, decoder-log query, spectrum
+  snapshot; channel settings are built through the wire enum, so MCP accepts exactly what REST
+  does and no parallel settings model exists
+- [x] Tests: tool names locked, every tool described with an input schema, and an end-to-end
+  `tools/list` over HTTP proving the mount and the token gate
+
+### Templates + first-run wizard (PLAN §10)
+- [x] `crates/server/src/templates.rs` — eight built-in stations (FM radio·RDS, airband, ADS-B,
+  AIS, APRS, POCSAG, 2 m, marine VHF), each with a "what am I looking at" explainer; a static
+  table, not seeded rows (a shipped template needs no migration and cannot be half-deleted)
+- [x] `apply_configuration` extracted so presets and templates share one apply path, including
+  the honest partial-application detail
+- [x] Tests: unique slug ids, every channel inside the flat 80% of its own passband (a template
+  that cannot be applied is worse than none), ADS-B pinned to its 2 Msps device rate
+- [x] Web: gallery with out-of-range cards greyed against the open device's capabilities, and a
+  wizard that appears only when the *server* is untouched and *this browser* has not dismissed
+  it — pick a device (hardware ranked above the signal generator), then a template, with the
+  `--doctor` report one click away when nothing shows up
+
+### Native backends (PLAN §6, §15)
+- [x] `crates/device-rtlsdr` over `rs-rtl` 0.4.2 — probe/open by serial (falling back to
+  bus/address when dongles share the factory serial), tuner gain table with nearest-step
+  snapping, tuner AGC, bias-T, IF bandwidth, u8→cf32 at the device edge with a 256-entry LUT
+  and I/Q alignment carried across block boundaries
+- [x] `crates/device-hackrf` over `hackrf-nusb` 0.3 — probe/open by serial, per-stage LNA/VGA
+  gains (8 dB / 2 dB steps, the thing Soapy's collapsed gain hides), amp, bias-T, samples
+  already `Complex32` at the crate boundary
+- [x] Both registered above Soapy in the serial merge; `--no-default-features --features
+  rtl-native,hackrf-native` builds a Soapy-free binary and is now a gate in `xtask check`
+- [x] 53 hardware-free tests between them (conversion, gain snapping, capability construction,
+  every validation rejection path); no test touches USB
+
+### Diagnostics, packaging, docs (PLAN §15)
+- [x] `sdrmm --doctor` + `GET /api/doctor`: compiled backends (derived from the registry, so it
+  cannot drift), devices found, Linux udev/USB permissions with the fix, and writability of the
+  database and recordings paths — `collect` does the I/O, `render` is pure and tested
+- [x] `cargo xtask dist` — web build, an assertion that `web/dist/index.html` exists (the
+  server's `build.rs` creates an empty `web/dist`, so a release without it would silently ship
+  the "not built" page), then the release-shaped `--no-default-features --features
+  rtl-native,hackrf-native` build
+- [x] Multi-stage `Dockerfile` (+ `.dockerignore`, `docker-compose.yml` with USB passthrough and
+  a data volume) and a tag-triggered `release.yml`: linux x86_64/aarch64 + macOS arm64
+  tarballs, a multi-arch ghcr.io image, and Tauri bundles (unsigned without the Apple secrets)
+- [x] mdBook docs site (`docs/`) + `docs.yml` Pages deploy, a real `README.md`, and the `LICENSE`
+  file the manifests have claimed since M0
+
+### Multi-client polish
+- [x] Decoder frames are serialized **once** for the whole server and shared as `Utf8Bytes`;
+  every connection used to re-serialize byte-identical JSON, which under ADS-B traffic cost N×
+  the work for N browsers
+- [x] `GET /api/clients` + `StateScope::Clients`: connections are counted on connect/disconnect
+  and the header says so when more than one operator is on the radio
+- [x] WS reconnect backoff (1 s → 30 s): a stopped server, or a wrong token, used to mean a
+  1 Hz request flood for as long as the tab stayed open
+
+### Gates
+- [x] `cargo xtask check` green: fmt · clippy `-D warnings` · Soapy-free build · release-shaped
+  native build · `biome ci` · `oxlint --type-aware` · `tsgo` · web build · codegen drift
+- [x] `cargo xtask test` green: Rust suite + web vitest
+
+### Known gaps (honest, not deferred silently)
+- Workspaces/tabs (dockview) were never built in M0–M2 despite PLAN §16's parenthetical; the
+  plan is corrected in the same change and the shell is deferred to M6.
+- The native backends are proven against their crates' APIs and unit-tested hardware-free; they
+  have had no off-air session yet, exactly like the M4 decoders (PLAN §14).
+- rs-rtl exposes no PPM or direct sampling, and hackrf-nusb no independent baseband-filter
+  bandwidth or hardware sweep; those settings are *rejected* rather than advertised and faked.
+  Soapy still covers them, which is what the `soapy` feature is for.
+- macOS signing/notarisation needs Apple secrets the repo does not have; the release workflow
+  produces unsigned bundles until they are configured.
+- The Docker image has not been built here (no daemon in this environment); the workflow builds
+  it on every tag.

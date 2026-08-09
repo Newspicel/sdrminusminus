@@ -7,23 +7,21 @@
 
 use std::{
     collections::HashMap,
-    sync::Arc,
+    sync::atomic,
     time::{Duration, Instant},
 };
 
 use axum::{
     extract::{
         State,
-        ws::{Message, WebSocket, WebSocketUpgrade},
+        ws::{Message, Utf8Bytes, WebSocket, WebSocketUpgrade},
     },
     response::Response,
 };
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{decimate_max, quantize_db};
-use sdrmm_engine::{AudioPacket, Engine, SpectrumSnapshot, adaptive_db_window};
-use sdrmm_wire::{
-    AudioFrame, ClientCommand, DecodedRecord, ServerEvent, SpectrumFrame, StateScope, StreamKind,
-};
+use sdrmm_engine::{AudioPacket, SpectrumSnapshot, adaptive_db_window};
+use sdrmm_wire::{AudioFrame, ClientCommand, ServerEvent, SpectrumFrame, StateScope, StreamKind};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::AppState;
@@ -39,11 +37,46 @@ const CH_LAYOUT_MONO: u8 = 1;
 const AUDIO_ID_BASE: u16 = 0x8000;
 
 pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    let engine = state.engine.clone();
-    ws.on_upgrade(move |socket| handle_socket(socket, engine))
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-async fn handle_socket(socket: WebSocket, engine: Arc<Engine>) {
+/// Serialize each decoder frame once for the whole server, not once per connection (PLAN §16
+/// M5 multi-client). Under ADS-B traffic the per-connection cost was N× the same JSON; the
+/// per-connection tasks now clone a `Utf8Bytes`, which is a refcount bump. Runs until the
+/// engine is dropped (the decoded broadcast closes).
+pub(crate) fn start_decoded_encoder(state: &AppState) {
+    let mut decoded_rx = state.engine.subscribe_decoded();
+    let out = state.decoded_text.clone();
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        // The desktop shell builds the router outside a runtime; its own `spawn` below would
+        // panic. The encoder is started again by whichever runtime serves the app.
+        tracing::debug!("no runtime yet for the decoded encoder; it starts with the server");
+        return;
+    };
+    let _guard = handle.enter();
+    tokio::spawn(async move {
+        loop {
+            match decoded_rx.recv().await {
+                Ok(record) => {
+                    // send() only errors with no subscribers — the common headless case.
+                    let _ = out.send(encode_event(&ServerEvent::Decoded(Box::new(record))));
+                }
+                // The encoder is the only consumer of the engine's broadcast now, so its own
+                // lag is server-wide loss: report it once to everyone rather than per socket.
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    let _ = out.send(encode_event(&ServerEvent::DecodedLost { count: missed }));
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+async fn handle_socket(socket: WebSocket, state: AppState) {
+    let engine = state.engine.clone();
+    let live = state.clients.fetch_add(1, atomic::Ordering::Relaxed) + 1;
+    tracing::debug!(clients = live, "client connected");
+    engine.emit_scope(StateScope::Clients);
     let (mut ws_tx, mut ws_rx) = socket.split();
     let (out_tx, mut out_rx) = mpsc::channel::<Message>(OUT_CHANNEL_CAP);
 
@@ -62,7 +95,7 @@ async fn handle_socket(socket: WebSocket, engine: Arc<Engine>) {
     let event_rx = engine.subscribe_events();
     // Subscribed alongside the control stream, before the snapshot, for the same reason: a
     // decode landing in the gap would otherwise never reach this client's live view.
-    let decoded_rx = engine.subscribe_decoded();
+    let decoded_rx = state.decoded_text.subscribe();
     let hello = ServerEvent::Hello {
         revision: engine.snapshot().revision,
     };
@@ -223,6 +256,12 @@ async fn handle_socket(socket: WebSocket, engine: Arc<Engine>) {
     events.abort();
     decoded.abort();
     writer.abort();
+    let live = state
+        .clients
+        .fetch_sub(1, atomic::Ordering::Relaxed)
+        .saturating_sub(1);
+    tracing::debug!(clients = live, "client disconnected");
+    engine.emit_scope(StateScope::Clients);
 }
 
 /// Collapse a `spawn_blocking` result into the message for a `ServerEvent::Error`, mirroring
@@ -292,18 +331,14 @@ fn spawn_events(
 /// than force a full-state refetch — the log endpoint holds the authoritative history, so a
 /// gap here costs the live view, not correctness.
 fn spawn_decoded(
-    mut decoded_rx: broadcast::Receiver<DecodedRecord>,
+    mut decoded_rx: broadcast::Receiver<Utf8Bytes>,
     out_tx: mpsc::Sender<Message>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             match decoded_rx.recv().await {
-                Ok(record) => {
-                    if out_tx
-                        .send(text_event(&ServerEvent::Decoded(Box::new(record))))
-                        .await
-                        .is_err()
-                    {
+                Ok(text) => {
+                    if out_tx.send(Message::Text(text)).await.is_err() {
                         break;
                     }
                 }
@@ -462,19 +497,22 @@ fn spawn_audio(
 }
 
 fn text_event(ev: &ServerEvent) -> Message {
+    Message::Text(encode_event(ev))
+}
+
+fn encode_event(ev: &ServerEvent) -> Utf8Bytes {
     match serde_json::to_string(ev) {
-        Ok(json) => Message::Text(json.into()),
+        Ok(json) => json.into(),
         // Serializing our own enum cannot realistically fail; emit a minimal error frame.
-        Err(_) => Message::Text(
-            r#"{"type":"Error","data":{"message":"event serialization failed"}}"#.into(),
-        ),
+        Err(_) => r#"{"type":"Error","data":{"message":"event serialization failed"}}"#.into(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::future::IntoFuture;
+    use std::{future::IntoFuture, sync::Arc};
 
+    use sdrmm_engine::Engine;
     use sdrmm_wire::{ChannelParams, ChannelSettings, NfmParams};
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite;
@@ -495,13 +533,27 @@ mod tests {
     >;
 
     async fn connect(engine: Arc<Engine>) -> WsClient {
-        let store = crate::Store::open(None).expect("in-memory store");
-        let app = crate::router(engine, store, false);
+        let (addr, _state) = serve_ws(engine).await;
+        dial(addr).await
+    }
+
+    /// The same server, but handing back its address and state so a test can observe what the
+    /// hub does to shared state (client count) or open a second connection to it.
+    async fn serve_ws(engine: Arc<Engine>) -> (std::net::SocketAddr, AppState) {
+        let store = Arc::new(crate::Store::open(None).expect("in-memory store"));
+        let state = AppState::new(engine, store);
+        let (app, writer) =
+            crate::router_with_state(state.clone(), &crate::ServerOptions::default());
+        writer.detach();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind");
         let addr = listener.local_addr().expect("addr");
         tokio::spawn(axum::serve(listener, app).into_future());
+        (addr, state)
+    }
+
+    async fn dial(addr: std::net::SocketAddr) -> WsClient {
         let (ws, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/api/ws"))
             .await
             .expect("connect");
@@ -796,6 +848,82 @@ mod tests {
             seqs.len() < last_seq as usize + 1,
             "stale backlog was not shed: {seqs:?}"
         );
+    }
+
+    /// Connections are counted for every client and released on disconnect, and each change
+    /// invalidates the `clients` scope — a count that only ever grew would be worse than none.
+    #[tokio::test]
+    async fn client_count_tracks_connections_and_invalidates() {
+        let engine = test_engine();
+        let mut events = engine.subscribe_events();
+        let (addr, state) = serve_ws(engine).await;
+        let count = || state.clients.load(atomic::Ordering::Relaxed);
+
+        let first = dial(addr).await;
+        wait_for(&mut events, StateScope::Clients).await;
+        assert_eq!(count(), 1);
+
+        let second = dial(addr).await;
+        wait_for(&mut events, StateScope::Clients).await;
+        assert_eq!(count(), 2);
+
+        drop(second);
+        wait_for(&mut events, StateScope::Clients).await;
+        assert_eq!(count(), 1);
+        drop(first);
+        wait_for(&mut events, StateScope::Clients).await;
+        assert_eq!(count(), 0);
+    }
+
+    async fn wait_for(events: &mut broadcast::Receiver<ServerEvent>, scope: StateScope) {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let ev = timeout(remaining, events.recv())
+                .await
+                .expect("scope within timeout")
+                .expect("event");
+            if matches!(ev, ServerEvent::StateChanged { scope: got } if got == scope) {
+                return;
+            }
+        }
+    }
+
+    /// Decoder frames are serialized once for the whole server; every connection must still
+    /// receive the identical frame (the shared-encoder path is the only one that runs now).
+    #[tokio::test]
+    async fn decoded_frames_reach_every_connection_from_one_encoding() {
+        let engine = test_engine();
+        let (addr, state) = serve_ws(engine).await;
+        let mut a = dial(addr).await;
+        let mut b = dial(addr).await;
+
+        let record = sdrmm_wire::DecodedRecord {
+            device_set: 1,
+            channel: 2,
+            at: "2026-08-09T12:00:00.000000000Z".to_string(),
+            freq_hz: 1_090_000_000.0,
+            event: sdrmm_wire::DecoderEvent::Adsb(sdrmm_wire::AdsbMessage {
+                icao: "3C6444".to_string(),
+                df: 17,
+                raw: "8D3C6444".to_string(),
+                ..sdrmm_wire::AdsbMessage::default()
+            }),
+        };
+        // Published through the shared encoder exactly as the engine's pump would.
+        let encoded = encode_event(&ServerEvent::Decoded(Box::new(record.clone())));
+        state.decoded_text.send(encoded).expect("subscribers");
+
+        // A fresh connection also gets a Hello and the connect/disconnect scope events; skip
+        // to the frame under test rather than asserting on the ordering of unrelated ones.
+        for ws in [&mut a, &mut b] {
+            loop {
+                if let ServerEvent::Decoded(got) = next_event(ws).await {
+                    assert_eq!(*got, record);
+                    break;
+                }
+            }
+        }
     }
 
     /// A lagged event receiver has lost invalidations for good; the forwarder must synthesize

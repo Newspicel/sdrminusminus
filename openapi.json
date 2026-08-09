@@ -13,6 +13,23 @@
     "version": "0.0.0"
   },
   "paths": {
+    "/api/auth": {
+      "get": {
+        "operationId": "get_auth",
+        "responses": {
+          "200": {
+            "description": "Whether this server requires the shared token. Answered without authentication so a client can prompt before its first real request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/bookmarks": {
       "get": {
         "operationId": "list_bookmarks",
@@ -120,6 +137,23 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ChannelTypesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clients": {
+      "get": {
+        "operationId": "get_clients",
+        "responses": {
+          "200": {
+            "description": "WebSocket clients connected right now, including the caller's own socket. Invalidated by the `clients` scope, never polled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientsResponse"
                 }
               }
             }
@@ -849,6 +883,93 @@
         }
       }
     },
+    "/api/devicesets/{ds}/scanner": {
+      "post": {
+        "operationId": "scan_device_set",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Scanner status: the initial state after `start`, the final state after `stop`. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScannerStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unusable scan settings, set not running, already scanning, or not scanning",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set or hold channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/doctor": {
+      "get": {
+        "operationId": "get_doctor",
+        "responses": {
+          "200": {
+            "description": "Environment diagnostics: compiled backends, devices found, USB permissions and storage paths (the same report `sdrmm --doctor` prints)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoctorReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/presets": {
       "get": {
         "operationId": "list_presets",
@@ -1087,6 +1208,84 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StateSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/templates": {
+      "get": {
+        "operationId": "list_templates",
+        "responses": {
+          "200": {
+            "description": "Built-in station templates (read-only; presets are the writable kind)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/templates/{id}/apply": {
+      "post": {
+        "operationId": "apply_template",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Template id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Template applied"
+          },
+          "400": {
+            "description": "Template rejected by the target device (usually out of its tuning range); `detail` reports what a partial application left behind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Template or device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
                 }
               }
             }
@@ -1373,6 +1572,20 @@
           }
         }
       },
+      "ApplyTemplateRequest": {
+        "type": "object",
+        "description": "Apply a built-in template to a live device set.",
+        "required": [
+          "device_set"
+        ],
+        "properties": {
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "AprsMode": {
         "type": "string",
         "description": "AX.25 physical layer (PLAN §13: AFSK1200 + 9600 G3RUH).",
@@ -1472,6 +1685,19 @@
           },
           "mode": {
             "$ref": "#/components/schemas/AprsMode"
+          }
+        }
+      },
+      "AuthInfo": {
+        "type": "object",
+        "description": "`GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before\nits first real request (PLAN §12: optional single shared token).",
+        "required": [
+          "token_required"
+        ],
+        "properties": {
+          "token_required": {
+            "type": "boolean",
+            "description": "Whether this server rejects requests without the shared token."
           }
         }
       },
@@ -1861,6 +2087,15 @@
           }
         }
       },
+      "CheckStatus": {
+        "type": "string",
+        "description": "How a check came out. `Warn` is \"works, but something is degraded or absent\"; `Fail` is\n\"this will not work as configured\".",
+        "enum": [
+          "ok",
+          "warn",
+          "fail"
+        ]
+      },
       "ClientCommand": {
         "oneOf": [
           {
@@ -2011,6 +2246,20 @@
           }
         ],
         "description": "Client → server commands over the same socket (PLAN §5). Stream subscriptions are\nper-connection, so a phone can request a lighter stream than a desktop."
+      },
+      "ClientsResponse": {
+        "type": "object",
+        "description": "`GET /api/clients` — how many clients share this server right now (PLAN §16 M5\nmulti-client). Includes the caller.",
+        "required": [
+          "clients"
+        ],
+        "properties": {
+          "clients": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "CreateBookmarkRequest": {
         "type": "object",
@@ -2457,6 +2706,17 @@
               }
             ]
           },
+          "scanner": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScannerStatus",
+                "description": "Running frequency scan, if any (M5, PLAN §13). While a scan runs the set's\n`settings.center_hz` moves every dwell, so live progress arrives as\n[`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step."
+              }
+            ]
+          },
           "settings": {
             "$ref": "#/components/schemas/DeviceSettings"
           },
@@ -2539,6 +2799,65 @@
             "items": {
               "$ref": "#/components/schemas/DeviceInfo"
             }
+          }
+        }
+      },
+      "DoctorCheck": {
+        "type": "object",
+        "description": "One diagnostic line.",
+        "required": [
+          "id",
+          "name",
+          "status",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "What was actually found."
+          },
+          "hint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What to do about it, when there is something to do."
+          },
+          "id": {
+            "type": "string",
+            "description": "Short stable identifier, e.g. `\"backend.rtlsdr\"`."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human label, e.g. `\"RTL-SDR (native)\"`."
+          },
+          "status": {
+            "$ref": "#/components/schemas/CheckStatus"
+          }
+        }
+      },
+      "DoctorReport": {
+        "type": "object",
+        "description": "`GET /api/doctor` / `sdrmm --doctor`.",
+        "required": [
+          "version",
+          "platform",
+          "checks"
+        ],
+        "properties": {
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoctorCheck"
+            }
+          },
+          "platform": {
+            "type": "string",
+            "description": "`os/arch` of the running build."
+          },
+          "version": {
+            "type": "string",
+            "description": "Server version (`CARGO_PKG_VERSION`)."
           }
         }
       },
@@ -3160,6 +3479,178 @@
           }
         }
       },
+      "ScanAction": {
+        "type": "string",
+        "description": "What a [`ScanRequest`] should do.",
+        "enum": [
+          "start",
+          "stop"
+        ]
+      },
+      "ScanRange": {
+        "type": "object",
+        "description": "One contiguous span to sweep, expanded to `start_hz, start_hz + step_hz, …` up to and\nincluding `stop_hz` when it lands on a step.",
+        "required": [
+          "start_hz",
+          "stop_hz",
+          "step_hz"
+        ],
+        "properties": {
+          "start_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "step_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "stop_hz": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "ScanRequest": {
+        "type": "object",
+        "description": "`POST /api/devicesets/{ds}/scanner` — start or stop a scan.",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ScanAction"
+          },
+          "settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScanSettings",
+                "description": "Required for `start`, ignored by `stop`."
+              }
+            ]
+          }
+        }
+      },
+      "ScanSettings": {
+        "type": "object",
+        "description": "What a scan covers and how it behaves on a hit (PLAN §13: \"frequency scanner\").",
+        "properties": {
+          "dwell_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Measurement window per device tuning. Every target inside the tuning's passband is\nmeasured from the same spectrum frames, so this is per *tuning*, not per target.",
+            "minimum": 0
+          },
+          "frequencies": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "description": "Individual target frequencies (bookmarks, memory channels)."
+          },
+          "hold_channel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Channel retuned onto a hit so its audio (or decoder) follows the scan. `None` scans\nwithout listening — the hit log alone.",
+            "minimum": 0
+          },
+          "measure_bw_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Bandwidth measured around each target; also the width the hold channel is judged over."
+          },
+          "ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScanRange"
+            },
+            "description": "Ranges to expand into targets. May be empty if `frequencies` is not."
+          },
+          "resume_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long a held target must stay below the threshold before the sweep resumes.",
+            "minimum": 0
+          },
+          "threshold_db": {
+            "type": "number",
+            "format": "float",
+            "description": "A target counts as active when its measured power reaches this level, in dBFS on the\ndevice's spectrum tap."
+          }
+        }
+      },
+      "ScanState": {
+        "type": "string",
+        "description": "What the scanner is doing right now.",
+        "enum": [
+          "scanning",
+          "holding"
+        ]
+      },
+      "ScannerStatus": {
+        "type": "object",
+        "description": "Live scanner state, projected onto the device set and pushed as\n[`crate::ServerEvent::ScannerUpdate`] while a scan runs.",
+        "required": [
+          "state",
+          "settings",
+          "targets",
+          "current_hz",
+          "sweeps",
+          "hits"
+        ],
+        "properties": {
+          "current_db": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Measured level of `current_hz` at the last measurement, dBFS."
+          },
+          "current_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Target the scanner is measuring (scanning) or parked on (holding)."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fatal scanner fault (the device stopped accepting retunes); the scan has stopped but\nthe cause stays visible (CLAUDE.md no-silent-failure)."
+          },
+          "hits": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Targets that broke the threshold since the scan started.",
+            "minimum": 0
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ScanSettings"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ScanState"
+          },
+          "sweeps": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Completed passes over the whole target list.",
+            "minimum": 0
+          },
+          "targets": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Targets the settings expanded to.",
+            "minimum": 0
+          }
+        }
+      },
       "ServerEvent": {
         "oneOf": [
           {
@@ -3384,6 +3875,40 @@
           },
           {
             "type": "object",
+            "description": "Live frequency-scanner progress (M5). Its own event rather than a `StateChanged`:\na scan retunes the device every dwell, and one full-state refetch per step would\ncost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which\nthis mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Live frequency-scanner progress (M5). Its own event rather than a `StateChanged`:\na scan retunes the device every dwell, and one full-state refetch per step would\ncost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which\nthis mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.",
+                "required": [
+                  "device_set",
+                  "status"
+                ],
+                "properties": {
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "status": {
+                    "$ref": "#/components/schemas/ScannerStatus"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ScannerUpdate"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "Non-fatal server-side error surfaced to the client.",
             "required": [
               "data",
@@ -3536,6 +4061,21 @@
           },
           {
             "type": "object",
+            "description": "The number of connected clients changed; refetch `GET /api/clients`. Server-owned\nstate (connections are not an engine concept), so it travels through `emit_scope`\nlike presets and bookmarks do.",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "clients"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "The stored decoder log changed *structurally* (cleared, pruned). Individual decodes\narrive as [`ServerEvent::Decoded`] and are appended client-side — invalidating per\ndecode would refetch the whole log hundreds of times a second under ADS-B traffic.",
             "required": [
               "scope"
@@ -3581,6 +4121,77 @@
           "spectrum",
           "audio"
         ]
+      },
+      "TemplateInfo": {
+        "type": "object",
+        "description": "One built-in station template (PLAN §10: the template gallery). Read-only and\ndevice-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry\napplies to whatever hardware is open, provided the device can tune it.",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "explainer",
+          "center_hz",
+          "sample_rate",
+          "channels",
+          "min_freq_hz",
+          "max_freq_hz"
+        ],
+        "properties": {
+          "center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelSettings"
+            },
+            "description": "Channels the template creates on the target device set."
+          },
+          "description": {
+            "type": "string",
+            "description": "One line for the gallery card."
+          },
+          "explainer": {
+            "type": "string",
+            "description": "The \"what am I looking at\" text shown once it is applied (PLAN §10)."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable slug used in `POST /api/templates/{id}/apply`."
+          },
+          "max_freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "min_freq_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Tuning span the template needs, so the gallery can mark entries the open device\ncannot reach instead of failing on apply."
+          },
+          "name": {
+            "type": "string"
+          },
+          "sample_rate": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "TemplatesResponse": {
+        "type": "object",
+        "description": "`GET /api/templates`.",
+        "required": [
+          "templates"
+        ],
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TemplateInfo"
+            }
+          }
+        }
       },
       "WfmParams": {
         "type": "object",

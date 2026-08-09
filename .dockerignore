@@ -1,0 +1,27 @@
+# Build context for the Dockerfile. Everything the image needs is copied explicitly there:
+# Cargo.toml, Cargo.lock, rust-toolchain.toml, .cargo/, crates/, apps/, xtask/, web/ — none of
+# which may be excluded here.
+
+.git
+.github
+.claude
+
+# Rebuilt inside the image. web/node_modules and web/dist are load-bearing exclusions: the web
+# stage installs before it copies sources, and these would clobber that install.
+target
+**/target
+web/node_modules
+web/dist
+apps/desktop/gen
+
+# Recorded IQ test fixtures — megabytes, and no build stage reads them.
+fixtures
+
+# Plans, docs and generated specs: not inputs to any stage (the TS client is checked in under
+# web/src/generated, so the image never needs openapi.json).
+*.md
+openapi.json
+
+Dockerfile
+.dockerignore
+docker-compose.yml

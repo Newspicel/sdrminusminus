@@ -17,8 +17,10 @@ workspace = true
 
 # Passthrough so the desktop app mirrors the server binary's backend gate (PLAN §3).
 [features]
-default = ["soapy"]
+default = ["soapy", "rtl-native", "hackrf-native"]
 soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy"]
+rtl-native = ["sdrmm-server/rtl-native", "sdrmm-engine/rtl-native"]
+hackrf-native = ["sdrmm-server/hackrf-native", "sdrmm-engine/hackrf-native"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -2,6 +2,8 @@
 // `ClientCommand`s out. Auto-reconnects. The app shell owns the single-handler fields
 // (`onEvent`/`onSpectrum`/`onStatus`/`onAudio`); subsystems that must observe the same
 // events without stealing those use the add/remove listener methods.
+
+import { withToken } from "./auth";
 import {
   type AudioFrame,
   decodeAudio,
@@ -13,13 +15,18 @@ import {
 } from "./frame";
 import type { ClientCommand, ServerEvent } from "./types";
 
+/** First reconnect delay; each further failure doubles it up to [`RECONNECT_MAX_MS`]. A fixed
+ * 1 s retry turned a stopped server — or a wrong token, which the browser reports as a plain
+ * close — into a 1 Hz request flood for as long as the tab stayed open. */
 const RECONNECT_MS = 1000;
+const RECONNECT_MAX_MS = 30_000;
 
 export class SdrSocket {
   private ws: WebSocket | null = null;
   private reconnectTimer: number | null = null;
   private closed = false;
-  private readonly url: string;
+  private backoffMs = RECONNECT_MS;
+  private readonly path: string;
   private readonly eventListeners = new Set<(event: ServerEvent) => void>();
   private readonly statusListeners = new Set<(connected: boolean) => void>();
 
@@ -29,8 +36,14 @@ export class SdrSocket {
   onAudio: (frame: AudioFrame) => void = () => {};
 
   constructor(path = "/api/ws") {
+    this.path = path;
+  }
+
+  /** Built per connection, not once: the token can be entered after the socket exists, and the
+   * browser WebSocket API has no way to send it as a header. */
+  private url(): string {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    this.url = `${proto}//${window.location.host}${path}`;
+    return withToken(`${proto}//${window.location.host}${this.path}`);
   }
 
   connect(): void {
@@ -75,9 +88,12 @@ export class SdrSocket {
   }
 
   private open(): void {
-    const ws = new WebSocket(this.url);
+    const ws = new WebSocket(this.url());
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => this.emitStatus(true);
+    ws.onopen = () => {
+      this.backoffMs = RECONNECT_MS;
+      this.emitStatus(true);
+    };
     ws.onerror = () => ws.close();
     ws.onclose = () => {
       this.emitStatus(false);
@@ -140,11 +156,27 @@ export class SdrSocket {
     if (this.closed || this.reconnectTimer !== null) {
       return;
     }
+    const delay = this.backoffMs;
+    this.backoffMs = Math.min(this.backoffMs * 2, RECONNECT_MAX_MS);
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
       if (!this.closed) {
         this.open();
       }
-    }, RECONNECT_MS);
+    }, delay);
+  }
+
+  /** Reconnect now, resetting the backoff — for when the reason it was failing is known to be
+   * fixed (a token was just entered). */
+  retryNow(): void {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.backoffMs = RECONNECT_MS;
+    if (!this.closed && this.ws?.readyState !== WebSocket.OPEN) {
+      this.ws?.close();
+      this.open();
+    }
   }
 }

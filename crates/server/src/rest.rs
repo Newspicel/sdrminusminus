@@ -12,11 +12,13 @@ use axum::{
 use sdrmm_engine::EngineError;
 use sdrmm_recorder::{SigmfMeta, SigmfReader, data_path, meta_path, scan_stems};
 use sdrmm_wire::{
-    ApiError, ApplyPresetRequest, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
-    CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
-    CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DeviceSettings, DevicesResponse, ExportFormat, PresetInfo, PresetSnapshot, RecordAction,
-    RecordRequest, RecordingStatus, RecordingsResponse, ServerEvent, StateScope, StateSnapshot,
+    ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelSettings,
+    ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
+    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
+    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceSettings,
+    DevicesResponse, DoctorReport, ExportFormat, PresetInfo, PresetSnapshot, RecordAction,
+    RecordRequest, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest, ScannerStatus,
+    ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -40,6 +42,16 @@ impl AppError {
     fn bad_request(message: String) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
+            body: ApiError {
+                error: message,
+                detail: None,
+            },
+        }
+    }
+
+    fn not_found(message: String) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
             body: ApiError {
                 error: message,
                 detail: None,
@@ -414,55 +426,71 @@ async fn apply_preset(
                 snapshot.version
             )));
         }
-        let ds = req.device_set;
-        let existing: Vec<u32> = engine
-            .snapshot()
-            .device_sets
-            .iter()
-            .find(|s| s.id == ds)
-            .ok_or(EngineError::DeviceSetNotFound(ds))?
-            .channels
-            .iter()
-            .map(|c| c.id)
-            .collect();
         // Applying to different hardware than the preset was taken from is allowed on
         // purpose (a bookmarkable configuration, not a device binding); the engine rejects
         // loudly whatever the device can't do.
-        //
-        // Remove the existing channels FIRST: patch_device validates a new sample rate
-        // against the currently hosted channels, which would wrongly veto a valid preset
-        // on behalf of channels this apply is about to delete anyway. The three engine
-        // calls cannot be atomic (each does real device I/O), so a mid-sequence failure
-        // reports exactly what was left behind in `detail`; the engine's own StateChanged
-        // events keep clients converged on that state.
-        let total_existing = existing.len();
-        for (done, ch) in existing.into_iter().enumerate() {
-            engine.remove_channel(ds, ch).map_err(|e| {
-                AppError::from(e).with_detail(format!(
-                    "preset partially applied: removed {done} of {total_existing} existing \
-                     channels, device settings untouched, no preset channels added"
-                ))
-            })?;
-        }
-        engine.patch_device(ds, snapshot.settings).map_err(|e| {
-            AppError::from(e).with_detail(format!(
-                "preset partially applied: all {total_existing} existing channels removed, \
-                 device settings untouched, no preset channels added"
-            ))
-        })?;
-        let total_new = snapshot.channels.len();
-        for (done, settings) in snapshot.channels.into_iter().enumerate() {
-            engine.add_channel(ds, settings).map_err(|e| {
-                AppError::from(e).with_detail(format!(
-                    "preset partially applied: existing channels removed, device settings \
-                     applied, {done} of {total_new} preset channels added"
-                ))
-            })?;
-        }
-        Ok(())
+        apply_configuration(
+            &engine,
+            req.device_set,
+            snapshot.settings,
+            snapshot.channels,
+            "preset",
+        )
     })
     .await??;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Replace a device set's whole configuration — drop its channels, retune, add the new ones.
+/// Shared by presets and templates, which differ only in where the configuration comes from.
+///
+/// The existing channels go FIRST: `patch_device` validates a new sample rate against the
+/// currently hosted channels, which would wrongly veto a valid configuration on behalf of
+/// channels this call is about to delete anyway. The three engine calls cannot be atomic (each
+/// does real device I/O), so a mid-sequence failure reports exactly what was left behind in
+/// `detail`; the engine's own `StateChanged` events keep clients converged on that state.
+fn apply_configuration(
+    engine: &sdrmm_engine::Engine,
+    ds: u32,
+    settings: DeviceSettings,
+    channels: Vec<ChannelSettings>,
+    what: &str,
+) -> Result<(), AppError> {
+    let existing: Vec<u32> = engine
+        .snapshot()
+        .device_sets
+        .iter()
+        .find(|s| s.id == ds)
+        .ok_or(EngineError::DeviceSetNotFound(ds))?
+        .channels
+        .iter()
+        .map(|c| c.id)
+        .collect();
+    let total_existing = existing.len();
+    for (done, ch) in existing.into_iter().enumerate() {
+        engine.remove_channel(ds, ch).map_err(|e| {
+            AppError::from(e).with_detail(format!(
+                "{what} partially applied: removed {done} of {total_existing} existing \
+                 channels, device settings untouched, no {what} channels added"
+            ))
+        })?;
+    }
+    engine.patch_device(ds, settings).map_err(|e| {
+        AppError::from(e).with_detail(format!(
+            "{what} partially applied: all {total_existing} existing channels removed, \
+             device settings untouched, no {what} channels added"
+        ))
+    })?;
+    let total_new = channels.len();
+    for (done, settings) in channels.into_iter().enumerate() {
+        engine.add_channel(ds, settings).map_err(|e| {
+            AppError::from(e).with_detail(format!(
+                "{what} partially applied: existing channels removed, device settings \
+                 applied, {done} of {total_new} {what} channels added"
+            ))
+        })?;
+    }
+    Ok(())
 }
 
 #[utoipa::path(
@@ -890,6 +918,154 @@ fn recording_created_at(stem: &std::path::Path, meta: &SigmfMeta) -> String {
         .unwrap_or_default()
 }
 
+#[utoipa::path(
+    post, path = "/api/devicesets/{ds}/scanner",
+    params(("ds" = u32, Path, description = "Device set id")),
+    request_body = ScanRequest,
+    responses(
+        (
+            status = 200,
+            description = "Scanner status: the initial state after `start`, the final state \
+                           after `stop`. Live progress arrives as the `ScannerUpdate` WS \
+                           event, not as one state change per step",
+            body = ScannerStatus,
+        ),
+        (status = 400, description = "Unusable scan settings, set not running, already \
+                                      scanning, or not scanning", body = ApiError),
+        (status = 404, description = "Device set or hold channel not found", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+async fn scan_device_set(
+    State(state): State<AppState>,
+    Path(ds): Path<u32>,
+    Json(req): Json<ScanRequest>,
+) -> Result<Json<ScannerStatus>, AppError> {
+    let engine = state.engine.clone();
+    // `stop` joins the scan thread, which can be mid-dwell; neither action belongs on a
+    // tokio worker.
+    let status = tokio::task::spawn_blocking(move || -> Result<ScannerStatus, AppError> {
+        match req.action {
+            ScanAction::Start => {
+                let settings = req.settings.ok_or_else(|| {
+                    AppError::bad_request("starting a scan needs `settings`".to_string())
+                })?;
+                Ok(engine.start_scan(ds, settings)?)
+            }
+            ScanAction::Stop => Ok(engine.stop_scan(ds)?),
+        }
+    })
+    .await??;
+    Ok(Json(status))
+}
+
+#[utoipa::path(
+    get, path = "/api/templates",
+    responses((
+        status = 200,
+        description = "Built-in station templates (read-only; presets are the writable kind)",
+        body = TemplatesResponse,
+    )),
+)]
+async fn list_templates() -> Json<TemplatesResponse> {
+    Json(TemplatesResponse {
+        templates: crate::templates::all().to_vec(),
+    })
+}
+
+#[utoipa::path(
+    post, path = "/api/templates/{id}/apply",
+    params(("id" = String, Path, description = "Template id")),
+    request_body = ApplyTemplateRequest,
+    responses(
+        (status = 204, description = "Template applied"),
+        (
+            status = 400,
+            description = "Template rejected by the target device (usually out of its tuning \
+                           range); `detail` reports what a partial application left behind",
+            body = ApiError,
+        ),
+        (status = 404, description = "Template or device set not found", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+async fn apply_template(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<ApplyTemplateRequest>,
+) -> Result<StatusCode, AppError> {
+    let template = crate::templates::get(&id)
+        .ok_or_else(|| AppError::not_found(format!("template {id} not found")))?;
+    let engine = state.engine.clone();
+    let settings = DeviceSettings {
+        center_hz: Some(template.center_hz),
+        sample_rate: Some(template.sample_rate),
+        ..DeviceSettings::default()
+    };
+    let channels = template.channels.clone();
+    tokio::task::spawn_blocking(move || {
+        apply_configuration(&engine, req.device_set, settings, channels, "template")
+    })
+    .await??;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    get, path = "/api/clients",
+    responses((
+        status = 200,
+        description = "WebSocket clients connected right now, including the caller's own \
+                       socket. Invalidated by the `clients` scope, never polled",
+        body = ClientsResponse,
+    )),
+)]
+async fn get_clients(State(state): State<AppState>) -> Json<ClientsResponse> {
+    Json(ClientsResponse {
+        clients: state.clients.load(std::sync::atomic::Ordering::Relaxed),
+    })
+}
+
+#[utoipa::path(
+    get, path = "/api/auth",
+    responses((
+        status = 200,
+        description = "Whether this server requires the shared token. Answered without \
+                       authentication so a client can prompt before its first real request",
+        body = AuthInfo,
+    )),
+)]
+async fn get_auth(State(state): State<AppState>) -> Json<AuthInfo> {
+    Json(AuthInfo {
+        token_required: state.auth.required(),
+    })
+}
+
+#[utoipa::path(
+    get, path = "/api/doctor",
+    responses((
+        status = 200,
+        description = "Environment diagnostics: compiled backends, devices found, USB \
+                       permissions and storage paths (the same report `sdrmm --doctor` prints)",
+        body = DoctorReport,
+    )),
+)]
+async fn get_doctor(State(state): State<AppState>) -> Result<Json<DoctorReport>, AppError> {
+    let engine = state.engine.clone();
+    let db_path = state.db_path.clone();
+    // Probing enumerates every backend over USB, which is slow and must never run on a tokio
+    // worker; it also goes through the engine's own registry rather than building a second
+    // one, because overlapping enumerates are what crashed libusb in the M2 field sessions.
+    let report = tokio::task::spawn_blocking(move || {
+        crate::doctor::report(
+            engine.registry(),
+            db_path.as_deref(),
+            engine.recordings_dir(),
+        )
+    })
+    .await?;
+    Ok(Json(report))
+}
+
 /// OpenAPI metadata plus the schemas no path references — the WS message enums and the stored
 /// preset blob — which must be force-registered as components (PLAN §4) to appear in the
 /// generated TypeScript.
@@ -898,7 +1074,14 @@ fn recording_created_at(stem: &std::path::Path, meta: &SigmfMeta) -> String {
     info(title = "sdr-- API", version = env!("CARGO_PKG_VERSION")),
     // `ExportFormat` is reachable only as a path parameter, which utoipa emits as a `$ref`
     // without registering the component — `openapi-typescript` then fails to resolve it.
-    components(schemas(ServerEvent, ClientCommand, PresetSnapshot, ExportFormat)),
+    components(schemas(
+        ServerEvent,
+        ClientCommand,
+        PresetSnapshot,
+        ExportFormat,
+        TemplateInfo,
+        ScannerStatus,
+    )),
 )]
 struct ApiDoc;
 
@@ -924,4 +1107,10 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(delete_recording))
         .routes(routes!(list_decoder_log, clear_decoder_log))
         .routes(routes!(export_decoder_log))
+        .routes(routes!(scan_device_set))
+        .routes(routes!(list_templates))
+        .routes(routes!(apply_template))
+        .routes(routes!(get_auth))
+        .routes(routes!(get_clients))
+        .routes(routes!(get_doctor))
 }

@@ -7,6 +7,7 @@ use utoipa::ToSchema;
 use crate::{
     channel::ChannelInfo,
     device::{Capabilities, DeviceInfo, DeviceSettings},
+    scan::ScannerStatus,
 };
 
 /// Runtime status of a device set's capture.
@@ -57,6 +58,11 @@ pub struct DeviceSet {
     /// Active IQ recording, if any (M3, PLAN §5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<RecordingStatus>,
+    /// Running frequency scan, if any (M5, PLAN §13). While a scan runs the set's
+    /// `settings.center_hz` moves every dwell, so live progress arrives as
+    /// [`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scanner: Option<ScannerStatus>,
 }
 
 /// Full state snapshot for initial load (PLAN §5 `GET /api/state`).

@@ -1,0 +1,26 @@
+[book]
+title = "sdr--"
+description = "Documentation for sdr--, a modular client-server SDR receiver: a Rust server does all DSP and decoding, a React client renders what it describes."
+authors = ["sdr-- contributors"]
+src = "src"
+language = "en"
+
+[build]
+build-dir = "book"
+# A SUMMARY entry pointing at a missing file must fail the build, not silently create a
+# blank chapter — the docs job is the only thing checking these links.
+create-missing = false
+
+[output.html]
+# Dark-first, matching the app's instrumentation palette (PLAN §10).
+default-theme = "navy"
+preferred-dark-theme = "navy"
+additional-css = ["custom.css"]
+git-repository-url = "https://github.com/Newspicel/sdrminusminus"
+edit-url-template = "https://github.com/Newspicel/sdrminusminus/edit/main/docs/{path}"
+# Project Pages site: https://newspicel.github.io/sdrminusminus/
+site-url = "/sdrminusminus/"
+
+[output.html.fold]
+enable = true
+level = 1

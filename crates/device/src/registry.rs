@@ -27,6 +27,14 @@ impl DeviceRegistry {
         self.drivers.push((priority, driver));
     }
 
+    /// Registered driver ids with their merge priorities, in registration order. This is what
+    /// `sdrmm --doctor` prints as "which backends this build has" — derived from the registry
+    /// rather than from a second list of feature flags that could disagree with it.
+    #[must_use]
+    pub fn driver_ids(&self) -> Vec<(u8, &'static str)> {
+        self.drivers.iter().map(|(p, d)| (*p, d.id())).collect()
+    }
+
     /// Probe all drivers and merge, collapsing serial duplicates by priority (PLAN §6).
     #[must_use]
     pub fn probe_all(&self) -> Vec<DeviceInfo> {

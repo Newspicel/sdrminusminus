@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/auth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_auth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bookmarks": {
         parameters: {
             query?: never;
@@ -44,6 +60,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_channel_types"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_clients"];
         put?: never;
         post?: never;
         delete?: never;
@@ -196,6 +228,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devicesets/{ds}/scanner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["scan_device_set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/doctor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_doctor"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/presets": {
         parameters: {
             query?: never;
@@ -286,6 +350,38 @@ export interface paths {
         get: operations["get_state"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_templates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["apply_template"];
         delete?: never;
         options?: never;
         head?: never;
@@ -415,6 +511,11 @@ export interface components {
             /** Format: int32 */
             device_set: number;
         };
+        /** @description Apply a built-in template to a live device set. */
+        ApplyTemplateRequest: {
+            /** Format: int32 */
+            device_set: number;
+        };
         /**
          * @description AX.25 physical layer (PLAN §13: AFSK1200 + 9600 G3RUH).
          * @enum {string}
@@ -452,6 +553,14 @@ export interface components {
             /** Format: double */
             bandwidth_hz?: number;
             mode?: components["schemas"]["AprsMode"];
+        };
+        /**
+         * @description `GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before
+         *     its first real request (PLAN §12: optional single shared token).
+         */
+        AuthInfo: {
+            /** @description Whether this server rejects requests without the shared token. */
+            token_required: boolean;
         };
         /** @description A stored frequency bookmark (PLAN §11). */
         Bookmark: {
@@ -578,6 +687,12 @@ export interface components {
             types: components["schemas"]["ChannelDescriptor"][];
         };
         /**
+         * @description How a check came out. `Warn` is "works, but something is degraded or absent"; `Fail` is
+         *     "this will not work as configured".
+         * @enum {string}
+         */
+        CheckStatus: "ok" | "warn" | "fail";
+        /**
          * @description Client → server commands over the same socket (PLAN §5). Stream subscriptions are
          *     per-connection, so a phone can request a lighter stream than a desktop.
          */
@@ -627,6 +742,14 @@ export interface components {
             };
             /** @enum {string} */
             type: "UnsubscribeAudio";
+        };
+        /**
+         * @description `GET /api/clients` — how many clients share this server right now (PLAN §16 M5
+         *     multi-client). Includes the caller.
+         */
+        ClientsResponse: {
+            /** Format: int32 */
+            clients: number;
         };
         /** @description `POST /api/bookmarks`. */
         CreateBookmarkRequest: {
@@ -784,6 +907,7 @@ export interface components {
              */
             overruns?: number;
             recording?: null | components["schemas"]["RecordingStatus"];
+            scanner?: null | components["schemas"]["ScannerStatus"];
             settings: components["schemas"]["DeviceSettings"];
             status: components["schemas"]["DeviceSetStatus"];
         };
@@ -812,6 +936,26 @@ export interface components {
         /** @description `GET /api/devices` — discovered hardware across all drivers (PLAN §5). */
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
+        };
+        /** @description One diagnostic line. */
+        DoctorCheck: {
+            /** @description What was actually found. */
+            detail: string;
+            /** @description What to do about it, when there is something to do. */
+            hint?: string | null;
+            /** @description Short stable identifier, e.g. `"backend.rtlsdr"`. */
+            id: string;
+            /** @description Human label, e.g. `"RTL-SDR (native)"`. */
+            name: string;
+            status: components["schemas"]["CheckStatus"];
+        };
+        /** @description `GET /api/doctor` / `sdrmm --doctor`. */
+        DoctorReport: {
+            checks: components["schemas"]["DoctorCheck"][];
+            /** @description `os/arch` of the running build. */
+            platform: string;
+            /** @description Server version (`CARGO_PKG_VERSION`). */
+            version: string;
         };
         /**
          * @description Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a
@@ -1098,6 +1242,106 @@ export interface components {
         RttyText: {
             text: string;
         };
+        /**
+         * @description What a [`ScanRequest`] should do.
+         * @enum {string}
+         */
+        ScanAction: "start" | "stop";
+        /**
+         * @description Live scanner state, projected onto the device set and pushed as
+         *     [`crate::ServerEvent::ScannerUpdate`] while a scan runs.
+         */
+        ScannerStatus: {
+            /**
+             * Format: float
+             * @description Measured level of `current_hz` at the last measurement, dBFS.
+             */
+            current_db?: number | null;
+            /**
+             * Format: double
+             * @description Target the scanner is measuring (scanning) or parked on (holding).
+             */
+            current_hz: number;
+            /**
+             * @description Fatal scanner fault (the device stopped accepting retunes); the scan has stopped but
+             *     the cause stays visible (CLAUDE.md no-silent-failure).
+             */
+            error?: string | null;
+            /**
+             * Format: int64
+             * @description Targets that broke the threshold since the scan started.
+             */
+            hits: number;
+            settings: components["schemas"]["ScanSettings"];
+            state: components["schemas"]["ScanState"];
+            /**
+             * Format: int64
+             * @description Completed passes over the whole target list.
+             */
+            sweeps: number;
+            /**
+             * Format: int32
+             * @description Targets the settings expanded to.
+             */
+            targets: number;
+        };
+        /**
+         * @description One contiguous span to sweep, expanded to `start_hz, start_hz + step_hz, …` up to and
+         *     including `stop_hz` when it lands on a step.
+         */
+        ScanRange: {
+            /** Format: double */
+            start_hz: number;
+            /** Format: double */
+            step_hz: number;
+            /** Format: double */
+            stop_hz: number;
+        };
+        /** @description `POST /api/devicesets/{ds}/scanner` — start or stop a scan. */
+        ScanRequest: {
+            action: components["schemas"]["ScanAction"];
+            settings?: null | components["schemas"]["ScanSettings"];
+        };
+        /** @description What a scan covers and how it behaves on a hit (PLAN §13: "frequency scanner"). */
+        ScanSettings: {
+            /**
+             * Format: int32
+             * @description Measurement window per device tuning. Every target inside the tuning's passband is
+             *     measured from the same spectrum frames, so this is per *tuning*, not per target.
+             */
+            dwell_ms?: number;
+            /** @description Individual target frequencies (bookmarks, memory channels). */
+            frequencies?: number[];
+            /**
+             * Format: int32
+             * @description Channel retuned onto a hit so its audio (or decoder) follows the scan. `None` scans
+             *     without listening — the hit log alone.
+             */
+            hold_channel?: number | null;
+            /**
+             * Format: double
+             * @description Bandwidth measured around each target; also the width the hold channel is judged over.
+             */
+            measure_bw_hz?: number;
+            /** @description Ranges to expand into targets. May be empty if `frequencies` is not. */
+            ranges?: components["schemas"]["ScanRange"][];
+            /**
+             * Format: int32
+             * @description How long a held target must stay below the threshold before the sweep resumes.
+             */
+            resume_ms?: number;
+            /**
+             * Format: float
+             * @description A target counts as active when its measured power reaches this level, in dBFS on the
+             *     device's spectrum tap.
+             */
+            threshold_db?: number;
+        };
+        /**
+         * @description What the scanner is doing right now.
+         * @enum {string}
+         */
+        ScanState: "scanning" | "holding";
         /** @description Server → client push (PLAN §5). Adjacently tagged so unit variants stay compact. */
         ServerEvent: {
             /** @description First frame after connect: current state revision so the client can detect gaps. */
@@ -1176,6 +1420,20 @@ export interface components {
             /** @enum {string} */
             type: "DecodedLost";
         } | {
+            /**
+             * @description Live frequency-scanner progress (M5). Its own event rather than a `StateChanged`:
+             *     a scan retunes the device every dwell, and one full-state refetch per step would
+             *     cost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which
+             *     this mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.
+             */
+            data: {
+                /** Format: int32 */
+                device_set: number;
+                status: components["schemas"]["ScannerStatus"];
+            };
+            /** @enum {string} */
+            type: "ScannerUpdate";
+        } | {
             /** @description Non-fatal server-side error surfaced to the client. */
             data: {
                 message: string;
@@ -1220,6 +1478,9 @@ export interface components {
             scope: "recordings";
         } | {
             /** @enum {string} */
+            scope: "clients";
+        } | {
+            /** @enum {string} */
             scope: "decoder_log";
         };
         /** @description Full state snapshot for initial load (PLAN §5 `GET /api/state`). */
@@ -1239,6 +1500,38 @@ export interface components {
          * @enum {string}
          */
         StreamKind: "spectrum" | "audio";
+        /**
+         * @description One built-in station template (PLAN §10: the template gallery). Read-only and
+         *     device-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry
+         *     applies to whatever hardware is open, provided the device can tune it.
+         */
+        TemplateInfo: {
+            /** Format: double */
+            center_hz: number;
+            /** @description Channels the template creates on the target device set. */
+            channels: components["schemas"]["ChannelSettings"][];
+            /** @description One line for the gallery card. */
+            description: string;
+            /** @description The "what am I looking at" text shown once it is applied (PLAN §10). */
+            explainer: string;
+            /** @description Stable slug used in `POST /api/templates/{id}/apply`. */
+            id: string;
+            /** Format: double */
+            max_freq_hz: number;
+            /**
+             * Format: double
+             * @description Tuning span the template needs, so the gallery can mark entries the open device
+             *     cannot reach instead of failing on apply.
+             */
+            min_freq_hz: number;
+            name: string;
+            /** Format: double */
+            sample_rate: number;
+        };
+        /** @description `GET /api/templates`. */
+        TemplatesResponse: {
+            templates: components["schemas"]["TemplateInfo"][];
+        };
         WfmParams: {
             /**
              * Format: float
@@ -1260,6 +1553,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_auth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether this server requires the shared token. Answered without authentication so a client can prompt before its first real request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthInfo"];
+                };
+            };
+        };
+    };
     list_bookmarks: {
         parameters: {
             query?: never;
@@ -1368,6 +1681,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChannelTypesResponse"];
+                };
+            };
+        };
+    };
+    get_clients: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WebSocket clients connected right now, including the caller's own socket. Invalidated by the `clients` scope, never polled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientsResponse"];
                 };
             };
         };
@@ -1867,6 +2200,80 @@ export interface operations {
             };
         };
     };
+    scan_device_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanRequest"];
+            };
+        };
+        responses: {
+            /** @description Scanner status: the initial state after `start`, the final state after `stop`. Live progress arrives as the `ScannerUpdate` WS event, not as one state change per step */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScannerStatus"];
+                };
+            };
+            /** @description Unusable scan settings, set not running, already scanning, or not scanning */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set or hold channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_doctor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Environment diagnostics: compiled backends, devices found, USB permissions and storage paths (the same report `sdrmm --doctor` prints) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoctorReport"];
+                };
+            };
+        };
+    };
     list_presets: {
         parameters: {
             query?: never;
@@ -2095,6 +2502,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StateSnapshot"];
+                };
+            };
+        };
+    };
+    list_templates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Built-in station templates (read-only; presets are the writable kind) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplatesResponse"];
+                };
+            };
+        };
+    };
+    apply_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Template id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Template applied */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Template rejected by the target device (usually out of its tuning range); `detail` reports what a partial application left behind */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Template or device set not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
