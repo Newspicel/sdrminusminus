@@ -6,7 +6,7 @@
 
 use std::{
     path::{Path, PathBuf},
-    process::Command,
+    process::{Child, Command, Stdio},
 };
 
 use anyhow::{Context, Result, bail};
@@ -89,9 +89,16 @@ fn codegen(root: &Path) -> Result<()> {
 fn dev(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
     // Vite (HMR) proxies /api to the server; the server serves the API + WS on :8080.
-    let mut vite = Command::new("pnpm")
-        .args(["--dir", "web", "dev"])
-        .current_dir(root)
+    let mut vite = Command::new("pnpm");
+    vite.args(["--dir", "web", "dev"]).current_dir(root);
+    // Detach Vite from the terminal: it must not read the TTY it shares with the server
+    // and the shell (a non-foreground reader is stopped by SIGTTIN, and an orphaned one
+    // dies with EIO), and it must die as a whole pnpm → node tree — killing only the pnpm
+    // parent orphans the actual Vite process, which keeps writing over the shell prompt.
+    vite.stdin(Stdio::null());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut vite, 0);
+    let mut vite = vite
         .spawn()
         .context("spawn vite dev server (is pnpm installed?)")?;
 
@@ -99,13 +106,37 @@ fn dev(root: &Path) -> Result<()> {
         .args(["run", "-p", "sdrmm", "--", "--dev-cors"])
         .current_dir(root)
         .status()
-        .context("run server")?;
+        .context("run server");
 
-    let _ = vite.kill();
+    kill_process_tree(&mut vite);
+    let status = status?;
     if !status.success() {
         bail!("server exited with {status}");
     }
     Ok(())
+}
+
+/// Terminate `child` and everything in its process group (see the spawn site), escalating to
+/// SIGKILL if the group ignores SIGTERM.
+#[cfg(unix)]
+fn kill_process_tree(child: &mut Child) {
+    let group = -(child.id() as i32);
+    unsafe { libc::kill(group, libc::SIGTERM) };
+    for _ in 0..50 {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+            Err(_) => break,
+        }
+    }
+    unsafe { libc::kill(group, libc::SIGKILL) };
+    let _ = child.wait();
+}
+
+#[cfg(not(unix))]
+fn kill_process_tree(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn check(root: &Path) -> Result<()> {

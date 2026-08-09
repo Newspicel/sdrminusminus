@@ -5434,6 +5434,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "libc",
  "sdrmm-server",
 ]
 

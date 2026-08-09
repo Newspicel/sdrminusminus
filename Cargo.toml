@@ -90,6 +90,7 @@ dirs = "6"
 rust-embed = "8"
 
 # Errors / logging / util
+libc = "0.2"
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
