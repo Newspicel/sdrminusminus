@@ -185,6 +185,14 @@ impl RtlSdrDevice {
         }
         if let Some(bw) = plan.bandwidth {
             self.sdr.set_bandwidth(bw).map_err(map_err)?;
+            // A width change reassigns the tuner's IF and rewrites only the demodulator's IF
+            // register — the tuner PLL still sits at `centre + old_IF`, so the radio quietly
+            // receives `centre + (old_IF - new_IF)` while every consumer is told `centre`.
+            // librtlsdr's `r820t_set_bw` ends with a re-tune for exactly this reason, and
+            // rs-rtl keeps that re-tune in `set_sample_rate` but not here. Re-programming the
+            // PLL from the cached centre closes the loop.
+            let center = self.sdr.center_freq();
+            self.sdr.set_center_freq(center).map_err(map_err)?;
         }
         match plan.gain {
             Some(GainMode::Auto) => self.sdr.set_gain_auto().map_err(map_err)?,

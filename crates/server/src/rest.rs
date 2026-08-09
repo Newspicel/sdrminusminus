@@ -33,6 +33,7 @@ pub(crate) const PRESET_VERSION: u32 = 1;
 
 /// Typed REST error → `(status, ApiError)` (PLAN §5). Declaring these in each path's responses
 /// is what gives the generated client a typed `error` branch.
+#[derive(Debug)]
 pub(crate) struct AppError {
     status: StatusCode,
     body: ApiError,
@@ -456,6 +457,10 @@ fn apply_configuration(
     channels: Vec<ChannelSettings>,
     what: &str,
 ) -> Result<(), AppError> {
+    // Nothing is destroyed until the whole configuration is known to be applicable: the
+    // sequence below deletes the set's channels before it can retune, so a request the device
+    // was always going to reject must fail here, with the set untouched.
+    engine.validate_configuration(ds, &settings, &channels)?;
     let existing: Vec<u32> = engine
         .snapshot()
         .device_sets
@@ -850,7 +855,7 @@ fn csv_field(value: &str) -> String {
     }
 }
 
-fn lock_gate(gate: &std::sync::Mutex<()>) -> std::sync::MutexGuard<'_, ()> {
+pub(crate) fn lock_gate(gate: &std::sync::Mutex<()>) -> std::sync::MutexGuard<'_, ()> {
     gate.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -859,7 +864,7 @@ fn lock_gate(gate: &std::sync::Mutex<()>) -> std::sync::MutexGuard<'_, ()> {
 /// an index): upsert a row per finalized pair, prune rows whose pair vanished. Pairs that
 /// cannot be read (foreign datatype, torn meta, no sample rate) are skipped — and therefore
 /// delisted — since they cannot be played either. Callers hold the recordings gate.
-fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Result<(), AppError> {
+pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Result<(), AppError> {
     let stems = scan_stems(dir)
         .map_err(|err| AppError::internal(format!("scan {}: {err}", dir.display())))?;
     let mut kept = Vec::with_capacity(stems.len());

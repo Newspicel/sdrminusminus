@@ -337,7 +337,11 @@ pub(crate) enum DspCommand {
 
 /// Owns the running device and its DSP thread; drop/stop tears both down cleanly.
 pub struct CaptureRuntime {
-    device: Box<dyn SdrDevice>,
+    /// Taken by [`CaptureRuntime::stop`] so the device is *dropped* there, not merely told to
+    /// stop streaming. A USB backend holds its interface claim for as long as the handle
+    /// lives, and auto-reconnect (PLAN §16 M5) re-opens the very same radio — leaving the
+    /// dead set's handle alive would make every replug recovery fail with "busy".
+    device: Option<Box<dyn SdrDevice>>,
     meta: Arc<ArcSwap<DspMeta>>,
     spectrum_tx: broadcast::Sender<SpectrumSnapshot>,
     cmd_tx: mpsc::Sender<DspCommand>,
@@ -400,7 +404,7 @@ impl CaptureRuntime {
         };
 
         Ok(Self {
-            device,
+            device: Some(device),
             meta,
             spectrum_tx,
             cmd_tx,
@@ -435,12 +439,18 @@ impl CaptureRuntime {
     }
 
     pub fn apply(&mut self, settings: &sdrmm_wire::DeviceSettings) -> Result<(), DeviceError> {
-        self.device.apply(settings)
+        self.device
+            .as_mut()
+            .ok_or_else(|| DeviceError::Io("the device has been stopped".to_string()))?
+            .apply(settings)
     }
 
+    /// Stop streaming, release the device, and join the DSP thread. Idempotent.
     pub fn stop(&mut self) {
         self.stop.store(true, Ordering::Release);
-        self.device.rx_stop();
+        if let Some(mut device) = self.device.take() {
+            device.rx_stop();
+        }
         if let Some(handle) = self.dsp.take() {
             let _ = handle.join();
         }

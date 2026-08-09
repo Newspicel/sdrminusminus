@@ -16,7 +16,7 @@ actually built.
 
 ## Status
 
-Milestones M0–M4 are complete. M5 (ops & UX polish, packaging, docs) is in progress.
+Milestones M0–M5 are complete.
 
 | Milestone | What it delivered |
 |---|---|
@@ -25,17 +25,17 @@ Milestones M0–M4 are complete. M5 (ops & UX polish, packaging, docs) is in pro
 | M2 — listen | DDC channels, NFM/AM/SSB/WFM, squelch + AGC, Opus audio to browser and desktop, presets, bookmarks, phone-usable layout |
 | M3 — record & replay | SigMF recording (lossless, crash-safe), playback of recordings as virtual devices, recordings browser, fixture pipeline |
 | M4 — decoders wave 1 | RDS, POCSAG, ADS-B (+ map), AIS, APRS/AX.25, RTTY, Morse; decoder-log database with CSV/JSON export |
-| M5 — in progress | Frequency scanner, token auth, MCP server, template gallery, native RTL-SDR/HackRF backends, `--doctor`, packaging, this documentation |
+| M5 — ops & UX polish | Frequency scanner, auto-reconnect on replug, optional token auth, MCP server at `/mcp`, template gallery + first-run wizard, native RTL-SDR/HackRF backends, `sdrmm --doctor`, Docker/release packaging, this documentation |
 
-At M4 the suite was 465 Rust tests and 155 web tests, all run against the virtual device —
+At M5 the suite is 560 Rust tests and 170 web tests, all run against the virtual device —
 there is no hardware in CI, ever.
 
 ## Hardware
 
 | Device | How |
 |---|---|
-| RTL-SDR | SoapySDR, plus a pure-Rust native backend (tuner gain table, bias tee, tuner AGC) landing at M5 |
-| HackRF | SoapySDR, plus a pure-Rust native backend (per-stage LNA/VGA gain, RF amp, antenna power) landing at M5 |
+| RTL-SDR | Native pure-Rust backend (tuner gain table, bias tee, tuner AGC), or SoapySDR |
+| HackRF | Native pure-Rust backend (per-stage LNA/VGA gain, RF amp, antenna power), or SoapySDR |
 | Airspy, SDRplay, LimeSDR, PlutoSDR, BladeRF, USRP, … | SoapySDR, wherever a Soapy module exists |
 | Recordings and the built-in signal generator | `device-virtual`, always compiled in, no hardware needed |
 
@@ -50,7 +50,8 @@ container image at `ghcr.io/newspicel/sdrminusminus` and desktop bundles.
 To build it yourself you need the pinned nightly Rust toolchain (`rust-toolchain.toml` —
 `rustup` installs it on the first build), Node 24 and pnpm 11. SoapySDR is only needed for the
 default build: `libsoapysdr-dev` on Debian/Ubuntu, `brew install soapysdr` on macOS; build
-with `--no-default-features` to skip it entirely.
+with `--no-default-features --features rtl-native,hackrf-native` to skip it entirely — that is
+the shape release artifacts ship in, and it needs no C library at all.
 
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus
@@ -74,10 +75,10 @@ on <http://localhost:5173>, proxying `/api` and the WebSocket to the server.
 |---|---|
 | `cargo xtask dev` | Server + Vite dev server with HMR |
 | `cargo xtask codegen` | Regenerate `openapi.json` + `web/src/generated` (run after changing `crates/wire`) |
-| `cargo xtask check` | The full gate: fmt, clippy `-D warnings`, Soapy-free build, `biome ci`, type-aware `oxlint`, `tsgo`, web build, codegen-drift |
+| `cargo xtask check` | The full gate: fmt, clippy `-D warnings`, Soapy-free build, the release-shaped native build, `biome ci`, type-aware `oxlint`, `tsgo`, web build, codegen-drift |
 | `cargo xtask test` | Rust + web test suites (uses `device-virtual`, no hardware) |
 | `cargo xtask fixtures` | Regenerate the synthesized SigMF decoder fixtures in `fixtures/` |
-| `cargo xtask dist` | Release artifacts (stub — releases are built by the tag-driven workflow) |
+| `cargo xtask dist [--target <triple>]` | Build the self-contained release binary (web build, then `--no-default-features --features rtl-native,hackrf-native`) into `dist/` |
 
 ## Layout
 

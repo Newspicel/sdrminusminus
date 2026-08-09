@@ -7,7 +7,7 @@
 
 use std::{
     collections::HashMap,
-    sync::atomic,
+    sync::{Arc, atomic},
     time::{Duration, Instant},
 };
 
@@ -20,7 +20,7 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{decimate_max, quantize_db};
-use sdrmm_engine::{AudioPacket, SpectrumSnapshot, adaptive_db_window};
+use sdrmm_engine::{AudioPacket, Engine, SpectrumSnapshot, adaptive_db_window};
 use sdrmm_wire::{AudioFrame, ClientCommand, ServerEvent, SpectrumFrame, StateScope, StreamKind};
 use tokio::sync::{broadcast, mpsc};
 
@@ -148,8 +148,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     device_set,
                                 };
                                 let _ = out_tx.send(text_event(&started)).await;
-                                let task =
-                                    spawn_spectrum(device_set, fps, bins, rx, out_tx.clone());
+                                let task = spawn_spectrum(
+                                    device_set,
+                                    fps,
+                                    bins,
+                                    rx,
+                                    out_tx.clone(),
+                                    engine.clone(),
+                                );
                                 spectra.insert(device_set, task);
                             }
                             Err(message) => {
@@ -393,6 +399,7 @@ fn spawn_spectrum(
     bins: u16,
     mut rx: broadcast::Receiver<SpectrumSnapshot>,
     out_tx: mpsc::Sender<Message>,
+    engine: Arc<Engine>,
 ) -> tokio::task::JoinHandle<()> {
     let fps = fps.clamp(1, MAX_FPS);
     let bins = (bins as usize).clamp(MIN_BINS, MAX_BINS);
@@ -436,8 +443,19 @@ fn spawn_spectrum(
                 // drop-oldest contract; resume with the newest retained.
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => {
-                    // The device set was removed. Tell the client the stream ended (no silent
-                    // termination, CLAUDE.md); this is a one-shot control message, so await it.
+                    // The broadcast closes for two very different reasons: the device set was
+                    // removed, or auto-reconnect (PLAN §16 M5) replaced its whole runtime
+                    // after a replug. Re-subscribing distinguishes them — a set that came
+                    // back hands out a receiver on the new runtime and the stream resumes,
+                    // and only a set that is really gone gets the stop event.
+                    let engine = engine.clone();
+                    let resubscribed =
+                        tokio::task::spawn_blocking(move || engine.subscribe_spectrum(ds)).await;
+                    if let Ok(Ok(fresh)) = resubscribed {
+                        rx = fresh;
+                        continue;
+                    }
+                    // No silent termination (CLAUDE.md); one-shot control message, so await it.
                     let stopped = ServerEvent::StreamStopped {
                         stream_id: ds as u16,
                         kind: StreamKind::Spectrum,
@@ -510,9 +528,8 @@ fn encode_event(ev: &ServerEvent) -> Utf8Bytes {
 
 #[cfg(test)]
 mod tests {
-    use std::{future::IntoFuture, sync::Arc};
+    use std::future::IntoFuture;
 
-    use sdrmm_engine::Engine;
     use sdrmm_wire::{ChannelParams, ChannelSettings, NfmParams};
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite;
@@ -885,6 +902,171 @@ mod tests {
                 .expect("event");
             if matches!(ev, ServerEvent::StateChanged { scope: got } if got == scope) {
                 return;
+            }
+        }
+    }
+
+    /// Auto-reconnect replaces a device set's whole runtime, which closes the spectrum
+    /// broadcast every subscriber is holding. The stream must survive that: before this, a
+    /// replug left every client's waterfall frozen until it re-opened the page.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn spectrum_survives_a_reconnect_instead_of_stopping() {
+        let die = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut registry = sdrmm_device::DeviceRegistry::new();
+        registry.register(1, Box::new(FaultingDriver { die: die.clone() }));
+        let engine = Engine::with_registry(registry, None);
+        let (addr, state) = serve_ws(engine).await;
+        let ds = state
+            .engine
+            .create_device_set("mock:faulting")
+            .expect("device set");
+
+        let mut ws = dial(addr).await;
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeSpectrum {
+                device_set: ds,
+                fps: 30,
+                bins: 64,
+            },
+        )
+        .await;
+        assert_eq!(next_frame_header(&mut ws).await.1, ds as u16);
+
+        die.store(true, std::sync::atomic::Ordering::SeqCst);
+        let deadline = Instant::now() + WAIT;
+        while state.engine.snapshot().device_sets[0].status != sdrmm_wire::DeviceSetStatus::Error {
+            assert!(Instant::now() < deadline, "the device never faulted");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        die.store(false, std::sync::atomic::Ordering::SeqCst);
+        state
+            .engine
+            .hotplug_tick_for_test(&mut None, &mut std::collections::HashSet::new());
+        assert_eq!(
+            state.engine.snapshot().device_sets[0].status,
+            sdrmm_wire::DeviceSetStatus::Running
+        );
+
+        // Frames again, from the replacement runtime, with no stream teardown in between.
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let msg = timeout(WAIT, ws.next())
+                .await
+                .expect("message within timeout")
+                .expect("stream open")
+                .expect("message");
+            match msg {
+                tungstenite::Message::Binary(bytes) => {
+                    if bytes.first() == Some(&sdrmm_wire::PROTOCOL_VERSION) {
+                        break;
+                    }
+                }
+                tungstenite::Message::Text(text) => {
+                    let ev: ServerEvent = serde_json::from_str(&text).expect("event");
+                    assert!(
+                        !matches!(ev, ServerEvent::StreamStopped { .. }),
+                        "the stream was torn down instead of following the reconnect"
+                    );
+                }
+                _ => {}
+            }
+            assert!(Instant::now() < deadline, "no spectrum after the reconnect");
+        }
+    }
+
+    /// Streams paced blocks until told to die, and probes present throughout — an unplug the
+    /// hotplug tick can recover from.
+    struct FaultingDriver {
+        die: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl sdrmm_device::DeviceDriver for FaultingDriver {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+
+        fn probe(&self) -> Vec<sdrmm_wire::DeviceInfo> {
+            vec![sdrmm_wire::DeviceInfo {
+                driver: "mock".to_string(),
+                key: "faulting".to_string(),
+                label: "Faulting mock".to_string(),
+                serial: None,
+            }]
+        }
+
+        fn open(
+            &self,
+            _info: &sdrmm_wire::DeviceInfo,
+        ) -> Result<Box<dyn sdrmm_device::SdrDevice>, sdrmm_device::DeviceError> {
+            Ok(Box::new(FaultingDevice {
+                capabilities: sdrmm_wire::Capabilities {
+                    freq_ranges: Vec::new(),
+                    sample_rates: Vec::new(),
+                    sample_rate_range: None,
+                    gains: Vec::new(),
+                    antennas: Vec::new(),
+                    bandwidths: Vec::new(),
+                    extra: Vec::new(),
+                    tx_capable: false,
+                },
+                settings: sdrmm_wire::DeviceSettings::default(),
+                die: self.die.clone(),
+                stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                worker: None,
+            }))
+        }
+    }
+
+    struct FaultingDevice {
+        capabilities: sdrmm_wire::Capabilities,
+        settings: sdrmm_wire::DeviceSettings,
+        die: Arc<std::sync::atomic::AtomicBool>,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+        worker: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl sdrmm_device::SdrDevice for FaultingDevice {
+        fn capabilities(&self) -> &sdrmm_wire::Capabilities {
+            &self.capabilities
+        }
+
+        fn settings(&self) -> &sdrmm_wire::DeviceSettings {
+            &self.settings
+        }
+
+        fn apply(
+            &mut self,
+            settings: &sdrmm_wire::DeviceSettings,
+        ) -> Result<(), sdrmm_device::DeviceError> {
+            self.settings.merge_from(settings);
+            Ok(())
+        }
+
+        fn rx_start(
+            &mut self,
+            mut sink: sdrmm_device::RxSink,
+        ) -> Result<(), sdrmm_device::DeviceError> {
+            let die = self.die.clone();
+            let stop = self.stop.clone();
+            self.worker = Some(std::thread::spawn(move || {
+                let block = [num_complex::Complex::new(0.1f32, 0.0); 4_096];
+                while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                    if die.load(std::sync::atomic::Ordering::SeqCst) {
+                        sink.fail(sdrmm_device::DeviceError::Io("mock died".to_string()));
+                        return;
+                    }
+                    sink.push(&block);
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }));
+            Ok(())
+        }
+
+        fn rx_stop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            if let Some(handle) = self.worker.take() {
+                let _ = handle.join();
             }
         }
     }

@@ -148,7 +148,11 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Write
     let mut app = Router::new()
         .merge(api_router)
         .route("/api/ws", axum::routing::get(ws::handler))
-        .merge(mcp::router(state.engine.clone(), state.store.clone()))
+        .merge(mcp::router(
+            state.engine.clone(),
+            state.store.clone(),
+            state.recordings_gate.clone(),
+        ))
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", api))
         .route_layer(axum::middleware::from_fn_with_state(
             state.auth.clone(),
@@ -759,10 +763,13 @@ mod tests {
         assert_eq!(set.channels[0].settings.offset_hz, 0.0);
     }
 
-    /// A mid-sequence engine failure cannot be rolled back (each step is real device I/O);
-    /// the error must say exactly what state the set was left in, and the state must match.
+    /// Applying a preset is destructive by construction (the channels go before the rate can
+    /// move), so a preset the device was always going to reject must be refused *before*
+    /// anything is deleted — an operator who asked for a bad preset must not end up with an
+    /// empty device set. The mid-sequence detail path stays for failures that only real device
+    /// I/O can produce.
     #[tokio::test]
-    async fn apply_preset_failure_reports_partial_state_honestly() {
+    async fn apply_preset_rejected_up_front_leaves_the_set_untouched() {
         let (app, store) = test_router_with_store();
         let ds = create_virtual_set(&app).await;
         let (status, _) = request(
@@ -774,8 +781,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
 
-        // A preset the REST surface can't produce: its channel is invalid at its own rate,
-        // so the apply fails at the final add step.
+        // A preset the REST surface can't produce: its channel is invalid at its own rate.
         let preset = store
             .create_preset("broken", &preset_250k(vec![nfm_at(900_000.0)]))
             .expect("preset");
@@ -788,23 +794,25 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
-        let detail = err.detail.expect("partial-application detail");
         assert!(
-            detail.contains("existing channels removed")
-                && detail.contains("device settings applied")
-                && detail.contains("0 of 1 preset channels added"),
-            "dishonest detail: {detail}"
+            err.error.contains("exceeds"),
+            "the rejection must name the problem: {err:?}"
+        );
+        assert!(
+            err.detail.is_none(),
+            "nothing was applied, so there is no partial state to report: {err:?}"
         );
 
-        // The reported state is the actual state: retuned, and no channels left.
+        // Untouched: the original channel and the original rate are both still there.
         let snap = get_state(&app).await;
         let set = snap
             .device_sets
             .iter()
             .find(|s| s.id == ds)
             .expect("device set");
-        assert_eq!(set.settings.sample_rate, Some(250_000.0));
-        assert!(set.channels.is_empty());
+        assert_eq!(set.settings.sample_rate, Some(2_048_000.0));
+        assert_eq!(set.channels.len(), 1);
+        assert_eq!(set.channels[0].settings.offset_hz, 100_000.0);
     }
 
     #[tokio::test]

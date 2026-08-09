@@ -4,7 +4,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
 import type { paths } from "../generated/schema";
-import { getToken, withToken } from "./auth";
+import { getToken, rejectToken, withToken } from "./auth";
 import type {
   ApiError,
   AuthInfo,
@@ -40,6 +40,14 @@ client.use({
       request.headers.set("Authorization", `Bearer ${token}`);
     }
     return request;
+  },
+  onResponse({ response }) {
+    // A 401 with a token stored means the token is wrong or the server's changed: drop it so
+    // the gate prompts again instead of every request failing forever.
+    if (response.status === 401) {
+      rejectToken();
+    }
+    return response;
   },
 });
 

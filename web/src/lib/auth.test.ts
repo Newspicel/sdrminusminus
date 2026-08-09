@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { getToken, resetTokenCache, setToken, withToken } from "./auth";
+import {
+  getToken,
+  onTokenRejected,
+  rejectToken,
+  resetTokenCache,
+  setToken,
+  withToken,
+} from "./auth";
 
 /** Minimal `Storage`, so these tests need no DOM environment — the same fake-object style the
  * audio tests use for sockets and sinks. */
@@ -63,5 +70,23 @@ describe("withToken", () => {
     expect(withToken("/api/decoderlog/export/csv?kind=adsb")).toBe(
       "/api/decoderlog/export/csv?kind=adsb&token=a%2Fb%20c",
     );
+  });
+});
+
+describe("rejectToken", () => {
+  it("forgets a refused token and tells the gate exactly once", () => {
+    let notified = 0;
+    const stop = onTokenRejected(() => {
+      notified += 1;
+    });
+    setToken("wrong");
+    rejectToken();
+    expect(getToken()).toBeNull();
+    expect(notified).toBe(1);
+
+    // Nothing stored: a 401 on an unauthenticated server must not prompt for a token.
+    rejectToken();
+    expect(notified).toBe(1);
+    stop();
   });
 });

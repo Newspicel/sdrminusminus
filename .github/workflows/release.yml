@@ -23,8 +23,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # ghcr requires a lowercase path; `newspicel/sdrminusminus` already is one.
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  # ghcr rejects an uppercase reference and `github.repository` carries the owner's canonical
+  # casing (`Newspicel/…`), so the name is lowercased at use rather than interpolated raw.
+  IMAGE_NAME: ghcr.io/newspicel/sdrminusminus
 
 jobs:
   # Built once and shared, so every artifact of a release embeds byte-identical assets.
@@ -255,13 +256,20 @@ jobs:
         with:
           projectPath: apps/desktop
           args: --no-default-features --features rtl-native,hackrf-native --bundles ${{ matrix.bundles }}
+      # Flattened first: upload-artifact roots a multi-path artifact at the least common
+      # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
+      # — and the release job below treats every downloaded entry as a file to attach.
+      - name: Collect bundles
+        run: |
+          mkdir -p bundles
+          find target/release/bundle -type f \
+            \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) \
+            -exec cp {} bundles/ \;
+          ls -l bundles
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.label }}
-          path: |
-            target/release/bundle/dmg/*.dmg
-            target/release/bundle/deb/*.deb
-            target/release/bundle/appimage/*.AppImage
+          path: bundles/*
           if-no-files-found: error
 
   release:
@@ -281,7 +289,10 @@ jobs:
       - name: Checksums
         working-directory: artifacts
         run: |
-          find . -maxdepth 1 -type f -printf '%P\0' | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
+          # `! -name SHA256SUMS`: the redirect creates the file before `find` runs, so without
+          # it the manifest lists itself — hashed while still empty, since it sorts first.
+          find . -type f ! -name SHA256SUMS -printf '%P\0' \
+            | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
           cat SHA256SUMS
       - name: Publish
         env:
@@ -292,4 +303,4 @@ jobs:
             --verify-tag \
             --generate-notes \
             --notes "Container image: \`docker pull ${IMAGE_NAME}:${GITHUB_REF_NAME#v}\`" \
-            artifacts/*
+            $(find artifacts -type f | sort)

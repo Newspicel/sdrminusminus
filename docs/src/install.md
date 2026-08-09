@@ -38,13 +38,15 @@ WebSocket work, and the root page tells you the UI is not built yet.
 ### Without SoapySDR
 
 ```sh
-cargo run -p sdrmm --no-default-features
+cargo run -p sdrmm --no-default-features --features rtl-native,hackrf-native
 ```
 
-This produces a binary with no libSoapySDR dependency at all: the virtual devices (signal
-generator, recording playback) still work, and the native RTL-SDR and HackRF backends are the
-M5 path to real hardware in this configuration. The Soapy-free build is checked in CI on every
-change, so it cannot rot.
+This is the shape release artifacts ship in: no libSoapySDR dependency at all, and the native
+pure-Rust RTL-SDR and HackRF backends compiled in, so real hardware works with nothing
+installed. Bare `--no-default-features` drops those backends too and leaves only the virtual
+devices (signal generator, recording playback) — useful for checking that every backend really
+is optional, which is what CI does, but not what you want on a receiver. Both configurations
+are gated in CI on every change, so neither can rot.
 
 ## Headless server
 
