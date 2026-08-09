@@ -135,15 +135,14 @@ impl SdrDevice for SigGen {
     }
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
-        if let Some(rate) = settings.sample_rate {
-            if rate <= 0.0 || !self.capabilities.sample_rates.contains(&rate) {
-                return Err(DeviceError::Unsupported(format!("sample_rate {rate}")));
-            }
-            self.settings.sample_rate = Some(rate);
+        if let Some(rate) = settings.sample_rate
+            && (rate <= 0.0 || !self.capabilities.sample_rates.contains(&rate))
+        {
+            return Err(DeviceError::Unsupported(format!("sample_rate {rate}")));
         }
-        if let Some(center) = settings.center_hz {
-            self.settings.center_hz = Some(center);
-        }
+        // Store every field via the one shared merge (`wire`), so PATCHed values round-trip
+        // into state even for knobs the siggen has no behavior for (ppm, gains, bandwidth…).
+        self.settings.merge_from(settings);
         // Publish the derived params so a live capture thread picks them up next block.
         self.shared.store(Arc::new(SigParams {
             sample_rate: self.sample_rate(),
@@ -307,6 +306,30 @@ mod tests {
             ..DeviceSettings::default()
         };
         assert!(dev.apply(&bad).is_err());
+    }
+
+    #[test]
+    fn apply_stores_every_field_for_state_round_trips() {
+        let mut dev = SigGen::new();
+        dev.apply(&DeviceSettings {
+            ppm: Some(1.5),
+            antenna: Some("RX".to_string()),
+            bandwidth: Some(1_500_000.0),
+            gains: vec![sdrmm_wire::GainValue {
+                stage: "LNA".to_string(),
+                value_db: 16.0,
+            }],
+            ..DeviceSettings::default()
+        })
+        .unwrap();
+
+        let settings = dev.settings();
+        assert_eq!(settings.ppm, Some(1.5));
+        assert_eq!(settings.antenna.as_deref(), Some("RX"));
+        assert_eq!(settings.bandwidth, Some(1_500_000.0));
+        assert_eq!(settings.gains.len(), 1);
+        // Defaults untouched by the delta must survive.
+        assert_eq!(settings.center_hz, Some(100_000_000.0));
     }
 
     #[test]

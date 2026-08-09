@@ -2994,6 +2994,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-soapy"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-wire",
+ "serde_json",
+ "soapysdr",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-virtual"
 version = "0.0.0"
 dependencies = [
@@ -3020,6 +3032,7 @@ dependencies = [
  "rtrb",
  "sdrmm-channels",
  "sdrmm-device",
+ "sdrmm-device-soapy",
  "sdrmm-device-virtual",
  "sdrmm-dsp",
  "sdrmm-wire",
@@ -3351,6 +3364,26 @@ name = "smallvec"
 version = "1.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+
+[[package]]
+name = "soapysdr"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a18cfe7033985b73ab920b34b79ea333ac9271c64910023054efefd8a5f08088"
+dependencies = [
+ "log",
+ "num-complex",
+ "soapysdr-sys",
+]
+
+[[package]]
+name = "soapysdr-sys"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f436607817a47de9b0716931dd874cd273993a69091d174222d0b9099c2f748b"
+dependencies = [
+ "pkg-config",
+]
 
 [[package]]
 name = "socket2"

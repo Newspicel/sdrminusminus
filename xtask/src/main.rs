@@ -116,6 +116,12 @@ fn check(root: &Path) -> Result<()> {
         &["clippy", "--all-targets", "--", "-D", "warnings"],
         root,
     )?;
+    // The Soapy-free build must stay buildable (PLAN §3: minimal Pi images).
+    run(
+        "cargo",
+        &["check", "-p", "sdrmm", "--no-default-features"],
+        root,
+    )?;
 
     // Web gate.
     ensure_web_deps(root)?;
@@ -148,6 +154,8 @@ fn check(root: &Path) -> Result<()> {
 
 fn test(root: &Path) -> Result<()> {
     run("cargo", &["test", "--all-targets"], root)?;
+    ensure_web_deps(root)?;
+    run("pnpm", &["--dir", "web", "test"], root)?;
     Ok(())
 }
 

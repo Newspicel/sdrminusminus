@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns empty).
+      - run: sudo apt-get update && sudo apt-get install -y libsoapysdr-dev
       - uses: pnpm/action-setup@v4
         with:
           version: 11.15.1
@@ -39,6 +41,18 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns empty).
+      - run: brew install soapysdr
+      # `cargo xtask test` runs the web unit tests too, so it needs pnpm + node.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm --dir web install --frozen-lockfile
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: cargo xtask test

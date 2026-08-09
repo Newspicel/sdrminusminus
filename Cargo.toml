@@ -5,6 +5,7 @@ members = [
     "crates/dsp",
     "crates/device",
     "crates/device-virtual",
+    "crates/device-soapy",
     "crates/channels",
     "crates/engine",
     "crates/server",
@@ -20,6 +21,7 @@ default-members = [
     "crates/dsp",
     "crates/device",
     "crates/device-virtual",
+    "crates/device-soapy",
     "crates/channels",
     "crates/engine",
     "crates/server",
@@ -41,9 +43,12 @@ sdrmm-wire = { path = "crates/wire" }
 sdrmm-dsp = { path = "crates/dsp" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
+sdrmm-device-soapy = { path = "crates/device-soapy" }
 sdrmm-channels = { path = "crates/channels" }
-sdrmm-engine = { path = "crates/engine" }
-sdrmm-server = { path = "crates/server" }
+# default-features = false so binaries opt into `soapy` themselves — a member manifest cannot
+# disable a workspace dep's defaults, only add to them (needed for the Soapy-free build, PLAN §3).
+sdrmm-engine = { path = "crates/engine", default-features = false }
+sdrmm-server = { path = "crates/server", default-features = false }
 
 # Async runtime / web
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
@@ -59,6 +64,9 @@ utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 mime_guess = "2"
+
+# Device backends
+soapysdr = "0.5"
 
 # DSP
 num-complex = "0.4"

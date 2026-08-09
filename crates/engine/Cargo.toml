@@ -10,11 +10,17 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+# `--no-default-features` must yield a Soapy-free binary (PLAN §3: minimal Pi images).
+[features]
+default = ["soapy"]
+soapy = ["dep:sdrmm-device-soapy"]
+
 [dependencies]
 sdrmm-wire.workspace = true
 sdrmm-dsp.workspace = true
 sdrmm-device.workspace = true
 sdrmm-device-virtual.workspace = true
+sdrmm-device-soapy = { workspace = true, optional = true }
 sdrmm-channels.workspace = true
 num-complex.workspace = true
 rtrb.workspace = true
