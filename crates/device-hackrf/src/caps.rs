@@ -238,29 +238,29 @@ pub(crate) fn validate(
 /// asked for. `ppm`/`bandwidth` stay unset because [`validate`] refuses them.
 pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
     DeviceSettings {
-        center_hz: Some(config.frequency_hz() as f64),
-        sample_rate: Some(f64::from(config.sample_rate_hz())),
+        center_hz: Some(config.frequency_hz as f64),
+        sample_rate: Some(f64::from(config.sample_rate_hz)),
         ppm: None,
         antenna: Some(ANTENNA.to_string()),
         bandwidth: None,
         gains: vec![
             GainValue {
                 stage: LNA_STAGE.to_string(),
-                value_db: f64::from(config.lna_gain_db()),
+                value_db: f64::from(config.lna_gain_db),
             },
             GainValue {
                 stage: VGA_STAGE.to_string(),
-                value_db: f64::from(config.vga_gain_db()),
+                value_db: f64::from(config.vga_gain_db),
             },
         ],
         extra: vec![
             ExtraValue {
                 name: AMP_SETTING.to_string(),
-                value: config.amp_enabled().into(),
+                value: config.amp_enabled.into(),
             },
             ExtraValue {
                 name: BIAS_TEE_SETTING.to_string(),
-                value: config.bias_tee_enabled().into(),
+                value: config.bias_tee_enabled.into(),
             },
         ],
     }
@@ -599,13 +599,14 @@ mod tests {
 
     #[test]
     fn settings_mirror_the_drivers_applied_config() {
-        let mut config = Config::default();
-        config.set_frequency_hz(100_000_000);
-        config.set_sample_rate_hz(2_000_000);
-        config.set_lna_gain_db(16);
-        config.set_vga_gain_db(30);
-        config.set_amp_enabled(true);
-        config.set_bias_tee_enabled(false);
+        let config = Config {
+            frequency_hz: 100_000_000,
+            sample_rate_hz: 2_000_000,
+            lna_gain_db: 16,
+            vga_gain_db: 30,
+            amp_enabled: true,
+            bias_tee_enabled: false,
+        };
         let settings = settings_from_config(&config);
         assert_eq!(settings.center_hz, Some(100e6));
         assert_eq!(settings.sample_rate, Some(2e6));

@@ -17,6 +17,8 @@ use std::{
     time::Duration,
 };
 
+use nusb::transfer::TransferError;
+
 use crate::{
     bulk::BulkIn,
     error::{Result, StreamError},
@@ -186,6 +188,14 @@ impl Drop for RxStream {
 /// The endpoint is un-stalled and filled with `queue_depth` transfers before the pump thread
 /// starts, so the first completion is already on its way when this returns.
 pub fn start<B: BulkIn>(mut bulk_in: B, config: StreamConfig) -> Result<RxStream> {
+    // An empty queue can never refill itself, so the pump would end the stream on its first
+    // step with nothing to report — the caller's mistake surfacing as a phantom device fault.
+    if config.queue_depth == 0 {
+        return Err(StreamError::Config("queue_depth must be at least 1"));
+    }
+    if config.transfer_size == 0 {
+        return Err(StreamError::Config("transfer_size must be at least 1"));
+    }
     bulk_in.clear_halt()?;
     for _ in 0..config.queue_depth {
         let buffer = bulk_in.allocate(config.transfer_size);
@@ -260,7 +270,8 @@ impl<B: BulkIn> Pump<B> {
         };
         self.shared.received.fetch_add(1, Ordering::Relaxed);
 
-        match self.policy.on_completion(completion.status, stopping) {
+        let status = completion.status;
+        match self.policy.on_completion(status, stopping) {
             Action::Exit => Step::Ended,
             Action::GiveUp { attempts, error } => {
                 self.shared.dropped.fetch_add(1, Ordering::Relaxed);
@@ -272,10 +283,17 @@ impl<B: BulkIn> Pump<B> {
             }
             Action::Resubmit => {
                 self.shared.dropped.fetch_add(1, Ordering::Relaxed);
-                tracing::warn!(
-                    consecutive_errors = self.policy.consecutive_errors(),
-                    "usb transfer failed; resubmitting"
-                );
+                if status == Err(TransferError::Cancelled) {
+                    // Fallout, not news: one faulted transfer aborts every transfer queued
+                    // behind it, so this arrives a whole queue at a time. The error that
+                    // caused it was warned about on its own completion.
+                    tracing::debug!("usb transfer cancelled by a fault ahead of it; resubmitting");
+                } else {
+                    tracing::warn!(
+                        consecutive_errors = self.policy.consecutive_errors(),
+                        "usb transfer failed; resubmitting"
+                    );
+                }
                 self.bulk_in.submit(completion.buffer);
                 Step::Progress
             }
@@ -469,6 +487,33 @@ mod tests {
         }
         stream.stop();
         assert_eq!(state.lock().expect("uncontended").cancel_calls, 1);
+    }
+
+    /// The fields are public, so a caller can ask for a queue that cannot work. An empty queue
+    /// can never refill itself, so the pump would end the stream on its first step with no
+    /// error recorded — which every backend reads as a device fault.
+    #[test]
+    fn an_unrunnable_config_is_refused_instead_of_ending_the_stream_silently() {
+        for (config, what) in [
+            (
+                StreamConfig {
+                    queue_depth: 0,
+                    ..config()
+                },
+                "queue_depth",
+            ),
+            (
+                StreamConfig {
+                    transfer_size: 0,
+                    ..config()
+                },
+                "transfer_size",
+            ),
+        ] {
+            let error = start(FakeBulkIn::default(), config).expect_err(what);
+            assert!(matches!(error, StreamError::Config(_)), "{what}: {error}");
+            assert!(!error.is_disconnected());
+        }
     }
 
     #[test]

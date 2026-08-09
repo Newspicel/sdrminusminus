@@ -98,12 +98,12 @@ impl Device {
         // The radio powers up with no usable tuning, so the defaults are written through and the
         // reported configuration is true from the first read.
         let defaults = Config::default();
-        opened.set_sample_rate_hz(defaults.sample_rate_hz())?;
-        opened.set_frequency_hz(defaults.frequency_hz())?;
-        opened.set_lna_gain_db(defaults.lna_gain_db())?;
-        opened.set_vga_gain_db(defaults.vga_gain_db())?;
-        opened.set_amp_enable(defaults.amp_enabled())?;
-        opened.set_bias_tee(defaults.bias_tee_enabled())?;
+        opened.set_sample_rate_hz(defaults.sample_rate_hz)?;
+        opened.set_frequency_hz(defaults.frequency_hz)?;
+        opened.set_lna_gain_db(defaults.lna_gain_db)?;
+        opened.set_vga_gain_db(defaults.vga_gain_db)?;
+        opened.set_amp_enable(defaults.amp_enabled)?;
+        opened.set_bias_tee(defaults.bias_tee_enabled)?;
         Ok(opened)
     }
 
@@ -124,7 +124,7 @@ impl Device {
         config::validate_frequency(frequency_hz)?;
         self.control
             .control_out(&VendorControlRequest::set_frequency(frequency_hz))?;
-        self.config.set_frequency_hz(frequency_hz);
+        self.config.frequency_hz = frequency_hz;
         Ok(())
     }
 
@@ -140,7 +140,7 @@ impl Device {
             .control_out(&VendorControlRequest::set_baseband_bandwidth(
                 sample_rate_hz,
             ))?;
-        self.config.set_sample_rate_hz(sample_rate_hz);
+        self.config.sample_rate_hz = sample_rate_hz;
         Ok(())
     }
 
@@ -151,7 +151,7 @@ impl Device {
             .control
             .control_in_exact(&VendorControlRequest::set_lna_gain(gain_db), 1)?;
         validate_gain_response(&response, "set LNA gain")?;
-        self.config.set_lna_gain_db(gain_db);
+        self.config.lna_gain_db = gain_db;
         Ok(())
     }
 
@@ -162,7 +162,7 @@ impl Device {
             .control
             .control_in_exact(&VendorControlRequest::set_vga_gain(gain_db), 1)?;
         validate_gain_response(&response, "set VGA gain")?;
-        self.config.set_vga_gain_db(gain_db);
+        self.config.vga_gain_db = gain_db;
         Ok(())
     }
 
@@ -170,7 +170,7 @@ impl Device {
     pub fn set_amp_enable(&mut self, enabled: bool) -> Result<()> {
         self.control
             .control_out(&VendorControlRequest::set_amp(enabled))?;
-        self.config.set_amp_enabled(enabled);
+        self.config.amp_enabled = enabled;
         Ok(())
     }
 
@@ -178,7 +178,7 @@ impl Device {
     pub fn set_bias_tee(&mut self, enabled: bool) -> Result<()> {
         self.control
             .control_out(&VendorControlRequest::set_bias_tee(enabled))?;
-        self.config.set_bias_tee_enabled(enabled);
+        self.config.bias_tee_enabled = enabled;
         Ok(())
     }
 
