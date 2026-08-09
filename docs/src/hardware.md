@@ -25,6 +25,12 @@ transfer is never an error, only genuine failures count, and the threshold is th
 It also means a stalled pipe is re-armed in place — milliseconds — instead of faulting the
 device and paying for a full re-open.
 
+The HackRF driver can transmit, because the radio can; the server cannot. `SdrDevice` has no
+transmit method, `Capabilities` reports `tx_capable: false`, and no REST route, WebSocket
+message or UI control reaches the transmit path — it is driver-level plumbing for the gated TX
+phase described in `PLAN.md` §12a, and the transmit gain is set to 0 dB whenever a device is
+opened.
+
 The native backends are honest about their limits rather than accepting settings they cannot
 apply. The RTL-SDR one, for example, does not advertise direct sampling, offset tuning or the
 RTL2832U digital AGC, because nothing programs them yet — and it rejects those settings instead

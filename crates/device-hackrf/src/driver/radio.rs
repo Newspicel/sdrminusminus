@@ -13,11 +13,14 @@ use super::{
     },
     discovery::{self, DeviceDescriptor},
     error::{Error, Result},
+    tx::{NusbBulkOut, TxQueue},
     types::{BoardId, DeviceInfo},
 };
 
 /// Bulk-IN endpoint the IQ samples arrive on.
 const RX_ENDPOINT: u8 = 0x81;
+/// Bulk-OUT endpoint the transmit samples leave on.
+const TX_ENDPOINT: u8 = 0x02;
 /// The USB configuration and interface HackRF firmware exposes in normal mode.
 const USB_CONFIGURATION: u8 = 1;
 const USB_INTERFACE: u8 = 0;
@@ -27,6 +30,32 @@ pub(crate) const RX_TRANSFER_SIZE: usize = 262_144;
 /// Transfers the consumer may fall behind by. Deliberately shallower than the RTL path's: each
 /// buffer here is 256 KiB, so 8 is already 2 MiB of slack and 105 ms at 20 Msps.
 const RX_CHANNEL_DEPTH: usize = 8;
+/// Firmware older than USB API 1.18 cannot be asked for its buffer size; libhackrf assumes this.
+const DEFAULT_FLUSH_SIZE: usize = 32 * 1024;
+
+/// Which way the radio is pointed. It is half duplex: the LPC's transceiver mode selects one
+/// data path, so a direction change means stopping the other first.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Direction {
+    Rx,
+    Tx,
+}
+
+impl Direction {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Rx => "receiving",
+            Self::Tx => "transmitting",
+        }
+    }
+
+    const fn mode(self) -> TransceiverMode {
+        match self {
+            Self::Rx => TransceiverMode::Receive,
+            Self::Tx => TransceiverMode::Transmit,
+        }
+    }
+}
 
 /// An opened HackRF.
 ///
@@ -36,7 +65,11 @@ const RX_CHANNEL_DEPTH: usize = 8;
 pub(crate) struct HackRf {
     control: Control,
     config: Config,
-    streaming: bool,
+    /// The direction currently selected, if any. `None` is transceiver mode off.
+    active: Option<Direction>,
+    /// Length of the zero-filled transfer that marks the end of a transmit burst, as the
+    /// firmware reports it.
+    flush_size: usize,
 }
 
 impl HackRf {
@@ -90,10 +123,12 @@ impl HackRf {
             "opened hackrf device"
         );
 
+        let flush_size = read_flush_size(&control, usb_api_version)?;
         let mut opened = Self {
             control,
             config: Config::default(),
-            streaming: false,
+            active: None,
+            flush_size,
         };
         // The radio powers up with no usable tuning, so the defaults are written through and the
         // reported configuration is true from the first read.
@@ -104,6 +139,9 @@ impl HackRf {
         opened.set_vga_gain_db(defaults.vga_gain_db)?;
         opened.set_amp_enable(defaults.amp_enabled)?;
         opened.set_bias_tee(defaults.bias_tee_enabled)?;
+        // Deliberately last and deliberately zero: the transmit driver comes up silent, so a
+        // device opened for receive cannot be made to radiate by a later mode change alone.
+        opened.set_tx_vga_gain_db(defaults.tx_vga_gain_db)?;
         Ok(opened)
     }
 
@@ -160,6 +198,17 @@ impl HackRf {
         Ok(())
     }
 
+    /// Set the transmit VGA gain, 0–47 dB. Zero is silence.
+    pub(crate) fn set_tx_vga_gain_db(&mut self, gain_db: u8) -> Result<()> {
+        config::validate_tx_vga_gain(gain_db)?;
+        let response = self
+            .control
+            .control_in_exact(&VendorControlRequest::set_tx_vga_gain(gain_db), 1)?;
+        validate_gain_response(&response, "set TX VGA gain")?;
+        self.config.tx_vga_gain_db = gain_db;
+        Ok(())
+    }
+
     /// Switch the 14 dB front-end RF amplifier.
     pub(crate) fn set_amp_enable(&mut self, enabled: bool) -> Result<()> {
         self.control
@@ -180,42 +229,94 @@ impl HackRf {
     ///
     /// The transfer queue is filled before the radio is switched into receive mode, so the
     /// first samples the front end produces already have a transfer waiting for them. Safe to
-    /// call again after [`HackRf::stop_rx`], which is what an in-place restart does.
+    /// call again after [`HackRf::stop`], which is what an in-place restart does.
     pub(crate) fn start_rx(&mut self) -> Result<RxStream> {
-        if self.streaming {
-            return Err(Error::AlreadyStreaming);
-        }
+        self.claim(Direction::Rx)?;
         let endpoint = NusbBulkIn::open(self.control.interface(), RX_ENDPOINT)?;
         let mut config = StreamConfig::new(RX_TRANSFER_SIZE, "sdrmm-hackrf-usb");
         config.channel_depth = RX_CHANNEL_DEPTH;
         let stream = sdrmm_usb_stream::start(endpoint, config)?;
-        self.control
-            .control_out(&VendorControlRequest::transceiver_mode(
-                TransceiverMode::Receive,
-            ))?;
-        self.streaming = true;
+        self.select(Direction::Rx)?;
         Ok(stream)
     }
 
-    /// Switch the radio off. Call before dropping the [`RxStream`], so the front end stops
-    /// filling a queue that is about to go away.
-    pub(crate) fn stop_rx(&mut self) -> Result<()> {
-        self.streaming = false;
+    /// Start transmitting.
+    ///
+    /// The mirror of [`HackRf::start_rx`], with the order reversed: the radio enters transmit
+    /// mode only once the queue exists, because a transmit pipe with nothing in it radiates
+    /// nothing, whereas a receive pipe that is not ready loses the first samples the front end
+    /// produced.
+    ///
+    /// Returns [`Error::AlreadyStreaming`] while the other direction is live — the radio is half
+    /// duplex, and switching under a running stream would strand its endpoint.
+    pub(crate) fn start_tx(&mut self) -> Result<TxQueue<NusbBulkOut>> {
+        self.claim(Direction::Tx)?;
+        let endpoint = NusbBulkOut::open(self.control.interface(), TX_ENDPOINT)?;
+        let queue = TxQueue::start(endpoint, self.flush_size)?;
+        self.select(Direction::Tx)?;
+        Ok(queue)
+    }
+
+    /// Switch the radio off, whichever way it was pointed.
+    ///
+    /// Call it before dropping an [`RxStream`], so the front end stops filling a queue that is
+    /// about to go away — and *after* draining a [`TxQueue`], so the burst it was asked to send
+    /// actually leaves.
+    pub(crate) fn stop(&mut self) -> Result<()> {
+        self.active = None;
         self.control
             .control_out(&VendorControlRequest::transceiver_mode(
                 TransceiverMode::Off,
             ))
     }
+
+    /// Refuse a second direction while one is live.
+    fn claim(&self, direction: Direction) -> Result<()> {
+        match self.active {
+            Some(active) => Err(Error::AlreadyStreaming(active.name())),
+            None => {
+                debug!(?direction, "hackrf direction claimed");
+                Ok(())
+            }
+        }
+    }
+
+    fn select(&mut self, direction: Direction) -> Result<()> {
+        self.control
+            .control_out(&VendorControlRequest::transceiver_mode(direction.mode()))?;
+        self.active = Some(direction);
+        Ok(())
+    }
 }
 
 impl Drop for HackRf {
     fn drop(&mut self) {
-        // Best effort: a radio left in receive mode keeps its front end and amplifier powered
-        // until it is physically unplugged.
-        if let Err(e) = self.stop_rx() {
+        // Best effort, and not optional for transmit: a radio left in transmit mode keeps
+        // radiating until it is physically unplugged.
+        if let Err(e) = self.stop() {
             debug!("hackrf shutdown failed: {e}");
         }
     }
+}
+
+/// The firmware's own transmit buffer size, which is the length of a burst's end marker.
+/// `GetBufferSize` only exists from USB API 1.18; libhackrf falls back to 32 KiB below that.
+fn read_flush_size(control: &Control, usb_api_version: u16) -> Result<usize> {
+    if usb_api_version < 0x0112 {
+        return Ok(DEFAULT_FLUSH_SIZE);
+    }
+    let bytes = control.control_in_exact(&VendorControlRequest::get_buffer_size(), 4)?;
+    let size = bytes
+        .first_chunk::<4>()
+        .map(|word| u32::from_le_bytes(*word) as usize)
+        .ok_or_else(|| Error::protocol("read TX flush size", "response was not four bytes"))?;
+    if size == 0 {
+        return Err(Error::protocol(
+            "read TX flush size",
+            "firmware returned a zero buffer size",
+        ));
+    }
+    Ok(size)
 }
 
 fn read_device_info(control: &Control, usb_api_version: u16) -> Result<DeviceInfo> {

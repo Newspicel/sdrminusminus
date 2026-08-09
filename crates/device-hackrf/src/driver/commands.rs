@@ -14,7 +14,9 @@ pub(crate) enum VendorRequest {
     BoardPartIdSerialNoRead = 18,
     SetLnaGain = 19,
     SetVgaGain = 20,
+    SetTxVgaGain = 21,
     AntennaEnable = 23,
+    GetBufferSize = 61,
 }
 
 /// The radio is half duplex: exactly one of these is in force at a time.
@@ -23,4 +25,5 @@ pub(crate) enum VendorRequest {
 pub(crate) enum TransceiverMode {
     Off = 0,
     Receive = 1,
+    Transmit = 2,
 }

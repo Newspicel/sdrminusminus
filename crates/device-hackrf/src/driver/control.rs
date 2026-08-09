@@ -108,6 +108,16 @@ impl VendorControlRequest {
         Self::in_request(VendorRequest::SetVgaGain, 0, u16::from(gain_db), 1)
     }
 
+    pub(crate) fn set_tx_vga_gain(gain_db: u8) -> Self {
+        Self::in_request(VendorRequest::SetTxVgaGain, 0, u16::from(gain_db), 1)
+    }
+
+    /// Firmware's own transmit buffer size, which is the length of the zero-filled transfer that
+    /// marks the end of a burst.
+    pub(crate) fn get_buffer_size() -> Self {
+        Self::in_request(VendorRequest::GetBufferSize, 0, 0, 4)
+    }
+
     pub(crate) fn set_amp(enabled: bool) -> Self {
         Self::out_request(VendorRequest::AmpEnable, enabled.into(), 0, Vec::new())
     }
@@ -279,6 +289,18 @@ mod tests {
         assert_eq!(VendorControlRequest::set_lna_gain(40).index, 40);
         assert_eq!(VendorControlRequest::set_vga_gain(62).index, 62);
         assert_eq!(VendorControlRequest::set_lna_gain(40).length, 1);
+    }
+
+    #[test]
+    fn tx_gain_and_flush_size_requests_match_libhackrf() {
+        let gain = VendorControlRequest::set_tx_vga_gain(47);
+        assert_eq!(gain.request, VendorRequest::SetTxVgaGain);
+        assert_eq!(gain.index, 47);
+        assert_eq!(gain.length, 1);
+
+        let flush = VendorControlRequest::get_buffer_size();
+        assert_eq!(flush.request, VendorRequest::GetBufferSize);
+        assert_eq!(flush.length, 4);
     }
 
     #[test]

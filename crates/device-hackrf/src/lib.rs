@@ -28,10 +28,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use convert::IqConverter;
-use driver::{DeviceDescriptor, HackRf, RX_TRANSFER_SIZE};
+use convert::{IqConverter, samples_to_cs8};
+pub use driver::TxStats;
+use driver::{DeviceDescriptor, HackRf, NusbBulkOut, RX_TRANSFER_SIZE, TX_TRANSFER_SIZE, TxQueue};
 use sdrmm_device::{
-    DeviceDriver, DeviceError, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, SdrDevice,
+    DeviceDriver, DeviceError, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, Sample,
+    SdrDevice,
 };
 use sdrmm_usb_stream::{RxStream, Stopper};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings};
@@ -69,7 +71,7 @@ fn map_err(err: driver::Error) -> DeviceError {
     match err {
         driver::Error::DeviceNotFound => DeviceError::NotFound(text),
         driver::Error::InvalidConfig { .. } => DeviceError::Unsupported(text),
-        driver::Error::AlreadyStreaming => DeviceError::AlreadyStreaming,
+        driver::Error::AlreadyStreaming(_) => DeviceError::AlreadyStreaming,
         _ => DeviceError::Io(text),
     }
 }
@@ -150,6 +152,20 @@ impl DeviceDriver for HackRfDriver {
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Ok(Box::new(self.open_device(info)?))
+    }
+}
+
+impl HackRfDriver {
+    /// Open a probed radio as its concrete type.
+    ///
+    /// [`DeviceDriver::open`] erases it to `dyn SdrDevice`, which has no transmit half — PLAN §1
+    /// keeps that unimplemented through the RX phases — so this is how the transmit API on
+    /// [`HackRfDevice`] is reached at all.
+    ///
+    /// # Errors
+    /// [`DeviceError::NotFound`] if the radio is gone, [`DeviceError::Io`] if it will not open.
+    pub fn open_device(&self, info: &DeviceInfo) -> Result<HackRfDevice, DeviceError> {
         let device = match key_serial(&info.key) {
             Some(serial) => HackRf::open_serial(serial),
             None => {
@@ -165,7 +181,7 @@ impl DeviceDriver for HackRfDriver {
             }
         }
         .map_err(map_err)?;
-        Ok(Box::new(HackRfDevice::new(device)))
+        Ok(HackRfDevice::new(device))
     }
 }
 
@@ -273,7 +289,7 @@ impl SdrDevice for HackRfDevice {
                 // live capture.
                 self.running.store(false, Ordering::Release);
                 *lock(&self.stopper) = None;
-                if let Err(stop) = lock(&self.device).stop_rx() {
+                if let Err(stop) = lock(&self.device).stop() {
                     tracing::debug!("hackrf stop after failed spawn: {stop}");
                 }
                 Err(DeviceError::Io(format!("spawn capture thread: {e}")))
@@ -285,8 +301,8 @@ impl SdrDevice for HackRfDevice {
         self.running.store(false, Ordering::Release);
         // Radio off first, then the queue: the front end must stop filling transfers that are
         // about to be cancelled.
-        if let Err(e) = lock(&self.device).stop_rx() {
-            tracing::debug!("hackrf stop_rx failed: {e}");
+        if let Err(e) = lock(&self.device).stop() {
+            tracing::debug!("hackrf stop failed: {e}");
         }
         // Cloned rather than taken: the capture thread may be mid-restart and about to publish
         // a fresh stopper. It re-checks `running` after publishing, so whichever of the two
@@ -299,6 +315,124 @@ impl SdrDevice for HackRfDevice {
             let _ = worker.join();
         }
         *lock(&self.stopper) = None;
+    }
+}
+
+/// Transmit, which the HackRF can do and the RTL-SDR cannot.
+///
+/// This is a *driver* capability and stops here on purpose: nothing above this crate offers a
+/// way to reach it, `Capabilities` still reports `tx_capable: false`, and PLAN §12a puts every
+/// application-level transmit feature behind an explicit authorized-use switch that has not been
+/// built. Radiating is the operator's responsibility — a HackRF transmits wideband into whatever
+/// is on the antenna port, and most of its range is licensed to somebody.
+impl HackRfDevice {
+    /// The transmit VGA, 0–47 dB. It powers up at zero and is set back to zero when the device
+    /// is opened, so the radio cannot be made to radiate at drive by a mode change alone.
+    ///
+    /// # Errors
+    /// [`DeviceError::Unsupported`] above 47 dB; [`DeviceError::Io`] if the radio refuses it.
+    pub fn set_tx_gain_db(&mut self, gain_db: u8) -> Result<(), DeviceError> {
+        lock(&self.device)
+            .set_tx_vga_gain_db(gain_db)
+            .map_err(map_err)
+    }
+
+    /// Claim the radio for transmit.
+    ///
+    /// # Errors
+    /// [`DeviceError::AlreadyStreaming`] while a capture is running — the radio is half duplex,
+    /// so `rx_stop` has to come first.
+    pub fn tx_start(&mut self) -> Result<TxStream, DeviceError> {
+        if self.worker.is_some() {
+            return Err(DeviceError::AlreadyStreaming);
+        }
+        let queue = lock(&self.device).start_tx().map_err(map_err)?;
+        Ok(TxStream {
+            device: self.device.clone(),
+            queue: Some(queue),
+            bytes: Vec::with_capacity(TX_TRANSFER_SIZE),
+        })
+    }
+}
+
+/// A live transmit burst. Dropping it silences the radio.
+pub struct TxStream {
+    device: Arc<Mutex<HackRf>>,
+    /// Taken by [`TxStream::stop`]; `None` afterwards, so a stopped burst cannot be written to.
+    queue: Option<TxQueue<NusbBulkOut>>,
+    /// Reused across writes, so a steady burst allocates nothing.
+    bytes: Vec<u8>,
+}
+
+impl TxStream {
+    /// Queue `samples` for transmission, returning how many were accepted.
+    ///
+    /// A short return means `timeout` expired with the queue full; the caller keeps the rest and
+    /// calls again. `end_burst` appends the zero-filled marker the firmware uses to tell a burst
+    /// that ended on purpose from a host that fell behind — if a timeout leaves that marker
+    /// owed, the next write pays it before anything else reaches the air.
+    ///
+    /// # Errors
+    /// [`DeviceError::Io`] if the transfer queue gave up, or the stream is already stopped.
+    pub fn write(
+        &mut self,
+        samples: &[Sample],
+        timeout: Duration,
+        end_burst: bool,
+    ) -> Result<usize, DeviceError> {
+        samples_to_cs8(samples, &mut self.bytes);
+        let bytes = std::mem::take(&mut self.bytes);
+        let accepted = self.queue_mut()?.write(&bytes, timeout, end_burst);
+        self.bytes = bytes;
+        // Every chunk boundary is an even byte count, so a partial accept is still a whole
+        // number of samples.
+        accepted.map(|bytes| bytes / 2).map_err(map_err)
+    }
+
+    /// Counters for this burst.
+    #[must_use]
+    pub fn stats(&self) -> TxStats {
+        self.queue.as_ref().map(TxQueue::stats).unwrap_or_default()
+    }
+
+    /// Send everything queued, mark the end of the burst, and switch the radio off.
+    ///
+    /// # Errors
+    /// [`DeviceError::Io`] if the queue could not be drained. The radio is switched off either
+    /// way — leaving it transmitting is never the right outcome.
+    pub fn stop(&mut self) -> Result<TxStats, DeviceError> {
+        let Some(mut queue) = self.queue.take() else {
+            return Ok(TxStats::default());
+        };
+        let drained = queue.flush_and_drain();
+        if drained.is_err() {
+            queue.abort();
+        }
+        let stats = queue.stats();
+        drop(queue);
+        let stopped = lock(&self.device).stop();
+        drained.map_err(map_err)?;
+        stopped.map_err(map_err)?;
+        Ok(stats)
+    }
+
+    fn queue_mut(&mut self) -> Result<&mut TxQueue<NusbBulkOut>, DeviceError> {
+        self.queue
+            .as_mut()
+            .ok_or_else(|| DeviceError::Io("transmit stream is stopped".to_string()))
+    }
+}
+
+impl Drop for TxStream {
+    fn drop(&mut self) {
+        if let Some(mut queue) = self.queue.take() {
+            // Never wait here: a dropped burst is an abandoned one, and the only thing that
+            // matters is that the antenna goes quiet.
+            queue.abort();
+        }
+        if let Err(e) = lock(&self.device).stop() {
+            tracing::debug!("hackrf tx stop failed: {e}");
+        }
     }
 }
 
@@ -369,7 +503,7 @@ fn capture_loop(
             let mut device = lock(device);
             // The radio is still in receive mode as far as the firmware knows, and `start_rx`
             // refuses a second stream; take it back to off first.
-            device.stop_rx().and_then(|()| device.start_rx())
+            device.stop().and_then(|()| device.start_rx())
         };
         match restarted {
             Ok(fresh) => {
@@ -527,7 +661,7 @@ mod tests {
             DeviceError::Unsupported(_)
         ));
         assert!(matches!(
-            map_err(driver::Error::AlreadyStreaming),
+            map_err(driver::Error::AlreadyStreaming("receiving")),
             DeviceError::AlreadyStreaming
         ));
         assert!(matches!(

@@ -5,6 +5,10 @@
 //! Deliberately not shared with `device-rtlsdr`'s converter, which looks similar and is not: the
 //! MAX2837 delivers two's-complement samples centred on zero, while the RTL2832U delivers
 //! unsigned codes around a measured 127.4 DC offset. One table cannot be both.
+//!
+//! The transmit direction lives here too, beside the receive one, for the same reason the driver
+//! below is bytes-only in both directions: the sample format is a property of the radio's
+//! converters, not of the USB transport.
 
 use num_complex::Complex;
 use sdrmm_device::Sample;
@@ -83,6 +87,27 @@ impl IqConverter {
     }
 }
 
+/// One sample to its transmit code. Non-finite input becomes silence rather than a wrapped
+/// integer: a `NaN` reaching the DAC is a full-scale spike on the air.
+fn f32_to_code(value: f32) -> u8 {
+    if value.is_finite() {
+        (value * FULL_SCALE).round().clamp(-128.0, 127.0) as i8 as u8
+    } else {
+        0
+    }
+}
+
+/// Append `samples` to `out` as interleaved signed 8-bit IQ, the format the HackRF's DAC takes.
+/// The inverse of [`IqConverter::convert`], and the reason both live in one module.
+pub(crate) fn samples_to_cs8(samples: &[Sample], out: &mut Vec<u8>) {
+    out.clear();
+    out.reserve(samples.len() * 2);
+    for sample in samples {
+        out.push(f32_to_code(sample.re));
+        out.push(f32_to_code(sample.im));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,6 +176,42 @@ mod tests {
         let samples = converter.convert(&[11]);
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0], Complex::new(code_to_f32(9), code_to_f32(11)));
+    }
+
+    #[test]
+    fn transmit_codes_round_trip_through_the_receive_table() {
+        for code in 0..=255u8 {
+            assert_eq!(f32_to_code(code_to_f32(code)), code, "code 0x{code:02x}");
+        }
+    }
+
+    #[test]
+    fn transmit_clamps_rather_than_wrapping() {
+        // Full scale is +127/128, so +1.0 has no code and must saturate, not wrap to -128.
+        assert_eq!(f32_to_code(1.0) as i8, 127);
+        assert_eq!(f32_to_code(9.0) as i8, 127);
+        assert_eq!(f32_to_code(-1.0) as i8, -128);
+        assert_eq!(f32_to_code(-9.0) as i8, -128);
+    }
+
+    /// A `NaN` cast to an integer is implementation-defined nonsense that would leave the
+    /// antenna at whatever code it produced; silence is the only safe reading.
+    #[test]
+    fn transmit_turns_non_finite_samples_into_silence() {
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(f32_to_code(value), 0);
+        }
+    }
+
+    #[test]
+    fn transmit_interleaves_and_reuses_its_buffer() {
+        let samples = [Complex::new(0.0, 1.0), Complex::new(-1.0, -0.5)];
+        let mut out = Vec::new();
+        samples_to_cs8(&samples, &mut out);
+        assert_eq!(out, vec![0x00, 0x7f, 0x80, 0xc0]);
+        let address = out.as_ptr();
+        samples_to_cs8(&samples, &mut out);
+        assert_eq!(out.as_ptr(), address, "burst path must not reallocate");
     }
 
     #[test]
