@@ -754,12 +754,12 @@ Low:
 
 ---
 
-## Native driver vendoring (post-M5, `PLAN-NATIVE-DRIVERS.md`)
+## Native drivers taken in-tree (post-M5, `PLAN-NATIVE-DRIVERS.md`)
 
-Both native drivers now live in this workspace on one shared transport. The trigger was not
-maintenance but correctness: each hand-rolled its own USB transfer-error policy and both were
-wrong, in different ways, and the divergence is why one of them went unnoticed for a whole
-milestone.
+Both native backends now own their radio driver, on one shared transport. The trigger was not
+maintenance but correctness: each of the two crates this project depended on hand-rolled its own
+USB transfer-error policy and both were wrong, in different ways, and the divergence is why one
+of them went unnoticed for a whole milestone.
 
 ### The two bugs this closes
 - **RTL-SDR, transient stall → nine seconds of dead air (was a known gap, now shipped fixed).**
@@ -785,21 +785,26 @@ milestone.
   resubmitted rather than retired (rs-rtl's habit, strictly better), and a stop flag separates
   the cancellations we asked for from the fallout of a fault, which is a distinction the
   completion itself cannot carry
-- [x] `crates/rtl-driver` (`sdrmm-rtl-driver`) — fork point `rs-rtl` 0.4.2, `xoolive/desperado`
-  sha `32c76e10c5b0c852cdc2550c5368b2fc0af8c611`. `device.rs` (RTL2832U registers, I2C bridge)
-  and `tuner.rs` (R82xx programming) kept as the valuable part. Dropped rather than ported:
+- [x] `crates/device-rtlsdr/src/driver/` — the RTL2832U radio, one crate with the backend that
+  drives it. `regs.rs` (registers, I2C bridge) and `tuner.rs` (R82xx programming) are the
+  valuable, tedious part and are kept. Dropped rather than carried over:
   `StreamControl` and the in-thread retune machinery (fire-and-forget, so a rejected retune
   looked applied — the backend already bypassed them), `read_gain`, `open_first`, and the
   descriptor accessors nothing called. A short control response is now an error instead of a
   silently-zero register
-- [x] `crates/hackrf-driver` (`sdrmm-hackrf-driver`) — fork point `hackrf-nusb` 0.3.0,
-  `bastibl/hackrf-nusb`. Blocking only: the `MaybeFuture` layer, the async stream and the
-  `wasm32` paths are gone. RX only: the TX half and the half-duplex lifecycle state machine that
-  existed to arbitrate between the directions are not ported, because PLAN §1 keeps TX declared
-  and unimplemented through the RX phases
+- [x] `crates/device-hackrf/src/driver/` — the HackRF radio, one crate with the backend that
+  drives it. Blocking only: the `MaybeFuture` layer, the async stream and the `wasm32` paths are
+  gone
 - [x] `rs-rtl` and `hackrf-nusb` are out of the workspace manifest and `Cargo.lock`; `nusb`
-  0.2.7 is the one direct dependency underneath all of it. Fork points are pinned, not tracked —
-  the deliberate exception to "always newest versions", recorded in each crate's `lib.rs`
+  0.2.7 is the one direct dependency underneath all of it. Where the code started is recorded
+  once, in `PLAN.md` §18, because it explains why "always newest versions" does not apply — the
+  code is no longer a fork of anything, so there is no upstream version to track
+- [x] Taking the drivers in-tree paid for itself immediately: the crate boundary had been
+  keeping a slice of API alive that nothing used. Tightening `pub` to `pub(crate)` exposed and
+  removed a `DeviceId` selector enum whose serial variant was never constructed, two descriptor
+  fields nothing read, a `DeviceInfo` stored and never looked at, and an `is_disconnected` helper
+  with no caller — plus the getter/setter pair on the HackRF `Config` that existed only so the
+  backend could build one across the boundary
 
 ### Two-tier recovery
 - [x] The engine's fault path is one-shot and destructive by design (`RxSink::fail` →

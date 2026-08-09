@@ -19,14 +19,14 @@
 
 use tracing::{debug, trace, warn};
 
-use crate::{
-    device::Device,
+use super::{
     error::{Error, Result},
+    regs::Rtl2832u,
 };
 
 /// Supported R82xx tuner variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TunerType {
+pub(crate) enum TunerType {
     /// R820T — most common RTL-SDR tuner, I2C address 0x34.
     R820T,
     /// R828D — found in RTL-SDR Blog V4 and some other dongles, I2C address 0x74.
@@ -107,7 +107,7 @@ const REG_INIT: [u8; NUM_REGS] = [
 
 /// Available total gain values in tenths of a dB (cumulative LNA + mixer).
 /// 29 discrete values from 0.0 dB to 49.6 dB.
-pub const GAIN_VALUES: &[i32] = &[
+pub(crate) const GAIN_VALUES: &[i32] = &[
     0, 9, 14, 27, 37, 77, 87, 125, 144, 157, 166, 197, 207, 229, 254, 280, 297, 328, 338, 364, 372,
     386, 402, 421, 434, 439, 445, 480, 496,
 ];
@@ -383,7 +383,7 @@ impl R82xx {
     /// Chunks writes to MAX_I2C_MSG_LEN (8 bytes) because the I2C bus has
     /// a maximum transfer size. Each I2C message starts with the register
     /// address byte followed by data bytes.
-    fn write_regs(&self, dev: &Device, start_reg: u8, count: usize) -> Result<()> {
+    fn write_regs(&self, dev: &Rtl2832u, start_reg: u8, count: usize) -> Result<()> {
         let shadow_off = (start_reg - REG_SHADOW_START) as usize;
         let data = &self.regs[shadow_off..shadow_off + count];
 
@@ -404,7 +404,7 @@ impl R82xx {
     ///
     /// Updates the shadow register cache, then writes only the affected
     /// register to hardware. This avoids unnecessary I2C reads.
-    fn write_reg_mask(&mut self, dev: &Device, reg: u8, val: u8, mask: u8) -> Result<()> {
+    fn write_reg_mask(&mut self, dev: &Rtl2832u, reg: u8, val: u8, mask: u8) -> Result<()> {
         let idx = (reg - REG_SHADOW_START) as usize;
         let old = self.regs[idx];
         let new_val = (old & !mask) | (val & mask);
@@ -417,7 +417,7 @@ impl R82xx {
     /// Read registers from the tuner hardware.
     ///
     /// Applies bit-reversal to each byte (R82xx hardware quirk).
-    fn read_regs(&self, dev: &Device, start_reg: u8, count: u16) -> Result<Vec<u8>> {
+    fn read_regs(&self, dev: &Rtl2832u, start_reg: u8, count: u16) -> Result<Vec<u8>> {
         dev.i2c_write(self.i2c_addr, &[start_reg])?;
         let data = dev.i2c_read(self.i2c_addr, count)?;
         Ok(data.into_iter().map(bit_reverse).collect())
@@ -429,7 +429,7 @@ impl R82xx {
     ///
     /// Writes default register values, configures for DVB-T 6 MHz mode,
     /// and performs filter calibration.
-    pub(crate) fn init(&mut self, dev: &Device) -> Result<()> {
+    pub(crate) fn init(&mut self, dev: &Rtl2832u) -> Result<()> {
         debug!(
             "R82xx init: {:?} at 0x{:02x}, xtal={}Hz, blog_v4={}",
             self.tuner_type, self.i2c_addr, self.xtal_freq, self.is_blog_v4
@@ -455,7 +455,7 @@ impl R82xx {
     }
 
     /// Put the tuner into standby mode.
-    pub(crate) fn standby(&mut self, dev: &Device) -> Result<()> {
+    pub(crate) fn standby(&mut self, dev: &Rtl2832u) -> Result<()> {
         debug!("R82xx entering standby");
 
         self.write_reg_mask(dev, 0x06, 0xb1, 0xff)?;
@@ -479,7 +479,7 @@ impl R82xx {
     ///
     /// This sets up the IF filter, image rejection, and performs filter
     /// calibration. Called during init.
-    fn set_tv_standard(&mut self, dev: &Device) -> Result<()> {
+    fn set_tv_standard(&mut self, dev: &Rtl2832u) -> Result<()> {
         // DVB-T 6 MHz constants (matching reference exactly)
         let if_khz: u32 = 3570;
         let filt_cal_lo: u32 = 56000;
@@ -583,7 +583,7 @@ impl R82xx {
     }
 
     /// Configure system-frequency-dependent parameters for DVB-T.
-    fn sysfreq_sel(&mut self, dev: &Device, freq: u32) -> Result<()> {
+    fn sysfreq_sel(&mut self, dev: &Rtl2832u, freq: u32) -> Result<()> {
         // DVB-T defaults (SysUndefined / 8MHz path in reference)
         let mut mixer_top: u8 = 0x24; // mixer top:13, top-1, low-discharge
         let lna_top: u8 = 0xe5; // detect bw 3, lna top:4, predet top:2
@@ -659,7 +659,7 @@ impl R82xx {
     /// This configures the RF frontend filters (tracking filter, image reject),
     /// programs the PLL synthesizer, and handles R828D Blog V4 upconversion
     /// and input switching.
-    pub(crate) fn set_freq(&mut self, dev: &Device, freq: u32) -> Result<()> {
+    pub(crate) fn set_freq(&mut self, dev: &Rtl2832u, freq: u32) -> Result<()> {
         debug!("R82xx set_freq: {} Hz", freq);
 
         // Blog V4 upconversion for HF
@@ -698,7 +698,7 @@ impl R82xx {
     }
 
     /// Configure RF mux and tracking filter for the given LO frequency.
-    fn set_mux(&mut self, dev: &Device, lo_freq: u32) -> Result<()> {
+    fn set_mux(&mut self, dev: &Rtl2832u, lo_freq: u32) -> Result<()> {
         let freq_mhz = lo_freq / 1_000_000;
 
         // Find the matching frequency range
@@ -743,7 +743,7 @@ impl R82xx {
     /// - Frequency rounding: (freq + 500) / 1000 for kHz conversion in VCO range check
     /// - VCO computed in Hz (u64) for maximum precision
     /// - Exact fixed-point SDM calculation: vco_div = (pll_ref + 65536*vco_freq) / (2*pll_ref)
-    fn set_pll(&mut self, dev: &Device, freq: u32) -> Result<()> {
+    fn set_pll(&mut self, dev: &Rtl2832u, freq: u32) -> Result<()> {
         let pll_ref = self.xtal_freq;
         let freq_khz = (freq + 500) / 1000;
 
@@ -906,7 +906,7 @@ impl R82xx {
     ///   Cable2 (HF): bit 5 set  = 0x20
     ///   Cable1 (VHF): bits 6+5  = 0x60
     ///   AirIn (UHF): neither    = 0x00
-    fn set_blog_v4_input(&mut self, dev: &Device, freq: u32) -> Result<()> {
+    fn set_blog_v4_input(&mut self, dev: &Rtl2832u, freq: u32) -> Result<()> {
         if freq <= XTAL_FREQ_28_8 {
             // HF: Cable2 input
             self.write_reg_mask(dev, 0x06, 0x08, 0x08)?; // Cable2 on
@@ -931,7 +931,7 @@ impl R82xx {
     }
 
     /// Standard R828D two-input switching.
-    fn set_r828d_input(&mut self, dev: &Device, freq: u32) -> Result<()> {
+    fn set_r828d_input(&mut self, dev: &Rtl2832u, freq: u32) -> Result<()> {
         if freq <= 345_000_000 {
             // Cable1 input for low frequencies
             self.write_reg_mask(dev, 0x05, 0x60, 0x60)?;
@@ -945,7 +945,7 @@ impl R82xx {
     // ── Gain Control ────────────────────────────────────────────────────────
 
     /// Enable automatic gain control (LNA AGC + Mixer AGC).
-    pub(crate) fn set_gain_auto(&mut self, dev: &Device) -> Result<()> {
+    pub(crate) fn set_gain_auto(&mut self, dev: &Rtl2832u) -> Result<()> {
         debug!("R82xx gain mode: auto");
 
         // LNA AGC on (reg 0x05 bit 4 = 0)
@@ -968,7 +968,7 @@ impl R82xx {
     /// The gain is distributed across LNA and mixer stages by iterating
     /// through alternating gain steps until the total matches or exceeds
     /// the requested value.
-    pub(crate) fn set_gain_manual(&mut self, dev: &Device, gain_tenth_db: i32) -> Result<()> {
+    pub(crate) fn set_gain_manual(&mut self, dev: &Rtl2832u, gain_tenth_db: i32) -> Result<()> {
         debug!("R82xx gain mode: manual {} dB", gain_tenth_db as f32 / 10.0);
 
         // LNA AGC off (reg 0x05 bit 4 = 1)
@@ -1031,7 +1031,7 @@ impl R82xx {
     ///
     /// Matches librtlsdr's `r82xx_set_bandwidth`, including register masks and filter
     /// calibration code handling.
-    pub(crate) fn set_bandwidth(&mut self, dev: &Device, bw: u32) -> Result<u32> {
+    pub(crate) fn set_bandwidth(&mut self, dev: &Rtl2832u, bw: u32) -> Result<u32> {
         let (reg_0a, reg_0b): (u8, u8) = if bw > 7_000_000 {
             // 8 MHz mode
             self.int_freq = 4_570_000;

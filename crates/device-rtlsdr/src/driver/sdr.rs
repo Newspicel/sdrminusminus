@@ -1,38 +1,38 @@
 //! Device lifecycle: enumeration, RTL2832U bring-up, tuner detection, and the settings the
 //! backend drives.
 //!
-//! Streaming itself is not here — it is `sdrmm-usb-stream`, shared with the HackRF driver. All
+//! Streaming itself is not here — it is `sdrmm-usb-stream`, shared with the HackRF backend. All
 //! this module does is reset the endpoint FIFO and hand the transport a claimed bulk-IN pipe.
 
 use nusb::MaybeFuture;
 use sdrmm_usb_stream::{NusbBulkIn, RxStream, StreamConfig};
 use tracing::{debug, info, trace};
 
-use crate::{
-    device::{self, Device},
+use super::{
     error::{Error, Result},
+    regs::{self, Rtl2832u},
     tuner::{self, KNOWN_TUNERS, R82XX_CHECK_VAL, R82xx, TunerType},
 };
 
 /// RTL2832U crystal frequency (Hz) on every dongle this driver supports.
-pub const DEF_RTL_XTAL_FREQ: u32 = 28_800_000;
+pub(crate) const DEF_RTL_XTAL_FREQ: u32 = 28_800_000;
 
 /// USB vendor ID for RTL-SDR devices (Realtek).
-pub const RTL_USB_VID: u16 = 0x0bda;
+pub(crate) const RTL_USB_VID: u16 = 0x0bda;
 /// Product IDs of the RTL2832U-based dongles this driver claims.
-pub const RTL_USB_PIDS: &[u16] = &[0x2832, 0x2838];
+pub(crate) const RTL_USB_PIDS: &[u16] = &[0x2832, 0x2838];
 
 /// Bulk-IN endpoint the IQ samples arrive on.
 const BULK_ENDPOINT: u8 = 0x81;
 
 /// Bytes per USB transfer. A multiple of the 512-byte high-speed max packet size, as
 /// `Endpoint::submit` requires, and the size librtlsdr has used since forever.
-pub const TRANSFER_BUF_SIZE: usize = 16_384;
+pub(crate) const TRANSFER_BUF_SIZE: usize = 16_384;
 
 /// The demodulator's resampler-correction register pair (page 1, 0x3f/0x3e) is 14 bits signed,
 /// and one ppm is `2^24 / 1e6` counts — so this is the largest correction the hardware can
 /// actually hold. Real dongles are within ±100 ppm; the backend advertises a tighter range.
-pub const MAX_PPM: i32 = 488;
+pub(crate) const MAX_PPM: i32 = 488;
 
 /// Demodulator FIR defaults: 16 taps, the first 8 signed 8-bit, the last 8 signed 12-bit.
 const DEFAULT_FIR: [i16; 16] = [
@@ -41,31 +41,28 @@ const DEFAULT_FIR: [i16; 16] = [
 
 /// What USB enumeration says about one attached dongle.
 #[derive(Debug, Clone)]
-pub struct DeviceDescriptor {
-    /// Position within the filtered RTL-SDR enumeration — what [`DeviceId::Index`] selects.
-    pub index: usize,
+pub(crate) struct DeviceDescriptor {
+    /// Position within the filtered RTL-SDR enumeration — what [`DeviceDescriptors::open`]
+    /// selects on.
+    pub(crate) index: usize,
     /// USB bus identifier.
-    pub bus: String,
+    pub(crate) bus: String,
     /// USB device address on the bus.
-    pub address: u8,
-    /// USB vendor ID.
-    pub vendor_id: u16,
-    /// USB product ID.
-    pub product_id: u16,
+    pub(crate) address: u8,
     /// Manufacturer string, if the device has one.
-    pub manufacturer: Option<String>,
+    pub(crate) manufacturer: Option<String>,
     /// Product string, if the device has one.
-    pub product: Option<String>,
+    pub(crate) product: Option<String>,
     /// Serial number string, if the device has one.
-    pub serial: Option<String>,
+    pub(crate) serial: Option<String>,
     /// Board identity, derived from the strings above.
-    pub board_variant: BoardVariant,
+    pub(crate) board_variant: BoardVariant,
 }
 
 /// Board identity. Only the Blog V4 differs in a way the driver has to know about: it upconverts
 /// HF through the tuner instead of bypassing it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BoardVariant {
+pub(crate) enum BoardVariant {
     /// Any dongle without a known quirk.
     Generic,
     /// RTL-SDR Blog V4 (R828D with a 28.8 MHz crystal and an HF upconverter).
@@ -83,8 +80,6 @@ impl EnumeratedDevice {
             index,
             bus: usb.bus_id().to_string(),
             address: usb.device_address(),
-            vendor_id: usb.vendor_id(),
-            product_id: usb.product_id(),
             manufacturer: usb.manufacturer_string().map(str::to_owned),
             product: usb.product_string().map(str::to_owned),
             serial: usb.serial_number().map(str::to_owned),
@@ -110,23 +105,14 @@ fn classify_board_variant(manufacturer: Option<&str>, product: Option<&str>) -> 
     }
 }
 
-/// How to pick one dongle out of an enumeration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeviceId<'a> {
-    /// By position in the filtered RTL-SDR enumeration.
-    Index(usize),
-    /// By exact serial-number match.
-    Serial(&'a str),
-}
-
 /// Every RTL-SDR currently attached.
-pub struct DeviceDescriptors {
+pub(crate) struct DeviceDescriptors {
     devices: Vec<EnumeratedDevice>,
 }
 
 impl DeviceDescriptors {
     /// Enumerate all attached RTL-SDR dongles.
-    pub fn new() -> Result<Self> {
+    pub(crate) fn new() -> Result<Self> {
         let devices = nusb::list_devices()
             .wait()
             .map_err(Error::OpenFailed)?
@@ -138,20 +124,16 @@ impl DeviceDescriptors {
     }
 
     /// Iterate the enumerated descriptors, in index order.
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = &DeviceDescriptor> {
+    pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = &DeviceDescriptor> {
         self.devices.iter().map(|device| &device.descriptor)
     }
 
     /// Open one of the already-enumerated devices, without walking the bus again.
-    pub fn open(&self, device_id: DeviceId<'_>) -> Result<RtlSdr> {
-        let enumerated = match device_id {
-            DeviceId::Index(index) => self.devices.get(index),
-            DeviceId::Serial(serial) => self
-                .devices
-                .iter()
-                .find(|device| device.descriptor.serial.as_deref() == Some(serial)),
-        }
-        .ok_or(Error::DeviceNotFound)?;
+    ///
+    /// Selection is by position, not serial: most dongles ship with the same factory serial, so
+    /// `caps` decides which key identifies a device and re-derives the position from it.
+    pub(crate) fn open(&self, index: usize) -> Result<RtlSdr> {
+        let enumerated = self.devices.get(index).ok_or(Error::DeviceNotFound)?;
         RtlSdr::open_enumerated(enumerated)
     }
 }
@@ -161,8 +143,8 @@ impl DeviceDescriptors {
 /// Holds the claimed interface, the tuner's register shadow, and the values last written to the
 /// hardware. Streaming borrows the same interface — `nusb::Interface` is `Arc`-backed — so
 /// retunes ride the control endpoint while samples flow on the bulk one.
-pub struct RtlSdr {
-    dev: Device,
+pub(crate) struct RtlSdr {
+    dev: Rtl2832u,
     /// Kept alive for the lifetime of the interface claim.
     _usb_device: nusb::Device,
     tuner: R82xx,
@@ -180,10 +162,10 @@ pub struct RtlSdr {
 }
 
 impl RtlSdr {
-    /// Enumerate and open one dongle.
-    pub fn open(device_id: DeviceId<'_>) -> Result<Self> {
-        info!("opening RTL-SDR device {device_id:?}");
-        DeviceDescriptors::new()?.open(device_id)
+    /// Enumerate and open the dongle at `index` in the filtered RTL-SDR enumeration.
+    pub(crate) fn open(index: usize) -> Result<Self> {
+        info!(index, "opening RTL-SDR device");
+        DeviceDescriptors::new()?.open(index)
     }
 
     fn open_enumerated(enumerated: &EnumeratedDevice) -> Result<Self> {
@@ -210,7 +192,7 @@ impl RtlSdr {
             .map_err(Error::ClaimFailed)?;
 
         let mut sdr = Self {
-            dev: Device::new(iface),
+            dev: Rtl2832u::new(iface),
             _usb_device: usb_device,
             tuner: R82xx::new(
                 TunerType::R820T,
@@ -234,7 +216,7 @@ impl RtlSdr {
         // Doubles as a liveness check: if this control transfer fails, nothing below is worth
         // attempting.
         self.dev
-            .write_reg(device::BLOCK_USB, device::USB_SYSCTL, 0x09, 1)?;
+            .write_reg(regs::BLOCK_USB, regs::USB_SYSCTL, 0x09, 1)?;
         self.init_baseband()?;
 
         self.dev.set_i2c_repeater(true)?;
@@ -279,16 +261,16 @@ impl RtlSdr {
 
     fn init_baseband(&self) -> Result<()> {
         self.dev
-            .write_reg(device::BLOCK_USB, device::USB_SYSCTL, 0x09, 1)?;
+            .write_reg(regs::BLOCK_USB, regs::USB_SYSCTL, 0x09, 1)?;
         self.dev
-            .write_reg(device::BLOCK_USB, device::USB_EPA_MAXPKT, 0x0002, 2)?;
+            .write_reg(regs::BLOCK_USB, regs::USB_EPA_MAXPKT, 0x0002, 2)?;
         self.dev
-            .write_reg(device::BLOCK_USB, device::USB_EPA_CTL, 0x1002, 2)?;
+            .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x1002, 2)?;
 
         self.dev
-            .write_reg(device::BLOCK_SYS, device::DEMOD_CTL_1, 0x22, 1)?;
+            .write_reg(regs::BLOCK_SYS, regs::DEMOD_CTL_1, 0x22, 1)?;
         self.dev
-            .write_reg(device::BLOCK_SYS, device::DEMOD_CTL, 0xe8, 1)?;
+            .write_reg(regs::BLOCK_SYS, regs::DEMOD_CTL, 0xe8, 1)?;
 
         // soft_rst set, then cleared.
         self.dev.demod_write_reg(1, 0x01, 0x14, 1)?;
@@ -364,37 +346,37 @@ impl RtlSdr {
 
     /// The board this driver detected at open time.
     #[must_use]
-    pub fn board_variant(&self) -> BoardVariant {
+    pub(crate) fn board_variant(&self) -> BoardVariant {
         self.board_variant
     }
 
     /// The tuner this driver found on the I2C bus.
     #[must_use]
-    pub fn tuner_type(&self) -> TunerType {
+    pub(crate) fn tuner_type(&self) -> TunerType {
         self.tuner.tuner_type()
     }
 
     /// The tuner's discrete gain steps, in tenths of a dB.
     #[must_use]
-    pub fn gains(&self) -> &[i32] {
+    pub(crate) fn gains(&self) -> &[i32] {
         self.tuner.gains()
     }
 
     /// The centre frequency last written to the PLL.
     #[must_use]
-    pub fn center_freq(&self) -> u32 {
+    pub(crate) fn center_freq(&self) -> u32 {
         self.center_freq
     }
 
     /// The rate the resampler actually runs at, which integer division can move off the request.
     #[must_use]
-    pub fn sample_rate(&self) -> u32 {
+    pub(crate) fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
 
     /// Tune the PLL. The R820T covers roughly 24 MHz–1.766 GHz; a Blog V4 reaches HF by
     /// upconverting through the same tuner.
-    pub fn set_center_freq(&mut self, freq: u32) -> Result<()> {
+    pub(crate) fn set_center_freq(&mut self, freq: u32) -> Result<()> {
         self.dev.set_i2c_repeater(true)?;
         self.tuner.set_freq(&self.dev, freq)?;
         self.dev.set_i2c_repeater(false)?;
@@ -406,7 +388,7 @@ impl RtlSdr {
 
     /// Set the sample rate. Valid windows are 225001–300000 Hz and 900001–3200000 Hz; read
     /// [`RtlSdr::sample_rate`] back for what the resampler could actually produce.
-    pub fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
+    pub(crate) fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
         if !(225_001..=300_000).contains(&rate) && !(900_001..=3_200_000).contains(&rate) {
             return Err(Error::InvalidSampleRate { rate });
         }
@@ -442,7 +424,7 @@ impl RtlSdr {
 
     /// The crystal correction in ppm the device is currently applying.
     #[must_use]
-    pub fn freq_correction(&self) -> i32 {
+    pub(crate) fn freq_correction(&self) -> i32 {
         self.ppm
     }
 
@@ -454,7 +436,7 @@ impl RtlSdr {
     /// telling it the crystal is somewhere else and re-tuning. Doing only the first leaves every
     /// received frequency off by `ppm`; doing only the second leaves the sample rate wrong,
     /// which mistimes every decoder downstream.
-    pub fn set_freq_correction(&mut self, ppm: i32) -> Result<()> {
+    pub(crate) fn set_freq_correction(&mut self, ppm: i32) -> Result<()> {
         if !(-MAX_PPM..=MAX_PPM).contains(&ppm) {
             return Err(Error::InvalidParam(format!(
                 "ppm {ppm} outside the demodulator's ±{MAX_PPM} correction range"
@@ -491,14 +473,14 @@ impl RtlSdr {
     }
 
     /// Hand the LNA and mixer back to the tuner's own AGC.
-    pub fn set_gain_auto(&mut self) -> Result<()> {
+    pub(crate) fn set_gain_auto(&mut self) -> Result<()> {
         self.dev.set_i2c_repeater(true)?;
         self.tuner.set_gain_auto(&self.dev)?;
         self.dev.set_i2c_repeater(false)
     }
 
     /// Set manual gain in tenths of a dB, snapped to the nearest step the tuner supports.
-    pub fn set_gain_manual(&mut self, gain_tenth_db: i32) -> Result<()> {
+    pub(crate) fn set_gain_manual(&mut self, gain_tenth_db: i32) -> Result<()> {
         self.dev.set_i2c_repeater(true)?;
         self.tuner.set_gain_manual(&self.dev, gain_tenth_db)?;
         self.dev.set_i2c_repeater(false)
@@ -506,7 +488,7 @@ impl RtlSdr {
 
     /// Set the IF filter width in Hz, or 0 to follow the sample rate. Returns the IF frequency
     /// the tuner ended up on, which narrow widths move off the 3.57 MHz default.
-    pub fn set_bandwidth(&mut self, bw: u32) -> Result<u32> {
+    pub(crate) fn set_bandwidth(&mut self, bw: u32) -> Result<u32> {
         let bw = if bw == 0 { self.sample_rate } else { bw };
         self.dev.set_i2c_repeater(true)?;
         let if_freq = self.tuner.set_bandwidth(&self.dev, bw)?;
@@ -517,7 +499,7 @@ impl RtlSdr {
 
     /// Switch phantom power on the antenna port (GPIO0). A dongle whose EEPROM forces it on
     /// cannot be switched off.
-    pub fn set_bias_t(&mut self, enable: bool) -> Result<()> {
+    pub(crate) fn set_bias_t(&mut self, enable: bool) -> Result<()> {
         let actual = enable || self.force_bias_t;
         self.dev.set_gpio_output(0)?;
         self.dev.set_gpio_bit(0, actual)
@@ -528,11 +510,11 @@ impl RtlSdr {
     /// Safe to call again on a live handle: the endpoint FIFO reset below and a fresh
     /// [`NusbBulkIn`] are all a restart needs, which is what makes recovering from a stalled
     /// pipe cost milliseconds instead of a re-open. Nothing about the tuning is disturbed.
-    pub fn start_streaming(&mut self) -> Result<RxStream> {
+    pub(crate) fn start_streaming(&mut self) -> Result<RxStream> {
         self.dev
-            .write_reg(device::BLOCK_USB, device::USB_EPA_CTL, 0x1002, 2)?;
+            .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x1002, 2)?;
         self.dev
-            .write_reg(device::BLOCK_USB, device::USB_EPA_CTL, 0x0000, 2)?;
+            .write_reg(regs::BLOCK_USB, regs::USB_EPA_CTL, 0x0000, 2)?;
 
         let endpoint = NusbBulkIn::open(self.dev.interface(), BULK_ENDPOINT)?;
         let stream = sdrmm_usb_stream::start(

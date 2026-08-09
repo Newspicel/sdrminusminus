@@ -3,11 +3,11 @@
 use sdrmm_usb_stream::StreamError;
 
 /// Convenience result alias.
-pub type Result<T> = std::result::Result<T, Error>;
+pub(crate) type Result<T> = std::result::Result<T, Error>;
 
 /// Everything that can go wrong talking to a HackRF.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub(crate) enum Error {
     /// A configuration value the radio will not take.
     #[error("invalid configuration for {field}: {reason}")]
     InvalidConfig {
@@ -64,16 +64,5 @@ impl Error {
 
     pub(crate) const fn usb(operation: &'static str, source: nusb::Error) -> Self {
         Self::Usb { operation, source }
-    }
-
-    /// Whether the radio left the bus, as opposed to refusing a request.
-    #[must_use]
-    pub fn is_disconnected(&self) -> bool {
-        match self {
-            Self::Usb { source, .. } => source.kind() == nusb::ErrorKind::Disconnected,
-            Self::ControlTransfer(e) => *e == nusb::transfer::TransferError::Disconnected,
-            Self::Stream(e) => e.is_disconnected(),
-            _ => false,
-        }
     }
 }

@@ -3,12 +3,14 @@
 //! I/O here, so every mapping is unit-testable against fabricated descriptors and gain tables.
 
 use sdrmm_device::DeviceError;
-use sdrmm_rtl_driver::{BoardVariant, DeviceDescriptor};
 use sdrmm_wire::{
     Capabilities, DeviceInfo, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
 };
 
-use crate::DRIVER_ID;
+use crate::{
+    DRIVER_ID,
+    driver::{BoardVariant, DeviceDescriptor},
+};
 
 /// The R820T/R828D PLL envelope. Both tuners the driver supports share it, so the tuner type does
 /// not change the ranges — only the board variant does (see [`capabilities`]).
@@ -45,8 +47,8 @@ const RATE_MENU: [f64; 9] = [
 ];
 
 /// Advertised crystal-correction range. Well inside the demodulator's own ±488 ppm register
-/// limit ([`sdrmm_rtl_driver::MAX_PPM`]) — every dongle worth correcting is within ±100, and a
-/// range that wide is a slider users can actually aim with.
+/// limit ([`MAX_PPM`]) — every dongle worth correcting is within ±100, and a range that wide is
+/// a slider users can actually aim with.
 const PPM_MAX: f64 = 200.0;
 
 /// Widest R82xx IF filter mode (`set_bandwidth`'s 8 MHz branch). The wire capability model has
@@ -96,8 +98,8 @@ pub(crate) enum GainMode {
 ///
 /// Most dongles ship with the same factory serial ("00000001"), so a serial is only identifying
 /// when it is unique within this probe. A repeated one is reported as *no* serial: keeping it
-/// would make the registry collapse two physical dongles into one entry, and `DeviceId::Serial`
-/// would always open whichever enumerated first.
+/// would make the registry collapse two physical dongles into one entry, and opening by it
+/// would always get whichever enumerated first.
 pub(crate) fn device_infos(descriptors: &[DeviceDescriptor]) -> Vec<DeviceInfo> {
     descriptors
         .iter()
@@ -398,17 +400,14 @@ fn current_manual_tenths(current: &DeviceSettings) -> Option<i32> {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_rtl_driver::GAIN_VALUES;
-
     use super::*;
+    use crate::driver::GAIN_VALUES;
 
     fn descriptor(address: u8, serial: Option<&str>) -> DeviceDescriptor {
         DeviceDescriptor {
             index: usize::from(address),
             bus: "001".to_string(),
             address,
-            vendor_id: 0x0bda,
-            product_id: 0x2838,
             manufacturer: Some("Realtek".to_string()),
             product: Some("RTL2838UHIDIR".to_string()),
             serial: serial.map(str::to_string),
@@ -777,6 +776,13 @@ mod tests {
     /// The correction registers count in whole ppm, so a fractional request is rounded rather
     /// than refused — and the rounding must be visible, which is why `apply` reports the
     /// hardware's own value back afterwards.
+    /// The advertised range is a usability choice; the register width is hardware. A range that
+    /// outgrew the registers would wrap a correction into the opposite sign.
+    #[test]
+    fn the_advertised_ppm_range_fits_the_correction_registers() {
+        assert!(PPM_MAX <= f64::from(crate::driver::MAX_PPM));
+    }
+
     #[test]
     fn ppm_is_rounded_to_the_registers_granularity() {
         for (requested, expected) in [

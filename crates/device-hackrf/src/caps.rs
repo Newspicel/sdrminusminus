@@ -3,10 +3,11 @@
 //! rejection path is unit-testable without a radio (PLAN §14: no hardware in CI, ever).
 
 use sdrmm_device::DeviceError;
-use sdrmm_hackrf_driver::Config;
 use sdrmm_wire::{
     Capabilities, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
 };
+
+use crate::driver::Config;
 
 /// The HackRF has one SMA port shared by RX and TX; the list exists so the capability UI has
 /// a name for it, and so a preset captured elsewhere round-trips.

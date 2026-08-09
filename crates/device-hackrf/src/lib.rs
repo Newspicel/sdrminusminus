@@ -1,10 +1,22 @@
-//! `sdrmm-device-hackrf` — native HackRF backend (PLAN §6, feature `hackrf-native`): pure Rust
-//! over `nusb` via the vendored `sdrmm-hackrf-driver`, so release artifacts launch with no
-//! libhackrf, no libSoapySDR and no C dependency at all (PLAN §15 packaging rule, milestone M5).
+//! `sdrmm-device-hackrf` — native HackRF backend (PLAN §6, feature `hackrf-native`): the HackRF
+//! driver and the `SdrDevice` implementation over it, pure Rust on `nusb`, so release artifacts
+//! launch with no libhackrf, no libSoapySDR and no C dependency at all (PLAN §15).
 //!
 //! What it buys over the Soapy view of the same radio is the real per-stage gain model — LNA
 //! and VGA separately, each on its own MAX2837 step grid — plus the RF amplifier and
 //! antenna-port bias power as typed extras.
+//!
+//! Four layers, in dependency order:
+//!
+//! - [`driver`] — the radio: enumeration, the vendor control protocol, RX lifecycle. No wire
+//!   types.
+//! - `convert` — the HackRF's signed 8-bit IQ to the one `cf32` format the pipeline speaks.
+//! - `caps` — the pure translation to the wire capability model, and `apply`'s validation.
+//! - this module — `DeviceDriver`/`SdrDevice`, the capture thread and its tier-1 supervisor.
+//!
+//! Streaming lives in `sdrmm-usb-stream`, shared with the RTL-SDR backend: the transfer queue
+//! and the USB error policy are the one thing both radios genuinely have in common, and getting
+//! that policy wrong on each side separately is the defect this driver exists to fix (PLAN §17).
 
 use std::{
     sync::{
@@ -17,15 +29,16 @@ use std::{
 };
 
 use convert::IqConverter;
+use driver::{DeviceDescriptor, HackRf, RX_TRANSFER_SIZE};
 use sdrmm_device::{
     DeviceDriver, DeviceError, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, SdrDevice,
 };
-use sdrmm_hackrf_driver::{DeviceDescriptor, RX_TRANSFER_SIZE};
 use sdrmm_usb_stream::{RxStream, Stopper};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings};
 
 mod caps;
 mod convert;
+mod driver;
 
 const DRIVER_ID: &str = "hackrf";
 /// Key prefix for a HackRF whose USB descriptor carries no parseable serial. Prefixed so it
@@ -51,12 +64,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// `Unsupported` because it means "the hardware will not take this value", which is what the
 /// control plane renders. Everything USB-level is I/O: the engine's fault path treats any
 /// capture error as a lost device and re-opens it when it enumerates again.
-fn map_err(err: sdrmm_hackrf_driver::Error) -> DeviceError {
+fn map_err(err: driver::Error) -> DeviceError {
     let text = err.to_string();
     match err {
-        sdrmm_hackrf_driver::Error::DeviceNotFound => DeviceError::NotFound(text),
-        sdrmm_hackrf_driver::Error::InvalidConfig { .. } => DeviceError::Unsupported(text),
-        sdrmm_hackrf_driver::Error::AlreadyStreaming => DeviceError::AlreadyStreaming,
+        driver::Error::DeviceNotFound => DeviceError::NotFound(text),
+        driver::Error::InvalidConfig { .. } => DeviceError::Unsupported(text),
+        driver::Error::AlreadyStreaming => DeviceError::AlreadyStreaming,
         _ => DeviceError::Io(text),
     }
 }
@@ -121,7 +134,7 @@ impl DeviceDriver for HackRfDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        match sdrmm_hackrf_driver::Device::list() {
+        match HackRf::list() {
             Ok(found) => found
                 .iter()
                 .enumerate()
@@ -138,7 +151,7 @@ impl DeviceDriver for HackRfDriver {
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
         let device = match key_serial(&info.key) {
-            Some(serial) => sdrmm_hackrf_driver::Device::open_serial(serial),
+            Some(serial) => HackRf::open_serial(serial),
             None => {
                 // The descriptor had no parseable serial, so "the first visible HackRF" is
                 // the only handle the driver offers. Said out loud, because on a two-radio
@@ -148,7 +161,7 @@ impl DeviceDriver for HackRfDriver {
                     key = %info.key,
                     "hackrf reports no serial; opening the first visible device"
                 );
-                sdrmm_hackrf_driver::Device::open()
+                HackRf::open()
             }
         }
         .map_err(map_err)?;
@@ -166,7 +179,7 @@ impl DeviceDriver for HackRfDriver {
 /// restart (tier 1, `PLAN-NATIVE-DRIVERS.md` §2.2) cycles the transceiver mode from there. The
 /// lock is never held across a blocking read — `apply` takes the same one.
 pub struct HackRfDevice {
-    device: Arc<Mutex<sdrmm_hackrf_driver::Device>>,
+    device: Arc<Mutex<HackRf>>,
     capabilities: Capabilities,
     settings: DeviceSettings,
     running: Arc<AtomicBool>,
@@ -177,7 +190,7 @@ pub struct HackRfDevice {
 }
 
 impl HackRfDevice {
-    fn new(device: sdrmm_hackrf_driver::Device) -> Self {
+    fn new(device: HackRf) -> Self {
         let settings = caps::settings_from_config(device.config());
         Self {
             device: Arc::new(Mutex::new(device)),
@@ -190,10 +203,7 @@ impl HackRfDevice {
     }
 }
 
-fn write_to_hardware(
-    device: &mut sdrmm_hackrf_driver::Device,
-    applied: &caps::Applied,
-) -> Result<(), DeviceError> {
+fn write_to_hardware(device: &mut HackRf, applied: &caps::Applied) -> Result<(), DeviceError> {
     if let Some(hz) = applied.frequency_hz {
         device.set_frequency_hz(hz).map_err(map_err)?;
     }
@@ -315,7 +325,7 @@ struct Failure {
 /// shared, a single errored transfer of any kind killed the stream outright.
 fn capture_loop(
     mut stream: RxStream,
-    device: &Mutex<sdrmm_hackrf_driver::Device>,
+    device: &Mutex<HackRf>,
     stopper: &Mutex<Option<Stopper>>,
     running: &AtomicBool,
     mut sink: RxSink,
@@ -505,23 +515,23 @@ mod tests {
     #[test]
     fn error_kinds_map_onto_the_right_device_errors() {
         assert!(matches!(
-            map_err(sdrmm_hackrf_driver::Error::DeviceNotFound),
+            map_err(driver::Error::DeviceNotFound),
             DeviceError::NotFound(_)
         ));
         // A value off the MAX2837 grid is "the hardware will not take this", not an I/O fault.
         assert!(matches!(
-            map_err(sdrmm_hackrf_driver::Error::InvalidConfig {
+            map_err(driver::Error::InvalidConfig {
                 field: "lna_gain_db",
                 reason: "must be 0 through 40 dB in 8 dB steps",
             }),
             DeviceError::Unsupported(_)
         ));
         assert!(matches!(
-            map_err(sdrmm_hackrf_driver::Error::AlreadyStreaming),
+            map_err(driver::Error::AlreadyStreaming),
             DeviceError::AlreadyStreaming
         ));
         assert!(matches!(
-            map_err(sdrmm_hackrf_driver::Error::ControlTransfer(
+            map_err(driver::Error::ControlTransfer(
                 nusb::transfer::TransferError::Disconnected
             )),
             DeviceError::Io(_)
@@ -535,7 +545,7 @@ mod tests {
     #[test]
     fn device_and_stream_cross_thread_boundaries() {
         const fn assert_send<T: Send>() {}
-        assert_send::<sdrmm_hackrf_driver::Device>();
+        assert_send::<HackRf>();
         assert_send::<RxStream>();
         assert_send::<HackRfDevice>();
     }

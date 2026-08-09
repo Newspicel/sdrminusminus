@@ -134,21 +134,21 @@ RTL2832U is **unsigned** with a measured 127.4 DC offset.
 
 ## 3. Crate layout after the change
 
+**Corrected during the work.** The plan gave each driver its own crate so the fork could be
+diffed against upstream. The owner's call is that there is no fork to track — the code is ours
+now — so each backend owns its driver as a module instead, and there is one crate per backend:
+
 ```
-crates/usb-stream       NEW  sdrmm-usb-stream    queue + error policy + BulkIn seam
-crates/rtl-driver       NEW  sdrmm-rtl-driver    RTL2832U + R820T, on usb-stream
-crates/hackrf-driver    NEW  sdrmm-hackrf-driver HackRF commands + config, on usb-stream
-crates/device                sdrmm-device        + shared restart policy (pure)
-crates/device-rtlsdr         unchanged in role   caps.rs / convert.rs pure, lib.rs thin I/O
-crates/device-hackrf         unchanged in role   + new convert.rs (cs8 → cf32)
+crates/usb-stream            NEW  sdrmm-usb-stream  queue + error policy + BulkIn seam
+crates/device                     sdrmm-device      + shared restart policy (pure)
+crates/device-rtlsdr/src/driver/  NEW               RTL2832U + R82xx, on usb-stream
+crates/device-hackrf/src/driver/  NEW               HackRF radio, on usb-stream
+crates/device-*/src/{caps,convert}.rs               pure; lib.rs is thin I/O + supervisor
 ```
 
-`rs-rtl` and `hackrf-nusb` leave the workspace manifest and `Cargo.lock`. Record fork points in
-each vendored crate's `lib.rs`:
-
-- `rs-rtl` 0.4.2 — upstream `xoolive/desperado`, path `crates/rtl-driver`, sha
-  `32c76e10c5b0c852cdc2550c5368b2fc0af8c611`
-- `hackrf-nusb` 0.3.0 — upstream `bastibl/hackrf-nusb`, path `crates/hackrf-driver`
+`rs-rtl` and `hackrf-nusb` leave the workspace manifest and `Cargo.lock`. Where the code started
+is recorded once, in `PLAN.md` §18, because it explains why "always newest versions" does not
+apply to it — not in the crates, which are no longer a fork of anything.
 
 We keep `hackrf-nusb`'s code rather than switching to `rs-hackrf` from the desperado repo: at
 ~736 lines it is a sixth the size, and our field session (20 Msps zero overruns, per-stage

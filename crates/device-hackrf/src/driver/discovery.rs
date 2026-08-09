@@ -2,7 +2,7 @@
 
 use nusb::MaybeFuture;
 
-use crate::error::{Error, Result};
+use super::error::{Error, Result};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct UsbDeviceId {
@@ -32,19 +32,19 @@ const USB_DEVICE_IDS: &[UsbDeviceId] = &[
 
 /// What USB enumeration says about one attached radio, without claiming it.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DeviceDescriptor {
+pub(crate) struct DeviceDescriptor {
     /// USB vendor ID.
-    pub vid: u16,
+    pub(crate) vid: u16,
     /// USB product ID.
-    pub pid: u16,
+    pub(crate) pid: u16,
     /// Static description from the known HackRF USB ID table.
-    pub description: &'static str,
+    pub(crate) description: &'static str,
     /// The full 128-bit serial, if the descriptor carries a parseable one.
-    pub serial: Option<u128>,
+    pub(crate) serial: Option<u128>,
     /// USB product string, when available.
-    pub product_string: Option<String>,
+    pub(crate) product_string: Option<String>,
     /// HackRF USB API version from `bcdDevice`.
-    pub usb_api_version: u16,
+    pub(crate) usb_api_version: u16,
 }
 
 impl DeviceDescriptor {
@@ -69,7 +69,7 @@ fn find_usb_device_id(vid: u16, pid: u16) -> Option<UsbDeviceId> {
 }
 
 /// Every HackRF currently attached.
-pub fn list_devices() -> Result<Vec<DeviceDescriptor>> {
+pub(crate) fn list_devices() -> Result<Vec<DeviceDescriptor>> {
     Ok(nusb::list_devices()
         .wait()
         .map_err(|e| Error::usb("listing USB devices", e))?

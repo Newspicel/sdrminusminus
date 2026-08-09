@@ -4,7 +4,7 @@ use nusb::MaybeFuture;
 use sdrmm_usb_stream::{NusbBulkIn, RxStream, StreamConfig};
 use tracing::{debug, info};
 
-use crate::{
+use super::{
     commands::TransceiverMode,
     config::{self, Config},
     control::{
@@ -23,36 +23,35 @@ const USB_CONFIGURATION: u8 = 1;
 const USB_INTERFACE: u8 = 0;
 
 /// Bytes per USB transfer — libhackrf's size, and the one the 20 Msps field session ran at.
-pub const RX_TRANSFER_SIZE: usize = 262_144;
+pub(crate) const RX_TRANSFER_SIZE: usize = 262_144;
 /// Transfers the consumer may fall behind by. Deliberately shallower than the RTL path's: each
 /// buffer here is 256 KiB, so 8 is already 2 MiB of slack and 105 ms at 20 Msps.
 const RX_CHANNEL_DEPTH: usize = 8;
 
 /// An opened HackRF.
 ///
-/// Every setter writes through to the radio and only then updates [`Device::config`], so the
+/// Every setter writes through to the radio and only then updates [`HackRf::config`], so the
 /// reported configuration is what the hardware holds — including a gain the MAX2837's step grid
 /// moved, and, when a batch fails halfway, only the prefix that landed.
-pub struct Device {
+pub(crate) struct HackRf {
     control: Control,
-    info: DeviceInfo,
     config: Config,
     streaming: bool,
 }
 
-impl Device {
+impl HackRf {
     /// Every HackRF currently attached, without claiming any of them.
-    pub fn list() -> Result<Vec<DeviceDescriptor>> {
+    pub(crate) fn list() -> Result<Vec<DeviceDescriptor>> {
         discovery::list_devices()
     }
 
     /// Open the first visible HackRF.
-    pub fn open() -> Result<Self> {
+    pub(crate) fn open() -> Result<Self> {
         Self::open_inner(None)
     }
 
     /// Open the HackRF with this exact 128-bit serial.
-    pub fn open_serial(serial: u128) -> Result<Self> {
+    pub(crate) fn open_serial(serial: u128) -> Result<Self> {
         Self::open_inner(Some(serial))
     }
 
@@ -81,6 +80,8 @@ impl Device {
             TransceiverMode::Off,
         ))?;
 
+        // Read and logged rather than stored: the backend labels devices from the USB
+        // descriptor, so this is the one place the firmware's own account of itself is useful.
         let info = read_device_info(&control, usb_api_version)?;
         info!(
             board = info.board_name(),
@@ -91,7 +92,6 @@ impl Device {
 
         let mut opened = Self {
             control,
-            info,
             config: Config::default(),
             streaming: false,
         };
@@ -107,20 +107,14 @@ impl Device {
         Ok(opened)
     }
 
-    /// What the firmware reported while the device was opened.
-    #[must_use]
-    pub fn info(&self) -> &DeviceInfo {
-        &self.info
-    }
-
     /// What the radio currently holds.
     #[must_use]
-    pub fn config(&self) -> &Config {
+    pub(crate) fn config(&self) -> &Config {
         &self.config
     }
 
     /// Retune. Safe while streaming, though there is no sample-accurate boundary.
-    pub fn set_frequency_hz(&mut self, frequency_hz: u64) -> Result<()> {
+    pub(crate) fn set_frequency_hz(&mut self, frequency_hz: u64) -> Result<()> {
         config::validate_frequency(frequency_hz)?;
         self.control
             .control_out(&VendorControlRequest::set_frequency(frequency_hz))?;
@@ -132,7 +126,7 @@ impl Device {
     ///
     /// The two are one operation on purpose: a filter left at the old width either folds
     /// out-of-band energy into a wider passband or clips a narrower one.
-    pub fn set_sample_rate_hz(&mut self, sample_rate_hz: u32) -> Result<()> {
+    pub(crate) fn set_sample_rate_hz(&mut self, sample_rate_hz: u32) -> Result<()> {
         config::validate_sample_rate(sample_rate_hz)?;
         self.control
             .control_out(&VendorControlRequest::set_sample_rate(sample_rate_hz))?;
@@ -145,7 +139,7 @@ impl Device {
     }
 
     /// Set the MAX2837 IF/LNA gain, in 8 dB steps up to 40.
-    pub fn set_lna_gain_db(&mut self, gain_db: u8) -> Result<()> {
+    pub(crate) fn set_lna_gain_db(&mut self, gain_db: u8) -> Result<()> {
         config::validate_lna_gain(gain_db)?;
         let response = self
             .control
@@ -156,7 +150,7 @@ impl Device {
     }
 
     /// Set the MAX2837 baseband VGA gain, in 2 dB steps up to 62.
-    pub fn set_vga_gain_db(&mut self, gain_db: u8) -> Result<()> {
+    pub(crate) fn set_vga_gain_db(&mut self, gain_db: u8) -> Result<()> {
         config::validate_vga_gain(gain_db)?;
         let response = self
             .control
@@ -167,7 +161,7 @@ impl Device {
     }
 
     /// Switch the 14 dB front-end RF amplifier.
-    pub fn set_amp_enable(&mut self, enabled: bool) -> Result<()> {
+    pub(crate) fn set_amp_enable(&mut self, enabled: bool) -> Result<()> {
         self.control
             .control_out(&VendorControlRequest::set_amp(enabled))?;
         self.config.amp_enabled = enabled;
@@ -175,7 +169,7 @@ impl Device {
     }
 
     /// Switch phantom power on the antenna port.
-    pub fn set_bias_tee(&mut self, enabled: bool) -> Result<()> {
+    pub(crate) fn set_bias_tee(&mut self, enabled: bool) -> Result<()> {
         self.control
             .control_out(&VendorControlRequest::set_bias_tee(enabled))?;
         self.config.bias_tee_enabled = enabled;
@@ -186,8 +180,8 @@ impl Device {
     ///
     /// The transfer queue is filled before the radio is switched into receive mode, so the
     /// first samples the front end produces already have a transfer waiting for them. Safe to
-    /// call again after [`Device::stop_rx`], which is what an in-place restart does.
-    pub fn start_rx(&mut self) -> Result<RxStream> {
+    /// call again after [`HackRf::stop_rx`], which is what an in-place restart does.
+    pub(crate) fn start_rx(&mut self) -> Result<RxStream> {
         if self.streaming {
             return Err(Error::AlreadyStreaming);
         }
@@ -205,7 +199,7 @@ impl Device {
 
     /// Switch the radio off. Call before dropping the [`RxStream`], so the front end stops
     /// filling a queue that is about to go away.
-    pub fn stop_rx(&mut self) -> Result<()> {
+    pub(crate) fn stop_rx(&mut self) -> Result<()> {
         self.streaming = false;
         self.control
             .control_out(&VendorControlRequest::transceiver_mode(
@@ -214,7 +208,7 @@ impl Device {
     }
 }
 
-impl Drop for Device {
+impl Drop for HackRf {
     fn drop(&mut self) {
         // Best effort: a radio left in receive mode keeps its front end and amplifier powered
         // until it is physically unplugged.

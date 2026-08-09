@@ -3415,9 +3415,9 @@ dependencies = [
  "num-complex",
  "nusb",
  "sdrmm-device",
- "sdrmm-hackrf-driver",
  "sdrmm-usb-stream",
  "sdrmm-wire",
+ "thiserror 2.0.20",
  "tracing",
 ]
 
@@ -3426,10 +3426,11 @@ name = "sdrmm-device-rtlsdr"
 version = "0.0.0"
 dependencies = [
  "num-complex",
+ "nusb",
  "sdrmm-device",
- "sdrmm-rtl-driver",
  "sdrmm-usb-stream",
  "sdrmm-wire",
+ "thiserror 2.0.20",
  "tracing",
 ]
 
@@ -3493,16 +3494,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sdrmm-hackrf-driver"
-version = "0.0.0"
-dependencies = [
- "nusb",
- "sdrmm-usb-stream",
- "thiserror 2.0.20",
- "tracing",
-]
-
-[[package]]
 name = "sdrmm-recorder"
 version = "0.0.0"
 dependencies = [
@@ -3512,16 +3503,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",
-]
-
-[[package]]
-name = "sdrmm-rtl-driver"
-version = "0.0.0"
-dependencies = [
- "nusb",
- "sdrmm-usb-stream",
- "thiserror 2.0.20",
- "tracing",
 ]
 
 [[package]]

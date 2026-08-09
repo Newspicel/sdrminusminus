@@ -20,7 +20,7 @@ use nusb::{
     transfer::{ControlIn, ControlOut, ControlType, Recipient},
 };
 
-use crate::error::{Error, Result};
+use super::error::{Error, Result};
 
 /// Matches librtlsdr's control timeout.
 const CTRL_TIMEOUT: Duration = Duration::from_millis(300);
@@ -59,11 +59,11 @@ const EEPROM_SIZE: usize = 256;
 /// Cheap to clone — `nusb::Interface` is `Arc`-backed — which is what lets the control plane and
 /// the streaming endpoint work the same device from different threads.
 #[derive(Clone, Debug)]
-pub(crate) struct Device {
+pub(crate) struct Rtl2832u {
     iface: Interface,
 }
 
-impl Device {
+impl Rtl2832u {
     pub(crate) fn new(iface: Interface) -> Self {
         Self { iface }
     }
