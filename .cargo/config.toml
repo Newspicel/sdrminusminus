@@ -5,3 +5,9 @@ xtask = "run --package xtask --"
 # Next-gen borrow checker (PLAN §15). One line to drop if a nightly pin misbehaves.
 [build]
 rustflags = ["-Zpolonius=next"]
+
+# audiopus_sys's vendored libopus declares cmake_minimum_required < 3.5, which CMake 4+
+# refuses; this env lets it configure anyway. Only reached when pkg-config finds no system
+# opus (e.g. bare macOS CI runners). Drop when audiopus_sys ships a fixed bundled opus.
+[env]
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
