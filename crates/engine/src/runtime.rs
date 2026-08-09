@@ -26,7 +26,10 @@ use sdrmm_dsp::{Ddc, SpectrumAnalyzer, Squelch};
 use sdrmm_wire::{ChannelParams, ChannelSettings};
 use tokio::sync::broadcast;
 
-use crate::audio::{PcmBlock, PcmPayload};
+use crate::{
+    audio::{PcmBlock, PcmPayload},
+    recording::RecorderTap,
+};
 
 /// FFT size for the spectrum tap (PLAN §9: 1k–64k configurable; M0 fixes one size).
 const FFT_SIZE: usize = 4096;
@@ -205,10 +208,28 @@ impl ChannelHost {
 /// Control-plane → DSP-thread channel operations (PLAN §7: settings via command queue,
 /// applied between blocks). Handling MAY allocate — these are rare control events.
 pub(crate) enum DspCommand {
-    AddChannel { id: u32, host: Box<ChannelHost> },
-    RemoveChannel { id: u32 },
-    Retune { id: u32, offset_hz: f64 },
-    ApplySettings { id: u32, settings: ChannelSettings },
+    AddChannel {
+        id: u32,
+        host: Box<ChannelHost>,
+    },
+    RemoveChannel {
+        id: u32,
+    },
+    Retune {
+        id: u32,
+        offset_hz: f64,
+    },
+    ApplySettings {
+        id: u32,
+        settings: ChannelSettings,
+    },
+    /// Arm the recorder tap. From here the tap (and its queue sender) lives on the DSP
+    /// thread; dropping it — via [`DspCommand::StopRecording`], or with the thread itself —
+    /// closes the writer's queue, which is the finalize handshake.
+    StartRecording {
+        tap: RecorderTap,
+    },
+    StopRecording,
 }
 
 /// Owns the running device and its DSP thread; drop/stop tears both down cleanly.
@@ -345,6 +366,7 @@ fn dsp_loop(
     let mut window = vec![Complex::new(0.0, 0.0); FFT_SIZE];
     let mut db = vec![0.0f32; FFT_SIZE];
     let mut channels: Vec<(u32, Box<ChannelHost>)> = Vec::new();
+    let mut tap: Option<RecorderTap> = None;
     let mut write_pos = 0usize;
     let mut since_last = 0usize;
     let mut total: u64 = 0;
@@ -352,7 +374,7 @@ fn dsp_loop(
     let mut seq: u32 = 0;
 
     while !stop.load(Ordering::Acquire) {
-        drain_commands(commands, &mut channels);
+        drain_commands(commands, &mut channels, &mut tap);
         // Ring overruns advance the sample clock too: `timestamp` stays aligned with real
         // capture time across drops instead of silently compressing it (PLAN §5 sample-count
         // timestamps; the control plane surfaces the same counter as `DeviceSet.overruns`).
@@ -372,6 +394,16 @@ fn dsp_loop(
         };
         let (a, b) = chunk.as_slices();
         for slice in [a, b] {
+            // `total` is the stream position of `slice[0]` here — the per-sample advance
+            // below runs within this same iteration. A failed push disarms the tap: the
+            // fault is already in the recording's shared state, and a lossless recording
+            // must never continue with silent holes (PLAN §5).
+            if tap
+                .as_ref()
+                .is_some_and(|t| !t.push(slice, total, snapshot.center_hz))
+            {
+                tap = None;
+            }
             for (_, host) in &mut channels {
                 host.process(slice);
             }
@@ -408,6 +440,7 @@ fn dsp_loop(
 fn drain_commands(
     commands: &mpsc::Receiver<DspCommand>,
     channels: &mut Vec<(u32, Box<ChannelHost>)>,
+    tap: &mut Option<RecorderTap>,
 ) {
     while let Ok(cmd) = commands.try_recv() {
         match cmd {
@@ -432,6 +465,8 @@ fn drain_commands(
                     tracing::debug!(id, "settings for a channel no longer hosted");
                 }
             }
+            DspCommand::StartRecording { tap: armed } => *tap = Some(armed),
+            DspCommand::StopRecording => *tap = None,
         }
     }
 }

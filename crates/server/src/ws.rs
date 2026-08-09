@@ -448,7 +448,7 @@ mod tests {
     fn test_engine() -> Arc<Engine> {
         let mut registry = sdrmm_device::DeviceRegistry::new();
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
-        Engine::with_registry(registry)
+        Engine::with_registry(registry, None)
     }
 
     type WsClient = tokio_tungstenite::WebSocketStream<

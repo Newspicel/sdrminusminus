@@ -10,16 +10,21 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use sdrmm_engine::EngineError;
+use sdrmm_recorder::{SigmfMeta, SigmfReader, data_path, meta_path, scan_stems};
 use sdrmm_wire::{
     ApiError, ApplyPresetRequest, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
     CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
     CreatedId, CreatedRowId, DeviceSettings, DevicesResponse, PresetInfo, PresetSnapshot,
-    ServerEvent, StateScope, StateSnapshot,
+    RecordAction, RecordRequest, RecordingStatus, RecordingsResponse, ServerEvent, StateScope,
+    StateSnapshot,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
-use crate::{AppState, store::StoreError};
+use crate::{
+    AppState,
+    store::{RecordingRow, Store, StoreError},
+};
 
 /// The `PresetSnapshot` schema version this build writes and applies.
 pub(crate) const PRESET_VERSION: u32 = 1;
@@ -35,6 +40,16 @@ impl AppError {
     fn bad_request(message: String) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
+            body: ApiError {
+                error: message,
+                detail: None,
+            },
+        }
+    }
+
+    fn internal(message: String) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
             body: ApiError {
                 error: message,
                 detail: None,
@@ -114,9 +129,9 @@ impl From<EngineError> for AppError {
 impl From<StoreError> for AppError {
     fn from(err: StoreError) -> Self {
         let status = match err {
-            StoreError::PresetNotFound(_) | StoreError::BookmarkNotFound(_) => {
-                StatusCode::NOT_FOUND
-            }
+            StoreError::PresetNotFound(_)
+            | StoreError::BookmarkNotFound(_)
+            | StoreError::RecordingNotFound(_) => StatusCode::NOT_FOUND,
             StoreError::Db(_) | StoreError::Corrupt(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self {
@@ -513,6 +528,217 @@ async fn delete_bookmark(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    post, path = "/api/devicesets/{ds}/record",
+    params(("ds" = u32, Path, description = "Device set id")),
+    request_body = RecordRequest,
+    responses(
+        (
+            status = 200,
+            description = "Recording status: live after `start`; final counts after `stop`, \
+                           where `error` reports a truncated recording and the finalized pair \
+                           appears in `GET /api/recordings`",
+            body = RecordingStatus,
+        ),
+        (status = 400, description = "Cannot record: no recordings directory, set not \
+                                      running, already recording, or not recording", body = ApiError),
+        (status = 404, description = "Device set not found", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+async fn record_device_set(
+    State(state): State<AppState>,
+    Path(ds): Path<u32>,
+    Json(req): Json<RecordRequest>,
+) -> Result<Json<RecordingStatus>, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let gate = state.recordings_gate.clone();
+    let status = tokio::task::spawn_blocking(move || -> Result<RecordingStatus, AppError> {
+        match req.action {
+            RecordAction::Start => {
+                engine.start_recording(ds)?;
+                engine
+                    .snapshot()
+                    .device_sets
+                    .into_iter()
+                    .find(|s| s.id == ds)
+                    .and_then(|s| s.recording)
+                    .ok_or_else(|| {
+                        AppError::internal(
+                            "recording vanished before its first status snapshot".to_string(),
+                        )
+                    })
+            }
+            RecordAction::Stop => {
+                // Final counts (and any truncation fault) go back in-band; the indexed row
+                // reaches clients through the Recordings scope + `GET /api/recordings`, which
+                // also covers a pair that faulted before finalizing and thus has no row.
+                let finalized = engine.stop_recording(ds)?;
+                if let Some(dir) = engine.recordings_dir() {
+                    {
+                        let _gate = lock_gate(&gate);
+                        reconcile_recordings(dir, &store)?;
+                    }
+                    engine.emit_scope(StateScope::Recordings);
+                }
+                let file = finalized
+                    .stem
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map_or_else(|| finalized.stem.display().to_string(), str::to_string);
+                Ok(RecordingStatus {
+                    file,
+                    started_at: finalized.started_at,
+                    samples: finalized.samples,
+                    bytes: finalized.bytes,
+                    overruns: finalized.overruns,
+                    error: finalized.error,
+                })
+            }
+        }
+    })
+    .await??;
+    Ok(Json(status))
+}
+
+#[utoipa::path(
+    get, path = "/api/recordings",
+    responses((
+        status = 200,
+        description = "The recording library, reconciled with the SigMF pairs on disk",
+        body = RecordingsResponse,
+    )),
+)]
+async fn list_recordings(
+    State(state): State<AppState>,
+) -> Result<Json<RecordingsResponse>, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let gate = state.recordings_gate.clone();
+    let recordings = tokio::task::spawn_blocking(move || -> Result<_, AppError> {
+        let Some(dir) = engine.recordings_dir() else {
+            return Ok(Vec::new());
+        };
+        let _gate = lock_gate(&gate);
+        reconcile_recordings(dir, &store)?;
+        Ok(store.list_recordings(dir)?)
+    })
+    .await??;
+    Ok(Json(RecordingsResponse { recordings }))
+}
+
+#[utoipa::path(
+    delete, path = "/api/recordings/{id}",
+    params(("id" = i64, Path, description = "Recording id")),
+    responses(
+        (status = 204, description = "Recording removed: SigMF pair and index row"),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Recording not found", body = ApiError),
+    ),
+)]
+async fn delete_recording(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let gate = state.recordings_gate.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        let _gate = lock_gate(&gate);
+        let name = store.recording_stem(id)?;
+        // Files before row: if removal fails the recording stays listed and the delete can
+        // be retried. A set replaying the pair faults via the probe-vanish path — accepted,
+        // honest (PLAN §16 M2 hotplug contract).
+        if let Some(dir) = engine.recordings_dir() {
+            let stem = dir.join(&name);
+            for path in [meta_path(&stem), data_path(&stem)] {
+                if let Err(err) = std::fs::remove_file(&path)
+                    && err.kind() != std::io::ErrorKind::NotFound
+                {
+                    return Err(AppError::internal(format!(
+                        "delete {}: {err}",
+                        path.display()
+                    )));
+                }
+            }
+        }
+        store.delete_recording(id)?;
+        engine.emit_scope(StateScope::Recordings);
+        Ok(())
+    })
+    .await??;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn lock_gate(gate: &std::sync::Mutex<()>) -> std::sync::MutexGuard<'_, ()> {
+    gate.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Disk → index reconciliation (PLAN §11: the files are the source of truth, the database is
+/// an index): upsert a row per finalized pair, prune rows whose pair vanished. Pairs that
+/// cannot be read (foreign datatype, torn meta, no sample rate) are skipped — and therefore
+/// delisted — since they cannot be played either. Callers hold the recordings gate.
+fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Result<(), AppError> {
+    let stems = scan_stems(dir)
+        .map_err(|err| AppError::internal(format!("scan {}: {err}", dir.display())))?;
+    let mut kept = Vec::with_capacity(stems.len());
+    for stem in &stems {
+        let Some(name) = stem.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let reader = match SigmfReader::open(stem) {
+            Ok(reader) => reader,
+            Err(err) => {
+                tracing::warn!(stem = %stem.display(), error = %err, "skipping unreadable recording");
+                continue;
+            }
+        };
+        // Sample count from the data file, not the meta: a crash-truncated pair is honest
+        // about what is actually replayable.
+        let samples = reader.total_samples();
+        let meta = reader.meta();
+        // `core:sample_rate` is optional in SigMF, but playback (and duration) need one.
+        let Some(sample_rate) = meta.global.sample_rate else {
+            tracing::warn!(stem = %stem.display(), "skipping recording without a core:sample_rate");
+            continue;
+        };
+        store.upsert_recording(&RecordingRow {
+            stem: name.to_string(),
+            created_at: recording_created_at(stem, meta),
+            device_label: meta.global.hw.clone().unwrap_or_default(),
+            center_hz: meta
+                .captures
+                .first()
+                .and_then(|c| c.frequency)
+                .unwrap_or_default(),
+            sample_rate,
+            samples,
+            bytes: samples * sdrmm_recorder::BYTES_PER_SAMPLE,
+        })?;
+        kept.push(name.to_string());
+    }
+    store.prune_recordings(&kept)?;
+    Ok(())
+}
+
+/// Foreign SigMF files may omit `core:datetime`; fall back to the data file's mtime so the
+/// row still carries a usable timestamp.
+fn recording_created_at(stem: &std::path::Path, meta: &SigmfMeta) -> String {
+    meta.captures
+        .first()
+        .and_then(|c| c.datetime.clone())
+        .or_else(|| {
+            std::fs::metadata(data_path(stem))
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| jiff::Timestamp::try_from(t).ok())
+                .map(|ts| ts.to_string())
+        })
+        .unwrap_or_default()
+}
+
 /// OpenAPI metadata plus the schemas no path references — the WS message enums and the stored
 /// preset blob — which must be force-registered as components (PLAN §4) to appear in the
 /// generated TypeScript.
@@ -540,4 +766,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(delete_preset))
         .routes(routes!(list_bookmarks, create_bookmark))
         .routes(routes!(delete_bookmark))
+        .routes(routes!(record_device_set))
+        .routes(routes!(list_recordings))
+        .routes(routes!(delete_recording))
 }

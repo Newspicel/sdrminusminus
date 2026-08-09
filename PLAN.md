@@ -166,8 +166,11 @@ PATCH  /api/devicesets/{ds}/device   { freq?, rate?, gains?, … }
 POST   /api/devicesets/{ds}/channels { type, settings }
 PATCH  /api/devicesets/{ds}/channels/{ch}   # typed per-channel settings
 DELETE /api/devicesets/{ds}/channels/{ch}
-POST   /api/devicesets/{ds}/record   { start/stop, format }
-GET/POST /api/presets, /api/bookmarks, /api/recordings …
+POST   /api/devicesets/{ds}/record   { action: start|stop }   # format fixed to SigMF cf32
+                                     # (M3 decision: a format field returns when a second
+                                     #  format exists — YAGNI until then)
+GET/DELETE /api/recordings           # index reconciled from SigMF files on disk (§11)
+GET/POST /api/presets, /api/bookmarks …
 GET    /api/openapi.json · /api/docs
 ```
 

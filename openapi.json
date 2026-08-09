@@ -503,6 +503,76 @@
         }
       }
     },
+    "/api/devicesets/{ds}/record": {
+      "post": {
+        "operationId": "record_device_set",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Recording status: live after `start`; final counts after `stop`, where `error` reports a truncated recording and the finalized pair appears in `GET /api/recordings`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Cannot record: no recordings directory, set not running, already recording, or not recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/presets": {
       "get": {
         "operationId": "list_presets",
@@ -661,6 +731,65 @@
           },
           "422": {
             "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings": {
+      "get": {
+        "operationId": "list_recordings",
+        "responses": {
+          "200": {
+            "description": "The recording library, reconciled with the SigMF pairs on disk",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings/{id}": {
+      "delete": {
+        "operationId": "delete_recording",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Recording id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Recording removed: SigMF pair and index row"
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recording not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1324,6 +1453,17 @@
             "description": "Cumulative device samples dropped at the capture ring since the set opened. Growth\nmeans the DSP thread cannot keep up — audio and spectrum have gaps even while\n`status` stays `running` (PLAN §5 backpressure; CLAUDE.md no-silent-failure).",
             "minimum": 0
           },
+          "recording": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RecordingStatus",
+                "description": "Active IQ recording, if any (M3, PLAN §5)."
+              }
+            ]
+          },
           "settings": {
             "$ref": "#/components/schemas/DeviceSettings"
           },
@@ -1627,6 +1767,146 @@
               "null"
             ],
             "format": "double"
+          }
+        }
+      },
+      "RecordAction": {
+        "type": "string",
+        "description": "What a [`RecordRequest`] should do.",
+        "enum": [
+          "start",
+          "stop"
+        ]
+      },
+      "RecordRequest": {
+        "type": "object",
+        "description": "`POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream\n(PLAN §5: the recording path is lossless).",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/RecordAction"
+          }
+        }
+      },
+      "RecordingInfo": {
+        "type": "object",
+        "description": "One finalized SigMF recording in the library (PLAN §11: the files on disk are the source\nof truth; this row is its SQLite index entry).",
+        "required": [
+          "id",
+          "file",
+          "device_id",
+          "device_label",
+          "center_hz",
+          "sample_rate",
+          "samples",
+          "bytes",
+          "duration_s",
+          "created_at"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "center_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "created_at": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          },
+          "device_id": {
+            "type": "string",
+            "description": "`driver:key` that replays this recording (`virtual:file:<stem>`), usable directly\nin `POST /api/devicesets`."
+          },
+          "device_label": {
+            "type": "string",
+            "description": "Label of the device the recording was captured from (SigMF `core:hw`)."
+          },
+          "duration_s": {
+            "type": "number",
+            "format": "double"
+          },
+          "file": {
+            "type": "string",
+            "description": "Recording stem: file name without directory or `.sigmf-*` extension."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sample_rate": {
+            "type": "number",
+            "format": "double"
+          },
+          "samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "RecordingStatus": {
+        "type": "object",
+        "description": "Live IQ recording on a device set (PLAN §5: the recording path is lossless, so a writer\nfault must surface here rather than dropping samples silently).",
+        "required": [
+          "file",
+          "started_at",
+          "samples",
+          "bytes",
+          "overruns"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Fatal recording fault (queue overflow, disk error); the writer has stopped but the\ncause stays visible (CLAUDE.md no-silent-failure)."
+          },
+          "file": {
+            "type": "string",
+            "description": "Recording stem: file name without directory or `.sigmf-*` extension."
+          },
+          "overruns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Capture-ring drops while this recording ran. The file stays contiguous as the DSP\nplane saw the stream, so growth means the recording has upstream gaps (PLAN §5).",
+            "minimum": 0
+          },
+          "samples": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Samples written to the `.sigmf-data` file so far.",
+            "minimum": 0
+          },
+          "started_at": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          }
+        }
+      },
+      "RecordingsResponse": {
+        "type": "object",
+        "description": "`GET /api/recordings`.",
+        "required": [
+          "recordings"
+        ],
+        "properties": {
+          "recordings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecordingInfo"
+            }
           }
         }
       },
@@ -1935,6 +2215,21 @@
                 "type": "string",
                 "enum": [
                   "bookmarks"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The recordings index changed; refetch `GET /api/recordings`.",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "recordings"
                 ]
               }
             }

@@ -24,9 +24,10 @@ pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFra
 pub use rest::{
     ApiError, ApplyPresetRequest, Bookmark, ChannelTypesResponse, CreateBookmarkRequest,
     CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
-    DevicesResponse, PresetInfo, PresetSnapshot,
+    DevicesResponse, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingInfo,
+    RecordingsResponse,
 };
-pub use state::{DeviceSet, DeviceSetStatus, StateSnapshot};
+pub use state::{DeviceSet, DeviceSetStatus, RecordingStatus, StateSnapshot};
 pub use ws::{ClientCommand, ServerEvent, StateScope, StreamKind};
 
 #[cfg(test)]
@@ -68,6 +69,7 @@ mod contract_tests {
             (StateScope::All, "all"),
             (StateScope::Presets, "presets"),
             (StateScope::Bookmarks, "bookmarks"),
+            (StateScope::Recordings, "recordings"),
         ] {
             let json = serde_json::to_value(&scope).unwrap();
             assert_eq!(json["scope"], tag);
@@ -153,11 +155,8 @@ mod contract_tests {
         );
     }
 
-    /// `overruns` was added after M1: snapshots from older peers omit it and must read as 0,
-    /// and every serialized set must carry it so clients can render ring-drop health.
-    #[test]
-    fn device_set_overruns_default_and_roundtrip() {
-        let set = DeviceSet {
+    fn sample_device_set() -> DeviceSet {
+        DeviceSet {
             id: 1,
             device: DeviceInfo {
                 driver: "virtual".to_owned(),
@@ -178,15 +177,67 @@ mod contract_tests {
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,
             channels: Vec::new(),
-            overruns: 42,
+            overruns: 0,
             error: None,
-        };
+            recording: None,
+        }
+    }
+
+    /// `overruns` was added after M1: snapshots from older peers omit it and must read as 0,
+    /// and every serialized set must carry it so clients can render ring-drop health.
+    #[test]
+    fn device_set_overruns_default_and_roundtrip() {
+        let mut set = sample_device_set();
+        set.overruns = 42;
         let mut json = serde_json::to_value(&set).unwrap();
         assert_eq!(json["overruns"], 42);
 
         json.as_object_mut().unwrap().remove("overruns");
         let back: DeviceSet = serde_json::from_value(json).unwrap();
         assert_eq!(back.overruns, 0);
+    }
+
+    /// `recording` was added in M3: an idle set must not serialize the key, snapshots from
+    /// older peers omit it and must read as `None`, and a live recording must roundtrip.
+    #[test]
+    fn device_set_recording_default_and_roundtrip() {
+        let mut set = sample_device_set();
+        let json = serde_json::to_value(&set).unwrap();
+        assert!(json.get("recording").is_none());
+
+        set.recording = Some(RecordingStatus {
+            file: "rec-20260809-120000".to_owned(),
+            started_at: "2026-08-09T12:00:00Z".to_owned(),
+            samples: 2_400_000,
+            bytes: 19_200_000,
+            overruns: 0,
+            error: None,
+        });
+        let mut json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["recording"]["file"], "rec-20260809-120000");
+        assert_eq!(json["recording"]["samples"], 2_400_000);
+        assert!(json["recording"].get("error").is_none());
+        let back: DeviceSet = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(back, set);
+
+        json.as_object_mut().unwrap().remove("recording");
+        let back: DeviceSet = serde_json::from_value(json).unwrap();
+        assert_eq!(back.recording, None);
+    }
+
+    /// `RecordRequest.action` is a bare snake_case string the generated TS union
+    /// discriminates on; lock it.
+    #[test]
+    fn record_request_action_shape() {
+        let json = serde_json::to_value(RecordRequest {
+            action: RecordAction::Start,
+        })
+        .unwrap();
+        assert_eq!(json["action"], "start");
+        assert_eq!(serde_json::to_value(RecordAction::Stop).unwrap(), "stop");
+
+        let back: RecordRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(back.action, RecordAction::Start);
     }
 
     #[test]

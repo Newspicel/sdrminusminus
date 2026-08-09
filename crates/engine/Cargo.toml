@@ -22,13 +22,16 @@ sdrmm-device.workspace = true
 sdrmm-device-virtual.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 sdrmm-channels.workspace = true
+sdrmm-recorder.workspace = true
 opus.workspace = true
 num-complex.workspace = true
 rtrb.workspace = true
 arc-swap.workspace = true
+jiff.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
+tempfile.workspace = true

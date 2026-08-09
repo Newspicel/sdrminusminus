@@ -229,3 +229,97 @@ Found live with an RTL-SDR — none reachable in CI (no hardware there, PLAN §1
 - [x] Dead backend read as success in the web client: openapi-fetch yields
   `{ error: undefined }` for empty error bodies (proxy 502), crashing on `data.id` and
   faking successful deletes — REST helpers now gate on `response.ok` (vitest-covered)
+
+## M3 — Record & replay ✅
+
+Goal (PLAN §16): SigMF recording · file playback device · recordings browser · start the
+decoder fixture library.
+
+**Status: complete.** `cargo xtask check` + `cargo xtask test` green (224 Rust + 72 web
+tests); record→replay verified hardware-free end to end: virtual siggen → lossless recorder
+tap → SigMF pair → probed playback device → NFM channel → 1 kHz tone recovered from decoded
+Opus.
+
+### Recorder (`crates/recorder`, new)
+- [x] SigMF v1.2.6 meta model (`core:`-prefixed serde, cf32_le), streaming `SigmfWriter` +
+  `SigmfReader` (torn-tail tolerant, rewind for looping), stem scan keyed on final `.sigmf-meta`
+- [x] Crash-safe lifecycle: `.sigmf-meta.tmp` breadcrumb at create; atomic finalize (synced
+  tmp rewrite → `fs::rename`) — breadcrumb-or-complete, never a listed-but-unparseable meta
+- [x] Atomic stem claiming (`create_new` on data + breadcrumb, `StemTaken` → suffix retry);
+  abort paths delete only files they created
+- [x] `core:sample_rate` optional per spec (writer always emits; consumers reject rate-less
+  files honestly)
+
+### Engine recording
+- [x] Lossless DSP-thread tap (PLAN §5/§7): per-slice Arc-copy → bounded queue → `sdrmm-rec`
+  writer thread; overflow/writer death disarms the tap and surfaces a hard error — never a
+  silent drop
+- [x] Sample-count-exact `start_sample`; center retunes recorded as SigMF capture segments;
+  ring overruns during recording counted into `RecordingStatus.overruns`
+- [x] Start/stop under the anti-zombie ordering (files opened control-side, commit re-verified
+  under `inner`, writer joined outside); implicit finalize on device fault, set removal, and
+  `Engine::shutdown()`/`Drop` — both binaries finalize live recordings on exit
+- [x] Sample-rate changes rejected while recording; both orders of the patch-vs-record race
+  lose cleanly (in-flight counter + merge re-check, deterministic interleaving test)
+- [x] Recording counters/errors ride the hotplug tick like overruns; writer faults land in
+  `DeviceSet.recording.error` + `StateChanged`
+- [x] e2e: record→replay roundtrip, playback spectrum frames, fault/shutdown finalization
+
+### Playback (`device-virtual`)
+- [x] `VirtualDriver::with_recordings(dir)`: probe lists one device per finalized recording
+  (`virtual:file:<stem>`, cheap scan — hotplug-prober safe)
+- [x] `FilePlayback`: real-time paced worker, capabilities pinned to the recording (center
+  min==max, single rate), `loop` extra setting (live toggle, EOF park when off), I/O errors
+  → `sink.fail`
+- [x] Deterministic `render()` exposed for fixtures/tests
+
+### Wire + server
+- [x] `RecordingStatus` (on `DeviceSet`), `RecordRequest`/`RecordAction`, `RecordingInfo`,
+  `StateScope::Recordings` + contract tests; OpenAPI codegen regenerated, zero drift
+- [x] `POST /api/devicesets/{ds}/record` · `GET /api/recordings` · `DELETE
+  /api/recordings/{id}`; SQLite `recordings` migration; disk↔index reconcile (files are the
+  source of truth, PLAN §11) serialized against delete/stop — no ghost rows or 404 races
+- [x] Error honesty: record I/O failures 500, validation 400, missing set 404;
+  `--recordings-dir` (default platform data dir); desktop uses its app-data dir
+- [x] Playback needs zero new endpoints: recordings probe as devices, "play" = the normal
+  device-set open flow
+
+### Web
+- [x] Recordings panel — browsable with zero sets open (device-independent library): rate ·
+  duration · size rows, Play (opens a playback set), guarded Delete
+- [x] Record ●/■ control with live elapsed/size/overruns readout; faulted recordings freeze
+  at the captured duration and surface the error; badge `record & replay · M3`
+- [x] vitest: record-control state machine, duration/size formatting, fault freeze
+
+### Fixtures (library started, PLAN §14)
+- [x] `cargo xtask fixtures` renders deterministic SigMF pairs (`siggen_2m4_1s`) via
+  `render()` + recorder; `fixtures/README.md` conventions (synthesized = regenerated, never
+  committed; recorded off-air captures land with their M4+ decoders)
+- [x] Decoder golden-test pattern proven now by the record→replay e2e
+
+### Gates
+- [x] `cargo fmt` + `clippy -D warnings` + full Rust suite green (224: recorder 11 ·
+  device-virtual 22 · engine 37+8+2 · server 25 · wire 17 · dsp 45 · channels 26 · device 2 ·
+  soapy 25 · sdrmm 4)
+- [x] `biome ci` + `oxlint --type-aware` + `tsgo` + web build + vitest (72) green
+- [x] OpenAPI regenerated, no drift; PLAN §5 record-endpoint sketch reconciled in the same
+  change (format field deferred with reason)
+
+### Post-review hardening (adversarial multi-agent review, all verified & fixed)
+- [x] **Rate-patch TOCTOU** (high): a patch committing under a concurrently-started recording
+  could silently mix sample rates under one SigMF meta — closed from both sides, tested with
+  a blocking-apply mock device
+- [x] **Recordings lost at shutdown** (high): the writer thread was never joined on process
+  exit, stranding a breadcrumb-only pair — `Engine::shutdown()` + `Drop` + both binaries'
+  exit paths finalize live recordings
+- [x] Stem-claim TOCTOU let a losing concurrent start truncate/delete the winner's live files
+  (atomic `create_new` claims); non-atomic finalize could crash into a listed-but-unopenable
+  phantom (rename-based finalize)
+- [x] Reconcile racing DELETE/stop 404'd successful deletes and churned row ids (server-side
+  gate); implicit stops never invalidated the recordings list (`StateScope::Recordings`
+  emitted on fault/remove/shutdown)
+- [x] Web: recordings panel unreachable with no open set; record mutation missed STATE
+  invalidation; unguarded Delete double-click (fixed in Presets/Bookmarks too); elapsed
+  readout ticking past a fault
+- [x] Lows: SigMF-optional `sample_rate`, 500-vs-400 honesty for record I/O, 404-before-400
+  ordering, writer-fault-glue test via injected shared error, honest queue-cap comment

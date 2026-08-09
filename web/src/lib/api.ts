@@ -13,6 +13,9 @@ import type {
   DeviceSettings,
   DevicesResponse,
   PresetInfo,
+  RecordAction,
+  RecordingStatus,
+  RecordingsResponse,
   StateSnapshot,
 } from "./types";
 
@@ -23,6 +26,7 @@ export const DEVICES_KEY = ["get", "/api/devices"] as const;
 export const CHANNEL_TYPES_KEY = ["get", "/api/channeltypes"] as const;
 export const PRESETS_KEY = ["get", "/api/presets"] as const;
 export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
+export const RECORDINGS_KEY = ["get", "/api/recordings"] as const;
 
 export function stateQuery() {
   return queryOptions({
@@ -151,6 +155,30 @@ export async function createBookmark(bookmark: CreateBookmarkRequest): Promise<n
 export async function deleteBookmark(id: number): Promise<void> {
   unwrap(
     await client.DELETE("/api/bookmarks/{id}", {
+      params: { path: { id } },
+    }),
+  );
+}
+
+export function recordingsQuery() {
+  return queryOptions({
+    queryKey: RECORDINGS_KEY,
+    queryFn: async (): Promise<RecordingsResponse> => unwrap(await client.GET("/api/recordings")),
+  });
+}
+
+export async function recordDeviceSet(ds: number, action: RecordAction): Promise<RecordingStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/record", {
+      params: { path: { ds } },
+      body: { action },
+    }),
+  );
+}
+
+export async function deleteRecording(id: number): Promise<void> {
+  unwrap(
+    await client.DELETE("/api/recordings/{id}", {
       params: { path: { id } },
     }),
   );

@@ -1,35 +1,43 @@
 //! `sdrmm-engine` — the flowgraph runtime (PLAN §2, §7). Owns the authoritative device-set
-//! state, hosts each device set's capture + DSP threads plus per-channel Opus encoders, and
-//! pushes `StateChanged` events, spectrum snapshots, and audio packets outward. The control
+//! state, hosts each device set's capture + DSP threads plus per-channel Opus encoders and
+//! an optional SigMF recording writer (see [`recording`]), and pushes `StateChanged` events,
+//! spectrum snapshots, and audio packets outward. The control
 //! plane (this facade) uses a mutex; the DSP plane (see [`runtime`]) is lock-free and never
 //! shares mutable state with it directly — channel changes cross over via a command queue.
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
+    thread::JoinHandle,
     time::Duration,
 };
 
 use sdrmm_channels::{ChannelCtx, ChannelError};
 use sdrmm_device::{DeviceError, DeviceRegistry};
 use sdrmm_device_virtual::VirtualDriver;
+use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
     Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DeviceInfo,
-    DeviceSet, DeviceSetStatus, DeviceSettings, ServerEvent, StateScope, StateSnapshot,
+    DeviceSet, DeviceSetStatus, DeviceSettings, RecordingStatus, ServerEvent, StateScope,
+    StateSnapshot,
 };
 use tokio::sync::broadcast;
 
 pub mod audio;
+pub mod recording;
 pub mod runtime;
 pub use audio::AudioPacket;
+pub use recording::FinalizedRecording;
 pub use runtime::{SpectrumSnapshot, adaptive_db_window};
 
 use crate::{
     audio::PcmBlock,
+    recording::RecordingShared,
     runtime::{CaptureRuntime, ChannelHost, DspCommand},
 };
 
@@ -55,6 +63,12 @@ pub enum EngineError {
     Channel(#[from] ChannelError),
     #[error("audio pipeline: {0}")]
     Audio(String),
+    #[error("recording: {0}")]
+    Recording(String),
+    /// Server-side I/O failure on the recording path (disk full, unwritable dir): mapped to
+    /// 500, unlike [`EngineError::Recording`]'s client mistakes.
+    #[error("recording: {0}")]
+    RecordingIo(String),
 }
 
 impl EngineError {
@@ -72,6 +86,7 @@ impl EngineError {
             self,
             Self::Device(DeviceError::Unsupported(_) | DeviceError::AlreadyStreaming)
                 | Self::Channel(_)
+                | Self::Recording(_)
         )
     }
 }
@@ -179,6 +194,44 @@ impl ChannelAudio {
     }
 }
 
+/// Control-plane handle to a live recording: the writer thread plus the shared state the
+/// DSP tap and the writer update, projected into `DeviceSet.recording`.
+struct RecordingState {
+    /// Stem file name (no directory, no `.sigmf-*` suffix) — what clients display.
+    file: String,
+    /// RFC3339 UTC.
+    started_at: String,
+    /// Directory-joined stem, kept for the finalized handoff to the server's index.
+    stem: PathBuf,
+    shared: Arc<RecordingShared>,
+    writer: JoinHandle<()>,
+    /// `DeviceSet.overruns` when the recording armed; the difference is the drops the
+    /// recording spans (loss upstream of the DSP plane, PLAN §5).
+    overruns_at_start: u64,
+    /// Counter/fault values already surfaced to clients; the hotplug tick diffs against them.
+    samples_seen: u64,
+    error_seen: bool,
+}
+
+impl RecordingState {
+    fn status(&self, overruns_now: u64) -> RecordingStatus {
+        RecordingStatus {
+            file: self.file.clone(),
+            started_at: self.started_at.clone(),
+            samples: self.shared.samples(),
+            bytes: self.shared.bytes(),
+            overruns: overruns_now - self.overruns_at_start,
+            error: self.shared.error(),
+        }
+    }
+
+    /// Joins the writer thread. The caller must already have arranged for the DSP-side tap
+    /// to drop (`StopRecording` queued, or the runtime stopped) or this blocks.
+    fn join(self) {
+        join_recording_writer(self.writer);
+    }
+}
+
 /// Per-device-set control-plane state plus its running capture (PLAN §7). The runtime owns the
 /// device and DSP thread; the rest is the serializable projection sent to clients.
 struct DeviceSetState {
@@ -192,6 +245,13 @@ struct DeviceSetState {
     audio: HashMap<u32, ChannelAudio>,
     next_channel_id: u32,
     error: Option<String>,
+    recording: Option<RecordingState>,
+    /// In-flight `patch_device` calls that will change the sample rate (pre-validated, device
+    /// I/O or merge still pending). `start_recording`'s commit refuses while non-zero: a
+    /// recording committed inside that window would pin a rate the patch is about to change —
+    /// the reverse ordering of the recording guard in the patch pre-validation. Cleared by
+    /// [`RatePatchGuard`] on every patch exit path.
+    rate_patches: u32,
     /// Clone of the runtime's DSP command queue. Channel commands go through this while
     /// holding the engine `inner` lock with this set's entry present — that ordering is what
     /// keeps DSP-plane channel membership consistent with control-plane state (a removal or
@@ -214,6 +274,7 @@ struct DeviceSetState {
 
 impl DeviceSetState {
     fn project(&self, id: u32) -> DeviceSet {
+        let overruns = self.overruns.load(Ordering::Relaxed);
         DeviceSet {
             id,
             device: self.info.clone(),
@@ -221,8 +282,9 @@ impl DeviceSetState {
             settings: self.settings.clone(),
             status: self.status,
             channels: self.channels.clone(),
-            overruns: self.overruns.load(Ordering::Relaxed),
+            overruns,
             error: self.error.clone(),
+            recording: self.recording.as_ref().map(|r| r.status(overruns)),
         }
     }
 
@@ -232,6 +294,23 @@ impl DeviceSetState {
     fn send_dsp(&self, cmd: DspCommand) {
         if self.cmd_tx.send(cmd).is_err() {
             tracing::error!("dsp command queue closed while its device set is still listed");
+        }
+    }
+}
+
+/// Clears a device set's `rate_patches` claim on drop, so no `patch_device` exit path
+/// (device-apply failure, set removal, success) can leave the claim stuck and block every
+/// future `start_recording` on the set. Must never be dropped while `inner` is held.
+struct RatePatchGuard<'a> {
+    engine: &'a Engine,
+    ds: u32,
+}
+
+impl Drop for RatePatchGuard<'_> {
+    fn drop(&mut self) {
+        let mut inner = self.engine.lock();
+        if let Some(state) = inner.device_sets.get_mut(&self.ds) {
+            state.rate_patches = state.rate_patches.saturating_sub(1);
         }
     }
 }
@@ -256,26 +335,35 @@ pub struct Engine {
     event_tx: broadcast::Sender<ServerEvent>,
     /// Cloned into each capture runtime's fatal handler; the fault drainer holds the receiver.
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
+    /// Where `start_recording` writes SigMF pairs; `None` disables recording (PLAN §11).
+    recordings_dir: Option<PathBuf>,
 }
 
 impl Engine {
     /// Build the engine with the built-in drivers registered (virtual always; native backends
-    /// join here as their milestones land, PLAN §16).
+    /// join here as their milestones land, PLAN §16). `recordings_dir` is both where
+    /// `start_recording` writes and what the virtual driver scans for playback devices, so
+    /// a finalized recording is immediately replayable.
     #[must_use]
-    pub fn new() -> Arc<Self> {
+    pub fn new(recordings_dir: Option<PathBuf>) -> Arc<Self> {
         let mut registry = DeviceRegistry::new();
-        registry.register(VIRTUAL_PRIORITY, Box::new(VirtualDriver::new()));
+        let virtual_driver = match recordings_dir.clone() {
+            Some(dir) => VirtualDriver::with_recordings(dir),
+            None => VirtualDriver::new(),
+        };
+        registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
         #[cfg(feature = "soapy")]
         registry.register(
             SOAPY_PRIORITY,
             Box::new(sdrmm_device_soapy::SoapyDriver::new()),
         );
-        Self::with_registry(registry)
+        Self::with_registry(registry, recordings_dir)
     }
 
-    /// Build the engine over a caller-supplied registry, so tests can register mock drivers.
+    /// Build the engine over a caller-supplied registry, so tests can register mock drivers
+    /// (and point `recordings_dir` at a scoped temp dir).
     #[must_use]
-    pub fn with_registry(registry: DeviceRegistry) -> Arc<Self> {
+    pub fn with_registry(registry: DeviceRegistry, recordings_dir: Option<PathBuf>) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAP);
         let (fault_tx, fault_rx) = mpsc::channel();
         let engine = Arc::new(Self {
@@ -283,9 +371,17 @@ impl Engine {
             inner: Mutex::new(Inner::default()),
             event_tx,
             fault_tx,
+            recordings_dir,
         });
         engine.spawn_fault_drainer(fault_rx);
         engine
+    }
+
+    /// The directory `start_recording` writes into (PLAN §11: files on disk are the source
+    /// of truth); the server's recordings index scans this same directory.
+    #[must_use]
+    pub fn recordings_dir(&self) -> Option<&Path> {
+        self.recordings_dir.as_deref()
     }
 
     /// Serialize capture-thread faults into state changes. Holds only a `Weak` so it never
@@ -316,8 +412,25 @@ impl Engine {
         if let Some(state) = inner.device_sets.get_mut(&ds) {
             state.status = DeviceSetStatus::Error;
             state.error = Some(err.to_string());
+            // A dead capture feeds no more samples, so finalize any live recording now: the
+            // data captured so far becomes a playable pair instead of a dangling breadcrumb.
+            // The DSP thread is still alive (only removal stops it), so the queued command
+            // is guaranteed to drop the tap and the join below cannot hang.
+            let recording = state.recording.take();
+            if recording.is_some() {
+                state.send_dsp(DspCommand::StopRecording);
+            }
             inner.revision += 1;
             drop(inner);
+            if let Some(recording) = recording {
+                recording.join();
+                // The implicit stop just finalized a playable pair; without this scope
+                // nothing ever invalidates the recordings library for a fault-stopped
+                // recording (clients never poll).
+                self.emit(ServerEvent::StateChanged {
+                    scope: StateScope::Recordings,
+                });
+            }
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
             });
@@ -367,30 +480,56 @@ impl Engine {
     /// Capture-ring overrun growth surfaces here too, rather than from the DSP thread: the
     /// prober cadence rate-limits both the warn and the `StateChanged` fan-out to one per
     /// set per tick, and clients then read the cumulative count from `DeviceSet.overruns`.
+    /// Live-recording progress (and writer faults) ride the same diff, so a recording's
+    /// counters refresh for clients without any extra event source.
     fn hotplug_tick(
         &self,
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
     ) -> bool {
-        let grown: Vec<(u32, u64)> = {
+        let (grown, rec_faults, changed) = {
             let mut inner = self.lock();
-            let grown: Vec<(u32, u64)> = inner
-                .device_sets
-                .iter_mut()
-                .filter_map(|(id, s)| {
-                    let now = s.overruns.load(Ordering::Relaxed);
-                    let delta = now - s.overruns_seen;
-                    s.overruns_seen = now;
-                    (delta > 0).then_some((*id, delta))
-                })
-                .collect();
-            if !grown.is_empty() {
+            let mut grown: Vec<(u32, u64)> = Vec::new();
+            let mut rec_faults: Vec<(u32, String)> = Vec::new();
+            let mut changed: Vec<u32> = Vec::new();
+            for (id, s) in inner.device_sets.iter_mut() {
+                let now = s.overruns.load(Ordering::Relaxed);
+                let delta = now - s.overruns_seen;
+                s.overruns_seen = now;
+                let mut dirty = delta > 0;
+                if delta > 0 {
+                    grown.push((*id, delta));
+                }
+                if let Some(rec) = &mut s.recording {
+                    let samples = rec.shared.samples();
+                    if samples != rec.samples_seen {
+                        rec.samples_seen = samples;
+                        dirty = true;
+                    }
+                    if let Some(error) = rec.shared.error()
+                        && !rec.error_seen
+                    {
+                        rec.error_seen = true;
+                        rec_faults.push((*id, error));
+                        dirty = true;
+                    }
+                }
+                if dirty {
+                    changed.push(*id);
+                }
+            }
+            if !changed.is_empty() {
                 inner.revision += 1;
             }
-            grown
+            (grown, rec_faults, changed)
         };
         for (ds, dropped) in grown {
             tracing::warn!(ds, dropped, "capture ring overrun: device samples dropped");
+        }
+        for (ds, error) in rec_faults {
+            tracing::warn!(ds, error = %error, "recording fault");
+        }
+        for ds in changed {
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
             });
@@ -518,6 +657,8 @@ impl Engine {
                     audio: HashMap::new(),
                     next_channel_id: 1,
                     error: pending.as_ref().map(ToString::to_string),
+                    recording: None,
+                    rate_patches: 0,
                     cmd_tx,
                     overruns,
                     overruns_seen: 0,
@@ -550,18 +691,48 @@ impl Engine {
             }
             removed
         };
-        let mut removed = removed.ok_or(EngineError::DeviceSetNotFound(ds))?;
-        // Stopping joins the DSP thread, dropping every hosted channel and with it the last
-        // DSP-side PCM sender — only then can the encoder joins below complete.
-        lock_runtime(&removed.runtime).stop();
-        for (_, handle) in removed.audio.drain() {
-            handle.shutdown();
-        }
-        drop(removed);
+        let removed = removed.ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let finalized = teardown_set(removed);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::All,
         });
+        if finalized {
+            // The implicit stop just finalized a playable pair; clients only learn about it
+            // through this scope (GET /api/recordings reconciles on fetch).
+            self.emit(ServerEvent::StateChanged {
+                scope: StateScope::Recordings,
+            });
+        }
         Ok(())
+    }
+
+    /// Tear down every device set — capture stop, recording writer join, encoder joins — so
+    /// live recordings finalize into playable pairs instead of dying as breadcrumbs when the
+    /// process exits. Idempotent; `Drop` calls it too, but binaries whose exit path never
+    /// unwinds the engine (Tauri, `process::exit`) must call it explicitly.
+    pub fn shutdown(&self) {
+        let removed: Vec<DeviceSetState> = {
+            let mut inner = self.lock();
+            if inner.device_sets.is_empty() {
+                return;
+            }
+            inner.revision += 1;
+            std::mem::take(&mut inner.device_sets)
+                .into_values()
+                .collect()
+        };
+        let mut finalized = false;
+        for set in removed {
+            finalized |= teardown_set(set);
+        }
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::All,
+        });
+        if finalized {
+            self.emit(ServerEvent::StateChanged {
+                scope: StateScope::Recordings,
+            });
+        }
     }
 
     /// Apply a device settings delta (PLAN §5 PATCH device). The device I/O runs under the
@@ -570,23 +741,42 @@ impl Engine {
     /// pipeline at the new rate (ids and audio streams preserved); center-frequency changes
     /// need nothing — channel offsets are center-relative.
     pub fn patch_device(&self, ds: u32, delta: DeviceSettings) -> Result<(), EngineError> {
-        let runtime = {
-            let inner = self.lock();
+        let (runtime, _rate_guard) = {
+            let mut inner = self.lock();
             let state = inner
                 .device_sets
-                .get(&ds)
+                .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
             // Refuse a rate the hosted channels cannot run at, before any device I/O —
             // rejecting up front beats stranding a channel after the device already retuned.
+            let mut rate_change = false;
             if let Some(new_rate) = delta.sample_rate
                 && new_rate != sample_rate_of(&state.settings)
             {
+                // SigMF `core:sample_rate` is global-scope — one rate per file — so a live
+                // recording pins the device rate; center retunes stay allowed (they land as
+                // capture segments).
+                if state.recording.is_some() {
+                    return Err(EngineError::Recording(
+                        "sample rate is locked while recording; stop the recording first"
+                            .to_string(),
+                    ));
+                }
                 for channel in &state.channels {
                     let descriptor = descriptor_for(&channel.settings.params)?;
                     validate_channel(&descriptor, &channel.settings, new_rate)?;
                 }
+                rate_change = true;
             }
-            state.runtime.clone()
+            let runtime = state.runtime.clone();
+            // The guard closes the patch-vs-record race for the whole apply-to-merge window:
+            // `start_recording`'s commit refuses while it is up, so a recording can never pin
+            // a rate this patch is about to change.
+            let guard = rate_change.then(|| {
+                state.rate_patches += 1;
+                RatePatchGuard { engine: self, ds }
+            });
+            (runtime, guard)
         };
         lock_runtime(&runtime).apply(&delta)?;
         let (center, rate, rebuilds) = {
@@ -598,6 +788,26 @@ impl Engine {
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
             let old_rate = sample_rate_of(&state.settings);
+            // A same-rate delta carries no guard, so if another patch moved the rate while
+            // `apply` ran, this delta may now be a rate change under a recording that
+            // committed in between. Merging would break the one-rate-per-file invariant;
+            // revert the device instead and lose cleanly.
+            if state.recording.is_some() && delta.sample_rate.is_some_and(|r| r != old_rate) {
+                drop(inner);
+                let revert = DeviceSettings {
+                    sample_rate: Some(old_rate),
+                    ..DeviceSettings::default()
+                };
+                if let Err(e) = lock_runtime(&runtime).apply(&revert) {
+                    return Err(EngineError::Recording(format!(
+                        "sample rate is locked while recording, and reverting the device to \
+                         {old_rate} Hz failed: {e}"
+                    )));
+                }
+                return Err(EngineError::Recording(
+                    "sample rate is locked while recording; stop the recording first".to_string(),
+                ));
+            }
             state.settings.merge_from(&delta);
             let center = state.settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
             let rate = sample_rate_of(&state.settings);
@@ -910,6 +1120,146 @@ impl Engine {
         Ok(())
     }
 
+    /// Start recording a device set's raw IQ into a SigMF pair under the recordings dir
+    /// (PLAN §5; the path is lossless — see [`recording`]). Writer, files, and thread come
+    /// up control-side so open errors surface here; the tap then arms via the command queue
+    /// in the same critical section as the state commit (the `send_dsp` invariant), with the
+    /// commit re-verifying the rate the meta was written with — an `add_channel`-style retry
+    /// against racing patches.
+    pub fn start_recording(&self, ds: u32) -> Result<(), EngineError> {
+        loop {
+            let (rate, center, hw) = {
+                let inner = self.lock();
+                let state = inner
+                    .device_sets
+                    .get(&ds)
+                    .ok_or(EngineError::DeviceSetNotFound(ds))?;
+                if state.recording.is_some() {
+                    return Err(EngineError::Recording("already recording".to_string()));
+                }
+                if state.status != DeviceSetStatus::Running {
+                    return Err(EngineError::Recording(
+                        "device set is not running".to_string(),
+                    ));
+                }
+                (
+                    sample_rate_of(&state.settings),
+                    state.settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ),
+                    state.info.label.clone(),
+                )
+            };
+            // After the set lookup, so a missing set stays a 404 even with recording disabled.
+            let Some(dir) = self.recordings_dir.clone() else {
+                return Err(EngineError::Recording(
+                    "no recordings directory configured".to_string(),
+                ));
+            };
+            std::fs::create_dir_all(&dir)
+                .map_err(|e| EngineError::RecordingIo(format!("create {}: {e}", dir.display())))?;
+            let started_at = jiff::Timestamp::now();
+            let (sigmf, file) = recording::create_writer(&dir, ds, started_at, rate, center, &hw)?;
+            let stem = sigmf.stem().to_path_buf();
+            let (tap, blocks, shared) = recording::create_tap();
+            let writer = recording::spawn_writer(sigmf, blocks, shared.clone())?;
+
+            let (aborted, patch_in_flight) = {
+                let mut inner = self.lock();
+                match inner.device_sets.get_mut(&ds) {
+                    Some(state)
+                        if state.status == DeviceSetStatus::Running
+                            && state.recording.is_none()
+                            && state.rate_patches == 0
+                            && sample_rate_of(&state.settings) == rate =>
+                    {
+                        state.recording = Some(RecordingState {
+                            file,
+                            started_at: started_at.to_string(),
+                            stem: stem.clone(),
+                            shared,
+                            writer,
+                            overruns_at_start: state.overruns.load(Ordering::Relaxed),
+                            samples_seen: 0,
+                            error_seen: false,
+                        });
+                        state.send_dsp(DspCommand::StartRecording { tap });
+                        inner.revision += 1;
+                        (None, false)
+                    }
+                    // A rate patch is between its pre-validation and its merge: committing
+                    // now would pin a rate the device is about to leave, and retrying would
+                    // spin for as long as the patch sits in device I/O — fail instead.
+                    Some(state) if state.rate_patches > 0 => (Some((tap, writer)), true),
+                    _ => (Some((tap, writer)), false),
+                }
+            };
+            let Some((tap, writer)) = aborted else {
+                self.emit(ServerEvent::StateChanged {
+                    scope: StateScope::DeviceSet(ds),
+                });
+                return Ok(());
+            };
+            // The set moved while the files were opened (removed, faulted, rate patched, or
+            // a concurrent start won): closing the tap finalizes the empty attempt, whose
+            // files — exclusively this attempt's, by the create_new stem claim — are then
+            // discarded before re-evaluating against fresh state.
+            drop(tap);
+            join_recording_writer(writer);
+            for path in [meta_path(&stem), data_path(&stem)] {
+                if let Err(e) = std::fs::remove_file(&path)
+                    && e.kind() != std::io::ErrorKind::NotFound
+                {
+                    tracing::warn!(path = %path.display(), error = %e, "aborted recording attempt left a file behind");
+                }
+            }
+            if patch_in_flight {
+                return Err(EngineError::Recording(
+                    "a sample-rate change is in flight; retry once it completes".to_string(),
+                ));
+            }
+        }
+    }
+
+    /// Stop a live recording, join its writer, and hand back the finalized pair for indexing
+    /// (PLAN §11). The join happens outside `inner`; the `StopRecording` queued in the same
+    /// critical section as the take guarantees the DSP-side tap drops (or the whole runtime
+    /// stopped, dropping tap and queue together), so the join cannot hang.
+    pub fn stop_recording(&self, ds: u32) -> Result<FinalizedRecording, EngineError> {
+        let (recording, overruns) = {
+            let mut inner = self.lock();
+            let state = inner
+                .device_sets
+                .get_mut(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            let Some(recording) = state.recording.take() else {
+                return Err(EngineError::Recording("not recording".to_string()));
+            };
+            state.send_dsp(DspCommand::StopRecording);
+            let overruns = state.overruns.clone();
+            inner.revision += 1;
+            (recording, overruns)
+        };
+        let RecordingState {
+            stem,
+            started_at,
+            shared,
+            writer,
+            overruns_at_start,
+            ..
+        } = recording;
+        join_recording_writer(writer);
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
+        Ok(FinalizedRecording {
+            stem,
+            started_at,
+            samples: shared.samples(),
+            bytes: shared.bytes(),
+            overruns: overruns.load(Ordering::Relaxed) - overruns_at_start,
+            error: shared.error(),
+        })
+    }
+
     /// Subscribe to a channel's Opus packet stream (PLAN §5 SubscribeAudio).
     pub fn subscribe_audio(
         &self,
@@ -968,6 +1318,31 @@ fn lock_runtime(runtime: &Mutex<CaptureRuntime>) -> std::sync::MutexGuard<'_, Ca
     runtime
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Stop an unlisted set's threads in the one order that cannot hang: the runtime stop joins
+/// the DSP thread, dropping the recorder tap (closing the writer queue) and the last DSP-side
+/// PCM senders — only then can the writer and encoder joins complete. Returns whether a live
+/// recording was finalized.
+fn teardown_set(mut removed: DeviceSetState) -> bool {
+    lock_runtime(&removed.runtime).stop();
+    let finalized = removed.recording.take().map(RecordingState::join).is_some();
+    for (_, handle) in removed.audio.drain() {
+        handle.shutdown();
+    }
+    finalized
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+fn join_recording_writer(writer: JoinHandle<()>) {
+    if writer.join().is_err() {
+        tracing::error!("recording writer thread panicked");
+    }
 }
 
 #[cfg(test)]
@@ -1214,6 +1589,137 @@ mod tests {
         fn rx_stop(&mut self) {}
     }
 
+    /// Driver whose device streams small paced blocks until told to die, so tests can fault
+    /// a capture mid-recording at a chosen moment.
+    struct FaultOnDemandDriver {
+        die: Arc<AtomicBool>,
+    }
+
+    impl DeviceDriver for FaultOnDemandDriver {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+
+        fn probe(&self) -> Vec<DeviceInfo> {
+            vec![mock_info("ondemand", None)]
+        }
+
+        fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+            Ok(Box::new(FaultOnDemandDevice {
+                capabilities: empty_capabilities(),
+                settings: DeviceSettings::default(),
+                die: self.die.clone(),
+                stop: Arc::new(AtomicBool::new(false)),
+                worker: None,
+            }))
+        }
+    }
+
+    struct FaultOnDemandDevice {
+        capabilities: Capabilities,
+        settings: DeviceSettings,
+        die: Arc<AtomicBool>,
+        stop: Arc<AtomicBool>,
+        worker: Option<JoinHandle<()>>,
+    }
+
+    impl SdrDevice for FaultOnDemandDevice {
+        fn capabilities(&self) -> &Capabilities {
+            &self.capabilities
+        }
+
+        fn settings(&self) -> &DeviceSettings {
+            &self.settings
+        }
+
+        fn apply(&mut self, _settings: &DeviceSettings) -> Result<(), DeviceError> {
+            Ok(())
+        }
+
+        fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+            let die = self.die.clone();
+            let stop = self.stop.clone();
+            self.worker = Some(std::thread::spawn(move || {
+                let block = [Complex::new(0.1f32, 0.0); 2_048];
+                while !stop.load(Ordering::SeqCst) {
+                    if die.load(Ordering::SeqCst) {
+                        sink.fail(DeviceError::Io("mock stream died".to_string()));
+                        return;
+                    }
+                    sink.push(&block);
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }));
+            Ok(())
+        }
+
+        fn rx_stop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = self.worker.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    /// Driver whose device blocks inside `apply` for rate-bearing deltas until released,
+    /// so tests can hold a rate patch mid-flight deterministically.
+    struct BlockingApplyDriver {
+        entered_tx: mpsc::Sender<()>,
+        release_rx: Mutex<Option<mpsc::Receiver<()>>>,
+    }
+
+    impl DeviceDriver for BlockingApplyDriver {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+
+        fn probe(&self) -> Vec<DeviceInfo> {
+            vec![mock_info("blocking", None)]
+        }
+
+        fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+            Ok(Box::new(BlockingApplyDevice {
+                capabilities: empty_capabilities(),
+                settings: DeviceSettings::default(),
+                entered_tx: self.entered_tx.clone(),
+                release_rx: self.release_rx.lock().unwrap().take(),
+            }))
+        }
+    }
+
+    struct BlockingApplyDevice {
+        capabilities: Capabilities,
+        settings: DeviceSettings,
+        entered_tx: mpsc::Sender<()>,
+        release_rx: Option<mpsc::Receiver<()>>,
+    }
+
+    impl SdrDevice for BlockingApplyDevice {
+        fn capabilities(&self) -> &Capabilities {
+            &self.capabilities
+        }
+
+        fn settings(&self) -> &DeviceSettings {
+            &self.settings
+        }
+
+        fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+            if settings.sample_rate.is_some() {
+                let _ = self.entered_tx.send(());
+                if let Some(rx) = &self.release_rx {
+                    let _ = rx.recv();
+                }
+            }
+            Ok(())
+        }
+
+        fn rx_start(&mut self, _sink: RxSink) -> Result<(), DeviceError> {
+            Ok(())
+        }
+
+        fn rx_stop(&mut self) {}
+    }
+
     /// Driver whose probe result grows after the first call, simulating an attach.
     struct FlappingDriver {
         probes: AtomicUsize,
@@ -1259,7 +1765,7 @@ mod tests {
     async fn device_fault_surfaces_and_removal_completes() {
         let mut registry = DeviceRegistry::new();
         registry.register(50, Box::new(DyingDriver));
-        let engine = Engine::with_registry(registry);
+        let engine = Engine::with_registry(registry, None);
         let mut events = engine.subscribe_events();
         let ds = engine.create_device_set("mock:dying").unwrap();
 
@@ -1295,7 +1801,7 @@ mod tests {
     async fn fault_raised_before_insert_still_surfaces() {
         let mut registry = DeviceRegistry::new();
         registry.register(50, Box::new(InstantFailDriver));
-        let engine = Engine::with_registry(registry);
+        let engine = Engine::with_registry(registry, None);
         let ds = engine.create_device_set("mock:instafail").unwrap();
 
         // The fault was sent before the insert; whether the drainer processed it before the
@@ -1340,7 +1846,7 @@ mod tests {
                 present: present.clone(),
             }),
         );
-        let engine = Engine::with_registry(registry);
+        let engine = Engine::with_registry(registry, None);
         let mut events = engine.subscribe_events();
         let ds = engine.create_device_set("mock:vanish").unwrap();
 
@@ -1386,7 +1892,7 @@ mod tests {
                 probes: AtomicUsize::new(0),
             }),
         );
-        let engine = Engine::with_registry(registry);
+        let engine = Engine::with_registry(registry, None);
         let mut events = engine.subscribe_events();
 
         let mut known = None;
@@ -1422,7 +1928,7 @@ mod tests {
     fn virtual_engine() -> Arc<Engine> {
         let mut registry = DeviceRegistry::new();
         registry.register(VIRTUAL_PRIORITY, Box::new(VirtualDriver::new()));
-        Engine::with_registry(registry)
+        Engine::with_registry(registry, None)
     }
 
     #[tokio::test]
@@ -1593,7 +2099,7 @@ mod tests {
     async fn ring_overrun_surfaces_in_state_and_emits_event() {
         let mut registry = DeviceRegistry::new();
         registry.register(50, Box::new(FloodingDriver));
-        let engine = Engine::with_registry(registry);
+        let engine = Engine::with_registry(registry, None);
         let mut events = engine.subscribe_events();
         let ds = engine.create_device_set("mock:flood").unwrap();
 
@@ -1616,6 +2122,396 @@ mod tests {
             matches!(quiet.try_recv(), Err(broadcast::error::TryRecvError::Empty)),
             "tick without overrun growth must not emit"
         );
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    /// Hermetic recording engine: virtual driver + a scoped temp recordings dir shared by
+    /// `start_recording` and the driver's playback probe.
+    fn recording_engine(dir: &Path) -> Arc<Engine> {
+        let mut registry = DeviceRegistry::new();
+        registry.register(
+            VIRTUAL_PRIORITY,
+            Box::new(VirtualDriver::with_recordings(dir.to_path_buf())),
+        );
+        Engine::with_registry(registry, Some(dir.to_path_buf()))
+    }
+
+    /// The virtual device is real-time paced, so recording progress needs polling.
+    async fn wait_for_recorded_samples(engine: &Engine, ds: u32, min: u64) -> RecordingStatus {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let snap = engine.snapshot();
+            let recording = snap
+                .device_sets
+                .iter()
+                .find(|s| s.id == ds)
+                .expect("set listed")
+                .recording
+                .clone();
+            if let Some(rec) = recording
+                && rec.samples >= min
+            {
+                return rec;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "recording never reached {min} samples"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn record_start_stop_produces_a_finalized_sigmf_pair() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let engine = recording_engine(dir.path());
+        let mut events = engine.subscribe_events();
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+
+        engine.start_recording(ds).unwrap();
+        wait_for_deviceset_event(&mut events, ds).await;
+        let live = wait_for_recorded_samples(&engine, ds, 1).await;
+        assert!(!live.file.is_empty());
+        live.started_at.parse::<jiff::Timestamp>().unwrap();
+        assert_eq!(live.error, None);
+
+        let finalized = engine.stop_recording(ds).unwrap();
+        assert_eq!(finalized.error, None);
+        assert!(finalized.samples > 0);
+        assert_eq!(
+            finalized.bytes,
+            finalized.samples * sdrmm_recorder::BYTES_PER_SAMPLE
+        );
+        assert!(engine.snapshot().device_sets[0].recording.is_none());
+
+        let reader = sdrmm_recorder::SigmfReader::open(&finalized.stem).unwrap();
+        assert_eq!(reader.total_samples(), finalized.samples);
+        assert_eq!(reader.meta().global.sample_rate, Some(2_048_000.0));
+        assert_eq!(reader.meta().captures[0].frequency, Some(100_000_000.0));
+
+        // The finalized pair is immediately probeable as a playback device.
+        let playback_id = format!("virtual:file:{}", finalized.stem.display());
+        assert!(engine.probe_devices().iter().any(|d| d.id() == playback_id));
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    #[tokio::test]
+    async fn double_start_and_idle_stop_are_rejected() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let engine = recording_engine(dir.path());
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+
+        let err = engine.stop_recording(ds).unwrap_err();
+        assert!(err.is_bad_request(), "expected bad request, got {err}");
+
+        engine.start_recording(ds).unwrap();
+        let err = engine.start_recording(ds).unwrap_err();
+        assert!(err.is_bad_request(), "expected bad request, got {err}");
+
+        engine.stop_recording(ds).unwrap();
+        let err = engine.stop_recording(ds).unwrap_err();
+        assert!(err.is_bad_request(), "expected bad request, got {err}");
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    #[tokio::test]
+    async fn start_without_a_recordings_dir_is_rejected() {
+        let engine = virtual_engine();
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+        let err = engine.start_recording(ds).unwrap_err();
+        assert!(err.is_bad_request(), "expected bad request, got {err}");
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rate_patch_is_rejected_while_recording_center_retune_is_captured() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let engine = recording_engine(dir.path());
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+        engine.start_recording(ds).unwrap();
+        let before = wait_for_recorded_samples(&engine, ds, 1).await;
+
+        let err = engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    sample_rate: Some(2_400_000.0),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(err.is_bad_request(), "expected bad request, got {err}");
+        let snap = engine.snapshot();
+        assert_eq!(snap.device_sets[0].settings.sample_rate, Some(2_048_000.0));
+        assert!(
+            snap.device_sets[0].recording.is_some(),
+            "rejected patch must not kill the recording"
+        );
+
+        // A center retune stays allowed and lands as a capture segment. Blocks are stamped
+        // with the meta center at drain time, so waiting out a full ring of samples (the
+        // largest possible in-flight drain) plus margin guarantees post-retune blocks.
+        engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    center_hz: Some(88_500_000.0),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        wait_for_recorded_samples(
+            &engine,
+            ds,
+            before.samples + crate::runtime::RING_CAPACITY as u64 + 200_000,
+        )
+        .await;
+        let finalized = engine.stop_recording(ds).unwrap();
+        engine.remove_device_set(ds).unwrap();
+
+        let reader = sdrmm_recorder::SigmfReader::open(&finalized.stem).unwrap();
+        let captures = &reader.meta().captures;
+        assert_eq!(captures.len(), 2, "retune must append one capture segment");
+        assert_eq!(captures[1].frequency, Some(88_500_000.0));
+        assert!(captures[1].sample_start > 0);
+    }
+
+    #[tokio::test]
+    async fn device_fault_finalizes_the_recording() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let die = Arc::new(AtomicBool::new(false));
+        let mut registry = DeviceRegistry::new();
+        registry.register(50, Box::new(FaultOnDemandDriver { die: die.clone() }));
+        let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
+        let ds = engine.create_device_set("mock:ondemand").unwrap();
+
+        engine.start_recording(ds).unwrap();
+        let live = wait_for_recorded_samples(&engine, ds, 1).await;
+
+        // The fault event is emitted only after the writer join, so the pair is finalized
+        // once it arrives. The implicit stop must also announce the Recordings scope, or
+        // clients never refetch the library for a fault-stopped recording.
+        let mut events = engine.subscribe_events();
+        die.store(true, Ordering::SeqCst);
+        let mut saw_recordings = false;
+        let mut saw_device_set = false;
+        while !(saw_recordings && saw_device_set) {
+            let ev = tokio::time::timeout(Duration::from_secs(3), events.recv())
+                .await
+                .expect("event within timeout")
+                .expect("event");
+            match ev {
+                ServerEvent::StateChanged {
+                    scope: StateScope::Recordings,
+                } => saw_recordings = true,
+                ServerEvent::StateChanged {
+                    scope: StateScope::DeviceSet(id),
+                } if id == ds => saw_device_set = true,
+                _ => {}
+            }
+        }
+
+        let snap = engine.snapshot();
+        assert_eq!(snap.device_sets[0].status, DeviceSetStatus::Error);
+        assert!(
+            snap.device_sets[0].recording.is_none(),
+            "fault must finalize and clear the recording"
+        );
+        let reader = sdrmm_recorder::SigmfReader::open(&dir.path().join(&live.file)).unwrap();
+        assert!(reader.total_samples() > 0);
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    #[tokio::test]
+    async fn recording_growth_rides_the_hotplug_tick() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let engine = recording_engine(dir.path());
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+        engine.start_recording(ds).unwrap();
+        wait_for_recorded_samples(&engine, ds, 1).await;
+
+        let mut events = engine.subscribe_events();
+        let mut known = None;
+        let mut missing_once = HashSet::new();
+        engine.hotplug_tick(&mut known, &mut missing_once);
+        wait_for_deviceset_event(&mut events, ds).await;
+
+        engine.stop_recording(ds).unwrap();
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    #[tokio::test]
+    async fn start_during_rate_patch_cannot_commit_a_wrong_rate_recording() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let mut registry = DeviceRegistry::new();
+        registry.register(
+            50,
+            Box::new(BlockingApplyDriver {
+                entered_tx,
+                release_rx: Mutex::new(Some(release_rx)),
+            }),
+        );
+        let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
+        let ds = engine.create_device_set("mock:blocking").unwrap();
+
+        let patch = {
+            let engine = engine.clone();
+            tokio::task::spawn_blocking(move || {
+                engine.patch_device(
+                    ds,
+                    DeviceSettings {
+                        sample_rate: Some(2_400_000.0),
+                        ..Default::default()
+                    },
+                )
+            })
+        };
+        // The device is now blocked inside `apply`, with the pre-validation (and the
+        // rate-patch claim) already committed.
+        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        let err = engine.start_recording(ds).unwrap_err();
+        assert!(err.is_bad_request(), "expected bad request, got {err}");
+        assert!(err.to_string().contains("in flight"), "{err}");
+        // The rejected attempt must leave no files behind.
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+
+        release_tx.send(()).unwrap();
+        patch.await.expect("join").expect("patch ok");
+        let snap = engine.snapshot();
+        assert_eq!(snap.device_sets[0].settings.sample_rate, Some(2_400_000.0));
+        assert!(snap.device_sets[0].recording.is_none());
+
+        // Once the patch merged, recording works again — at the new rate.
+        engine.start_recording(ds).unwrap();
+        let finalized = engine.stop_recording(ds).unwrap();
+        let reader = sdrmm_recorder::SigmfReader::open(&finalized.stem).unwrap();
+        assert_eq!(reader.meta().global.sample_rate, Some(2_400_000.0));
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    #[tokio::test]
+    async fn engine_drop_finalizes_a_live_recording() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let engine = recording_engine(dir.path());
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+        engine.start_recording(ds).unwrap();
+        let live = wait_for_recorded_samples(&engine, ds, 1).await;
+
+        drop(engine);
+
+        let stem = dir.path().join(&live.file);
+        assert!(
+            sdrmm_recorder::meta_path(&stem).exists(),
+            "drop must join the writer and finalize the pair"
+        );
+        assert!(
+            !dir.path()
+                .join(format!("{}.sigmf-meta.tmp", live.file))
+                .exists(),
+            "no breadcrumb may survive an orderly teardown"
+        );
+        let reader = sdrmm_recorder::SigmfReader::open(&stem).unwrap();
+        assert!(reader.total_samples() > 0);
+    }
+
+    #[tokio::test]
+    async fn shutdown_finalizes_recordings_emits_scopes_and_is_idempotent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let engine = recording_engine(dir.path());
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+        engine.start_recording(ds).unwrap();
+        let live = wait_for_recorded_samples(&engine, ds, 1).await;
+
+        let mut events = engine.subscribe_events();
+        engine.shutdown();
+        assert!(engine.snapshot().device_sets.is_empty());
+        let mut saw_all = false;
+        let mut saw_recordings = false;
+        while !(saw_all && saw_recordings) {
+            let ev = tokio::time::timeout(Duration::from_secs(3), events.recv())
+                .await
+                .expect("event within timeout")
+                .expect("event");
+            match ev {
+                ServerEvent::StateChanged {
+                    scope: StateScope::All,
+                } => saw_all = true,
+                ServerEvent::StateChanged {
+                    scope: StateScope::Recordings,
+                } => saw_recordings = true,
+                _ => {}
+            }
+        }
+        sdrmm_recorder::SigmfReader::open(&dir.path().join(&live.file)).unwrap();
+
+        // Second call (and the Drop-driven third) must be no-ops, not double teardowns.
+        engine.shutdown();
+        drop(engine);
+    }
+
+    #[tokio::test]
+    async fn writer_fault_surfaces_in_state_via_the_hotplug_tick() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let engine = recording_engine(dir.path());
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+        engine.start_recording(ds).unwrap();
+        wait_for_recorded_samples(&engine, ds, 1).await;
+
+        // No portable way to make a live writer's disk I/O fail on demand; inject through
+        // the same shared cell `write_loop` reports into.
+        {
+            let mut inner = engine.lock();
+            let state = inner.device_sets.get_mut(&ds).unwrap();
+            state
+                .recording
+                .as_ref()
+                .unwrap()
+                .shared
+                .fail("recording write failed: injected".to_string());
+        }
+
+        let mut events = engine.subscribe_events();
+        let mut known = None;
+        let mut missing_once = HashSet::new();
+        engine.hotplug_tick(&mut known, &mut missing_once);
+        wait_for_deviceset_event(&mut events, ds).await;
+
+        let rec = engine.snapshot().device_sets[0].recording.clone().unwrap();
+        assert_eq!(
+            rec.error.as_deref(),
+            Some("recording write failed: injected")
+        );
+
+        let finalized = engine.stop_recording(ds).unwrap();
+        assert_eq!(
+            finalized.error.as_deref(),
+            Some("recording write failed: injected")
+        );
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    #[tokio::test]
+    async fn record_start_on_a_missing_set_is_not_found_even_without_a_recordings_dir() {
+        let engine = virtual_engine();
+        let err = engine.start_recording(99).unwrap_err();
+        assert!(err.is_not_found(), "expected not found, got {err}");
+    }
+
+    #[tokio::test]
+    async fn record_start_io_failure_is_a_server_error_not_a_bad_request() {
+        // The recordings dir nests under a regular file, so create_dir_all must fail.
+        let blocker = tempfile::NamedTempFile::new().unwrap();
+        let mut registry = DeviceRegistry::new();
+        registry.register(VIRTUAL_PRIORITY, Box::new(VirtualDriver::new()));
+        let engine = Engine::with_registry(registry, Some(blocker.path().join("recordings")));
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+
+        let err = engine.start_recording(ds).unwrap_err();
+        assert!(matches!(err, EngineError::RecordingIo(_)), "got {err}");
+        assert!(!err.is_bad_request() && !err.is_not_found());
         engine.remove_device_set(ds).unwrap();
     }
 

@@ -110,6 +110,7 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
           <button
             type="button"
             className={`${BTN} hover:border-danger hover:text-danger`}
+            disabled={deleteMut.isPending}
             onClick={() => deleteMut.mutate(b.id)}
           >
             Delete

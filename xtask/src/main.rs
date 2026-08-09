@@ -9,7 +9,7 @@ use std::{
     process::{Child, Command, Stdio},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -29,6 +29,8 @@ enum Cmd {
     Check,
     /// Full test suite (uses `device-virtual`; no hardware).
     Test,
+    /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
+    Fixtures,
     /// Release artifacts (stub until M5 packaging).
     Dist,
 }
@@ -39,6 +41,7 @@ fn main() -> Result<()> {
         Cmd::Dev => dev(&root()),
         Cmd::Check => check(&root()),
         Cmd::Test => test(&root()),
+        Cmd::Fixtures => fixtures(&root()),
         Cmd::Dist => {
             println!("dist: release packaging lands at M5 (PLAN §16).");
             Ok(())
@@ -187,6 +190,43 @@ fn test(root: &Path) -> Result<()> {
     run("cargo", &["test", "--all-targets"], root)?;
     ensure_web_deps(root)?;
     run("pnpm", &["--dir", "web", "test"], root)?;
+    Ok(())
+}
+
+/// Synthesize the decoder-fixture SigMF pairs in `fixtures/` (PLAN §14). Deterministic
+/// siggen renders, so the pairs are regenerated on demand and never committed
+/// (fixtures/README.md); the render is center-independent — center exists only in the meta.
+fn fixtures(root: &Path) -> Result<()> {
+    const RATE: f64 = 2_400_000.0;
+    const CENTER_HZ: f64 = 100_000_000.0;
+    const SECONDS: f64 = 1.0;
+
+    let dir = root.join("fixtures");
+    std::fs::create_dir_all(&dir).context("create fixtures dir")?;
+    let stem = dir.join("siggen_2m4_1s");
+
+    let samples = sdrmm_device_virtual::render(RATE, (RATE * SECONDS) as usize);
+    let mut writer =
+        sdrmm_recorder::SigmfWriter::create(&stem, RATE, CENTER_HZ, "Signal Generator (virtual)")
+            .context("create fixture writer")?;
+    writer.write_block(&samples).context("write fixture data")?;
+    writer.finalize().context("finalize fixture")?;
+
+    // Read back through the reader so writer/reader drift can never ship a bad fixture.
+    let reader = sdrmm_recorder::SigmfReader::open(&stem).context("re-open fixture")?;
+    ensure!(
+        reader.total_samples() == samples.len() as u64,
+        "fixture readback: {} samples on disk, {} rendered",
+        reader.total_samples(),
+        samples.len()
+    );
+    println!(
+        "wrote {} + .sigmf-data ({} samples, {SECONDS} s @ {} Msps, center {} MHz)",
+        sdrmm_recorder::meta_path(&stem).display(),
+        samples.len(),
+        RATE / 1e6,
+        CENTER_HZ / 1e6,
+    );
     Ok(())
 }
 

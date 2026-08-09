@@ -1,5 +1,5 @@
 [package]
-name = "sdrmm-device-virtual"
+name = "sdrmm-recorder"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -11,13 +11,11 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-sdrmm-wire.workspace = true
-sdrmm-device.workspace = true
-sdrmm-recorder.workspace = true
+jiff.workspace = true
 num-complex.workspace = true
-arc-swap.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-rustfft.workspace = true
 tempfile.workspace = true
