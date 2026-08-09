@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "import", "unicorn", "oxc"],
+  "options": { "typeAware": true },
+  "env": { "browser": true, "es2024": true },
+  "categories": { "correctness": "error", "suspicious": "warn" },
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/consistent-return": "off",
+    "typescript/no-unsafe-type-assertion": "off",
+    "react/react-in-jsx-scope": "off",
+    "unicorn/prefer-add-event-listener": "off",
+    "import/no-unassigned-import": "off"
+  },
+  "ignorePatterns": ["dist/**", "src/generated/**"]
+}

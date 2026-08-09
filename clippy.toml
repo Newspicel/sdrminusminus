@@ -1,0 +1,3 @@
+# Tests and startup may unwrap/expect (CLAUDE.md); library/hot-path code may not.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

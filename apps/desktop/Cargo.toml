@@ -1,0 +1,28 @@
+[package]
+name = "sdrmm-desktop"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "sdrmm-desktop"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+sdrmm-server.workspace = true
+sdrmm-engine.workspace = true
+tauri = { version = "2", features = [] }
+axum = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

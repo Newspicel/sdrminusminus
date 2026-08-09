@@ -1,0 +1,44 @@
+# CI mirrors the local gate 1:1 (CLAUDE.md): `cargo xtask check` + `cargo xtask test`. It lands
+# at M0 and grows each milestone (PLAN §15). No hardware — everything runs on `device-virtual`.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Full gate (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm --dir web install --frozen-lockfile
+      # Installs the pinned nightly + rustfmt/clippy from rust-toolchain.toml.
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo xtask check
+        run: cargo xtask check
+      - name: cargo xtask test
+        run: cargo xtask test
+
+  rust-macos:
+    name: Rust tests (macos-arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask test

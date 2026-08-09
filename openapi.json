@@ -1,0 +1,1055 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "sdr-- API",
+    "description": "",
+    "contact": {
+      "name": "sdr-- contributors"
+    },
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/api/devices": {
+      "get": {
+        "operationId": "get_devices",
+        "responses": {
+          "200": {
+            "description": "Discovered devices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevicesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets": {
+      "post": {
+        "operationId": "create_device_set",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDeviceSetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Device set created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedId"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown or unusable device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets/{ds}": {
+      "delete": {
+        "operationId": "delete_device_set",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Device set removed"
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets/{ds}/channels": {
+      "post": {
+        "operationId": "create_channel",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Channel created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedId"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets/{ds}/channels/{ch}": {
+      "delete": {
+        "operationId": "delete_channel",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "ch",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Channel removed"
+          },
+          "404": {
+            "description": "Device set or channel not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/devicesets/{ds}/device": {
+      "patch": {
+        "operationId": "patch_device",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Settings applied"
+          },
+          "400": {
+            "description": "Unsupported setting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/state": {
+      "get": {
+        "operationId": "get_state",
+        "responses": {
+          "200": {
+            "description": "Full state snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StateSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "description": "Uniform error body for REST failures.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "Capabilities": {
+        "type": "object",
+        "description": "Everything the client needs to render device controls without hand-written DTOs (PLAN §6).",
+        "required": [
+          "freq_ranges",
+          "sample_rates",
+          "gains",
+          "antennas",
+          "bandwidths"
+        ],
+        "properties": {
+          "antennas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bandwidths": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "extra": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtraSetting"
+            }
+          },
+          "freq_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            },
+            "description": "Tunable center-frequency ranges in Hz (multiple = discontiguous tuner ranges)."
+          },
+          "gains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GainStage"
+            }
+          },
+          "sample_rate_range": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Range"
+              }
+            ]
+          },
+          "sample_rates": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "description": "Supported sample rates in samples/s. Empty means \"continuous\", use `sample_rate_range`."
+          },
+          "tx_capable": {
+            "type": "boolean",
+            "description": "True once TX is implemented; declared from day one, unused in the RX phases (PLAN §1)."
+          }
+        }
+      },
+      "ChannelInfo": {
+        "type": "object",
+        "description": "A live channel instance inside a device set.",
+        "required": [
+          "id",
+          "settings"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ChannelSettings"
+          }
+        }
+      },
+      "ChannelSettings": {
+        "type": "object",
+        "description": "Per-channel settings envelope. Concrete typed settings land with each demod (PLAN §8);\nuntil then this carries the type id plus a free-form params blob validated server-side.",
+        "required": [
+          "type_id"
+        ],
+        "properties": {
+          "offset_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Offset from the device center frequency, in Hz."
+          },
+          "params": {
+            "description": "Type-specific parameters. Replaced by generated typed structs as demods land."
+          },
+          "type_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ClientCommand": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Start receiving spectrum frames for a device set at the requested rate/resolution.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Start receiving spectrum frames for a device set at the requested rate/resolution.",
+                "required": [
+                  "device_set",
+                  "fps",
+                  "bins"
+                ],
+                "properties": {
+                  "bins": {
+                    "type": "integer",
+                    "format": "int32",
+                    "description": "Requested display bins (≤ 4096, PLAN §9); server clamps.",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "fps": {
+                    "type": "integer",
+                    "format": "int32",
+                    "description": "Requested frame rate; server clamps to its supported range.",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SubscribeSpectrum"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Stop the spectrum stream for a device set.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Stop the spectrum stream for a device set.",
+                "required": [
+                  "device_set"
+                ],
+                "properties": {
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "UnsubscribeSpectrum"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Client → server commands over the same socket (PLAN §5). Stream subscriptions are\nper-connection, so a phone can request a lighter stream than a desktop."
+      },
+      "CreateChannelRequest": {
+        "type": "object",
+        "description": "`POST /api/devicesets/{ds}/channels` — add a channel to a device set.",
+        "required": [
+          "settings"
+        ],
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/ChannelSettings"
+          }
+        }
+      },
+      "CreateDeviceSetRequest": {
+        "type": "object",
+        "description": "`POST /api/devicesets` — open a device into a new device set.",
+        "required": [
+          "device_id"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "description": "`driver:key`, matching a [`DeviceInfo`] from `GET /api/devices`."
+          }
+        }
+      },
+      "CreatedId": {
+        "type": "object",
+        "description": "Identifier returned when a resource is created.",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "DeviceInfo": {
+        "type": "object",
+        "description": "A discovered receiver, produced by a driver's probe (PLAN §6).",
+        "required": [
+          "driver",
+          "key",
+          "label"
+        ],
+        "properties": {
+          "driver": {
+            "type": "string",
+            "description": "Driver id that produced this entry: `\"virtual\"`, `\"soapy\"`, `\"rtlsdr\"`, …"
+          },
+          "key": {
+            "type": "string",
+            "description": "Stable per-device key within a driver (serial, index, or file path)."
+          },
+          "label": {
+            "type": "string",
+            "description": "Human label for the device picker."
+          },
+          "serial": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Serial number when the driver exposes one (used to collapse probe duplicates, PLAN §6)."
+          }
+        }
+      },
+      "DeviceSet": {
+        "type": "object",
+        "description": "One opened device and everything hosted on it (PLAN §2: \"one device set per opened device\").",
+        "required": [
+          "id",
+          "device",
+          "capabilities",
+          "settings",
+          "status",
+          "channels"
+        ],
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelInfo"
+            }
+          },
+          "device": {
+            "$ref": "#/components/schemas/DeviceInfo"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "settings": {
+            "$ref": "#/components/schemas/DeviceSettings"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeviceSetStatus"
+          }
+        }
+      },
+      "DeviceSetStatus": {
+        "type": "string",
+        "description": "Runtime status of a device set's capture.",
+        "enum": [
+          "idle",
+          "running",
+          "error"
+        ]
+      },
+      "DeviceSettings": {
+        "type": "object",
+        "description": "A mutation applied to a device. Absent fields are left unchanged (PLAN §5 PATCH device).",
+        "properties": {
+          "antenna": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "center_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "extra": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtraValue"
+            }
+          },
+          "gains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GainValue"
+            }
+          },
+          "ppm": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "sample_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "DevicesResponse": {
+        "type": "object",
+        "description": "`GET /api/devices` — discovered hardware across all drivers (PLAN §5).",
+        "required": [
+          "devices"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceInfo"
+            }
+          }
+        }
+      },
+      "ExtraSetting": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "default",
+              "kind"
+            ],
+            "properties": {
+              "default": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "bool"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "range",
+              "unit",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "range"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "range": {
+                "$ref": "#/components/schemas/Range"
+              },
+              "unit": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "options",
+              "default",
+              "kind"
+            ],
+            "properties": {
+              "default": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "enum"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "description": "A typed device-specific setting the client renders generically when it has no\nfirst-class UI (PLAN §6: \"typed extra settings\")."
+      },
+      "ExtraValue": {
+        "type": "object",
+        "description": "A value for one [`ExtraSetting`], keyed by its name. `value` is bool/number/string.",
+        "required": [
+          "name",
+          "value"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {}
+        }
+      },
+      "GainStage": {
+        "type": "object",
+        "description": "A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA).",
+        "required": [
+          "name",
+          "range"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "range": {
+            "$ref": "#/components/schemas/Range"
+          }
+        }
+      },
+      "GainValue": {
+        "type": "object",
+        "description": "A gain-stage value in dB, keyed by the stage name from [`GainStage`].",
+        "required": [
+          "stage",
+          "value_db"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string"
+          },
+          "value_db": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "Range": {
+        "type": "object",
+        "description": "An inclusive numeric range with an optional step, in the setting's native unit.",
+        "required": [
+          "min",
+          "max"
+        ],
+        "properties": {
+          "max": {
+            "type": "number",
+            "format": "double"
+          },
+          "min": {
+            "type": "number",
+            "format": "double"
+          },
+          "step": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "ServerEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "First frame after connect: current state revision so the client can detect gaps.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "First frame after connect: current state revision so the client can detect gaps.",
+                "required": [
+                  "revision"
+                ],
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Hello"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Something changed; invalidate the matching query keys and refetch.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Something changed; invalidate the matching query keys and refetch.",
+                "required": [
+                  "scope"
+                ],
+                "properties": {
+                  "scope": {
+                    "$ref": "#/components/schemas/StateScope"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "StateChanged"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A subscribed binary stream is now active with this stream id (see [`crate::frame`]).",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "A subscribed binary stream is now active with this stream id (see [`crate::frame`]).",
+                "required": [
+                  "stream_id",
+                  "device_set"
+                ],
+                "properties": {
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "stream_id": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "StreamStarted"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A subscribed stream stopped.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "A subscribed stream stopped.",
+                "required": [
+                  "stream_id"
+                ],
+                "properties": {
+                  "stream_id": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "StreamStopped"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Non-fatal server-side error surfaced to the client.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Non-fatal server-side error surfaced to the client.",
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Error"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Server → client push (PLAN §5). Adjacently tagged so unit variants stay compact."
+      },
+      "StateScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Full snapshot changed; refetch `GET /api/state`.",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "all"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The discovered-devices list changed.",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "devices"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A single device set changed (settings, status, or its channels).",
+            "required": [
+              "id",
+              "scope"
+            ],
+            "properties": {
+              "id": {
+                "type": "integer",
+                "format": "int32",
+                "description": "A single device set changed (settings, status, or its channels).",
+                "minimum": 0
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "device_set"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Granularity of a `StateChanged` invalidation. The client maps each scope to the\nTanStack Query keys it must invalidate (PLAN §10: the *only* cache-invalidation path)."
+      },
+      "StateSnapshot": {
+        "type": "object",
+        "description": "Full state snapshot for initial load (PLAN §5 `GET /api/state`).",
+        "required": [
+          "device_sets",
+          "revision"
+        ],
+        "properties": {
+          "device_sets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceSet"
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Monotonic revision; bumps on every mutation so clients can detect missed events.",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}
