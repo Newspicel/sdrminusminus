@@ -656,6 +656,10 @@ Run against the built release artifact and a Nooelec NESDR SMArt v5 (R820T), not
   produces unsigned bundles until they are configured.
 - The Docker image has not been built here (no daemon in this environment); the workflow builds
   it on every tag.
+- Dependabot flags a moderate unsoundness in `glib` 0.18 (`VariantStrIter`), reached only
+  through Tauri → gtk 0.18 → glib on Linux, in the desktop app. It cannot be resolved here:
+  `gtk 0.18` requires `glib ^0.18`, so the fix has to come from a Tauri release. Nothing in
+  this project calls the affected iterator, and the headless server does not depend on it.
 
 ### Post-review hardening (adversarial multi-agent review: 29 findings, 10 refuted, 19 confirmed & fixed)
 High:
