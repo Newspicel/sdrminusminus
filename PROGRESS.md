@@ -856,7 +856,7 @@ milestone.
 ### Gates
 - [x] `cargo xtask check` green: fmt · clippy `-D warnings` · Soapy-free build · release-shaped
   native build · `biome ci` · `oxlint --type-aware` · `tsgo` · web build · codegen drift (none)
-- [x] `cargo xtask test` green: 615 Rust tests (up from 564) + 171 web tests
+- [x] `cargo xtask test` green: 620 Rust tests (up from 564) + 171 web tests
 - [x] `cargo xtask dist` produces a 25 MB `dist/sdrmm` linking only IOKit, CoreFoundation,
   libiconv and libSystem — no libusb, no libSoapySDR, no C radio library at all
 
@@ -871,10 +871,10 @@ Run against the built release artifact, not in CI.
   2.4 MS/s under 16 spinning threads — **0 ring overruns, 0 dropped USB transfers, 0 restarts**
   at both rates. The ported path still delivers what `rs-rtl` measured at 100.0%
 - [x] **PPM verified against a real carrier.** With the device on a broadcast station at
-  101.296 MHz, the station's power centroid moved **+22.9 kHz at +200 ppm** and **−20.7 kHz at
-  −200 ppm** against a predicted ±20.3 kHz, and returned to within 1.5 kHz of its starting point
-  at 0 ppm — which is also the measurement floor (16 kHz bins). Direction and magnitude both as
-  predicted. The *resampler* half is verified only by the register writes matching librtlsdr and
+  101.296 MHz, the station's power centroid moved by **+22 to +23 kHz at +200 ppm** and **−17 to
+  −21 kHz at −200 ppm** across two runs, against a predicted ±20.3 kHz, returning to within
+  1.5–2.4 kHz of its starting point at 0 ppm — which is also the measurement floor (16 kHz bins
+  and a wandering FM centroid). Direction and magnitude both as predicted. The *resampler* half is verified only by the register writes matching librtlsdr and
   `rtlsdr-pure`: a 200 ppm error in a 2.048 MHz span is 410 Hz, which no measurement available
   here can separate from noise
 - [x] **Tier-1 restart timed on the dongle** (scratch binary outside the workspace, never

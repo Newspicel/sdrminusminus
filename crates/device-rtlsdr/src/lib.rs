@@ -190,11 +190,6 @@ fn apply_to_hardware(sdr: &mut RtlSdr, plan: &Plan) -> Result<(), DeviceError> {
     if let Some(rate) = plan.sample_rate {
         sdr.set_sample_rate(rate).map_err(map_err)?;
     }
-    // Correction next: it re-tunes from the *cached* centre, so it has to land before a new
-    // centre is written, and it also updates the crystal every later tune divides by.
-    if let Some(ppm) = plan.ppm {
-        sdr.set_freq_correction(ppm).map_err(map_err)?;
-    }
     if let Some(hz) = plan.center_hz {
         sdr.set_center_freq(hz).map_err(map_err)?;
     }
@@ -208,6 +203,11 @@ fn apply_to_hardware(sdr: &mut RtlSdr, plan: &Plan) -> Result<(), DeviceError> {
         // from the cached centre closes the loop.
         let center = sdr.center_freq();
         sdr.set_center_freq(center).map_err(map_err)?;
+    }
+    // Correction last of the tuning writes: it re-tunes from the *cached* centre, so applying
+    // it first would park the PLL on the centre the caller is replacing before moving it again.
+    if let Some(ppm) = plan.ppm {
+        sdr.set_freq_correction(ppm).map_err(map_err)?;
     }
     match plan.gain {
         Some(GainMode::Auto) => sdr.set_gain_auto().map_err(map_err)?,

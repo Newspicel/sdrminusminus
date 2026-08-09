@@ -10,19 +10,25 @@ const DEFAULT_VGA_GAIN_DB: u8 = 20;
 
 /// What the radio holds.
 ///
-/// A plain value type. [`Device::config`](crate::Device::config) hands out a snapshot whose
-/// fields only moved once their control transfer succeeded, so it is the device's own truth —
-/// including gains as the MAX2837's step grid snapped them, never as they were asked for. The
-/// setters exist so a caller can describe a configuration without a radio attached; validation
-/// lives on the `Device` setters, which are the only things that reach hardware.
+/// A plain value record with no invariants of its own — validation lives on the `Device`
+/// setters, which are the only things that reach hardware.
+/// [`Device::config`](crate::Device::config) hands out a snapshot whose fields only moved once
+/// their control transfer succeeded, so it is the device's own truth, including gains as the
+/// MAX2837's step grid snapped them rather than as they were asked for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Config {
-    frequency_hz: u64,
-    sample_rate_hz: u32,
-    lna_gain_db: u8,
-    vga_gain_db: u8,
-    amp_enabled: bool,
-    bias_tee_enabled: bool,
+    /// Tuned centre frequency in Hz.
+    pub frequency_hz: u64,
+    /// Complex IQ sample rate in Hz.
+    pub sample_rate_hz: u32,
+    /// MAX2837 RX IF/LNA gain in dB.
+    pub lna_gain_db: u8,
+    /// MAX2837 baseband/VGA gain in dB.
+    pub vga_gain_db: u8,
+    /// Whether the RF amplifier is on.
+    pub amp_enabled: bool,
+    /// Whether the antenna port is powered.
+    pub bias_tee_enabled: bool,
 }
 
 impl Default for Config {
@@ -35,74 +41,6 @@ impl Default for Config {
             amp_enabled: false,
             bias_tee_enabled: false,
         }
-    }
-}
-
-impl Config {
-    /// Tuned centre frequency in Hz.
-    #[must_use]
-    pub const fn frequency_hz(&self) -> u64 {
-        self.frequency_hz
-    }
-
-    /// Complex IQ sample rate in Hz.
-    #[must_use]
-    pub const fn sample_rate_hz(&self) -> u32 {
-        self.sample_rate_hz
-    }
-
-    /// MAX2837 RX IF/LNA gain in dB.
-    #[must_use]
-    pub const fn lna_gain_db(&self) -> u8 {
-        self.lna_gain_db
-    }
-
-    /// MAX2837 baseband/VGA gain in dB.
-    #[must_use]
-    pub const fn vga_gain_db(&self) -> u8 {
-        self.vga_gain_db
-    }
-
-    /// Whether the RF amplifier is on.
-    #[must_use]
-    pub const fn amp_enabled(&self) -> bool {
-        self.amp_enabled
-    }
-
-    /// Whether the antenna port is powered.
-    #[must_use]
-    pub const fn bias_tee_enabled(&self) -> bool {
-        self.bias_tee_enabled
-    }
-
-    /// Set the centre frequency this configuration describes.
-    pub const fn set_frequency_hz(&mut self, value: u64) {
-        self.frequency_hz = value;
-    }
-
-    /// Set the sample rate this configuration describes.
-    pub const fn set_sample_rate_hz(&mut self, value: u32) {
-        self.sample_rate_hz = value;
-    }
-
-    /// Set the LNA gain this configuration describes.
-    pub const fn set_lna_gain_db(&mut self, value: u8) {
-        self.lna_gain_db = value;
-    }
-
-    /// Set the VGA gain this configuration describes.
-    pub const fn set_vga_gain_db(&mut self, value: u8) {
-        self.vga_gain_db = value;
-    }
-
-    /// Set the RF amplifier state this configuration describes.
-    pub const fn set_amp_enabled(&mut self, value: bool) {
-        self.amp_enabled = value;
-    }
-
-    /// Set the bias-tee state this configuration describes.
-    pub const fn set_bias_tee_enabled(&mut self, value: bool) {
-        self.bias_tee_enabled = value;
     }
 }
 
@@ -161,12 +99,12 @@ mod tests {
     #[test]
     fn defaults_match_hackrf_transfer() {
         let config = Config::default();
-        assert_eq!(config.frequency_hz(), 900_000_000);
-        assert_eq!(config.sample_rate_hz(), 10_000_000);
-        assert_eq!(config.lna_gain_db(), 8);
-        assert_eq!(config.vga_gain_db(), 20);
-        assert!(!config.amp_enabled());
-        assert!(!config.bias_tee_enabled());
+        assert_eq!(config.frequency_hz, 900_000_000);
+        assert_eq!(config.sample_rate_hz, 10_000_000);
+        assert_eq!(config.lna_gain_db, 8);
+        assert_eq!(config.vga_gain_db, 20);
+        assert!(!config.amp_enabled);
+        assert!(!config.bias_tee_enabled);
     }
 
     #[test]

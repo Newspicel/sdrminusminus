@@ -21,6 +21,10 @@ pub enum StreamError {
     /// The transfer pump could not be started.
     #[error("spawn usb transfer pump: {0}")]
     Spawn(#[source] std::io::Error),
+
+    /// A [`crate::StreamConfig`] the pump cannot run.
+    #[error("stream config: {0}")]
+    Config(&'static str),
 }
 
 impl StreamError {
@@ -31,7 +35,7 @@ impl StreamError {
         match self {
             Self::Transfers { source, .. } => *source == TransferError::Disconnected,
             Self::Endpoint(e) => e.kind() == nusb::ErrorKind::Disconnected,
-            Self::Spawn(_) => false,
+            Self::Spawn(_) | Self::Config(_) => false,
         }
     }
 }
