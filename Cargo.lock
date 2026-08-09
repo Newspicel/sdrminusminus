@@ -3515,6 +3515,7 @@ dependencies = [
  "futures",
  "http-body-util",
  "jiff",
+ "libc",
  "mime_guess",
  "num-complex",
  "rmcp",
