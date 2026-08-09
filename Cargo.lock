@@ -1566,18 +1566,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hackrf-nusb"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3485c4c14902cd7f2d35d3bdd7dc3f55a5e6b3b60cb12162814c6ea2b59a6d9b"
-dependencies = [
- "atomic-waker",
- "num-complex",
- "nusb",
- "wasm-bindgen-futures",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3173,17 +3161,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rs-rtl"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b14d2eb2473e57beeefdcdca0d7cbc51c5f312e0a9c96ff6374393d5ff4b54b1"
-dependencies = [
- "nusb",
- "thiserror 2.0.20",
- "tracing",
-]
-
-[[package]]
 name = "rsqlite-vfs"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3427,18 +3404,22 @@ name = "sdrmm-device"
 version = "0.0.0"
 dependencies = [
  "num-complex",
+ "sdrmm-usb-stream",
  "sdrmm-wire",
  "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]
 name = "sdrmm-device-hackrf"
 version = "0.0.0"
 dependencies = [
- "hackrf-nusb",
  "num-complex",
+ "nusb",
  "sdrmm-device",
+ "sdrmm-usb-stream",
  "sdrmm-wire",
+ "thiserror 2.0.20",
  "tracing",
 ]
 
@@ -3447,9 +3428,11 @@ name = "sdrmm-device-rtlsdr"
 version = "0.0.0"
 dependencies = [
  "num-complex",
- "rs-rtl",
+ "nusb",
  "sdrmm-device",
+ "sdrmm-usb-stream",
  "sdrmm-wire",
+ "thiserror 2.0.20",
  "tracing",
 ]
 
@@ -3556,6 +3539,15 @@ dependencies = [
  "utoipa",
  "utoipa-axum",
  "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "sdrmm-usb-stream"
+version = "0.0.0"
+dependencies = [
+ "nusb",
+ "thiserror 2.0.20",
+ "tracing",
 ]
 
 [[package]]

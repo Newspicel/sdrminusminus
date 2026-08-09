@@ -129,8 +129,11 @@ impl EngineError {
     pub fn is_bad_request(&self) -> bool {
         matches!(
             self,
-            Self::Device(DeviceError::Unsupported(_) | DeviceError::AlreadyStreaming)
-                | Self::Channel(_)
+            Self::Device(
+                DeviceError::Unsupported(_)
+                    | DeviceError::AlreadyStreaming
+                    | DeviceError::DuplexConflict { .. },
+            ) | Self::Channel(_)
                 | Self::Recording(_)
                 | Self::Scan(_)
         )

@@ -9,17 +9,13 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::JoinHandle,
+    sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
 };
 
 use arc_swap::ArcSwap;
 use num_complex::Complex;
-use sdrmm_device::{DeviceDriver, DeviceError, RxSink, SdrDevice};
+use sdrmm_device::{DeviceDriver, DeviceError, RxSink, SdrDevice, Worker};
 use sdrmm_recorder::scan_stems;
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, Range};
 
@@ -146,8 +142,7 @@ pub struct SigGen {
     capabilities: Capabilities,
     settings: DeviceSettings,
     shared: Arc<ArcSwap<SigParams>>,
-    running: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
+    worker: Worker,
 }
 
 impl Default for SigGen {
@@ -191,8 +186,7 @@ impl SigGen {
             capabilities,
             settings,
             shared,
-            running: Arc::new(AtomicBool::new(false)),
-            worker: None,
+            worker: Worker::new(),
         }
     }
 
@@ -241,14 +235,8 @@ impl SdrDevice for SigGen {
     }
 
     fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
-        if self.running.load(Ordering::Acquire) {
-            return Err(DeviceError::AlreadyStreaming);
-        }
-        self.running.store(true, Ordering::Release);
-        let running = self.running.clone();
         let shared = self.shared.clone();
-
-        self.worker = Some(std::thread::spawn(move || {
+        self.worker.start("sdrmm-siggen-rx", move |running| {
             let mut generator = Generator::new();
             let mut block: Vec<Complex<f32>> = Vec::new();
             let mut next = Instant::now();
@@ -268,21 +256,11 @@ impl SdrDevice for SigGen {
                     next = now; // fell behind; resync without accumulating debt
                 }
             }
-        }));
-        Ok(())
+        })
     }
 
     fn rx_stop(&mut self) {
-        self.running.store(false, Ordering::Release);
-        if let Some(handle) = self.worker.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-impl Drop for SigGen {
-    fn drop(&mut self) {
-        self.rx_stop();
+        self.worker.stop();
     }
 }
 

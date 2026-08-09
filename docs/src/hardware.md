@@ -9,21 +9,38 @@ radio attached.
 | Backend | Feature | What it covers |
 |---|---|---|
 | `device-soapy` | `soapy` (default) | Anything with a SoapySDR module: RTL-SDR, HackRF, Airspy, SDRplay, LimeSDR, PlutoSDR, BladeRF, USRP, … |
-| `device-rtlsdr` | `rtl-native` (M5) | RTL-SDR over pure-Rust USB (`nusb`): the tuner's own gain table instead of a range, plus bias tee and tuner AGC as typed extras |
-| `device-hackrf` | `hackrf-native` (M5) | HackRF over pure-Rust USB: the real per-stage gain model (LNA and VGA separately, each on its own step grid), plus RF amp and antenna-port bias power |
+| `device-rtlsdr` | `rtl-native` | RTL-SDR over pure-Rust USB (`nusb`): the tuner's own gain table instead of a range, plus bias tee, tuner AGC and crystal (PPM) correction |
+| `device-hackrf` | `hackrf-native` | HackRF over pure-Rust USB: the real per-stage gain model (LNA and VGA separately, each on its own step grid), plus RF amp and antenna-port bias power |
 | `device-virtual` | always on | Signal generator and SigMF file playback |
 
 > [!NOTE]
-> The native backends are M5 work landing alongside this documentation, and their wiring into
-> the server's feature set may not be in your build yet. Their purpose is the packaging rule
-> in `PLAN.md` §15: **release artifacts just run** — no libSoapySDR, no librtlsdr, no C
-> dependency at all, so a missing system library costs exotic-device support, not startup.
+> The native backends exist for the packaging rule in `PLAN.md` §15: **release artifacts just
+> run** — no libSoapySDR, no librtlsdr, no C dependency at all, so a missing system library
+> costs exotic-device support, not startup.
+
+Each native backend owns its radio driver in-tree (`crates/device-rtlsdr/src/driver/`,
+`crates/device-hackrf/src/driver/`) over one shared USB transport, `crates/usb-stream`, which
+owns the transfer queues and the transfer-error policy for both directions. That policy is
+librtlsdr's: a cancelled transfer is never an error, only genuine failures count, and the
+threshold is the queue depth. It also means a stalled pipe is re-armed in place — milliseconds —
+instead of faulting the device and paying for a full re-open.
+
+A backend is deliberately small. The capture thread, the in-place restart supervisor, the
+half-duplex rule and the 8-bit sample conversion all live once in `crates/device`; a radio
+supplies its driver, a 256-entry sample table, a capability translation and the two calls that
+point it at a stream. Adding a USB SDR should not mean writing any of the rest again.
+
+The HackRF can transmit, because the radio can; the server cannot. The device abstraction carries
+the transmit half — a radio reports whether it is receive-only, half duplex or full duplex, and
+the HackRF is half duplex — but `Capabilities` reports `tx_capable: false`, no wire type can
+request a transmission, and no REST route, WebSocket message, MCP tool or UI control reaches it.
+It is driver-level plumbing for the gated TX phase described in `PLAN.md` §12a, and the transmit
+gain is set to 0 dB whenever a device is opened.
 
 The native backends are honest about their limits rather than accepting settings they cannot
-apply. The RTL-SDR one, for example, does not advertise direct sampling, crystal (PPM)
-correction, offset tuning or the RTL2832U digital AGC, because its pure-Rust USB layer has no
-API for them — and it rejects those settings instead of silently ignoring them. Use the Soapy
-backend when you need those knobs.
+apply. The RTL-SDR one, for example, does not advertise direct sampling, offset tuning or the
+RTL2832U digital AGC, because nothing programs them yet — and it rejects those settings instead
+of silently ignoring them. Use the Soapy backend when you need those knobs.
 
 When the same physical device is visible through both a native backend and Soapy, the native
 driver wins the probe merge and the duplicate is collapsed by serial number — you see one

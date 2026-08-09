@@ -1,5 +1,5 @@
 [package]
-name = "sdrmm-device-rtlsdr"
+name = "sdrmm-usb-stream"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -10,11 +10,12 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Scripted endpoints for the backends above this crate, so the burst semantics a radio layers
+# on the shared queue are tested against the same mock this crate's own tests use.
+test-util = []
+
 [dependencies]
-sdrmm-wire.workspace = true
-sdrmm-device = { workspace = true, features = ["usb"] }
-sdrmm-usb-stream.workspace = true
 nusb.workspace = true
 thiserror.workspace = true
-num-complex.workspace = true
 tracing.workspace = true
