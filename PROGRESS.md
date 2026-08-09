@@ -680,32 +680,6 @@ with no hardware attached; it is 129 MB, so it is kept in `captures/` (gitignore
 committed.
 
 ### Known gaps (honest, not deferred silently)
-- A *transient* USB stall costs a full teardown and re-open — about nine seconds of dead air —
-  because rs-rtl turns five consecutive transfer errors into "disconnected" and the backend
-  can only report that as a fault. **Root cause found by re-reading rs-rtl 0.4.2** (driver
-  re-evaluation, PLAN §17): its counter cannot tell an independent failure from the fallout of
-  one. `streaming_thread` keeps 15 transfers in flight and increments `consecutive_errors` on
-  every errored completion, resetting it only on a *successful* one (`rtlsdr.rs:1022-1042`).
-  When a pipe faults, the queued transfers behind it are aborted too, and nusb reports each as
-  `TransferError::Cancelled` (`macos_iokit/mod.rs:35`) — so one stall delivers one real error
-  plus four cancellations with no success in between, which is exactly the observed
-  `kIOReturnNotResponding` + four cancelled transfers, and exactly `MAX_CONSECUTIVE_ERRORS = 5`.
-  The fix is ours and needs no crate switch: `RtlSdr` latches no streaming flag, and
-  `start_streaming_with` re-runs the `USB_EPA_CTL` FIFO reset and opens a fresh endpoint on
-  every call (nusb frees the endpoint claim when the old one drops), so re-calling
-  `start_streaming()` after the channel closes restarts in place — no re-open, no re-tune, no
-  bias-tee reset. It needs `sdr` behind an `Arc<Mutex<…>>` so the capture thread can become a
-  supervisor loop with bounded retries before it faults the set.
-  **Now measured on the dongle, not just read out of the source:** three consecutive
-  `start_streaming()` calls on one open `RtlSdr` each returned in **3 ms** and streamed real
-  samples, with `center_freq`/`sample_rate` intact across all three; the full teardown +
-  re-open the backend does today cost **1622 ms** on the same device — and that is the bare
-  driver cost, before the engine's probe and reconnect backoff turn it into the ~9 s of dead
-  air the field session saw. One caveat the source reading cannot settle: this exercised the
-  *clean-stop* path, and rs-rtl never calls `nusb`'s `Endpoint::clear_halt`, so a restart after
-  a genuinely halted pipe is unproven. The supervisor must therefore treat in-place restart as
-  the fast path and fall back to the existing full re-open when it fails — which is strictly
-  better than today, where every stall pays the re-open.
 - The other M4 decoders (POCSAG, ADS-B, AIS, APRS, RTTY, Morse) still have no off-air proof at
   all; only RDS has been tried against the air.
 - Workspaces/tabs (dockview) were never built in M0–M2 despite PLAN §16's parenthetical; the
@@ -714,16 +688,12 @@ committed.
   specification and reproduced failing against a real capture; the cause is unresolved and the
   stereo-subcarrier hypothesis is untested. This is the M4 "no off-air proof" gap turning into a
   concrete defect, and it is the first thing to pick up.
-- rs-rtl exposes no PPM or direct sampling, and hackrf-nusb no independent baseband-filter
-  bandwidth or hardware sweep; those settings are *rejected* rather than advertised and faked.
-  Soapy still covers them, which is what the `soapy` feature is for. The two RTL gaps are not
-  equal, though, and the re-evaluation separated them: **direct sampling is genuinely
-  upstream-only** (it means bypassing the tuner, and rs-rtl's whole tune path goes through a
-  private `R82xx`), but **PPM is arithmetic we could do at our own boundary** — asking for
-  `f / (1 + ppm/1e6)` puts the PLL on the wanted frequency, and reporting `rate × (1 + ppm/1e6)`
-  gives the DSP the true sample rate. Both survive retunes because every retune goes through
-  `caps.rs`. That is a correction, not a fake, and the residual is the demodulator's ~3.57 MHz
-  IF NCO (~36 Hz at 10 ppm). Worth prototyping before the upstream PR lands; not built here.
+- The native drivers expose no direct sampling, and the HackRF driver no independent
+  baseband-filter bandwidth or hardware sweep; those settings are *rejected* rather than
+  advertised and faked. Soapy still covers them, which is what the `soapy` feature is for.
+  **Direct sampling is now unblocked but unbuilt** — it means bypassing the tuner, which was
+  impossible while `rs-rtl` held its `R82xx` privately and is a small change now that the driver
+  is ours. It is the next gap, deliberately out of scope of the vendoring change.
 - macOS signing/notarisation needs Apple secrets the repo does not have; the release workflow
   produces unsigned bundles until they are configured.
 - The Docker image has not been built here (no daemon in this environment); the workflow builds
@@ -781,3 +751,228 @@ Low:
   *directory* created where the database belongs; the caller says which it is now
 - [x] MCP `query_decoder_log` reported database failures as invalid parameters
 - [x] `SHA256SUMS` hashed itself, while empty, because the redirect created it before `find` ran
+
+---
+
+## Native drivers taken in-tree (post-M5)
+
+Both native backends now own their radio driver, on one shared transport. The trigger was not
+maintenance but correctness: each of the two crates this project depended on hand-rolled its own
+USB transfer-error policy and both were wrong, in different ways, and the divergence is why one
+of them went unnoticed for a whole milestone.
+
+### The two bugs this closes
+- **RTL-SDR, transient stall → nine seconds of dead air (was a known gap, now shipped fixed).**
+  `rs-rtl` incremented one counter on *every* errored completion and tripped at
+  `MAX_CONSECUTIVE_ERRORS = 5` with fifteen transfers in flight — so one stalled pipe (one real
+  error plus four `Cancelled` completions from the transfers aborted behind it) read as
+  "dongle disconnected", faulted the set, and cost a full teardown and re-open.
+- **HackRF, one errored transfer killed the stream — newly found, never in this file before.**
+  `hackrf-nusb` 0.3.0's `checked_completion` did `completion.status?` and `accept_completion`
+  then called `close()`: no counting, no threshold, and no `Cancelled` exemption anywhere in the
+  crate. Strictly worse than the RTL case, and it had simply never been provoked.
+
+### Crates
+- [x] `crates/usb-stream` (`sdrmm-usb-stream`) — the bulk-IN transport both drivers share.
+  Bytes in, bytes out; no register access, no sample conversion, no device knowledge. Keeps
+  `hackrf-nusb`'s `BulkIn` trait as the seam so the whole queue is exercised against a scripted
+  mock, and `rs-rtl`'s pump thread with a bounded blocking hand-off — the shape that measured
+  100.0% delivery under load. 16 transfers in flight, buffers recycled so a steady stream
+  allocates nothing, live received/processed/dropped counters
+- [x] **One error policy, librtlsdr's** (`src/librtlsdr.c:3814`), pure and unit-tested: a
+  cancellation never counts, only genuine errors do, the threshold *is* the queue depth, any
+  success clears it. Two deliberate differences from librtlsdr: an errored transfer is
+  resubmitted rather than retired (rs-rtl's habit, strictly better), and a stop flag separates
+  the cancellations we asked for from the fallout of a fault, which is a distinction the
+  completion itself cannot carry
+- [x] `crates/device-rtlsdr/src/driver/` — the RTL2832U radio, one crate with the backend that
+  drives it. `regs.rs` (registers, I2C bridge) and `tuner.rs` (R82xx programming) are the
+  valuable, tedious part and are kept. Dropped rather than carried over:
+  `StreamControl` and the in-thread retune machinery (fire-and-forget, so a rejected retune
+  looked applied — the backend already bypassed them), `read_gain`, `open_first`, and the
+  descriptor accessors nothing called. A short control response is now an error instead of a
+  silently-zero register
+- [x] `crates/device-hackrf/src/driver/` — the HackRF radio, one crate with the backend that
+  drives it. Blocking only: the `MaybeFuture` layer, the async stream and the `wasm32` paths are
+  gone
+- [x] **The HackRF's transmit path is in.** The first cut dropped it as unused; it is back,
+  because a driver that omits half its hardware has to be rewritten when the gated TX phase
+  arrives. Bulk-OUT queue of 16, libhackrf's zero-filled end-of-burst marker (owed and paid
+  across a timed-out write), transmit VGA control, and half-duplex arbitration — the radio takes
+  one direction at a time and `start_tx` refuses while a capture is running, and the reverse.
+  It uses the *same* `TransferPolicy` as the receive side, with one deliberate difference:
+  transmit never re-sends a failed transfer, because those samples were meant for a moment that
+  has passed and putting them back behind the queue would corrupt the burst worse than the gap.
+  **It stops at this crate's API:** `SdrDevice` has no transmit method, `Capabilities` still
+  reports `tx_capable: false`, nothing in `engine`/`server`/the UI can reach it, and the
+  transmit VGA is written to 0 dB on open (PLAN §12a)
+- [x] `rs-rtl` and `hackrf-nusb` are out of the workspace manifest and `Cargo.lock`; `nusb`
+  0.2.7 is the one direct dependency underneath all of it. Where the code started is recorded
+  once, in `PLAN.md` §18, because it explains why "always newest versions" does not apply — the
+  code is no longer a fork of anything, so there is no upstream version to track
+- [x] Taking the drivers in-tree paid for itself immediately: the crate boundary had been
+  keeping a slice of API alive that nothing used. Tightening `pub` to `pub(crate)` exposed and
+  removed a `DeviceId` selector enum whose serial variant was never constructed, two descriptor
+  fields nothing read, a `DeviceInfo` stored and never looked at, and an `is_disconnected` helper
+  with no caller — plus the getter/setter pair on the HackRF `Config` that existed only so the
+  backend could build one across the boundary
+
+### Two-tier recovery
+- [x] The engine's fault path is one-shot and destructive by design (`RxSink::fail` →
+  `mark_device_fault` → `CaptureRuntime::stop`, which *takes and drops* the device so a replug
+  can re-open it), so a cheap restart cannot live above that seam. Tier 1 is now inside the
+  capture supervisor and runs *before* `fail`; tier 2 is the engine's existing path, unchanged
+- [x] The policy is device-agnostic, pure and unit-tested, in `crates/device`: three attempts,
+  20 ms doubling to 80 ms, and an uptime rule — a stream that stayed up for five seconds earns a
+  fresh budget, so stalls minutes apart never accumulate, while a stream that keeps dying
+  immediately burns its attempts and faults. That rule is the termination argument
+- [x] The restart *primitive* stays in each backend, because reinitialisation differs: the
+  RTL2832U's `USB_EPA_CTL` FIFO reset, the HackRF's transceiver mode. `clear_halt` is on both
+  restart paths — the plan left it as an open question and it is now in and measured
+- [x] **A silent-stall detector on both backends.** A wedged board reports no error at all, so
+  the capture thread would park forever behind a waterfall the set still advertises as Running.
+  `hackrf-nusb` had this (50 empty reads); `rs-rtl` never did. Both have it now, at five seconds,
+  and it feeds the same restart path — a wedge is the best case for an in-place restart
+- [x] A disconnect skips tier 1 entirely: the endpoint, the interface claim and the device handle
+  left with the radio, so re-arming cannot help and burning three attempts on it only delays the
+  reconnect
+- [x] Both converters gained `reset()`, called on every restart: a stalled transfer can complete
+  on an *odd* length, and a carried half sample prepended to the fresh stream would swap I and Q
+  for the rest of the session
+- [x] **Tier-1 restarts stay off the wire, deliberately.** The device-set model carries
+  `status` + `error`, and `error` means "this set is not working"; a restart that succeeded in
+  milliseconds means it *is* working, and there is no counters/warnings surface to put it on
+  without a wire change well beyond this plan. The report is `tracing::warn!` with the attempt
+  count, the delay and the reason, plus an `info!` when the stream comes back. A restart that
+  *fails* still reaches the wire as a fault, exactly as before
+- [x] **`device-soapy` keeps tier 2 only, and this is a judgement, not an oversight.** Its
+  transient stalls are already absorbed inside the C driver — librtlsdr has had the correct
+  policy for fifteen years — so a read error surfacing through Soapy means that driver already
+  gave up, and re-activating the same `RxStream` afterwards is unverifiable here. Its capture
+  loop already tells a quiet stream from a vanished device by re-enumerating. `device-virtual`
+  gets none of it: no transport that can stall
+
+### PPM correction, closed
+- [x] `RtlSdr::set_freq_correction(ppm)`, librtlsdr-shaped, doing **both** halves, which are
+  different mechanisms: the RTL2832U resampler has dedicated correction registers (demod page 1,
+  0x3f/0x3e) and the tuner PLL has none, so it is corrected by telling the tuner its crystal is
+  somewhere else and re-tuning. Doing only the first leaves every received frequency off by
+  `ppm`; doing only the second leaves the sample rate wrong, which mistimes every decoder
+  downstream. A rate change does not carry the correction registers over, so `set_sample_rate`
+  re-writes them, as librtlsdr does
+- [x] **No wire change was needed**, correcting the plan: `DeviceSettings.ppm` has been a
+  first-class field since M1 (it is how `device-soapy` drives the `"CORR"` component) and the web
+  UI already renders the control. `device-rtlsdr` simply stops rejecting it. Advertised range
+  ±200 ppm, inside the demodulator's own ±488 register limit; whole ppm is the registers' only
+  granularity, so a fractional request is rounded and `settings()` reports the hardware's value
+  back
+- [x] This replaces the caller-side approximation the previous "known gaps" entry proposed —
+  owning the driver made the real thing available
+
+### Gates
+- [x] `cargo xtask check` green: fmt · clippy `-D warnings` · Soapy-free build · release-shaped
+  native build · `biome ci` · `oxlint --type-aware` · `tsgo` · web build · codegen drift (none)
+- [x] `cargo xtask test` green: 635 Rust tests (up from 564) + 171 web tests
+- [x] `cargo xtask dist` produces a 25 MB `dist/sdrmm` linking only IOKit, CoreFoundation,
+  libiconv and libSystem — no libusb, no libSoapySDR, no C radio library at all
+
+### Field session (both radios attached)
+Run against the built release artifact, not in CI.
+
+**RTL-SDR — Nooelec NESDR SMArt v5 (`rtlsdr:89084597`):**
+- [x] Enumerated, opened, streamed and decoded through the vendored driver: tuning, rate,
+  gain-table snapping (30.0 dB → 29.7, the nearest step), tuner AGC, bias tee, a live WFM
+  channel, and both validation rejections (ppm 500, rate 500 kHz) refused with reasons
+- [x] **Load regression, the check the driver bench-off set:** 45 s at 2.048 MS/s and 45 s at
+  2.4 MS/s under 16 spinning threads — **0 ring overruns, 0 dropped USB transfers, 0 restarts**
+  at both rates. The ported path still delivers what `rs-rtl` measured at 100.0%
+- [x] **PPM verified against a real carrier.** With the device on a broadcast station at
+  101.296 MHz, the station's power centroid moved by **+22 to +23 kHz at +200 ppm** and **−17 to
+  −21 kHz at −200 ppm** across two runs, against a predicted ±20.3 kHz, returning to within
+  1.5–2.4 kHz of its starting point at 0 ppm — which is also the measurement floor (16 kHz bins
+  and a wandering FM centroid). Direction and magnitude both as predicted. The *resampler* half is verified only by the register writes matching librtlsdr and
+  `rtlsdr-pure`: a 200 ppm error in a 2.048 MHz span is 410 Hz, which no measurement available
+  here can separate from noise
+- [x] **Tier-1 restart timed on the dongle** (scratch binary outside the workspace, never
+  `cargo add` into it): three consecutive in-place restarts took **6.1 / 7.6 / 6.2 ms**
+  *including* `clear_halt`, each delivering real samples immediately, with centre frequency and
+  sample rate intact. The full teardown + re-open + first block on the same device cost
+  **1576 ms** — and that is bare driver time, before the engine's probe and reconnect backoff
+  turn it into the ~9 s of dead air the M5 field session saw. ~250× cheaper
+
+**HackRF One (serial 230865dc3170af47):**
+- [x] Enumerated, opened and streamed through the vendored driver at **20 Msps with zero
+  overruns and zero dropped transfers**, peak exactly at the commanded 100.976 MHz
+- [x] Per-stage gains verified against the radio rather than the API: sweeping VGA 0 → 62 dB
+  moved the measured noise floor **−89.9 → −37.5 dB** (the peak barely moves because a local
+  broadcast station compresses the front end, which is physics, not a bug). An off-grid LNA
+  request of 13 dB is still snapped to 16 and *reported* as 16, the M5 regression holding
+- [x] Amp and bias-tee toggles, and the rate rejection at 25 Msps, all behave
+- [x] A live WFM channel on the 101.296 MHz station at 8 Msps ran through the full native
+  backend → DDC → demod chain with the set Running, 0 ring overruns and 0 dropped transfers
+  (no RDS off air, which is the separate open gap above, unchanged by this work)
+- [x] **Tier-1 restart timed on the radio:** three consecutive mode-off/mode-on restarts took
+  **0.83 / 1.18 / 0.77 ms**, each delivering real samples immediately, with frequency, rate and
+  gains intact; a full re-open cost 31 ms of driver time (plus the engine's ~9 s above it)
+
+**What is still the owner's to run.** The one real regression test for the RTL stall — streaming
+while physically touching the antenna — has no harness. Nothing here reproduces a stalled pipe on
+demand, so the tier-1 supervisor is proven in three pieces (the policy under unit tests, the
+transport's error handling against a scripted mock, and the restart primitive timed on both
+radios) rather than end-to-end against a real stall. Every restart timing above measured the
+*clean* path: `clear_halt` is now on the restart path, which is the strongest medicine short of
+a re-open, but it is unproven against a genuinely halted pipe. Replug recovery is likewise
+untested here.
+
+---
+
+## Review follow-up: the abstraction absorbs what the backends were repeating
+
+A review of the vendoring PR found the change had fixed its own thesis in one place and violated
+it in another: the transfer-error policy was shared, and then each backend hand-rolled the
+supervisor that drives it. The two copies were ~105 identical lines apart from the restart
+primitive, the block size and the word in the log line — and had already diverged on a real bug.
+
+**Moved into `crates/device`, the abstract layer, once each:**
+
+| what | was | now |
+|---|---|---|
+| half-duplex arbitration | private `Direction`/`claim`/`select` in the HackRF driver | `Duplex` + `DuplexState`, pure and unit-tested, for any radio |
+| the capture thread and tier-1 supervisor | one copy per native backend | `Capture` + `CaptureRadio`/`CaptureStream`; a backend writes `arm`/`disarm` |
+| 8-bit IQ conversion | `IqConverter` twice, identical but for the table | `LutConverter`; a backend supplies 256 floats |
+| thread/stop-flag/join plumbing | five copies (rtlsdr, hackrf, siggen, playback, soapy) | `Worker` |
+| the bulk-OUT transfer queue | `device-hackrf` only | `crates/usb-stream`, beside bulk-IN, same policy |
+| the scripted bulk-OUT endpoint | a second mock in `device-hackrf`'s tests | `usb-stream`'s `test-util` feature |
+
+`crates/device` stays I/O-free by default: the `CaptureStream` impl for the USB transport sits
+behind its `usb` feature, so a Soapy-only or virtual-only build still compiles no USB stack.
+
+**The abstraction now carries TX, both ways.** `SdrDevice::duplex()` reports `RxOnly`, `TxOnly`,
+`Half` or `Full`; `SdrDevice::tx_start()` hands back a `TxStream`. RX-only backends inherit the
+defaults and change nothing. The HackRF declares `Half` and implements both, so its restored
+transmit path is reachable through the trait instead of only through its concrete type. Nothing
+above the device layer moved: `tx_capable` is false on every backend, no wire type can request a
+transmit, and no `engine`/`server`/MCP/UI path calls `tx_start` (PLAN §12a).
+
+**Two lifecycle bugs the split fixed by construction, both found by the review:**
+
+- **`rx_stop` could silence a live transmit burst.** A `TxStream` holds its own handle on the
+  radio, so the device could be stopped or dropped while transmitting — and `rx_stop`
+  unconditionally switched the transceiver off and cleared "the active direction". Now each
+  direction releases only its own claim, and a `Capture` that is not running holds no radio at
+  all, so a stray `rx_stop` reaches neither the mode register nor the transmit claim.
+- **A stop racing a tier-1 restart could strand the radio armed.** If `rx_stop` ran while the
+  capture thread was inside its restart backoff, the thread re-armed the radio, saw the stop flag
+  and returned without switching it off — leaving the device permanently `AlreadyStreaming` until
+  it was re-opened. The control thread now disarms *after* joining, which no interleaving can
+  get behind. Asserted as an invariant over 32 randomly-raced starts and stops.
+
+Neither bug was reachable from the running application (the transmit API is gated, and the race
+needed a stop inside a 20–80 ms window on a failing stream), which is why they had not been seen.
+
+**Gates:** `cargo xtask check` green; `cargo xtask test` green with **667 Rust tests**, up from
+615 — the new ones are the arbitration rules, the supervisor's restart/teardown behaviour against
+a scripted radio, the converter's carry, and the transmit queue split across its two layers. No
+test touches USB. Nothing was re-verified on hardware: this change moves code between crates
+without altering the register writes, the transfer policy or the restart timings the field
+session measured, and the field evidence above stands unamended.

@@ -2,26 +2,28 @@
 //! model (PLAN §6), plus the pre-flight validation `apply` runs before touching hardware. No
 //! I/O here, so every mapping is unit-testable against fabricated descriptors and gain tables.
 
-use rs_rtl::{BoardVariant, DeviceDescriptor};
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
     Capabilities, DeviceInfo, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
 };
 
-use crate::DRIVER_ID;
+use crate::{
+    DRIVER_ID,
+    driver::{BoardVariant, DeviceDescriptor},
+};
 
-/// The R820T/R828D PLL envelope. Both tuners rs-rtl supports share it, so the tuner type does
+/// The R820T/R828D PLL envelope. Both tuners the driver supports share it, so the tuner type does
 /// not change the ranges — only the board variant does (see [`capabilities`]).
 const TUNER_MIN_HZ: f64 = 24e6;
 const TUNER_MAX_HZ: f64 = 1_766e6;
-/// RTL-SDR Blog V4: rs-rtl's `set_freq` upconverts anything below the 28.8 MHz crystal through
-/// the board's built-in HF path, which the vendor specifies from ~500 kHz. Plain dongles have
-/// no such path — reaching HF there needs direct sampling, which rs-rtl does not expose, so the
-/// low end honestly stays at [`TUNER_MIN_HZ`].
+/// RTL-SDR Blog V4: the tuner's `set_freq` upconverts anything below the 28.8 MHz crystal
+/// through the board's built-in HF path, which the vendor specifies from ~500 kHz. Plain dongles
+/// have no such path — reaching HF there needs direct sampling, which the driver does not
+/// implement yet, so the low end honestly stays at [`TUNER_MIN_HZ`].
 const V4_HF_MIN_HZ: f64 = 500e3;
 const V4_HF_MAX_HZ: f64 = 28.8e6;
 
-/// The RTL2832U resampler's two valid windows (rs-rtl `set_sample_rate`, librtlsdr's
+/// The RTL2832U resampler's two valid windows (`RtlSdr::set_sample_rate`, librtlsdr's
 /// `rtlsdr_set_sample_rate`): everything between them aliases.
 const RATE_WINDOWS: [(f64, f64); 2] = [(225_001.0, 300_000.0), (900_001.0, 3_200_000.0)];
 
@@ -44,6 +46,11 @@ const RATE_MENU: [f64; 9] = [
     3_200_000.0,
 ];
 
+/// Advertised crystal-correction range. Well inside the demodulator's own ±488 ppm register
+/// limit ([`MAX_PPM`]) — every dongle worth correcting is within ±100, and a range that wide is
+/// a slider users can actually aim with.
+const PPM_MAX: f64 = 200.0;
+
 /// Widest R82xx IF filter mode (`set_bandwidth`'s 8 MHz branch). The wire capability model has
 /// no bandwidth *range* — only a discrete list, which the filter does not have — so this
 /// envelope is what validation enforces; 0 means "track the sample rate".
@@ -54,7 +61,8 @@ const BANDWIDTH_MAX_HZ: f64 = 8e6;
 pub(crate) const TUNER_STAGE: &str = "TUNER";
 /// Phantom power on the antenna port (RTL2832U GPIO0).
 pub(crate) const BIAS_TEE: &str = "bias_tee";
-/// R82xx tuner AGC (LNA + mixer). Not the RTL2832U's digital AGC, which rs-rtl cannot reach.
+/// R82xx tuner AGC (LNA + mixer). Not the RTL2832U's digital AGC, which the driver does not
+/// program.
 pub(crate) const AGC: &str = "agc";
 
 /// What `apply` will write, resolved and range-checked. Built entirely before the first setter
@@ -62,6 +70,8 @@ pub(crate) const AGC: &str = "agc";
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Plan {
     pub(crate) sample_rate: Option<u32>,
+    /// Crystal correction in whole ppm — the only granularity the correction registers have.
+    pub(crate) ppm: Option<i32>,
     pub(crate) center_hz: Option<u32>,
     /// Tuner IF filter in Hz; `Some(0)` selects the automatic width.
     pub(crate) bandwidth: Option<u32>,
@@ -88,8 +98,8 @@ pub(crate) enum GainMode {
 ///
 /// Most dongles ship with the same factory serial ("00000001"), so a serial is only identifying
 /// when it is unique within this probe. A repeated one is reported as *no* serial: keeping it
-/// would make the registry collapse two physical dongles into one entry, and `DeviceId::Serial`
-/// would always open whichever enumerated first.
+/// would make the registry collapse two physical dongles into one entry, and opening by it
+/// would always get whichever enumerated first.
 pub(crate) fn device_infos(descriptors: &[DeviceDescriptor]) -> Vec<DeviceInfo> {
     descriptors
         .iter()
@@ -164,7 +174,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         gains: gain_stages,
         antennas: vec!["RX".to_string()],
         // The R82xx filter is continuous from the caller's side (it snaps internally to its own
-        // cutoff steps, which rs-rtl does not expose), and the wire model can only carry a
+        // cutoff steps, which the tuner does not report back), and the wire model can only carry a
         // discrete list — so none is advertised, exactly as the Soapy path reports for the same
         // dongle. `BANDWIDTH_MAX_HZ` still bounds what `apply` will write.
         bandwidths: Vec::new(),
@@ -173,10 +183,10 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
     }
 }
 
-/// The device-specific knobs rs-rtl can actually drive. Direct sampling, crystal (ppm)
-/// correction, offset tuning and the RTL2832U digital AGC are deliberately absent: rs-rtl 0.4.2
-/// exposes no public API for them and no way to reach the register layer of an opened device,
-/// and advertising a control that silently does nothing is worse than not offering it.
+/// The device-specific knobs the driver can actually drive. Direct sampling, offset tuning and
+/// the RTL2832U digital AGC are deliberately absent: nothing programs them yet, and advertising
+/// a control that silently does nothing is worse than not offering it. Crystal correction is
+/// *not* here — `DeviceSettings` carries `ppm` as a first-class field, so it needs no extra.
 fn extra_settings() -> Vec<ExtraSetting> {
     vec![
         ExtraSetting::Bool {
@@ -246,7 +256,7 @@ pub(crate) fn validate(
         plan.sample_rate = Some(rate.round() as u32);
     }
 
-    // rs-rtl's `set_sample_rate` re-runs the tuner's bandwidth calculation against the new rate
+    // `RtlSdr::set_sample_rate` re-runs the tuner's bandwidth calculation against the new rate
     // (as librtlsdr does), silently reverting an explicit filter width. Carry the recorded one
     // forward so the reported bandwidth stays true after a rate change.
     let bandwidth = delta.bandwidth.or_else(|| {
@@ -272,10 +282,16 @@ pub(crate) fn validate(
         plan.applied.antenna = Some(antenna.clone());
     }
 
-    if delta.ppm.is_some() {
-        return Err(DeviceError::Unsupported(
-            "ppm: rs-rtl exposes no crystal-frequency correction".to_string(),
-        ));
+    if let Some(ppm) = delta.ppm {
+        if !ppm.is_finite() || !(-PPM_MAX..=PPM_MAX).contains(&ppm) {
+            return Err(DeviceError::Unsupported(format!(
+                "ppm {ppm} outside ±{PPM_MAX}"
+            )));
+        }
+        // The correction registers count in whole ppm, so a fractional request has no
+        // representation; it is rounded, and `settings()` reports the rounded value back so the
+        // choice is visible rather than silent (the gain table is snapped for the same reason).
+        plan.ppm = Some(ppm.round() as i32);
     }
 
     let mut requested_gain = None;
@@ -384,17 +400,14 @@ fn current_manual_tenths(current: &DeviceSettings) -> Option<i32> {
 
 #[cfg(test)]
 mod tests {
-    use rs_rtl::GAIN_VALUES;
-
     use super::*;
+    use crate::driver::GAIN_VALUES;
 
     fn descriptor(address: u8, serial: Option<&str>) -> DeviceDescriptor {
         DeviceDescriptor {
             index: usize::from(address),
             bus: "001".to_string(),
             address,
-            vendor_id: 0x0bda,
-            product_id: 0x2838,
             manufacturer: Some("Realtek".to_string()),
             product: Some("RTL2838UHIDIR".to_string()),
             serial: serial.map(str::to_string),
@@ -481,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn extras_are_only_what_rs_rtl_can_drive() {
+    fn extras_are_only_what_the_driver_can_drive() {
         let extra = capabilities(BoardVariant::Generic, GAIN_VALUES).extra;
         let names: Vec<&str> = extra.iter().map(extra_name).collect();
         assert_eq!(names, vec![BIAS_TEE, AGC]);
@@ -760,14 +773,50 @@ mod tests {
         }
     }
 
+    /// The correction registers count in whole ppm, so a fractional request is rounded rather
+    /// than refused — and the rounding must be visible, which is why `apply` reports the
+    /// hardware's own value back afterwards.
+    /// The advertised range is a usability choice; the register width is hardware. A range that
+    /// outgrew the registers would wrap a correction into the opposite sign.
     #[test]
-    fn validate_rejects_ppm_and_unknown_antennas() {
-        let ppm = DeviceSettings {
-            ppm: Some(1.5),
-            ..DeviceSettings::default()
-        };
-        assert!(matches!(plan_for(&ppm), Err(DeviceError::Unsupported(_))));
+    fn the_advertised_ppm_range_fits_the_correction_registers() {
+        assert!(PPM_MAX <= f64::from(crate::driver::MAX_PPM));
+    }
 
+    #[test]
+    fn ppm_is_rounded_to_the_registers_granularity() {
+        for (requested, expected) in [
+            (0.0, 0),
+            (1.5, 2),
+            (-1.5, -2),
+            (12.4, 12),
+            (-200.0, -200),
+            (200.0, 200),
+        ] {
+            let delta = DeviceSettings {
+                ppm: Some(requested),
+                ..DeviceSettings::default()
+            };
+            assert_eq!(plan_for(&delta).unwrap().ppm, Some(expected), "{requested}");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_ppm_outside_the_advertised_range() {
+        for requested in [200.001, -200.001, 1e9, f64::NAN, f64::INFINITY] {
+            let delta = DeviceSettings {
+                ppm: Some(requested),
+                ..DeviceSettings::default()
+            };
+            assert!(
+                matches!(plan_for(&delta), Err(DeviceError::Unsupported(_))),
+                "ppm {requested} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_rejects_unknown_antennas() {
         let antenna = DeviceSettings {
             antenna: Some("TX/RX".to_string()),
             ..DeviceSettings::default()

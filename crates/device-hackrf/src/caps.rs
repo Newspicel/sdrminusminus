@@ -2,11 +2,12 @@
 //! runs before touching hardware. Nothing here does USB I/O, so every mapping and every
 //! rejection path is unit-testable without a radio (PLAN §14: no hardware in CI, ever).
 
-use hackrf_nusb::Config;
 use sdrmm_device::DeviceError;
 use sdrmm_wire::{
     Capabilities, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
 };
+
+use crate::driver::Config;
 
 /// The HackRF has one SMA port shared by RX and TX; the list exists so the capability UI has
 /// a name for it, and so a preset captured elsewhere round-trips.
@@ -22,7 +23,7 @@ pub(crate) const AMP_SETTING: &str = "amp";
 /// Antenna-port bias power (bias tee), for powering an LNA up the coax.
 pub(crate) const BIAS_TEE_SETTING: &str = "bias_tee";
 
-/// Everything `hackrf-nusb` will accept (its `config` module enforces exactly these bounds,
+/// Everything the driver will accept (its `config` module enforces exactly these bounds,
 /// which are the LPC/MAX2837/RFFC5072 limits libhackrf publishes).
 const FREQ_MIN_HZ: f64 = 1e6;
 const FREQ_MAX_HZ: f64 = 6e9;
@@ -73,9 +74,9 @@ pub(crate) fn capabilities() -> Capabilities {
             },
         ],
         antennas: vec![ANTENNA.to_string()],
-        // `hackrf-nusb` ties the MAX2837 baseband filter to the sample rate — its
+        // The driver ties the MAX2837 baseband filter to the sample rate — its
         // `set_sample_rate_hz` issues BASEBAND_FILTER_BANDWIDTH_SET with the same value and
-        // there is no independent public setter — so there is no bandwidth to offer. An
+        // there is no independent setter — so there is no bandwidth to offer. An
         // empty list here means "no such control", and [`validate`] rejects one rather than
         // accepting a value nothing would honour.
         bandwidths: Vec::new(),
@@ -238,29 +239,29 @@ pub(crate) fn validate(
 /// asked for. `ppm`/`bandwidth` stay unset because [`validate`] refuses them.
 pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
     DeviceSettings {
-        center_hz: Some(config.frequency_hz() as f64),
-        sample_rate: Some(f64::from(config.sample_rate_hz())),
+        center_hz: Some(config.frequency_hz as f64),
+        sample_rate: Some(f64::from(config.sample_rate_hz)),
         ppm: None,
         antenna: Some(ANTENNA.to_string()),
         bandwidth: None,
         gains: vec![
             GainValue {
                 stage: LNA_STAGE.to_string(),
-                value_db: f64::from(config.lna_gain_db()),
+                value_db: f64::from(config.lna_gain_db),
             },
             GainValue {
                 stage: VGA_STAGE.to_string(),
-                value_db: f64::from(config.vga_gain_db()),
+                value_db: f64::from(config.vga_gain_db),
             },
         ],
         extra: vec![
             ExtraValue {
                 name: AMP_SETTING.to_string(),
-                value: config.amp_enabled().into(),
+                value: config.amp_enabled.into(),
             },
             ExtraValue {
                 name: BIAS_TEE_SETTING.to_string(),
-                value: config.bias_tee_enabled().into(),
+                value: config.bias_tee_enabled.into(),
             },
         ],
     }
@@ -599,15 +600,15 @@ mod tests {
 
     #[test]
     fn settings_mirror_the_drivers_applied_config() {
-        let config = Config::builder()
-            .frequency_hz(100_000_000)
-            .sample_rate_hz(2_000_000)
-            .lna_gain_db(16)
-            .vga_gain_db(30)
-            .amp_enable(true)
-            .bias_tee(false)
-            .build()
-            .unwrap();
+        let config = Config {
+            frequency_hz: 100_000_000,
+            sample_rate_hz: 2_000_000,
+            lna_gain_db: 16,
+            vga_gain_db: 30,
+            tx_vga_gain_db: 0,
+            amp_enabled: true,
+            bias_tee_enabled: false,
+        };
         let settings = settings_from_config(&config);
         assert_eq!(settings.center_hz, Some(100e6));
         assert_eq!(settings.sample_rate, Some(2e6));

@@ -1,32 +1,37 @@
-//! `sdrmm-device-rtlsdr` — native RTL-SDR backend (PLAN §6, §15): pure Rust over `nusb`, so a
-//! release artifact ships with no libSoapySDR, no librtlsdr, no C dependency at all. It also
-//! exposes what the Soapy path hides for these dongles — the bias tee and the tuner AGC as
-//! typed extra settings — and reports the tuner's own gain table instead of a range.
+//! `sdrmm-device-rtlsdr` — native RTL-SDR backend (PLAN §6, §15): the RTL2832U driver and the
+//! `SdrDevice` implementation over it, pure Rust on `nusb`, so a release artifact ships with no
+//! libSoapySDR, no librtlsdr, no C dependency at all. It exposes what the Soapy path hides for
+//! these dongles — the bias tee, the tuner AGC and crystal correction as typed settings — and
+//! reports the tuner's own gain table instead of a range.
 //!
-//! What rs-rtl 0.4.2 cannot reach is not advertised: direct sampling, crystal (ppm) correction,
-//! offset tuning and the RTL2832U digital AGC have no public API, and the low-level register
-//! layer of an *opened* device is not reachable either (`RtlSdr` owns its `Device` privately).
-//! `apply` rejects those settings rather than accepting them silently.
+//! Four layers, in dependency order:
+//!
+//! - [`driver`] — the radio: enumeration, registers, I2C, the R82xx tuner. No wire types.
+//! - `convert` — the table that turns the RTL2832U's unsigned 8-bit codes into `cf32`.
+//! - `caps` — the pure translation to the wire capability model, and `apply`'s validation.
+//! - this module — `DeviceDriver`/`SdrDevice` over `sdrmm-device`'s shared capture machinery.
+//!
+//! Streaming lives in `sdrmm-usb-stream` and supervision in `sdrmm-device`, both shared with the
+//! HackRF backend: the transfer queue, the USB error policy and the restart loop are what the
+//! two radios genuinely have in common, and getting them wrong on each side separately is the
+//! defect this driver exists to fix (PLAN §17). What is left here is the RTL-SDR itself.
+//!
+//! What the driver does not program is not advertised: direct sampling, offset tuning and the
+//! RTL2832U digital AGC. `apply` rejects those settings rather than accepting them silently.
 
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::JoinHandle,
-};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use caps::{GainMode, Plan};
-use convert::IqConverter;
-use rs_rtl::{
-    AsyncReadControlHandle, AsyncReadHandle, DeviceDescriptor, DeviceDescriptors, DeviceId, RtlSdr,
-    TRANSFER_BUF_SIZE,
+use driver::{DeviceDescriptor, DeviceDescriptors, RtlSdr};
+use sdrmm_device::{
+    Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice, lock,
 };
-use sdrmm_device::{DeviceDriver, DeviceError, RxSink, SdrDevice};
+use sdrmm_usb_stream::RxStream;
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, ExtraValue};
 
 mod caps;
 mod convert;
+mod driver;
 
 pub(crate) const DRIVER_ID: &str = "rtlsdr";
 
@@ -37,19 +42,18 @@ pub(crate) const DRIVER_ID: &str = "rtlsdr";
 const DEFAULT_SAMPLE_RATE_HZ: u32 = 2_048_000;
 const DEFAULT_CENTER_HZ: u32 = 100_000_000;
 
-fn map_err(err: rs_rtl::Error) -> DeviceError {
+fn map_err(err: driver::Error) -> DeviceError {
     let text = err.to_string();
     match err {
-        rs_rtl::Error::DeviceNotFound => DeviceError::NotFound(text),
-        rs_rtl::Error::InvalidSampleRate { .. } | rs_rtl::Error::InvalidParam(_) => {
+        driver::Error::DeviceNotFound => DeviceError::NotFound(text),
+        driver::Error::InvalidSampleRate { .. } | driver::Error::InvalidParam(_) => {
             DeviceError::Unsupported(text)
         }
-        rs_rtl::Error::AlreadyStreaming => DeviceError::AlreadyStreaming,
         _ => DeviceError::Io(text),
     }
 }
 
-fn enumerate() -> Result<Vec<DeviceDescriptor>, rs_rtl::Error> {
+fn enumerate() -> Result<Vec<DeviceDescriptor>, driver::Error> {
     Ok(DeviceDescriptors::new()?.iter().cloned().collect())
 }
 
@@ -97,32 +101,47 @@ impl DeviceDriver for RtlSdrDriver {
             .get(position)
             .ok_or_else(|| DeviceError::NotFound(info.id()))?
             .index;
-        let sdr = RtlSdr::open(DeviceId::Index(index)).map_err(map_err)?;
+        let sdr = RtlSdr::open(index).map_err(map_err)?;
         Ok(Box::new(RtlSdrDevice::from_sdr(sdr)?))
     }
 }
 
-/// An opened RTL-SDR receiver.
+/// The radio, as the shared capture supervisor sees it.
 ///
-/// The capture thread owns rs-rtl's read handle; every setter stays on this side. Retunes while
-/// streaming deliberately do *not* go through [`AsyncReadControlHandle`]: its commands are
-/// fire-and-forget (a failed tune reaches only rs-rtl's own `warn!`, and the call returns `Ok`
-/// as soon as the command is queued), which would make a rejected retune look applied. The
-/// `RtlSdr` setters return the real result, and they ride the USB *control* endpoint on a
-/// clone-backed `nusb::Interface`, independent of the streaming thread's bulk queue. Because we
-/// never send control commands, the tuner-register shadow that rs-rtl clones into the streaming
-/// thread stays unused and cannot drift from ours.
+/// Behind a mutex because both threads need it: the control thread retunes through it while the
+/// capture thread re-arms the stream from it. The lock is never held across a blocking read —
+/// the `RtlSdr` setters ride the USB *control* endpoint on a clone-backed `nusb::Interface`,
+/// independent of the streaming thread's bulk queue, so a retune while streaming costs the
+/// sample path nothing and still returns the hardware's real answer.
+struct RtlRadio {
+    sdr: Mutex<RtlSdr>,
+}
+
+impl RtlRadio {
+    fn lock(&self) -> MutexGuard<'_, RtlSdr> {
+        lock(&self.sdr)
+    }
+}
+
+impl CaptureRadio for RtlRadio {
+    type Stream = RxStream;
+
+    /// `start_streaming` resets the endpoint's FIFO before it queues anything, so the same call
+    /// serves a cold start and an in-place restart. There is nothing to disarm afterwards: the
+    /// dongle stops producing when the transfers stop being submitted.
+    fn arm(&self) -> Result<RxStream, DeviceError> {
+        self.lock().start_streaming().map_err(map_err)
+    }
+}
+
+/// An opened RTL-SDR receiver.
 pub struct RtlSdrDevice {
-    sdr: RtlSdr,
+    radio: Arc<RtlRadio>,
     capabilities: Capabilities,
     settings: DeviceSettings,
     /// The tuner's discrete gain table in tenths of a dB; `apply` snaps to it.
     gain_table: Vec<i32>,
-    running: Arc<AtomicBool>,
-    /// Live only while streaming: the one way to reach rs-rtl's streaming thread once the read
-    /// handle has moved to the capture thread.
-    control: Option<AsyncReadControlHandle>,
-    worker: Option<JoinHandle<()>>,
+    capture: Capture<RtlRadio>,
 }
 
 impl RtlSdrDevice {
@@ -142,12 +161,13 @@ impl RtlSdrDevice {
         sdr.set_gain_auto().map_err(map_err)?;
         // GPIO0 keeps its previous level across a re-open, so phantom power must be driven
         // low explicitly — a bias tee left on can damage whatever is on the antenna port.
-        // A dongle whose EEPROM forces it on ignores this (rs-rtl `set_bias_t`).
+        // A dongle whose EEPROM forces it on ignores this (`RtlSdr::set_bias_t`).
         sdr.set_bias_t(false).map_err(map_err)?;
 
         let settings = DeviceSettings {
             center_hz: Some(f64::from(sdr.center_freq())),
             sample_rate: Some(f64::from(sdr.sample_rate())),
+            ppm: Some(f64::from(sdr.freq_correction())),
             antenna: Some("RX".to_string()),
             extra: vec![
                 ExtraValue {
@@ -163,49 +183,52 @@ impl RtlSdrDevice {
         };
 
         Ok(Self {
-            sdr,
+            radio: Arc::new(RtlRadio {
+                sdr: Mutex::new(sdr),
+            }),
             capabilities,
             settings,
             gain_table,
-            running: Arc::new(AtomicBool::new(false)),
-            control: None,
-            worker: None,
+            capture: Capture::new(),
         })
     }
+}
 
-    fn apply_to_hardware(&mut self, plan: &Plan) -> Result<(), DeviceError> {
-        // Rate first: `set_sample_rate` re-tunes the tuner and recomputes its filter from the
-        // new rate (rs-rtl mirrors librtlsdr here), so a center or bandwidth written before it
-        // would be overwritten.
-        if let Some(rate) = plan.sample_rate {
-            self.sdr.set_sample_rate(rate).map_err(map_err)?;
-        }
-        if let Some(hz) = plan.center_hz {
-            self.sdr.set_center_freq(hz).map_err(map_err)?;
-        }
-        if let Some(bw) = plan.bandwidth {
-            self.sdr.set_bandwidth(bw).map_err(map_err)?;
-            // A width change reassigns the tuner's IF and rewrites only the demodulator's IF
-            // register — the tuner PLL still sits at `centre + old_IF`, so the radio quietly
-            // receives `centre + (old_IF - new_IF)` while every consumer is told `centre`.
-            // librtlsdr's `r820t_set_bw` ends with a re-tune for exactly this reason, and
-            // rs-rtl keeps that re-tune in `set_sample_rate` but not here. Re-programming the
-            // PLL from the cached centre closes the loop.
-            let center = self.sdr.center_freq();
-            self.sdr.set_center_freq(center).map_err(map_err)?;
-        }
-        match plan.gain {
-            Some(GainMode::Auto) => self.sdr.set_gain_auto().map_err(map_err)?,
-            Some(GainMode::Manual(tenths)) => {
-                self.sdr.set_gain_manual(tenths).map_err(map_err)?;
-            }
-            None => {}
-        }
-        if let Some(on) = plan.bias_tee {
-            self.sdr.set_bias_t(on).map_err(map_err)?;
-        }
-        Ok(())
+fn apply_to_hardware(sdr: &mut RtlSdr, plan: &Plan) -> Result<(), DeviceError> {
+    // Rate first: `set_sample_rate` re-tunes the tuner and recomputes its filter from the new
+    // rate (the driver mirrors librtlsdr here), so a center or bandwidth written before it
+    // would be overwritten.
+    if let Some(rate) = plan.sample_rate {
+        sdr.set_sample_rate(rate).map_err(map_err)?;
     }
+    if let Some(hz) = plan.center_hz {
+        sdr.set_center_freq(hz).map_err(map_err)?;
+    }
+    if let Some(bw) = plan.bandwidth {
+        sdr.set_bandwidth(bw).map_err(map_err)?;
+        // A width change reassigns the tuner's IF and rewrites only the demodulator's IF
+        // register — the tuner PLL still sits at `centre + old_IF`, so the radio quietly
+        // receives `centre + (old_IF - new_IF)` while every consumer is told `centre`.
+        // librtlsdr's `r820t_set_bw` ends with a re-tune for exactly this reason, and the
+        // driver keeps that re-tune in `set_sample_rate` but not here. Re-programming the PLL
+        // from the cached centre closes the loop.
+        let center = sdr.center_freq();
+        sdr.set_center_freq(center).map_err(map_err)?;
+    }
+    // Correction last of the tuning writes: it re-tunes from the *cached* centre, so applying
+    // it first would park the PLL on the centre the caller is replacing before moving it again.
+    if let Some(ppm) = plan.ppm {
+        sdr.set_freq_correction(ppm).map_err(map_err)?;
+    }
+    match plan.gain {
+        Some(GainMode::Auto) => sdr.set_gain_auto().map_err(map_err)?,
+        Some(GainMode::Manual(tenths)) => sdr.set_gain_manual(tenths).map_err(map_err)?,
+        None => {}
+    }
+    if let Some(on) = plan.bias_tee {
+        sdr.set_bias_t(on).map_err(map_err)?;
+    }
+    Ok(())
 }
 
 impl SdrDevice for RtlSdrDevice {
@@ -224,14 +247,24 @@ impl SdrDevice for RtlSdrDevice {
             &self.settings,
             &self.gain_table,
         )?;
-        let result = self.apply_to_hardware(&plan);
-        // rs-rtl caches the values it last wrote successfully — including the resampler's
+        let (result, center_hz, sample_rate, ppm) = {
+            let mut sdr = self.radio.lock();
+            let result = apply_to_hardware(&mut sdr, &plan);
+            (
+                result,
+                sdr.center_freq(),
+                sdr.sample_rate(),
+                sdr.freq_correction(),
+            )
+        };
+        // The driver caches the values it last wrote successfully — including the resampler's
         // *actual* rate, which integer division can move off the request — so these two
         // getters are the device's own truth. Resync them either way: a mid-batch failure
         // leaves the hardware partially retuned, and the control plane must not keep
         // reporting pre-batch values (the Soapy backend resyncs for the same reason).
-        self.settings.center_hz = Some(f64::from(self.sdr.center_freq()));
-        self.settings.sample_rate = Some(f64::from(self.sdr.sample_rate()));
+        self.settings.center_hz = Some(f64::from(center_hz));
+        self.settings.sample_rate = Some(f64::from(sample_rate));
+        self.settings.ppm = Some(f64::from(ppm));
         result?;
         self.settings.merge_from(&plan.applied);
         // `merge_from` cannot clear a field, and an automatic filter width is the absence of
@@ -243,66 +276,16 @@ impl SdrDevice for RtlSdrDevice {
     }
 
     fn rx_start(&mut self, sink: RxSink) -> Result<(), DeviceError> {
-        if self.worker.is_some() {
-            return Err(DeviceError::AlreadyStreaming);
-        }
-        let handle = self.sdr.start_streaming().map_err(map_err)?;
-        let control = handle.control_handle();
-        self.running.store(true, Ordering::Release);
-        let running = self.running.clone();
-        let worker = std::thread::Builder::new()
-            .name("sdrmm-rtlsdr-rx".to_string())
-            .spawn(move || capture_loop(&handle, &running, sink))
-            .map_err(|e| DeviceError::Io(format!("spawn capture thread: {e}")))?;
-        self.control = Some(control);
-        self.worker = Some(worker);
-        Ok(())
+        self.capture.start(
+            self.radio.clone(),
+            convert::converter(),
+            sink,
+            CaptureConfig::new("sdrmm-rtlsdr-rx", DRIVER_ID),
+        )
     }
 
     fn rx_stop(&mut self) {
-        self.running.store(false, Ordering::Release);
-        // The capture thread is parked in a blocking `recv`, so the stop has to come from the
-        // far end: rs-rtl's streaming thread closes the sample channel on its way out, which
-        // is what releases that `recv`.
-        if let Some(control) = self.control.take() {
-            control.stop();
-        }
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
-}
-
-impl Drop for RtlSdrDevice {
-    fn drop(&mut self) {
-        self.rx_stop();
-    }
-}
-
-/// Blocking capture loop on our own thread. Owns rs-rtl's read handle, so dropping it on any
-/// exit path stops the streaming thread and releases the bulk endpoint.
-fn capture_loop(handle: &AsyncReadHandle, running: &AtomicBool, mut sink: RxSink) {
-    let mut converter = IqConverter::with_capacity(TRANSFER_BUF_SIZE / 2);
-    let mut dropped = 0u64;
-    while running.load(Ordering::Acquire) {
-        let Some(block) = handle.recv() else {
-            // rs-rtl closes the channel when its streaming thread gives up on the endpoint
-            // (five consecutive transfer errors = unplugged) or when it was told to stop.
-            // `running` still set means nobody asked, so the dongle is gone.
-            if running.load(Ordering::Acquire) {
-                sink.fail(DeviceError::Io("device lost: usb stream ended".to_string()));
-            }
-            break;
-        };
-        sink.push(converter.convert(&block));
-        // USB-level loss is a different failure from the engine's ring overruns and must not
-        // be silent. rs-rtl 0.4.2 hands samples over with a blocking send, so this counter
-        // only moves if a later version adopts a drop policy — surface it if it ever does.
-        let total = handle.dropped_chunks();
-        if total > dropped {
-            tracing::warn!(dropped = total, "rtlsdr dropped usb chunks");
-            dropped = total;
-        }
+        self.capture.stop();
     }
 }
 

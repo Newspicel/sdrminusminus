@@ -1,25 +1,46 @@
-//! `sdrmm-device-hackrf` — native HackRF backend (PLAN §6, feature `hackrf-native`): pure
-//! Rust over `hackrf-nusb`/`nusb`, so release artifacts launch with no libhackrf, no
-//! libSoapySDR and no C dependency at all (PLAN §15 packaging rule, milestone M5).
+//! `sdrmm-device-hackrf` — native HackRF backend (PLAN §6, feature `hackrf-native`): the HackRF
+//! driver and the `SdrDevice` implementation over it, pure Rust on `nusb`, so release artifacts
+//! launch with no libhackrf, no libSoapySDR and no C dependency at all (PLAN §15).
 //!
 //! What it buys over the Soapy view of the same radio is the real per-stage gain model — LNA
 //! and VGA separately, each on its own MAX2837 step grid — plus the RF amplifier and
 //! antenna-port bias power as typed extras.
+//!
+//! Four layers, in dependency order:
+//!
+//! - [`driver`] — the radio: enumeration, the vendor control protocol, both stream lifecycles.
+//!   No wire types, and no arbitration.
+//! - `convert` — the table that turns the HackRF's signed 8-bit codes into `cf32`, and back.
+//! - `caps` — the pure translation to the wire capability model, and `apply`'s validation.
+//! - this module — `DeviceDriver`/`SdrDevice` over `sdrmm-device`'s shared machinery.
+//!
+//! Streaming lives in `sdrmm-usb-stream` and supervision in `sdrmm-device`, both shared with the
+//! RTL-SDR backend: the transfer queues, the USB error policy, the restart loop and the
+//! half-duplex rule are what radios have in common, and getting them wrong on each side
+//! separately is the defect this driver exists to fix (PLAN §17).
+//!
+//! The radio is half duplex, which here means exactly one thing: a
+//! [`DuplexState`](sdrmm_device::DuplexState) decides whether a direction may start, and each
+//! direction releases only its own claim when it ends. Stopping a capture cannot silence a
+//! transmit burst, and vice versa.
 
 use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::JoinHandle,
+    sync::{Arc, Mutex, MutexGuard},
     time::Duration,
 };
 
-use hackrf_nusb::{DeviceDescriptor, ErrorKind, MaybeFuture, RxStream};
-use sdrmm_device::{DeviceDriver, DeviceError, RxSink, Sample, SdrDevice};
+use convert::samples_to_cs8;
+use driver::{BurstQueue, DeviceDescriptor, HackRf, TX_TRANSFER_SIZE};
+use sdrmm_device::{
+    Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, Direction, Duplex,
+    DuplexState, RxSink, Sample, SdrDevice, TxStream, lock,
+};
+use sdrmm_usb_stream::{NusbBulkOut, RxStream};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings};
 
 mod caps;
+mod convert;
+mod driver;
 
 const DRIVER_ID: &str = "hackrf";
 /// Key prefix for a HackRF whose USB descriptor carries no parseable serial. Prefixed so it
@@ -27,31 +48,16 @@ const DRIVER_ID: &str = "hackrf";
 /// to key on — see [`HackRfDriver::open`].
 const NOSERIAL_KEY_PREFIX: &str = "noserial-";
 
-/// Capture block size. Well under the crate's 131072-sample USB transfer, so a block leaves
-/// the loop as soon as one completion has been drained, and large enough that the per-block
-/// sink call stays off the sample-rate hot path: 1.6 ms of IQ at 20 Msps, 16 ms at 2.
-const BLOCK_SAMPLES: usize = 32_768;
-/// Total budget for one `read`, which fills the whole block or returns what it already has
-/// when this expires. It bounds how long `rx_stop` waits for the capture thread to notice
-/// the stop flag; a healthy stream never reaches it.
-const READ_TIMEOUT: Duration = Duration::from_millis(100);
-/// Consecutive empty reads (5 s) before a silent radio is declared dead. A streaming HackRF
-/// free-runs and cannot go quiet while healthy, and an unplug fails the queued transfers with
-/// `DeviceDisconnected` rather than timing them out — so this fires only for a wedged board,
-/// which would otherwise hang the capture thread forever with no fault reported.
-const STALL_TIMEOUT_READS: u32 = 50;
-
-/// The crate's error taxonomy onto the four `DeviceError`s. `InvalidConfig` joins
-/// `Unsupported` because both mean "the hardware will not take this value", which is what
-/// the control plane renders. `DeviceDisconnected` is I/O: the engine's fault path treats
-/// any capture error as a lost device and M5 re-opens it when it enumerates again.
-fn map_err(err: hackrf_nusb::Error) -> DeviceError {
-    match err.kind() {
-        ErrorKind::NotFound => DeviceError::NotFound(err.to_string()),
-        ErrorKind::InvalidConfig | ErrorKind::Unsupported => {
-            DeviceError::Unsupported(err.to_string())
-        }
-        _ => DeviceError::Io(err.to_string()),
+/// The driver's error taxonomy onto the four `DeviceError`s. `InvalidConfig` becomes
+/// `Unsupported` because it means "the hardware will not take this value", which is what the
+/// control plane renders. Everything USB-level is I/O: the engine's fault path treats any
+/// capture error as a lost device and re-opens it when it enumerates again.
+fn map_err(err: driver::Error) -> DeviceError {
+    let text = err.to_string();
+    match err {
+        driver::Error::DeviceNotFound => DeviceError::NotFound(text),
+        driver::Error::InvalidConfig { .. } => DeviceError::Unsupported(text),
+        _ => DeviceError::Io(text),
     }
 }
 
@@ -115,7 +121,7 @@ impl DeviceDriver for HackRfDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        match hackrf_nusb::Device::list().wait() {
+        match HackRf::list() {
             Ok(found) => found
                 .iter()
                 .enumerate()
@@ -131,78 +137,129 @@ impl DeviceDriver for HackRfDriver {
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        Ok(Box::new(self.open_device(info)?))
+    }
+}
+
+impl HackRfDriver {
+    /// Open a probed radio as its concrete type.
+    ///
+    /// [`DeviceDriver::open`] erases it to `dyn SdrDevice`, which carries `tx_start` but not the
+    /// transmit *gain* — that has no wire setting while `tx_capable` is false — so this is how
+    /// [`HackRfDevice::set_tx_gain_db`] is reached at all.
+    ///
+    /// # Errors
+    /// [`DeviceError::NotFound`] if the radio is gone, [`DeviceError::Io`] if it will not open.
+    pub fn open_device(&self, info: &DeviceInfo) -> Result<HackRfDevice, DeviceError> {
         let device = match key_serial(&info.key) {
-            Some(serial) => hackrf_nusb::Device::open_serial(serial).wait(),
+            Some(serial) => HackRf::open_serial(serial),
             None => {
                 // The descriptor had no parseable serial, so "the first visible HackRF" is
-                // the only handle the crate offers. Said out loud, because on a two-radio
+                // the only handle the driver offers. Said out loud, because on a two-radio
                 // machine it is the difference between the device the user picked and the
                 // one the bus enumerated first.
                 tracing::warn!(
                     key = %info.key,
                     "hackrf reports no serial; opening the first visible device"
                 );
-                hackrf_nusb::Device::open().wait()
+                HackRf::open()
             }
         }
         .map_err(map_err)?;
-        Ok(Box::new(HackRfDevice::new(device)))
+        Ok(HackRfDevice::new(device))
     }
 }
 
-/// An opened HackRF receiver.
+/// The radio, as the shared capture supervisor sees it.
 ///
-/// `hackrf-nusb` hands out an [`RxStream`] that owns its USB endpoint and transfer queue and
-/// borrows nothing from the `Device`, so the capture thread holds the stream while `apply`
-/// retunes through `&mut self`. The crate serializes the two on a lifecycle mutex the read
-/// path never takes, which is what makes a live retune cost nothing on the sample path.
+/// Behind a mutex because both threads need it: the control thread retunes through it while the
+/// capture thread re-arms the stream from it. The lock is never held across a blocking read —
+/// the transport's [`RxStream`] holds its own bulk endpoint and borrows nothing from here, so
+/// `apply` retunes through the control endpoint while samples keep flowing.
+struct HackRfRadio {
+    device: Mutex<HackRf>,
+}
+
+impl HackRfRadio {
+    fn lock(&self) -> MutexGuard<'_, HackRf> {
+        lock(&self.device)
+    }
+}
+
+impl CaptureRadio for HackRfRadio {
+    type Stream = RxStream;
+
+    /// The radio is still in receive mode as far as the firmware knows after a stream faults, so
+    /// this takes it back to off before filling a fresh queue — which makes the same call serve
+    /// a cold start and an in-place restart.
+    fn arm(&self) -> Result<RxStream, DeviceError> {
+        let mut device = self.lock();
+        device
+            .set_mode_off()
+            .and_then(|()| device.start_rx())
+            .map_err(map_err)
+    }
+
+    /// Only ever called for a capture this backend started, and only for the receive direction —
+    /// [`Capture`] holds a radio exactly while one is running, so a device that is transmitting
+    /// has nothing here to switch off.
+    fn disarm(&self) {
+        if let Err(e) = self.lock().set_mode_off() {
+            tracing::debug!("hackrf stop failed: {e}");
+        }
+    }
+}
+
+/// An opened HackRF.
 pub struct HackRfDevice {
-    device: hackrf_nusb::Device,
+    radio: Arc<HackRfRadio>,
     capabilities: Capabilities,
     settings: DeviceSettings,
-    running: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
+    /// Which direction holds the radio. Shared with a live [`HackRfTx`], because a burst outlives
+    /// the call that started it and has to give its claim back when it ends.
+    duplex: Arc<Mutex<DuplexState>>,
+    capture: Capture<HackRfRadio>,
 }
 
 impl HackRfDevice {
-    fn new(device: hackrf_nusb::Device) -> Self {
+    fn new(device: HackRf) -> Self {
         let settings = caps::settings_from_config(device.config());
         Self {
-            device,
+            radio: Arc::new(HackRfRadio {
+                device: Mutex::new(device),
+            }),
             capabilities: caps::capabilities(),
             settings,
-            running: Arc::new(AtomicBool::new(false)),
-            worker: None,
+            duplex: Arc::new(Mutex::new(DuplexState::new(HACKRF_DUPLEX))),
+            capture: Capture::new(),
         }
     }
+}
 
-    fn write_to_hardware(&mut self, applied: &caps::Applied) -> Result<(), DeviceError> {
-        if let Some(hz) = applied.frequency_hz {
-            self.device.set_frequency_hz(hz).wait().map_err(map_err)?;
-        }
-        if let Some(rate) = applied.sample_rate_hz {
-            self.device
-                .set_sample_rate_hz(rate)
-                .wait()
-                .map_err(map_err)?;
-        }
-        if let Some(db) = applied.lna_gain_db {
-            self.device.set_lna_gain_db(db).wait().map_err(map_err)?;
-        }
-        if let Some(db) = applied.vga_gain_db {
-            self.device.set_vga_gain_db(db).wait().map_err(map_err)?;
-        }
-        if let Some(enabled) = applied.amp {
-            self.device
-                .set_amp_enable(enabled)
-                .wait()
-                .map_err(map_err)?;
-        }
-        if let Some(enabled) = applied.bias_tee {
-            self.device.set_bias_tee(enabled).wait().map_err(map_err)?;
-        }
-        Ok(())
+/// One transceiver, one data path: the LPC's mode register selects a direction, so the other one
+/// has to stop first.
+const HACKRF_DUPLEX: Duplex = Duplex::Half;
+
+fn write_to_hardware(device: &mut HackRf, applied: &caps::Applied) -> Result<(), DeviceError> {
+    if let Some(hz) = applied.frequency_hz {
+        device.set_frequency_hz(hz).map_err(map_err)?;
     }
+    if let Some(rate) = applied.sample_rate_hz {
+        device.set_sample_rate_hz(rate).map_err(map_err)?;
+    }
+    if let Some(db) = applied.lna_gain_db {
+        device.set_lna_gain_db(db).map_err(map_err)?;
+    }
+    if let Some(db) = applied.vga_gain_db {
+        device.set_vga_gain_db(db).map_err(map_err)?;
+    }
+    if let Some(enabled) = applied.amp {
+        device.set_amp_enable(enabled).map_err(map_err)?;
+    }
+    if let Some(enabled) = applied.bias_tee {
+        device.set_bias_tee(enabled).map_err(map_err)?;
+    }
+    Ok(())
 }
 
 impl SdrDevice for HackRfDevice {
@@ -216,112 +273,160 @@ impl SdrDevice for HackRfDevice {
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         let applied = caps::validate(settings, &self.capabilities)?;
-        let result = self.write_to_hardware(&applied);
-        // The crate records a field only once its control transfer succeeded, so rebuilding
+        let (result, config) = {
+            let mut device = self.radio.lock();
+            let result = write_to_hardware(&mut device, &applied);
+            (result, *device.config())
+        };
+        // The driver records a field only once its control transfer succeeded, so rebuilding
         // from `config()` reports exactly what the hardware holds: gains as the step grid
         // snapped them, and — when a batch failed halfway — the prefix that did land, never
         // the values that were asked for.
-        self.settings = caps::settings_from_config(self.device.config());
+        self.settings = caps::settings_from_config(&config);
         result
     }
 
+    fn duplex(&self) -> Duplex {
+        HACKRF_DUPLEX
+    }
+
     fn rx_start(&mut self, sink: RxSink) -> Result<(), DeviceError> {
-        if self.worker.is_some() {
-            return Err(DeviceError::AlreadyStreaming);
+        lock(&self.duplex).claim(Direction::Rx)?;
+        let started = self.capture.start(
+            self.radio.clone(),
+            convert::converter(),
+            sink,
+            CaptureConfig::new("sdrmm-hackrf-rx", DRIVER_ID),
+        );
+        if started.is_err() {
+            lock(&self.duplex).release(Direction::Rx);
         }
-        let mut stream = self.device.rx_stream().map_err(map_err)?;
-        stream.start().wait().map_err(map_err)?;
-        self.running.store(true, Ordering::Release);
-        let running = self.running.clone();
-        match std::thread::Builder::new()
-            .name("sdrmm-hackrf-rx".to_string())
-            .spawn(move || capture_loop(stream, &running, sink))
-        {
-            Ok(worker) => {
-                self.worker = Some(worker);
-                Ok(())
-            }
-            Err(e) => {
-                // The un-spawned closure drops the stream, which stops it; clear the flag so
-                // a retry is not left looking like a live capture.
-                self.running.store(false, Ordering::Release);
-                Err(DeviceError::Io(format!("spawn capture thread: {e}")))
-            }
-        }
+        started
     }
 
+    /// Stops a capture, and *only* a capture. A `Capture` that is not running holds no radio, so
+    /// this reaches neither the transceiver mode nor a transmit claim — which is what keeps a
+    /// stray `rx_stop` from silencing a burst that is on the air.
     fn rx_stop(&mut self) {
-        self.running.store(false, Ordering::Release);
-        if let Some(handle) = self.worker.take() {
-            let _ = handle.join();
-        }
+        self.capture.stop();
+        lock(&self.duplex).release(Direction::Rx);
     }
-}
 
-impl Drop for HackRfDevice {
-    fn drop(&mut self) {
-        self.rx_stop();
-        // Documented lifecycle: the stream must be stopped *and* dropped before shutdown or
-        // it answers Busy — the capture thread does both before `rx_stop` returns. Waiting
-        // on shutdown here makes the "radio off" transfer observable instead of leaving it
-        // to the crate's best-effort drop.
-        if let Err(e) = self.device.shutdown().wait() {
-            tracing::debug!("hackrf shutdown failed: {e}");
-        }
-    }
-}
-
-/// Blocking read loop on the capture thread. Owns the stream and stops it on every exit path
-/// (stop flag, unplug, fatal stream error), which is also what releases the device's RX claim
-/// so a later `rx_start` can take it again.
-fn capture_loop(mut stream: RxStream, running: &AtomicBool, mut sink: RxSink) {
-    let mut buf = vec![Sample::new(0.0, 0.0); BLOCK_SAMPLES];
-    let mut idle_reads = 0u32;
-    while running.load(Ordering::Acquire) {
-        match stream.read(&mut buf, Some(READ_TIMEOUT)).wait() {
-            Ok(0) => {
-                idle_reads += 1;
-                if idle_reads >= STALL_TIMEOUT_READS {
-                    sink.fail(DeviceError::Io(format!(
-                        "device stalled: no samples for {:?}",
-                        READ_TIMEOUT * STALL_TIMEOUT_READS
-                    )));
-                    break;
-                }
-            }
-            Ok(n) => {
-                idle_reads = 0;
-                sink.push(&buf[..n]);
-            }
-            Err(e) if e.kind() == ErrorKind::DeviceDisconnected => {
-                sink.fail(DeviceError::Io(format!("device lost: {e}")));
-                break;
-            }
+    /// Claim the radio for transmit.
+    ///
+    /// Nothing above this crate calls it: `Capabilities` reports `tx_capable: false`, and PLAN
+    /// §12a puts every application-level transmit feature behind an explicit authorized-use
+    /// switch that has not been built. Radiating is the operator's responsibility — a HackRF
+    /// transmits wideband into whatever is on the antenna port, and most of its range is
+    /// licensed to somebody.
+    ///
+    /// # Errors
+    /// [`DeviceError::DuplexConflict`] while a capture is running — the radio is half duplex, so
+    /// `rx_stop` has to come first — or [`DeviceError::Io`] if the radio will not start.
+    fn tx_start(&mut self) -> Result<Box<dyn TxStream>, DeviceError> {
+        lock(&self.duplex).claim(Direction::Tx)?;
+        match self.radio.lock().start_tx() {
+            Ok(queue) => Ok(Box::new(HackRfTx {
+                radio: self.radio.clone(),
+                duplex: self.duplex.clone(),
+                queue: Some(queue),
+                bytes: Vec::with_capacity(TX_TRANSFER_SIZE),
+            })),
             Err(e) => {
-                // Any read error invalidates the stream — the crate turns the radio off and
-                // requires a fresh `RxStream` — so there is nothing to retry here.
-                sink.fail(DeviceError::Io(format!("stream read failed: {e}")));
-                break;
+                lock(&self.duplex).release(Direction::Tx);
+                Err(map_err(e))
             }
         }
     }
-    match stream.stop().wait() {
-        // `buffers_dropped` counts USB transfers that completed with an error, *not*
-        // device-side sample overruns: the HackRF does not report those and the crate cannot
-        // infer them. A non-zero count means the run ended on a transfer fault, so it is
-        // reported rather than swallowed; it is only readable at stop, as the stream exposes
-        // no live stats accessor.
-        Ok(stats) if stats.buffers_dropped > 0 => tracing::warn!(
-            dropped = stats.buffers_dropped,
-            received = stats.buffers_received,
-            "hackrf rx ended with failed USB transfers"
-        ),
-        Ok(stats) => tracing::debug!(
-            received = stats.buffers_received,
-            processed = stats.buffers_processed,
-            "hackrf rx stopped"
-        ),
-        Err(e) => tracing::debug!("hackrf stream stop failed: {e}"),
+}
+
+impl HackRfDevice {
+    /// The transmit VGA, 0–47 dB. It powers up at zero and is set back to zero when the device
+    /// is opened, so the radio cannot be made to radiate at drive by a mode change alone.
+    ///
+    /// Not a wire setting: `Capabilities` advertises no transmit gain stage while `tx_capable`
+    /// is false, so this is reachable only from Rust, like [`SdrDevice::tx_start`] itself.
+    ///
+    /// # Errors
+    /// [`DeviceError::Unsupported`] above 47 dB; [`DeviceError::Io`] if the radio refuses it.
+    pub fn set_tx_gain_db(&mut self, gain_db: u8) -> Result<(), DeviceError> {
+        self.radio
+            .lock()
+            .set_tx_vga_gain_db(gain_db)
+            .map_err(map_err)
+    }
+}
+
+/// A live transmit burst. Dropping it silences the radio.
+struct HackRfTx {
+    radio: Arc<HackRfRadio>,
+    /// Released when the burst ends, and only the transmit half of it: a receive stream that
+    /// started afterwards is none of this type's business.
+    duplex: Arc<Mutex<DuplexState>>,
+    /// Taken by [`TxStream::stop`]; `None` afterwards, so a stopped burst neither accepts more
+    /// samples nor tears the radio down a second time.
+    queue: Option<BurstQueue<NusbBulkOut>>,
+    /// Reused across writes, so a steady burst allocates nothing.
+    bytes: Vec<u8>,
+}
+
+impl HackRfTx {
+    /// Give the radio and the claim back. `queue` must already be taken.
+    fn release(&mut self, queue: BurstQueue<NusbBulkOut>) -> Result<(), DeviceError> {
+        tracing::info!(stats = ?queue.stats(), "hackrf transmit finished");
+        drop(queue);
+        let stopped = self.radio.lock().set_mode_off();
+        lock(&self.duplex).release(Direction::Tx);
+        stopped.map_err(map_err)
+    }
+}
+
+impl TxStream for HackRfTx {
+    fn write(
+        &mut self,
+        samples: &[Sample],
+        timeout: Duration,
+        end_burst: bool,
+    ) -> Result<usize, DeviceError> {
+        let Some(queue) = self.queue.as_mut() else {
+            return Err(DeviceError::Io("transmit stream is stopped".to_string()));
+        };
+        samples_to_cs8(samples, &mut self.bytes);
+        let bytes = std::mem::take(&mut self.bytes);
+        let accepted = queue.write(&bytes, timeout, end_burst);
+        self.bytes = bytes;
+        // Every chunk boundary is an even byte count, so a partial accept is still a whole
+        // number of samples.
+        accepted.map(|bytes| bytes / 2).map_err(map_err)
+    }
+
+    fn stop(&mut self) -> Result<(), DeviceError> {
+        let Some(mut queue) = self.queue.take() else {
+            return Ok(());
+        };
+        let drained = queue.flush_and_drain();
+        if drained.is_err() {
+            queue.abort();
+        }
+        let stopped = self.release(queue);
+        drained.map_err(map_err)?;
+        stopped
+    }
+}
+
+impl Drop for HackRfTx {
+    fn drop(&mut self) {
+        // `stop` already gave the radio back, and something else may hold it by now — touching
+        // the transceiver mode here would silence whatever that is.
+        let Some(mut queue) = self.queue.take() else {
+            return;
+        };
+        // Never wait: a dropped burst is an abandoned one, and the only thing that matters is
+        // that the antenna goes quiet.
+        queue.abort();
+        if let Err(e) = self.release(queue) {
+            tracing::debug!("hackrf tx stop failed: {e}");
+        }
     }
 }
 
@@ -396,25 +501,61 @@ mod tests {
 
     #[test]
     fn error_kinds_map_onto_the_right_device_errors() {
-        // `hackrf_nusb::Error` cannot be constructed from outside the crate, so the mapping
-        // is exercised through the one variant its public API produces: a config value the
-        // driver refuses.
-        let refused = hackrf_nusb::Config::builder()
-            .lna_gain_db(13)
-            .build()
-            .expect_err("13 dB is off the LNA grid");
-        assert_eq!(refused.kind(), ErrorKind::InvalidConfig);
-        assert!(matches!(map_err(refused), DeviceError::Unsupported(_)));
+        assert!(matches!(
+            map_err(driver::Error::DeviceNotFound),
+            DeviceError::NotFound(_)
+        ));
+        // A value off the MAX2837 grid is "the hardware will not take this", not an I/O fault.
+        assert!(matches!(
+            map_err(driver::Error::InvalidConfig {
+                field: "lna_gain_db",
+                reason: "must be 0 through 40 dB in 8 dB steps",
+            }),
+            DeviceError::Unsupported(_)
+        ));
+        assert!(matches!(
+            map_err(driver::Error::ControlTransfer(
+                nusb::transfer::TransferError::Disconnected
+            )),
+            DeviceError::Io(_)
+        ));
+    }
+
+    /// This crate's whole contribution to the half-duplex rule is the declaration; the rule
+    /// itself is `sdrmm-device`'s and tested there. Pinning it here is what stops a later edit
+    /// from quietly promising a radio it can do both at once.
+    #[test]
+    fn the_radio_declares_itself_half_duplex() {
+        let mut state = DuplexState::new(HACKRF_DUPLEX);
+        assert!(HACKRF_DUPLEX.supports(Direction::Rx));
+        assert!(HACKRF_DUPLEX.supports(Direction::Tx));
+        assert!(!HACKRF_DUPLEX.simultaneous());
+        state.claim(Direction::Rx).expect("receive");
+        assert!(matches!(
+            state.claim(Direction::Tx),
+            Err(DeviceError::DuplexConflict { .. })
+        ));
+        // Releasing the receive claim frees the path, and nothing else.
+        state.release(Direction::Rx);
+        state.claim(Direction::Tx).expect("transmit");
+    }
+
+    /// `tx_start` hands back a trait object, so the burst has to be object-safe — the property
+    /// that lets the abstract layer carry transmit at all.
+    #[test]
+    fn a_transmit_burst_is_a_boxed_tx_stream() {
+        const fn assert_tx_stream<T: TxStream + 'static>() {}
+        assert_tx_stream::<HackRfTx>();
     }
 
     /// The capture split depends on both halves moving across threads: the `SdrDevice` stays
-    /// on the control thread while the `RxStream` it produced runs the capture loop. A future
-    /// `hackrf-nusb` that tied them together would break that at the `spawn` call site with
-    /// no explanation, so the requirement is asserted where the reason is written down.
+    /// on the control thread while the `RxStream` it produced runs the capture loop. A change
+    /// that tied them together would break that at the `spawn` call site with no explanation,
+    /// so the requirement is asserted where the reason is written down.
     #[test]
     fn device_and_stream_cross_thread_boundaries() {
         const fn assert_send<T: Send>() {}
-        assert_send::<hackrf_nusb::Device>();
+        assert_send::<HackRf>();
         assert_send::<RxStream>();
         assert_send::<HackRfDevice>();
     }

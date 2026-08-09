@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/wire",
     "crates/dsp",
+    "crates/usb-stream",
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
@@ -22,6 +23,7 @@ members = [
 default-members = [
     "crates/wire",
     "crates/dsp",
+    "crates/usb-stream",
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
@@ -47,6 +49,7 @@ rust-version = "1.99"
 # Internal crates
 sdrmm-wire = { path = "crates/wire" }
 sdrmm-dsp = { path = "crates/dsp" }
+sdrmm-usb-stream = { path = "crates/usb-stream" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
@@ -84,10 +87,10 @@ mime_guess = "2"
 
 # Device backends
 soapysdr = "0.5"
-# Native backends (PLAN §15: release artifacts must launch with no C dependency). Both are
-# pure-Rust over `nusb`; the soapysdr crate stays for exotic hardware only.
-rs-rtl = "0.4.2"
-hackrf-nusb = "0.3"
+# The native backends own their drivers outright (PLAN §17); `nusb` is the pure-Rust USB stack
+# under all of them (PLAN §15: release artifacts must launch with no C dependency), and the
+# soapysdr crate stays for exotic hardware only.
+nusb = "0.2.7"
 
 # DSP
 num-complex = "0.4"
