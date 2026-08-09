@@ -605,6 +605,7 @@ mod tests {
             sample_rate_hz: 2_000_000,
             lna_gain_db: 16,
             vga_gain_db: 30,
+            tx_vga_gain_db: 0,
             amp_enabled: true,
             bias_tee_enabled: false,
         };

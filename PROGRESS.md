@@ -795,6 +795,17 @@ of them went unnoticed for a whole milestone.
 - [x] `crates/device-hackrf/src/driver/` — the HackRF radio, one crate with the backend that
   drives it. Blocking only: the `MaybeFuture` layer, the async stream and the `wasm32` paths are
   gone
+- [x] **The HackRF's transmit path is in.** The first cut dropped it as unused; it is back,
+  because a driver that omits half its hardware has to be rewritten when the gated TX phase
+  arrives. Bulk-OUT queue of 16, libhackrf's zero-filled end-of-burst marker (owed and paid
+  across a timed-out write), transmit VGA control, and half-duplex arbitration — the radio takes
+  one direction at a time and `start_tx` refuses while a capture is running, and the reverse.
+  It uses the *same* `TransferPolicy` as the receive side, with one deliberate difference:
+  transmit never re-sends a failed transfer, because those samples were meant for a moment that
+  has passed and putting them back behind the queue would corrupt the burst worse than the gap.
+  **It stops at this crate's API:** `SdrDevice` has no transmit method, `Capabilities` still
+  reports `tx_capable: false`, nothing in `engine`/`server`/the UI can reach it, and the
+  transmit VGA is written to 0 dB on open (PLAN §12a)
 - [x] `rs-rtl` and `hackrf-nusb` are out of the workspace manifest and `Cargo.lock`; `nusb`
   0.2.7 is the one direct dependency underneath all of it. Where the code started is recorded
   once, in `PLAN.md` §18, because it explains why "always newest versions" does not apply — the
@@ -861,7 +872,7 @@ of them went unnoticed for a whole milestone.
 ### Gates
 - [x] `cargo xtask check` green: fmt · clippy `-D warnings` · Soapy-free build · release-shaped
   native build · `biome ci` · `oxlint --type-aware` · `tsgo` · web build · codegen drift (none)
-- [x] `cargo xtask test` green: 620 Rust tests (up from 564) + 171 web tests
+- [x] `cargo xtask test` green: 635 Rust tests (up from 564) + 171 web tests
 - [x] `cargo xtask dist` produces a 25 MB `dist/sdrmm` linking only IOKit, CoreFoundation,
   libiconv and libSystem — no libusb, no libSoapySDR, no C radio library at all
 

@@ -7,8 +7,10 @@
 //! policy wrong was the defect this driver exists to fix (PLAN §17,
 //! `PLAN-NATIVE-DRIVERS.md`).
 //!
-//! RX only. PLAN §1 keeps the TX half declared and unimplemented through the RX phases, and the
-//! half-duplex arbitration a TX path needs is not worth carrying until there is one.
+//! The radio is half duplex — one direction at a time — and [`HackRf`] is what arbitrates that.
+//! Transmit stops at this layer: PLAN §12a gates every application-level TX feature behind an
+//! explicit authorized-use switch, and nothing above `driver` offers one, so `Capabilities`
+//! still reports `tx_capable: false`.
 
 mod commands;
 mod config;
@@ -16,9 +18,13 @@ mod control;
 mod discovery;
 mod error;
 mod radio;
+mod tx;
 mod types;
 
 pub(crate) use config::Config;
 pub(crate) use discovery::DeviceDescriptor;
 pub(crate) use error::Error;
 pub(crate) use radio::{HackRf, RX_TRANSFER_SIZE};
+/// The one driver type that reaches the crate's public API, through [`crate::TxStream`].
+pub use tx::TxStats;
+pub(crate) use tx::{NusbBulkOut, TX_TRANSFER_SIZE, TxQueue};

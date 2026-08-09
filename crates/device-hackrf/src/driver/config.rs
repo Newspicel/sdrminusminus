@@ -7,6 +7,7 @@ const DEFAULT_FREQUENCY_HZ: u64 = 900_000_000;
 const DEFAULT_SAMPLE_RATE_HZ: u32 = 10_000_000;
 const DEFAULT_LNA_GAIN_DB: u8 = 8;
 const DEFAULT_VGA_GAIN_DB: u8 = 20;
+const DEFAULT_TX_VGA_GAIN_DB: u8 = 0;
 
 /// What the radio holds.
 ///
@@ -25,6 +26,9 @@ pub(crate) struct Config {
     pub(crate) lna_gain_db: u8,
     /// MAX2837 baseband/VGA gain in dB.
     pub(crate) vga_gain_db: u8,
+    /// MAX2837 transmit VGA gain in dB. Powers up at zero, so a transmit that was never asked
+    /// for cannot reach the antenna at full drive.
+    pub(crate) tx_vga_gain_db: u8,
     /// Whether the RF amplifier is on.
     pub(crate) amp_enabled: bool,
     /// Whether the antenna port is powered.
@@ -38,6 +42,7 @@ impl Default for Config {
             sample_rate_hz: DEFAULT_SAMPLE_RATE_HZ,
             lna_gain_db: DEFAULT_LNA_GAIN_DB,
             vga_gain_db: DEFAULT_VGA_GAIN_DB,
+            tx_vga_gain_db: DEFAULT_TX_VGA_GAIN_DB,
             amp_enabled: false,
             bias_tee_enabled: false,
         }
@@ -92,6 +97,18 @@ pub(crate) fn validate_vga_gain(value: u8) -> Result<()> {
     }
 }
 
+/// The transmit VGA is a 47 dB range with no step constraint.
+pub(crate) fn validate_tx_vga_gain(value: u8) -> Result<()> {
+    if value <= 47 {
+        Ok(())
+    } else {
+        Err(Error::invalid_config(
+            "tx_vga_gain_db",
+            "must be between 0 dB and 47 dB inclusive",
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,6 +120,7 @@ mod tests {
         assert_eq!(config.sample_rate_hz, 10_000_000);
         assert_eq!(config.lna_gain_db, 8);
         assert_eq!(config.vga_gain_db, 20);
+        assert_eq!(config.tx_vga_gain_db, 0);
         assert!(!config.amp_enabled);
         assert!(!config.bias_tee_enabled);
     }
@@ -137,5 +155,9 @@ mod tests {
         for db in (0..=62).step_by(2) {
             assert!(validate_vga_gain(db).is_ok(), "vga {db}");
         }
+        // The transmit VGA has a range but no grid.
+        assert!(validate_tx_vga_gain(47).is_ok());
+        assert!(validate_tx_vga_gain(13).is_ok());
+        assert!(validate_tx_vga_gain(48).is_err());
     }
 }
