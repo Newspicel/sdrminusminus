@@ -51,6 +51,10 @@ rust-embed.workspace = true
 mime_guess.workspace = true
 tracing.workspace = true
 
+# `--doctor`'s USB-permission check asks for the effective uid, which only the Linux arm needs.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
