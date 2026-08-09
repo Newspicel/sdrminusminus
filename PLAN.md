@@ -692,9 +692,11 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
 - **M4 — Decoders wave 1**
   RDS, POCSAG, ADS-B + map, AIS, APRS/AX.25, RTTY, Morse. Decoder-log database + export.
 - **M5 — Ops & UX polish**
-  Frequency scanner · multi-client polish · token auth · **MCP server** · **template
-  gallery + first-run wizard** · Tauri packaging/signing · Docker/Pi image · docs site ·
-  `--doctor`. (Workspaces/tabs land earlier — the dockview shell is part of M0/M2 UI.)
+  Frequency scanner · auto-reconnect on replug (a faulted device set re-opens and restores
+  its channels once its device re-enumerates; today recovery is manual close/re-open) ·
+  multi-client polish · token auth · **MCP server** · **template gallery + first-run
+  wizard** · Tauri packaging/signing · Docker/Pi image · docs site · `--doctor`.
+  (Workspaces/tabs land earlier — the dockview shell is part of M0/M2 UI.)
 - **M6+ — Phase 3/4 waves** per §13, prioritized by demand.
 
 ---
