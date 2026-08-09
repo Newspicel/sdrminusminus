@@ -360,6 +360,12 @@ impl R82xx {
         self.tuner_type
     }
 
+    /// Tell the tuner its crystal is not where it thought it was. Every PLL programming step
+    /// divides by this, so a ppm correction is applied here and takes effect on the next tune.
+    pub(crate) const fn set_xtal_freq(&mut self, freq: u32) {
+        self.xtal_freq = freq;
+    }
+
     /// Get the current IF frequency.
     pub(crate) fn if_freq(&self) -> u32 {
         self.int_freq

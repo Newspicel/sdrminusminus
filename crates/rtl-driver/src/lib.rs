@@ -16,6 +16,9 @@
 //!   drives every setter through the control endpoint instead.
 //! - **No silent zeroes.** Upstream turned a short control response into a `0` register value;
 //!   it is now an error.
+//! - **Crystal (ppm) correction added.** Upstream had no public API for it and no way to reach
+//!   an opened device's registers, so the backend had to reject the setting; it is now
+//!   librtlsdr-shaped `set_freq_correction`, correcting the resampler and the tuner both.
 //!
 //! The register-level work — `device` (RTL2832U registers and the I2C bridge) and `tuner`
 //! (R82xx programming) — is upstream's and is kept as the valuable part.
@@ -27,7 +30,7 @@ mod tuner;
 
 pub use error::{Error, Result};
 pub use rtlsdr::{
-    BoardVariant, DEF_RTL_XTAL_FREQ, DeviceDescriptor, DeviceDescriptors, DeviceId, RTL_USB_PIDS,
-    RTL_USB_VID, RtlSdr, TRANSFER_BUF_SIZE,
+    BoardVariant, DEF_RTL_XTAL_FREQ, DeviceDescriptor, DeviceDescriptors, DeviceId, MAX_PPM,
+    RTL_USB_PIDS, RTL_USB_VID, RtlSdr, TRANSFER_BUF_SIZE,
 };
 pub use tuner::{GAIN_VALUES, TunerType};
