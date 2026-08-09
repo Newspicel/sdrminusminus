@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/wire",
     "crates/dsp",
+    "crates/usb-stream",
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
@@ -22,6 +23,7 @@ members = [
 default-members = [
     "crates/wire",
     "crates/dsp",
+    "crates/usb-stream",
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
@@ -47,6 +49,7 @@ rust-version = "1.99"
 # Internal crates
 sdrmm-wire = { path = "crates/wire" }
 sdrmm-dsp = { path = "crates/dsp" }
+sdrmm-usb-stream = { path = "crates/usb-stream" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
@@ -88,6 +91,8 @@ soapysdr = "0.5"
 # pure-Rust over `nusb`; the soapysdr crate stays for exotic hardware only.
 rs-rtl = "0.4.2"
 hackrf-nusb = "0.3"
+# The USB stack under `crates/usb-stream` and both vendored native drivers.
+nusb = "0.2.7"
 
 # DSP
 num-complex = "0.4"
