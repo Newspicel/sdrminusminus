@@ -639,9 +639,20 @@ Run against the built release artifact and a Nooelec NESDR SMArt v5 (R820T), not
 ### Known gaps (honest, not deferred silently)
 - A *transient* USB stall costs a full teardown and re-open — about nine seconds of dead air —
   because rs-rtl turns five consecutive transfer errors into "disconnected" and the backend
-  can only report that as a fault. Recovering the stream in place would be better; it needs a
-  retry inside the capture loop (or upstream), and is not something to guess at without more
-  live sessions.
+  can only report that as a fault. **Root cause found by re-reading rs-rtl 0.4.2** (driver
+  re-evaluation, PLAN §17): its counter cannot tell an independent failure from the fallout of
+  one. `streaming_thread` keeps 15 transfers in flight and increments `consecutive_errors` on
+  every errored completion, resetting it only on a *successful* one (`rtlsdr.rs:1022-1042`).
+  When a pipe faults, the queued transfers behind it are aborted too, and nusb reports each as
+  `TransferError::Cancelled` (`macos_iokit/mod.rs:35`) — so one stall delivers one real error
+  plus four cancellations with no success in between, which is exactly the observed
+  `kIOReturnNotResponding` + four cancelled transfers, and exactly `MAX_CONSECUTIVE_ERRORS = 5`.
+  The fix is ours and needs no crate switch: `RtlSdr` latches no streaming flag, and
+  `start_streaming_with` re-runs the `USB_EPA_CTL` FIFO reset and opens a fresh endpoint on
+  every call (nusb frees the endpoint claim when the old one drops), so re-calling
+  `start_streaming()` after the channel closes restarts in place — no re-open, no re-tune, no
+  bias-tee reset. It needs `sdr` behind an `Arc<Mutex<…>>` so the capture thread can become a
+  supervisor loop with bounded retries before it faults the set.
 - RDS did not decode in the short live window on the station tested. Inconclusive rather than a
   regression — the station may carry no RDS, and the window was tens of seconds — but it means
   the M4 decoders still have no off-air proof, exactly as PROGRESS said at M4.
