@@ -212,6 +212,55 @@ pub struct DeletedCount {
     pub deleted: u64,
 }
 
+/// One built-in station template (PLAN §10: the template gallery). Read-only and
+/// device-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry
+/// applies to whatever hardware is open, provided the device can tune it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct TemplateInfo {
+    /// Stable slug used in `POST /api/templates/{id}/apply`.
+    pub id: String,
+    pub name: String,
+    /// One line for the gallery card.
+    pub description: String,
+    /// The "what am I looking at" text shown once it is applied (PLAN §10).
+    pub explainer: String,
+    pub center_hz: f64,
+    pub sample_rate: f64,
+    /// Channels the template creates on the target device set.
+    pub channels: Vec<ChannelSettings>,
+    /// Tuning span the template needs, so the gallery can mark entries the open device
+    /// cannot reach instead of failing on apply.
+    pub min_freq_hz: f64,
+    pub max_freq_hz: f64,
+}
+
+/// `GET /api/templates`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct TemplatesResponse {
+    pub templates: Vec<TemplateInfo>,
+}
+
+/// Apply a built-in template to a live device set.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ApplyTemplateRequest {
+    pub device_set: u32,
+}
+
+/// `GET /api/clients` — how many clients share this server right now (PLAN §16 M5
+/// multi-client). Includes the caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ClientsResponse {
+    pub clients: u32,
+}
+
+/// `GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before
+/// its first real request (PLAN §12: optional single shared token).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AuthInfo {
+    /// Whether this server rejects requests without the shared token.
+    pub token_required: bool,
+}
+
 /// Identifier returned when an engine resource (device set, channel) is created.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreatedId {

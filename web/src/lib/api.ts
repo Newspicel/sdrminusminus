@@ -4,25 +4,44 @@
 import { queryOptions } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
 import type { paths } from "../generated/schema";
+import { getToken, withToken } from "./auth";
 import type {
   ApiError,
+  AuthInfo,
   Bookmark,
   ChannelSettings,
   ChannelTypesResponse,
+  ClientsResponse,
   CreateBookmarkRequest,
   DecoderLogFilter,
   DecoderLogResponse,
   DeviceSettings,
   DevicesResponse,
+  DoctorReport,
   ExportFormat,
   PresetInfo,
   RecordAction,
   RecordingStatus,
   RecordingsResponse,
+  ScannerStatus,
+  ScanSettings,
   StateSnapshot,
+  TemplatesResponse,
 } from "./types";
 
 export const client = createClient<paths>({ baseUrl: "/" });
+
+// One middleware carries the shared token on every request (PLAN §12). Read per request, not
+// captured once: the token is entered after the client module has already been imported.
+client.use({
+  onRequest({ request }) {
+    const token = getToken();
+    if (token !== null) {
+      request.headers.set("Authorization", `Bearer ${token}`);
+    }
+    return request;
+  },
+});
 
 export const STATE_KEY = ["get", "/api/state"] as const;
 export const DEVICES_KEY = ["get", "/api/devices"] as const;
@@ -31,6 +50,10 @@ export const PRESETS_KEY = ["get", "/api/presets"] as const;
 export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
 export const RECORDINGS_KEY = ["get", "/api/recordings"] as const;
 export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
+export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
+export const AUTH_KEY = ["get", "/api/auth"] as const;
+export const CLIENTS_KEY = ["get", "/api/clients"] as const;
+export const DOCTOR_KEY = ["get", "/api/doctor"] as const;
 
 export function stateQuery() {
   return queryOptions({
@@ -188,6 +211,73 @@ export async function deleteRecording(id: number): Promise<void> {
   );
 }
 
+export function templatesQuery() {
+  return queryOptions({
+    queryKey: TEMPLATES_KEY,
+    queryFn: async (): Promise<TemplatesResponse> => unwrap(await client.GET("/api/templates")),
+    // Built-in and compiled into the server: it can only change across a restart, which
+    // reconnects the socket and refetches everything anyway.
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+export async function applyTemplate(id: string, ds: number): Promise<void> {
+  unwrap(
+    await client.POST("/api/templates/{id}/apply", {
+      params: { path: { id } },
+      body: { device_set: ds },
+    }),
+  );
+}
+
+/** Whether this server wants a token. Answered unauthenticated, so it is the one call that
+ * works before the user has supplied one. */
+export function authQuery() {
+  return queryOptions({
+    queryKey: AUTH_KEY,
+    queryFn: async (): Promise<AuthInfo> => unwrap(await client.GET("/api/auth")),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/** How many clients share this server (PLAN §16 M5). Invalidated by the `clients` scope on
+ * every connect and disconnect — never polled. */
+export function clientsQuery() {
+  return queryOptions({
+    queryKey: CLIENTS_KEY,
+    queryFn: async (): Promise<ClientsResponse> => unwrap(await client.GET("/api/clients")),
+  });
+}
+
+export function doctorQuery(enabled: boolean) {
+  return queryOptions({
+    queryKey: DOCTOR_KEY,
+    queryFn: async (): Promise<DoctorReport> => unwrap(await client.GET("/api/doctor")),
+    enabled,
+    // Probing enumerates USB; never do it on a window focus.
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export async function startScan(ds: number, settings: ScanSettings): Promise<ScannerStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/scanner", {
+      params: { path: { ds } },
+      body: { action: "start", settings },
+    }),
+  );
+}
+
+export async function stopScan(ds: number): Promise<ScannerStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/scanner", {
+      params: { path: { ds } },
+      body: { action: "stop" },
+    }),
+  );
+}
+
 export function decoderLogQuery(filter: DecoderLogFilter) {
   const query = normalizeFilter(filter);
   return queryOptions({
@@ -217,9 +307,13 @@ export function decoderLogExportUrl(format: ExportFormat, filter: DecoderLogFilt
     params.set(key, String(value));
   }
   const query = params.toString();
-  return query.length > 0
-    ? `/api/decoderlog/export/${format}?${query}`
-    : `/api/decoderlog/export/${format}`;
+  // The token rides in the query here: this href is navigated to by the browser, which cannot
+  // be given an Authorization header (and a fetch would swallow `Content-Disposition`).
+  return withToken(
+    query.length > 0
+      ? `/api/decoderlog/export/${format}?${query}`
+      : `/api/decoderlog/export/${format}`,
+  );
 }
 
 /** Blank fields are absent fields: a cleared filter input must not become `q=` (which the

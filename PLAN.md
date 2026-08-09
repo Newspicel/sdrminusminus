@@ -175,6 +175,12 @@ GET    /api/decoderlog/export/{fmt}  # csv|json download of the same filter (§1
                                      # (M4 decision: format is a path segment, not a query
                                      #  field — serde_urlencoded cannot flatten a shared
                                      #  filter struct, and the filter is shared by all three)
+POST   /api/devicesets/{ds}/scanner  { action: start|stop, settings? }   # M5 frequency scanner
+GET    /api/templates                # built-in station templates (§10)
+POST   /api/templates/{id}/apply     { device_set }
+GET    /api/auth                     # { token_required } — unauthenticated by design (§12)
+GET    /api/clients                  # connected WebSocket clients (M5 multi-client)
+GET    /api/doctor                   # the same report `sdrmm --doctor` prints (§15)
 GET/POST /api/presets, /api/bookmarks …
 GET    /api/openapi.json · /api/docs
 ```
@@ -190,6 +196,10 @@ Text frames = JSON `ServerEvent` / `ClientCommand` (from `wire`):
   traffic. Clients append them to a local ring; `StateChanged { DecoderLog }` fires only when
   the *stored* log changes structurally (cleared, pruned). The DSP plane hands frames over a
   bounded queue and the drops are reported as `DecodedLost { count }` (M4 decision).
+- Scanner progress (`ScannerUpdate { ds, status }`) is its own event for the same reason as
+  decoder output: a running sweep retunes several times a second, and one `StateChanged` per
+  step would cost every client a full-state refetch at that rate. `DeviceSet.scanner` in the
+  snapshot stays authoritative; a `StateChanged` fires when a scan starts or stops (M5).
 - Client → server: stream subscriptions (`SubscribeSpectrum { ds, fps, bins }`,
   `SubscribeAudio { ch }`), which are per-connection — a phone can ask for 10 fps/1024 bins
   while a desktop gets 30 fps/4096.
@@ -726,7 +736,9 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
   multi-client polish · token auth · **MCP server** · **template gallery + first-run
   wizard** · native `rtl-native`/`hackrf-native` backends → self-contained binaries
   (§15 packaging rule) · Tauri packaging/signing · Docker/Pi image · docs site · `--doctor`.
-  (Workspaces/tabs land earlier — the dockview shell is part of M0/M2 UI.)
+  (Workspaces/tabs did **not** land earlier: M0–M4 shipped a fixed panel layout and no
+  dockview dependency. The §10 workspace/tab shell is deferred to M6 rather than silently
+  claimed — the panels it would host all exist, so it is a shell change, not a feature.)
 - **M6+ — Phase 3/4 waves** per §13, prioritized by demand.
 
 ---
@@ -775,6 +787,11 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
 | HackRF/PortaPack/Flipper RX parity | in scope for the RX half (§8b); Sub-GHz OOK/FSK channel + capture |
 | TX & RF security testing (future) | in scope behind a default-off "controlled RF environment / authorized test" gate: siggen, IQ-to-air, modulators, bench loopback, **sub-GHz capture/replay/fixed-code (de Bruijn)/rolling-code analysis**, **jam-susceptibility testing**, **flood/spam/malformed-broadcast testing against a DUT**, **targeted fuzzing** — all framed for contained (direct-connect/dummy-load/shielded) authorized use (§12a) |
 | NanoVNA | planned as tools-tab integration via USB serial (P4) |
+| Native backends (M5) | `rs-rtl` 0.4.2 (RTL-SDR) + `hackrf-nusb` 0.3 (HackRF), both pure Rust over `nusb` 0.2, both MIT/Apache — so a release artifact links no C library and launches with nothing installed (§15). Rejected: `rtlsdr-pure` (GPL-2.0, incompatible with this MIT tree), `rtl-sdr-rs`/`seify-rtlsdr`/`rtlsdr_mt` (rusb/libusb or librtlsdr — a C dependency), `waverave-hackrf` (stale, pulls nusb 0.1 *and* 0.2), `seify` (wraps hackrf-nusb and duplicates our own device abstraction). Known gaps, documented rather than faked: no PPM or direct-sampling through rs-rtl's public API, no independent baseband-filter bandwidth or hardware sweep through hackrf-nusb's. Registered above Soapy in the serial merge |
+| MCP server (M5 implementation) | `rmcp` 3.1 streamable-HTTP at `/mcp`, **stateless** (`legacy_session_mode = false`, `json_response = true`): no session to garbage-collect, nothing lost across a restart, and the tools need no server-initiated notifications. rmcp's DNS-rebinding host guard is disabled because it defaults to localhost-only and would 403 every LAN client — the shared token is what gates the endpoint, matching §12's posture for REST |
+| Frequency scanner (M5) | App-level and control-plane only: the unit of work is a *device tuning*, not a target, so one dwell measures every target inside the passband off the existing spectrum tap — no extra DSP, which is what makes it affordable on a Pi 4. A running scan owns its set's centre frequency and client retunes are refused while it does, rather than the two fighting |
+| Token auth (M5) | One `route_layer` middleware over the routed API + WS + MCP, deliberately *not* the SPA fallback (the login UI must load unauthenticated, and an unmatched `/api/*` stays a typed 404 instead of a 401). Accepted as `Authorization: Bearer` **or** `?token=`, because the browser WebSocket API cannot set headers and the decoder-log export is a plain navigation. `/api/auth`, `/api/openapi.json` and `/api/docs` stay public: they describe the API's shape, never its data |
+| Templates (M5) | A static Rust table, not seeded SQLite rows: templates ship with the binary, so rows would need a migration per edit and a user could delete an entry the next release restores. Presets remain the writable, device-bound half of the same idea |
 | Soapy binding (M1 evaluation) | `soapysdr` 0.5 over seify: seify duplicates our device/capability abstraction, its production path is the same libSoapySDR, and it had 3 breaking releases in 6 weeks; its native drivers are self-declared experimental. Binding gaps worked around: no `setFrequencyCorrection` wrapper (PPM via the `"CORR"` frequency component), no `getSettingInfo` (per-driver extra-settings tables in `device-soapy`) |
 
 ---

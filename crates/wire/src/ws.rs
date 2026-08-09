@@ -24,6 +24,10 @@ pub enum StateScope {
     Bookmarks,
     /// The recordings index changed; refetch `GET /api/recordings`.
     Recordings,
+    /// The number of connected clients changed; refetch `GET /api/clients`. Server-owned
+    /// state (connections are not an engine concept), so it travels through `emit_scope`
+    /// like presets and bookmarks do.
+    Clients,
     /// The stored decoder log changed *structurally* (cleared, pruned). Individual decodes
     /// arrive as [`ServerEvent::Decoded`] and are appended client-side — invalidating per
     /// decode would refetch the whole log hundreds of times a second under ADS-B traffic.
@@ -72,6 +76,14 @@ pub enum ServerEvent {
     /// Decoder frames were dropped before reaching clients or the log because a consumer
     /// fell behind. Loss is surfaced, never silent (PLAN §5).
     DecodedLost { count: u64 },
+    /// Live frequency-scanner progress (M5). Its own event rather than a `StateChanged`:
+    /// a scan retunes the device every dwell, and one full-state refetch per step would
+    /// cost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which
+    /// this mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.
+    ScannerUpdate {
+        device_set: u32,
+        status: Box<crate::scan::ScannerStatus>,
+    },
     /// Non-fatal server-side error surfaced to the client.
     Error { message: String },
 }

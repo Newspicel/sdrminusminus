@@ -40,6 +40,17 @@ export type ServerEvent = components["schemas"]["ServerEvent"];
 export type StreamKind = components["schemas"]["StreamKind"];
 export type ClientCommand = components["schemas"]["ClientCommand"];
 export type ApiError = components["schemas"]["ApiError"];
+export type AuthInfo = components["schemas"]["AuthInfo"];
+export type ClientsResponse = components["schemas"]["ClientsResponse"];
+export type TemplateInfo = components["schemas"]["TemplateInfo"];
+export type TemplatesResponse = components["schemas"]["TemplatesResponse"];
+export type ScanSettings = components["schemas"]["ScanSettings"];
+export type ScanRange = components["schemas"]["ScanRange"];
+export type ScannerStatus = components["schemas"]["ScannerStatus"];
+export type ScanState = components["schemas"]["ScanState"];
+export type DoctorReport = components["schemas"]["DoctorReport"];
+export type DoctorCheck = components["schemas"]["DoctorCheck"];
+export type CheckStatus = components["schemas"]["CheckStatus"];
 
 // `DecoderLogQuery` is flattened into the operation's query parameters by utoipa, so it has no
 // `components.schemas` entry — deriving it from `operations` keeps it generated either way.

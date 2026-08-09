@@ -10,10 +10,15 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-# `--no-default-features` must yield a Soapy-free binary (PLAN §3: minimal Pi images).
+# Every hardware backend is a feature (PLAN §3). The native ones are default-on because they
+# are pure Rust and are what makes a release artifact launch with no C dependency (PLAN §15);
+# `soapy` is default-on for development but omitted from release builds, so
+# `--no-default-features --features rtl-native,hackrf-native` must build a Soapy-free binary.
 [features]
-default = ["soapy"]
+default = ["soapy", "rtl-native", "hackrf-native"]
 soapy = ["dep:sdrmm-device-soapy"]
+rtl-native = ["dep:sdrmm-device-rtlsdr"]
+hackrf-native = ["dep:sdrmm-device-hackrf"]
 
 [dependencies]
 sdrmm-wire.workspace = true
@@ -21,6 +26,8 @@ sdrmm-dsp.workspace = true
 sdrmm-device.workspace = true
 sdrmm-device-virtual.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
+sdrmm-device-rtlsdr = { workspace = true, optional = true }
+sdrmm-device-hackrf = { workspace = true, optional = true }
 sdrmm-channels.workspace = true
 sdrmm-recorder.workspace = true
 opus.workspace = true

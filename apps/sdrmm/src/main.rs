@@ -6,7 +6,7 @@ use std::{net::SocketAddr, path::PathBuf};
 use anyhow::Context;
 use clap::Parser;
 use sdrmm_engine::Engine;
-use sdrmm_server::{Config, serve};
+use sdrmm_server::{Config, ServerOptions, serve};
 
 /// sdr-- headless SDR server.
 #[derive(Parser, Debug)]
@@ -27,6 +27,14 @@ struct Args {
     /// `<platform data dir>/sdrmm/recordings`, cwd-independent like `--db`.
     #[arg(long)]
     recordings_dir: Option<PathBuf>,
+    /// Require this shared token on every API, WebSocket and MCP request (PLAN §12).
+    /// Also readable from `SDRMM_TOKEN` so it need not appear in the process list.
+    /// Without it the server is LAN-trusted and unauthenticated, which is the default.
+    #[arg(long, env = "SDRMM_TOKEN", hide_env_values = true)]
+    token: Option<String>,
+    /// Print environment diagnostics (backends, devices, USB permissions, paths) and exit.
+    #[arg(long)]
+    doctor: bool,
 }
 
 /// The absolute DB path: `--db` verbatim, otherwise the per-user data dir — mirroring the
@@ -67,16 +75,32 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
     let db_path = resolve_db_path(args.db)?;
+    let recordings_dir = resolve_recordings_dir(args.recordings_dir)?;
+    if args.doctor {
+        // Before anything opens a device: probing enumerates every backend, and overlapping
+        // enumerates are what crashed libusb in the post-M2 field sessions.
+        print!(
+            "{}",
+            sdrmm_server::doctor::render(&sdrmm_server::doctor::collect(
+                Some(&db_path),
+                Some(&recordings_dir),
+            ))
+        );
+        return Ok(());
+    }
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
 
-    let engine = Engine::new(Some(resolve_recordings_dir(args.recordings_dir)?));
+    let engine = Engine::new(Some(recordings_dir));
     let config = Config {
         bind: args.bind,
-        dev_cors: args.dev_cors,
         db_path: Some(db_path),
+        options: ServerOptions {
+            dev_cors: args.dev_cors,
+            token: args.token,
+        },
     };
 
     let handle = serve(config, engine.clone())

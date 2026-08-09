@@ -9,8 +9,10 @@
 pub mod channel;
 pub mod decode;
 pub mod device;
+pub mod doctor;
 pub mod frame;
 pub mod rest;
+pub mod scan;
 pub mod state;
 pub mod ws;
 
@@ -26,13 +28,18 @@ pub use decode::{
 pub use device::{
     Capabilities, DeviceInfo, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
 };
+pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame};
 pub use rest::{
-    ApiError, ApplyPresetRequest, Bookmark, ChannelTypesResponse, CreateBookmarkRequest,
-    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
-    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse,
-    ExportFormat, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingInfo,
-    RecordingsResponse,
+    ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse,
+    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
+    CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
+    DecoderLogResponse, DeletedCount, DevicesResponse, ExportFormat, PresetInfo, PresetSnapshot,
+    RecordAction, RecordRequest, RecordingInfo, RecordingsResponse, TemplateInfo,
+    TemplatesResponse,
+};
+pub use scan::{
+    MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
 pub use state::{DeviceSet, DeviceSetStatus, RecordingStatus, StateSnapshot};
 pub use ws::{ClientCommand, ServerEvent, StateScope, StreamKind};
@@ -289,6 +296,7 @@ mod contract_tests {
             overruns: 0,
             error: None,
             recording: None,
+            scanner: None,
         }
     }
 
@@ -347,6 +355,145 @@ mod contract_tests {
 
         let back: RecordRequest = serde_json::from_value(json).unwrap();
         assert_eq!(back.action, RecordAction::Start);
+    }
+
+    /// `scanner` was added in M5: an idle set must not serialize the key, snapshots from
+    /// older peers omit it and must read as `None`, and a live scan must roundtrip.
+    #[test]
+    fn device_set_scanner_default_and_roundtrip() {
+        let mut set = sample_device_set();
+        let json = serde_json::to_value(&set).unwrap();
+        assert!(json.get("scanner").is_none());
+
+        set.scanner = Some(scan::ScannerStatus {
+            state: scan::ScanState::Holding,
+            settings: scan::ScanSettings {
+                ranges: vec![scan::ScanRange {
+                    start_hz: 144_000_000.0,
+                    stop_hz: 146_000_000.0,
+                    step_hz: 12_500.0,
+                }],
+                hold_channel: Some(2),
+                ..scan::ScanSettings::default()
+            },
+            targets: 161,
+            current_hz: 145_500_000.0,
+            current_db: Some(-31.5),
+            sweeps: 4,
+            hits: 9,
+            error: None,
+        });
+        let mut json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["scanner"]["state"], "holding");
+        assert_eq!(json["scanner"]["current_hz"], 145_500_000.0);
+        assert_eq!(json["scanner"]["settings"]["hold_channel"], 2);
+        assert!(json["scanner"].get("error").is_none());
+        let back: DeviceSet = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(back, set);
+
+        json.as_object_mut().unwrap().remove("scanner");
+        let back: DeviceSet = serde_json::from_value(json).unwrap();
+        assert_eq!(back.scanner, None);
+    }
+
+    /// The scanner's defaults are what a client sends when it posts a bare range list;
+    /// they must be the same numbers the engine would have chosen.
+    #[test]
+    fn scan_settings_default_from_minimal_body() {
+        let settings: scan::ScanSettings =
+            serde_json::from_str(r#"{"frequencies":[162550000.0]}"#).unwrap();
+        assert_eq!(
+            settings,
+            scan::ScanSettings {
+                frequencies: vec![162_550_000.0],
+                ..scan::ScanSettings::default()
+            }
+        );
+        assert_eq!(settings.threshold_db, -55.0);
+        assert_eq!(settings.dwell_ms, 250);
+        assert_eq!(settings.resume_ms, 1_500);
+        assert_eq!(settings.measure_bw_hz, 12_500.0);
+        assert_eq!(settings.hold_channel, None);
+
+        let json = serde_json::to_value(scan::ScanRequest {
+            action: scan::ScanAction::Start,
+            settings: Some(scan::ScanSettings::default()),
+        })
+        .unwrap();
+        assert_eq!(json["action"], "start");
+        assert_eq!(
+            serde_json::to_value(scan::ScanAction::Stop).unwrap(),
+            "stop"
+        );
+
+        // A stop needs no body beyond the action.
+        let stop: scan::ScanRequest = serde_json::from_str(r#"{"action":"stop"}"#).unwrap();
+        assert_eq!(stop.settings, None);
+    }
+
+    /// Scanner progress is its own event so it never triggers a state refetch; lock the shape
+    /// the client switches on.
+    #[test]
+    fn scanner_update_event_shape() {
+        let ev = ServerEvent::ScannerUpdate {
+            device_set: 3,
+            status: Box::new(scan::ScannerStatus {
+                state: scan::ScanState::Scanning,
+                settings: scan::ScanSettings::default(),
+                targets: 0,
+                current_hz: 446_000_000.0,
+                current_db: None,
+                sweeps: 0,
+                hits: 0,
+                error: None,
+            }),
+        };
+        let json = serde_json::to_value(&ev).unwrap();
+        assert_eq!(json["type"], "ScannerUpdate");
+        assert_eq!(json["data"]["device_set"], 3);
+        assert_eq!(json["data"]["status"]["state"], "scanning");
+        let back: ServerEvent = serde_json::from_value(json).unwrap();
+        assert_eq!(back, ev);
+    }
+
+    /// `--doctor` and `GET /api/doctor` render the same report; the worst status is what the
+    /// CLI turns into an exit code, so it must not be forgiving.
+    #[test]
+    fn doctor_report_worst_status_wins() {
+        let check = |status| DoctorCheck {
+            id: "x".to_owned(),
+            name: "X".to_owned(),
+            status,
+            detail: String::new(),
+            hint: None,
+        };
+        let report = |checks: Vec<DoctorCheck>| DoctorReport {
+            version: "0".to_owned(),
+            platform: "test".to_owned(),
+            checks,
+        };
+        assert_eq!(report(Vec::new()).worst(), CheckStatus::Ok);
+        assert_eq!(
+            report(vec![check(CheckStatus::Ok)]).worst(),
+            CheckStatus::Ok
+        );
+        assert_eq!(
+            report(vec![check(CheckStatus::Ok), check(CheckStatus::Warn)]).worst(),
+            CheckStatus::Warn
+        );
+        assert_eq!(
+            report(vec![
+                check(CheckStatus::Warn),
+                check(CheckStatus::Fail),
+                check(CheckStatus::Ok)
+            ])
+            .worst(),
+            CheckStatus::Fail
+        );
+
+        let json = serde_json::to_value(check(CheckStatus::Warn)).unwrap();
+        assert_eq!(json["status"], "warn");
+        assert!(json.get("hint").is_none());
     }
 
     #[test]

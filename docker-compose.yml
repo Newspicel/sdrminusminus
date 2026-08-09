@@ -1,0 +1,31 @@
+# Single-service deployment of the sdr-- image (PLAN §15: Pi/NAS with USB passthrough).
+#   docker compose up -d   → http://<host>:8080
+services:
+  sdrmm:
+    image: ghcr.io/newspicel/sdrminusminus:latest
+    # Present so `docker compose up` can build from this checkout when the image is not
+    # already local; `docker compose pull` fetches the published multi-arch image instead.
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      # Database and SigMF recordings; the image passes --db/--recordings-dir under /data.
+      - sdrmm-data:/data
+    devices:
+      # The whole USB bus, not one node: which bus/device an SDR lands on is decided at plug
+      # time, and the engine enumerates all of them.
+      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules:
+      # `devices:` whitelists only the nodes that existed when the container started, so a
+      # replugged SDR comes back as a new minor and is blocked — which defeats auto-reconnect.
+      # 189 is the char major of the usbfs nodes under /dev/bus/usb.
+      - "c 189:* rmw"
+    # The image runs as an unprivileged user; whether it may open the SDR is decided by the
+    # host's udev rules. The stock rtl-sdr/hackrf rules (MODE="0666") are enough. Where they
+    # are absent, add the gid that owns /dev/bus/usb/* below — numerically, since the group
+    # name would have to resolve inside the container — or fall back to `user: root`.
+    # group_add: ["46"]
+    restart: unless-stopped
+
+volumes:
+  sdrmm-data:

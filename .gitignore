@@ -25,3 +25,6 @@ web/src/generated/*.tsbuildinfo
 # Env
 .env
 .env.local
+
+# mdBook build output (docs/ is the source; the site is built in CI).
+docs/book

@@ -21,19 +21,42 @@ use utoipa_swagger_ui::SwaggerUi;
 /// without going through [`serve`], starts the same prober.
 pub const HOTPLUG_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Buffered pre-serialized decoder frames. Matches the engine's own fan-out depth: a client
+/// that falls further behind than this loses frames and is told how many (PLAN §5).
+const DECODED_TEXT_CAP: usize = 1024;
+
 mod assets;
+mod auth;
 mod decoderlog;
+pub mod doctor;
+mod mcp;
 mod rest;
 mod store;
+mod templates;
 mod ws;
 
 pub use store::{Store, StoreError};
+
+/// Everything the router itself needs, as opposed to the process-level [`Config`] (which also
+/// carries the bind address and the database path).
+#[derive(Clone, Debug, Default)]
+pub struct ServerOptions {
+    /// Relax CORS for the Vite dev origin (PLAN §10 dev mode).
+    pub dev_cors: bool,
+    /// Optional shared token (PLAN §12). `None` is the default LAN-trusted posture.
+    pub token: Option<String>,
+}
 
 /// Shared application state handed to every handler (cheap to clone: four `Arc`s).
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub engine: Arc<Engine>,
     pub store: Arc<Store>,
+    /// Whether a shared token is configured, so `GET /api/auth` can tell clients to prompt.
+    pub auth: auth::Auth,
+    /// Reported by `GET /api/doctor`; the engine owns the recordings directory but nothing
+    /// else knows where the database lives.
+    pub db_path: Option<PathBuf>,
     /// Serializes disk↔index recording transitions (reconcile, delete, stop-indexing), which
     /// all run on the blocking pool: an unserialized reconcile prune interleaving into a
     /// delete's unlink→row-delete window turns a successful delete into a 404 (skipping its
@@ -42,6 +65,12 @@ pub(crate) struct AppState {
     /// Decoder frames the log writer itself lost. Shared with the writer task and reported by
     /// `GET /api/decoderlog`.
     decoder_log_dropped: Arc<AtomicU64>,
+    /// Decoder frames serialized ONCE for every connection (PLAN §16 M5 multi-client): under
+    /// ADS-B traffic this is hundreds of frames a second, and serializing byte-identical JSON
+    /// per socket multiplied the cost by the number of browsers watching.
+    pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
+    /// Live WebSocket connections, reported by `GET /api/clients`.
+    pub clients: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl AppState {
@@ -49,8 +78,12 @@ impl AppState {
         Self {
             engine,
             store,
+            auth: auth::Auth::default(),
+            db_path: None,
             recordings_gate: Arc::new(std::sync::Mutex::new(())),
             decoder_log_dropped: Arc::new(AtomicU64::new(0)),
+            decoded_text: tokio::sync::broadcast::channel(DECODED_TEXT_CAP).0,
+            clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         }
     }
 
@@ -59,24 +92,23 @@ impl AppState {
     }
 }
 
-/// Server configuration (PLAN §11 `config.toml`; token auth lands at M5).
+/// Server configuration (PLAN §11, §12).
 #[derive(Clone, Debug)]
 pub struct Config {
     pub bind: SocketAddr,
-    /// Relax CORS for the Vite dev origin (PLAN §10 dev mode).
-    pub dev_cors: bool,
     /// SQLite database for presets/bookmarks/recordings index (PLAN §11); `None` = in-memory.
     /// The recordings *directory* is not configured here: the [`Engine`] owns it
     /// (`Engine::new(recordings_dir)`), so REST and the playback probe share one source.
     pub db_path: Option<PathBuf>,
+    pub options: ServerOptions,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             bind: SocketAddr::from(([0, 0, 0, 0], 8080)),
-            dev_cors: false,
             db_path: None,
+            options: ServerOptions::default(),
         }
     }
 }
@@ -93,26 +125,39 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 /// `store`, and start the decoder-log writer that feeds `GET /api/decoderlog` (PLAN §11).
 /// The writer is left running until `engine` is dropped; [`serve`] ties it to its handle
 /// instead.
-pub fn router(engine: Arc<Engine>, store: Store, dev_cors: bool) -> Router {
-    let (router, writer) = router_with_state(AppState::new(engine, Arc::new(store)), dev_cors);
+pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Router {
+    let mut state = AppState::new(engine, Arc::new(store));
+    state.auth = auth::Auth::new(options.token.as_deref());
+    let (router, writer) = router_with_state(state, options);
     writer.detach();
     router
 }
 
 /// The router plus the decoder-log writer, so a caller that owns the server's lifetime can
 /// tear the writer down with it.
-fn router_with_state(state: AppState, dev_cors: bool) -> (Router, Writer) {
+///
+/// Layer order is load-bearing. Auth goes on with `route_layer`, which covers the routed API,
+/// WebSocket and MCP surfaces but deliberately not the fallback: the SPA has to load before
+/// the user can type a token into it, and an unmatched `/api/*` must stay a typed 404 rather
+/// than becoming a 401. CORS stays outermost so a preflight is answered before auth runs.
+fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Writer) {
     let writer = start_decoder_log_writer(&state);
+    ws::start_decoded_encoder(&state);
     let (api_router, api) = rest::openapi_router().split_for_parts();
 
     let mut app = Router::new()
         .merge(api_router)
         .route("/api/ws", axum::routing::get(ws::handler))
+        .merge(mcp::router(state.engine.clone(), state.store.clone()))
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", api))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.auth.clone(),
+            auth::require_token,
+        ))
         .fallback(assets::static_handler)
         .with_state(state);
 
-    if dev_cors {
+    if options.dev_cors {
         app = app.layer(CorsLayer::very_permissive());
     }
     (app, writer)
@@ -205,8 +250,15 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         Some(dir) => tracing::info!(dir = %dir.display(), "recordings directory"),
         None => tracing::info!("recording disabled (engine has no recordings directory)"),
     }
+    match &config.options.token {
+        Some(_) => tracing::info!("shared-token auth enabled"),
+        None => tracing::info!("no token configured: LAN-trusted, unauthenticated (PLAN §12)"),
+    }
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
-    let (app, writer) = router_with_state(AppState::new(engine, Arc::new(store)), config.dev_cors);
+    let mut state = AppState::new(engine, Arc::new(store));
+    state.auth = auth::Auth::new(config.options.token.as_deref());
+    state.db_path = config.db_path.clone();
+    let (app, writer) = router_with_state(state, &config.options);
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     let local_addr = listener.local_addr()?;
     tracing::info!(%local_addr, "sdr-- server listening");
@@ -250,7 +302,7 @@ mod tests {
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
         let store = Arc::new(Store::open(None).expect("in-memory store"));
         let state = AppState::new(Engine::with_registry(registry, None), store.clone());
-        let (router, writer) = router_with_state(state, false);
+        let (router, writer) = router_with_state(state, &ServerOptions::default());
         writer.detach();
         (router, store)
     }
@@ -269,7 +321,7 @@ mod tests {
             Engine::with_registry(registry, Some(dir.to_path_buf())),
             Arc::new(Store::open(None).expect("in-memory store")),
         );
-        let (router, writer) = router_with_state(state, false);
+        let (router, writer) = router_with_state(state, &ServerOptions::default());
         writer.detach();
         router
     }
@@ -377,7 +429,11 @@ mod tests {
         let mut registry = sdrmm_device::DeviceRegistry::new();
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
         let store = Store::open(None).expect("in-memory store");
-        let _router = router(Engine::with_registry(registry, None), store, false);
+        let _router = router(
+            Engine::with_registry(registry, None),
+            store,
+            &ServerOptions::default(),
+        );
     }
 
     #[tokio::test]
@@ -1087,7 +1143,8 @@ mod tests {
         let store = Arc::new(Store::open(None).expect("in-memory store"));
         seed_decoder_log(&store);
         let mut events = engine.subscribe_events();
-        let (app, writer) = router_with_state(AppState::new(engine, store), false);
+        let (app, writer) =
+            router_with_state(AppState::new(engine, store), &ServerOptions::default());
         writer.detach();
 
         let (status, _) = request(app, "DELETE", "/api/decoderlog?kind=adsb", None).await;
@@ -1179,6 +1236,235 @@ mod tests {
 
         let (status, _) = request(app, "GET", "/api/decoderlog/export/xml", None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    /// `GET /api/auth` must answer without a token — it is how a client learns it needs one —
+    /// and everything else must be gated once one is configured.
+    #[tokio::test]
+    async fn token_auth_gates_the_api_and_advertises_itself() {
+        let mut registry = sdrmm_device::DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        let store = Store::open(None).expect("in-memory store");
+        let app = router(
+            Engine::with_registry(registry, None),
+            store,
+            &ServerOptions {
+                dev_cors: false,
+                token: Some("s3cret".to_string()),
+            },
+        );
+
+        let (status, body) = request(app.clone(), "GET", "/api/auth", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let info: sdrmm_wire::AuthInfo = serde_json::from_slice(&body).expect("json");
+        assert!(info.token_required);
+
+        let (status, _) = request(app.clone(), "GET", "/api/state", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let (status, _) = request(app.clone(), "GET", "/api/state?token=s3cret", None).await;
+        assert_eq!(status, StatusCode::OK);
+
+        // The SPA shell is what asks for the token, so it can never be behind it.
+        let (status, _) = request(app, "GET", "/", None).await;
+        assert_ne!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_reports_not_required_by_default() {
+        let (status, body) = request(test_router(), "GET", "/api/auth", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let info: sdrmm_wire::AuthInfo = serde_json::from_slice(&body).expect("json");
+        assert!(!info.token_required);
+    }
+
+    /// The MCP endpoint must be mounted and, once a token is configured, gated by the same
+    /// middleware as REST — an unauthenticated tool call is the whole point of the layer.
+    #[tokio::test]
+    async fn mcp_is_mounted_and_shares_the_token_gate() {
+        let mut registry = sdrmm_device::DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        let app = router(
+            Engine::with_registry(registry, None),
+            Store::open(None).expect("in-memory store"),
+            &ServerOptions {
+                dev_cors: false,
+                token: Some("s3cret".to_string()),
+            },
+        );
+        let call = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        let (status, _) = request(app.clone(), "POST", "/mcp", Some(call)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("accept", "application/json, text/event-stream")
+                    // rmcp's DNS-rebinding guard reads the Host header; every real HTTP/1.1
+                    // client sends one, but a `oneshot` request has to say so explicitly.
+                    .header("host", "sdrmm.local:8080")
+                    .header("authorization", "Bearer s3cret")
+                    .body(Body::from(call))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        let status = response.status();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&bytes)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&bytes).expect("json-rpc body");
+        let tools = json["result"]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no tools in {json}"));
+        assert!(
+            tools.iter().any(|t| t["name"] == "get_state"),
+            "get_state missing from the tool list"
+        );
+    }
+
+    #[tokio::test]
+    async fn templates_list_and_apply_over_http() {
+        let app = test_router();
+        let (status, body) = request(app.clone(), "GET", "/api/templates", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed: sdrmm_wire::TemplatesResponse = serde_json::from_slice(&body).expect("json");
+        assert!(listed.templates.iter().any(|t| t.id == "fm-radio"));
+
+        let ds = create_virtual_set(&app).await;
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/templates/fm-radio/apply",
+            Some(&format!(r#"{{"device_set":{ds}}}"#)),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        let set = &get_state(&app).await.device_sets[0];
+        assert_eq!(set.settings.center_hz, Some(98_000_000.0));
+        assert_eq!(set.channels.len(), 1);
+        assert_eq!(set.channels[0].settings.params.type_id(), "wfm");
+
+        let (status, _) = request(
+            app.clone(),
+            "POST",
+            "/api/templates/nope/apply",
+            Some(&format!(r#"{{"device_set":{ds}}}"#)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = request(
+            app,
+            "POST",
+            "/api/templates/fm-radio/apply",
+            Some(r#"{"device_set":999}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn scanner_start_stop_and_error_mapping_over_http() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+
+        // A start without settings is a client mistake, not a 500.
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/scanner"),
+            Some(r#"{"action":"start"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+        // So is a stop with nothing running.
+        let (status, _) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/scanner"),
+            Some(r#"{"action":"stop"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // A threshold no signal reaches: the scan sweeps for the whole test and never holds.
+        let start = r#"{"action":"start","settings":{"ranges":[{"start_hz":99000000.0,"stop_hz":101000000.0,"step_hz":100000.0}],"threshold_db":100.0,"dwell_ms":40}}"#;
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/scanner"),
+            Some(start),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let status_body: sdrmm_wire::ScannerStatus = serde_json::from_slice(&body).expect("json");
+        assert_eq!(status_body.targets, 21);
+        assert!(get_state(&app).await.device_sets[0].scanner.is_some());
+
+        // While a scan owns the tuning, a client retune is refused rather than fought over.
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(r#"{"center_hz":88000000.0}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (status, _) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/scanner"),
+            Some(r#"{"action":"stop"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(get_state(&app).await.device_sets[0].scanner.is_none());
+
+        let (status, _) = request(
+            app,
+            "POST",
+            "/api/devicesets/999/scanner",
+            Some(r#"{"action":"stop"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// The doctor is served from the engine's own registry, so it must work on a hermetic
+    /// engine and describe it honestly (virtual-only builds are a warning, not "all good").
+    #[tokio::test]
+    async fn doctor_reports_the_running_configuration() {
+        let (status, body) = request(test_router(), "GET", "/api/doctor", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let report: sdrmm_wire::DoctorReport = serde_json::from_slice(&body).expect("json");
+        assert_eq!(report.version, env!("CARGO_PKG_VERSION"));
+        let backends = report
+            .checks
+            .iter()
+            .find(|c| c.id == "backends")
+            .expect("backends check");
+        assert_eq!(backends.status, sdrmm_wire::CheckStatus::Warn);
+        assert!(backends.detail.contains("virtual"));
+        assert!(report.checks.iter().any(|c| c.id == "storage.db"));
     }
 
     /// Delete and list-triggered reconciles race on separate blocking threads; the

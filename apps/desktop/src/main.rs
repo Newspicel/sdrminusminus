@@ -29,7 +29,14 @@ fn main() {
             // Managed so the exit hook below can reach the engine for teardown.
             app.manage(engine.clone());
             let store = sdrmm_server::Store::open(Some(&data_dir.join("sdrmm.db")))?;
-            let router = sdrmm_server::router(engine, store, false);
+            let router = sdrmm_server::router(
+                engine,
+                store,
+                // Loopback-only and single-user: a token would gate the app against itself.
+                // Tokens matter for the *remote* connections the app saves, which are the
+                // other server's configuration, not this one's.
+                &sdrmm_server::ServerOptions::default(),
+            );
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = axum::serve(listener, router).await {
                     tracing::error!("embedded server exited: {e}");
