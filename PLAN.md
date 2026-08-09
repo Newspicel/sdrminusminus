@@ -228,9 +228,10 @@ device setting needs zero frontend work. Well-known settings (frequency, gain, r
 get first-class custom UI; the rest render generically.
 
 ### Backends
-- **`device-soapy`** (default): via the `soapysdr` crate. Instantly covers Airspy, SDRplay,
-  LimeSDR, PlutoSDR, BladeRF, USRP… wherever a Soapy module exists. C dependency documented
-  per platform (`apt: libsoapysdr-dev soapysdr-module-all`, `brew: soapysdr soapyrtlsdr soapyhackrf`).
+- **`device-soapy`** (default in dev/server builds): via the `soapysdr` crate. Instantly covers
+  Airspy, SDRplay, LimeSDR, PlutoSDR, BladeRF, USRP… wherever a Soapy module exists. C dependency
+  documented per platform (`apt: libsoapysdr-dev soapysdr-module-all`, `brew: soapysdr
+  soapyrtlsdr soapyhackrf`). Never a launch dependency of release artifacts (§15 packaging rule).
   Risk: the Rust binding's maintenance — fallback is a minimal own FFI layer or the `seify`
   crate (FutureSDR's abstraction; evaluated at M1 → rejected, see §18 — we keep our own
   trait either way because the capability-schema is ours).
@@ -669,9 +670,15 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
   - `sdrmm` headless server: linux x86_64 + aarch64, macOS arm64 (web UI embedded).
   - Desktop: Tauri bundles — macOS `.dmg` (signing/notarization at M5), Linux AppImage + `.deb`.
   - Multi-arch Docker image (`--device /dev/bus/usb`) for Pi/NAS deployments.
-- **System deps** kept honest: SoapySDR (documented per-platform), libusb only if a native
-  backend needs it, everything else vendored/static. `sdrmm --doctor` prints what's found
-  (Soapy modules, USB permissions, udev hints).
+- **System deps** kept honest, under a hard packaging rule: **release artifacts just run.**
+  The desktop bundle and prebuilt `sdrmm` binaries ship the default hardware (RTL-SDR,
+  HackRF) compiled in via the native backends — pure-Rust USB (`nusb`) preferred, else
+  vendored static C libs — and must never require an install to launch. SoapySDR is
+  optional *extra* coverage, never a launch dependency: release builds omit the `soapy`
+  feature or load it at runtime, so a missing libSoapySDR costs exotic-device support,
+  not startup. What static linking cannot fix stays out of scope and honest: OS USB
+  permissions (udev rules, Windows WinUSB binding) and vendor daemons (SDRplay) —
+  `sdrmm --doctor` prints what's found (Soapy modules, USB permissions, udev hints).
 
 ---
 
@@ -695,7 +702,8 @@ UI panel or the generic fallback. Definition of done includes running on a Pi.
   Frequency scanner · auto-reconnect on replug (a faulted device set re-opens and restores
   its channels once its device re-enumerates; today recovery is manual close/re-open) ·
   multi-client polish · token auth · **MCP server** · **template gallery + first-run
-  wizard** · Tauri packaging/signing · Docker/Pi image · docs site · `--doctor`.
+  wizard** · native `rtl-native`/`hackrf-native` backends → self-contained binaries
+  (§15 packaging rule) · Tauri packaging/signing · Docker/Pi image · docs site · `--doctor`.
   (Workspaces/tabs land earlier — the dockview shell is part of M0/M2 UI.)
 - **M6+ — Phase 3/4 waves** per §13, prioritized by demand.
 
