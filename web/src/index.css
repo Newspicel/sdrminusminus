@@ -28,3 +28,11 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Sliders are primary tuning controls; on touch screens widen the hit area to ≥40px
+   (PLAN §10: phone-usable). */
+@media (pointer: coarse) {
+  input[type="range"] {
+    min-height: 2.5rem;
+  }
+}

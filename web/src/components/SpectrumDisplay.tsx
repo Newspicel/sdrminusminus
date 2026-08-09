@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { WaterfallRenderer } from "../gl/waterfall";
 import type { SpectrumFrame } from "../lib/frame";
+import type { ChannelInfo } from "../lib/types";
 import type { SdrSocket } from "../lib/ws";
+import { formatSignedKhz } from "./format";
+import { markerFraction } from "./markers";
 
 const BINS = 1024;
 const FPS = 30;
@@ -20,10 +23,16 @@ export function SpectrumDisplay({
   socket,
   deviceSet,
   connected,
+  channels,
+  selectedChannel,
+  onSelectChannel,
 }: {
   socket: SdrSocket;
   deviceSet: number | null;
   connected: boolean;
+  channels: ChannelInfo[];
+  selectedChannel: number | null;
+  onSelectChannel: (ch: number) => void;
 }) {
   const waterfallRef = useRef<HTMLCanvasElement>(null);
   const lineRef = useRef<HTMLCanvasElement>(null);
@@ -44,13 +53,20 @@ export function SpectrumDisplay({
   }, []);
 
   useEffect(() => {
+    // A device-set switch invalidates the cached meta: markers and the readout must never
+    // be placed by the previous set's span/center — the new set may never emit a frame.
+    setMeta(null);
     let frameCount = 0;
     socket.onSpectrum = (frame: SpectrumFrame) => {
+      // Spectrum stream ids are device-set ids; drop late frames from a previous set.
+      if (frame.streamId !== deviceSet) {
+        return;
+      }
       rendererRef.current?.pushRow(frame.bins);
       drawSpectrumLine(lineRef.current, frame);
-      // Throttle React meta updates to ~4 Hz; the canvases update every frame.
+      // Meta seeds from the first frame, then throttles to ~4 Hz; canvases update every frame.
       frameCount += 1;
-      if (frameCount % 8 === 0) {
+      if (frameCount === 1 || frameCount % 8 === 0) {
         setMeta({
           centerHz: frame.centerHz,
           spanHz: frame.spanHz,
@@ -63,7 +79,7 @@ export function SpectrumDisplay({
     return () => {
       socket.onSpectrum = () => {};
     };
-  }, [socket]);
+  }, [socket, deviceSet]);
 
   // Subscribe only once the socket is actually open, and re-subscribe whenever it reconnects
   // (`connected` cycles false→true). `send()` drops commands while not OPEN, so gating on
@@ -94,10 +110,50 @@ export function SpectrumDisplay({
         </div>
       ) : (
         meta && (
-          <div className="pointer-events-none absolute top-2 right-3 font-mono text-xs tabular-nums text-ink-dim">
-            {(meta.centerHz / 1e6).toFixed(3)} MHz · {(meta.spanHz / 1e6).toFixed(3)} MHz span ·{" "}
-            {meta.dbMin.toFixed(0)}…{meta.dbMax.toFixed(0)} dB
-          </div>
+          <>
+            <div className="pointer-events-none absolute top-2 right-3 font-mono text-xs tabular-nums text-ink-dim">
+              {(meta.centerHz / 1e6).toFixed(3)} MHz · {(meta.spanHz / 1e6).toFixed(3)} MHz span ·{" "}
+              {meta.dbMin.toFixed(0)}…{meta.dbMax.toFixed(0)} dB
+            </div>
+            {/* Markers must not steal pan/scroll gestures from the display: the layer is
+                pointer-transparent, only each marker's own button takes clicks. */}
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+              {channels.map((c) => {
+                const offsetHz = c.settings.offset_hz ?? 0;
+                const fraction = markerFraction(offsetHz, meta.spanHz);
+                if (fraction === null) {
+                  return null;
+                }
+                const active = c.id === selectedChannel;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    // `max-md:w-10` = the ≥40px phone touch target (controls.ts convention);
+                    // the visible 1px line below is centered independently, so only the
+                    // invisible hit area widens.
+                    className="pointer-events-auto absolute inset-y-0 w-4 -translate-x-1/2 max-md:w-10"
+                    style={{ left: `${fraction * 100}%` }}
+                    onClick={() => onSelectChannel(c.id)}
+                    aria-label={`Select ${c.settings.params.type} channel at ${formatSignedKhz(offsetHz)}`}
+                  >
+                    <span
+                      className={`absolute inset-y-0 left-1/2 w-px ${
+                        active ? "bg-accent" : "bg-ink-dim/60"
+                      }`}
+                    />
+                    <span
+                      className={`absolute top-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm bg-bg/80 px-1 font-mono text-[10px] tabular-nums ${
+                        active ? "text-accent" : "text-ink-dim"
+                      }`}
+                    >
+                      {c.settings.params.type.toUpperCase()} {formatSignedKhz(offsetHz)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
         )
       )}
     </div>

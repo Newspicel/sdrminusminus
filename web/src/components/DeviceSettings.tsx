@@ -1,14 +1,14 @@
 // Capability-driven device controls (PLAN §6): everything renders from `Capabilities` +
 // `DeviceSettings` alone, so a new device setting needs zero frontend work. Well-known settings
 // (frequency, rate) keep first-class UI in `DeviceBar`; this strip carries the rest generically.
-import { useEffect, useRef, useState } from "react";
 import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
-import { FIELD, NumberField } from "./NumberField";
+import { FIELD } from "./controls";
+import { formatHz } from "./format";
+import { NumberField } from "./NumberField";
+import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const LABEL = "flex items-center gap-2 text-sm text-ink-dim";
-
-const GAIN_COMMIT_MS = 150;
 
 export function DeviceSettingsPanel({ active }: { active: DeviceSet }) {
   const { applyPatch } = useDevicePatch();
@@ -102,42 +102,7 @@ function GainControl({
   value: number;
   onCommit: (db: number) => void;
 }) {
-  // Local value while sliding; the PATCH is debounced so a drag doesn't flood the server.
-  const [pending, setPending] = useState<number | null>(null);
-  // Refs mirror the pending value and latest `onCommit` so the unmount cleanup (whose closure
-  // is stale) can flush a debounced commit instead of silently dropping the last drag value.
-  const pendingRef = useRef<number | null>(null);
-  const commitRef = useRef(onCommit);
-  commitRef.current = onCommit;
-  const timer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (timer.current !== null) {
-        window.clearTimeout(timer.current);
-      }
-      if (pendingRef.current !== null) {
-        commitRef.current(pendingRef.current);
-      }
-    },
-    [],
-  );
-
-  const change = (db: number): void => {
-    setPending(db);
-    pendingRef.current = db;
-    if (timer.current !== null) {
-      window.clearTimeout(timer.current);
-    }
-    timer.current = window.setTimeout(() => {
-      timer.current = null;
-      pendingRef.current = null;
-      // `onCommit` updates the query cache synchronously, so clearing the local value in the
-      // same tick cannot flash the stale position.
-      setPending(null);
-      onCommit(db);
-    }, GAIN_COMMIT_MS);
-  };
-
+  const { pending, change } = useDebouncedCommit(onCommit);
   const shown = pending ?? value;
   return (
     <label className={LABEL}>
@@ -214,16 +179,4 @@ function ExtraControl({
         </label>
       );
   }
-}
-
-function formatHz(hz: number): string {
-  return hz >= 1e6
-    ? `${trimZeros((hz / 1e6).toFixed(3))} MHz`
-    : `${trimZeros((hz / 1e3).toFixed(1))} kHz`;
-}
-
-// Safe on `toFixed` output only: it always carries a decimal point, so the trim can't eat
-// integer zeros.
-function trimZeros(fixed: string): string {
-  return fixed.replace(/\.?0+$/, "");
 }

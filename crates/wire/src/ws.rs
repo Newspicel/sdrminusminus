@@ -16,6 +16,21 @@ pub enum StateScope {
     Devices,
     /// A single device set changed (settings, status, or its channels).
     DeviceSet(u32),
+    /// The stored presets changed; refetch `GET /api/presets`.
+    Presets,
+    /// The stored bookmarks changed; refetch `GET /api/bookmarks`.
+    Bookmarks,
+}
+
+/// Which binary stream a control event refers to. Spectrum stream ids are device-set ids
+/// (< 0x8000) and audio ids are connection-allocated from `0x8000..=0xFFFF`, but only the
+/// pair `(kind, stream_id)` identifies a stream — events must carry the kind or a spectrum
+/// stop is indistinguishable from an audio stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamKind {
+    Spectrum,
+    Audio,
 }
 
 /// Server → client push (PLAN §5). Adjacently tagged so unit variants stay compact.
@@ -28,8 +43,17 @@ pub enum ServerEvent {
     StateChanged { scope: StateScope },
     /// A subscribed binary stream is now active with this stream id (see [`crate::frame`]).
     StreamStarted { stream_id: u16, device_set: u32 },
-    /// A subscribed stream stopped.
-    StreamStopped { stream_id: u16 },
+    /// A subscribed audio stream is now active. Stream ids are allocated per-connection
+    /// from the audio range (see [`StreamKind`]); clients demux binary frames by
+    /// `(kind, stream_id)`.
+    AudioStreamStarted {
+        stream_id: u16,
+        device_set: u32,
+        channel: u32,
+    },
+    /// A subscribed stream stopped; `kind` says which one, since spectrum and audio ids
+    /// come from different spaces.
+    StreamStopped { stream_id: u16, kind: StreamKind },
     /// Non-fatal server-side error surfaced to the client.
     Error { message: String },
 }
@@ -49,4 +73,8 @@ pub enum ClientCommand {
     },
     /// Stop the spectrum stream for a device set.
     UnsubscribeSpectrum { device_set: u32 },
+    /// Start receiving Opus audio frames for a channel; answered with `AudioStreamStarted`.
+    SubscribeAudio { device_set: u32, channel: u32 },
+    /// Stop the audio stream for a channel.
+    UnsubscribeAudio { device_set: u32, channel: u32 },
 }

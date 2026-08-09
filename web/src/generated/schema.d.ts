@@ -4,6 +4,54 @@
  */
 
 export interface paths {
+    "/api/bookmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_bookmarks"];
+        put?: never;
+        post: operations["create_bookmark"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bookmarks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_bookmark"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/channeltypes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_channel_types"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices": {
         parameters: {
             query?: never;
@@ -81,7 +129,7 @@ export interface paths {
         delete: operations["delete_channel"];
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["patch_channel"];
         trace?: never;
     };
     "/api/devicesets/{ds}/device": {
@@ -98,6 +146,54 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["patch_device"];
+        trace?: never;
+    };
+    "/api/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_presets"];
+        put?: never;
+        post: operations["create_preset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/presets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_preset"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/presets/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["apply_preset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/state": {
@@ -120,10 +216,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AmParams: {
+            agc?: boolean;
+            /** Format: double */
+            bandwidth_hz?: number;
+        };
         /** @description Uniform error body for REST failures. */
         ApiError: {
             detail?: string | null;
             error: string;
+        };
+        /** @description Apply a stored preset to a live device set. */
+        ApplyPresetRequest: {
+            /** Format: int32 */
+            device_set: number;
+        };
+        /** @description A stored frequency bookmark (PLAN §11). */
+        Bookmark: {
+            /** Format: double */
+            freq_hz: number;
+            group?: string | null;
+            /** Format: int64 */
+            id: number;
+            label: string;
+            /** @description Suggested channel type id (e.g. `"nfm"`), if any. */
+            mode?: string | null;
         };
         /** @description Everything the client needs to render device controls without hand-written DTOs (PLAN §6). */
         Capabilities: {
@@ -139,6 +256,23 @@ export interface components {
             /** @description True once TX is implemented; declared from day one, unused in the RX phases (PLAN §1). */
             tx_capable?: boolean;
         };
+        /** @description Static description of a channel type, surfaced to drive the "add channel" UI (PLAN §8). */
+        ChannelDescriptor: {
+            /**
+             * Format: double
+             * @description Nominal RF bandwidth the channel needs, in Hz.
+             */
+            bandwidth_hz: number;
+            /**
+             * Format: double
+             * @description IQ rate the demod expects from the DDC, in Hz.
+             */
+            input_rate_hz: number;
+            /** @description Display name, e.g. `"NFM"`, `"WFM (mono)"`. */
+            name: string;
+            /** @description Stable type id, e.g. `"nfm"`, `"am"`, `"ssb"`, `"wfm"`. */
+            type_id: string;
+        };
         /** @description A live channel instance inside a device set. */
         ChannelInfo: {
             /** Format: int32 */
@@ -146,18 +280,45 @@ export interface components {
             settings: components["schemas"]["ChannelSettings"];
         };
         /**
-         * @description Per-channel settings envelope. Concrete typed settings land with each demod (PLAN §8);
-         *     until then this carries the type id plus a free-form params blob validated server-side.
+         * @description Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
+         *     discriminated union on `type`, and `{"type":"nfm","settings":{}}` deserializes with
+         *     every field at its default.
          */
+        ChannelParams: {
+            settings: components["schemas"]["NfmParams"];
+            /** @enum {string} */
+            type: "nfm";
+        } | {
+            settings: components["schemas"]["AmParams"];
+            /** @enum {string} */
+            type: "am";
+        } | {
+            settings: components["schemas"]["SsbParams"];
+            /** @enum {string} */
+            type: "ssb";
+        } | {
+            settings: components["schemas"]["WfmParams"];
+            /** @enum {string} */
+            type: "wfm";
+        };
+        /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
             /**
              * Format: double
              * @description Offset from the device center frequency, in Hz.
              */
             offset_hz?: number;
-            /** @description Type-specific parameters. Replaced by generated typed structs as demods land. */
-            params?: unknown;
-            type_id: string;
+            params: components["schemas"]["ChannelParams"];
+            /**
+             * Format: float
+             * @description Squelch threshold in dBFS, measured on the channel-filtered IQ (the mode's occupied
+             *     bandwidth, not the full DDC passband); `None` = squelch open.
+             */
+            squelch_db?: number | null;
+        };
+        /** @description The channel types this server build offers, driving the "add channel" UI (PLAN §8). */
+        ChannelTypesResponse: {
+            types: components["schemas"]["ChannelDescriptor"][];
         };
         /**
          * @description Client → server commands over the same socket (PLAN §5). Stream subscriptions are
@@ -189,6 +350,34 @@ export interface components {
             };
             /** @enum {string} */
             type: "UnsubscribeSpectrum";
+        } | {
+            /** @description Start receiving Opus audio frames for a channel; answered with `AudioStreamStarted`. */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+            };
+            /** @enum {string} */
+            type: "SubscribeAudio";
+        } | {
+            /** @description Stop the audio stream for a channel. */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+            };
+            /** @enum {string} */
+            type: "UnsubscribeAudio";
+        };
+        /** @description `POST /api/bookmarks`. */
+        CreateBookmarkRequest: {
+            /** Format: double */
+            freq_hz: number;
+            group?: string | null;
+            label: string;
+            mode?: string | null;
         };
         /** @description `POST /api/devicesets/{ds}/channels` — add a channel to a device set. */
         CreateChannelRequest: {
@@ -199,10 +388,21 @@ export interface components {
             /** @description `driver:key`, matching a [`DeviceInfo`] from `GET /api/devices`. */
             device_id: string;
         };
-        /** @description Identifier returned when a resource is created. */
+        /** @description Identifier returned when an engine resource (device set, channel) is created. */
         CreatedId: {
             /** Format: int32 */
             id: number;
+        };
+        /** @description Identifier returned when a persistence row (preset, bookmark) is created. */
+        CreatedRowId: {
+            /** Format: int64 */
+            id: number;
+        };
+        /** @description `POST /api/presets` — snapshot a live device set under a name. */
+        CreatePresetRequest: {
+            /** Format: int32 */
+            device_set: number;
+            name: string;
         };
         /** @description A discovered receiver, produced by a driver's probe (PLAN §6). */
         DeviceInfo: {
@@ -223,6 +423,13 @@ export interface components {
             error?: string | null;
             /** Format: int32 */
             id: number;
+            /**
+             * Format: int64
+             * @description Cumulative device samples dropped at the capture ring since the set opened. Growth
+             *     means the DSP thread cannot keep up — audio and spectrum have gaps even while
+             *     `status` stays `running` (PLAN §5 backpressure; CLAUDE.md no-silent-failure).
+             */
+            overruns?: number;
             settings: components["schemas"]["DeviceSettings"];
             status: components["schemas"]["DeviceSetStatus"];
         };
@@ -290,6 +497,33 @@ export interface components {
             /** Format: double */
             value_db: number;
         };
+        NfmParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+        };
+        /** @description `GET /api/presets` list entry. */
+        PresetInfo: {
+            /** @description RFC3339 UTC. */
+            created_at: string;
+            /** @description `driver:key` of the device the preset applies to. */
+            device_id: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+        };
+        /** @description The stored body of a preset: a full device-set + channels snapshot (PLAN §11). */
+        PresetSnapshot: {
+            channels: components["schemas"]["ChannelSettings"][];
+            /** @description `driver:key` of the device the preset was taken from. */
+            device_id: string;
+            settings: components["schemas"]["DeviceSettings"];
+            /**
+             * Format: int32
+             * @description Snapshot schema version, currently 1. Bump on any incompatible shape change so
+             *     stored presets can be migrated or rejected explicitly.
+             */
+            version: number;
+        };
         /** @description An inclusive numeric range with an optional step, in the setting's native unit. */
         Range: {
             /** Format: double */
@@ -326,8 +560,28 @@ export interface components {
             /** @enum {string} */
             type: "StreamStarted";
         } | {
-            /** @description A subscribed stream stopped. */
+            /**
+             * @description A subscribed audio stream is now active. Stream ids are allocated per-connection
+             *     from the audio range (see [`StreamKind`]); clients demux binary frames by
+             *     `(kind, stream_id)`.
+             */
             data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+                /** Format: int32 */
+                stream_id: number;
+            };
+            /** @enum {string} */
+            type: "AudioStreamStarted";
+        } | {
+            /**
+             * @description A subscribed stream stopped; `kind` says which one, since spectrum and audio ids
+             *     come from different spaces.
+             */
+            data: {
+                kind: components["schemas"]["StreamKind"];
                 /** Format: int32 */
                 stream_id: number;
             };
@@ -340,6 +594,14 @@ export interface components {
             };
             /** @enum {string} */
             type: "Error";
+        };
+        /** @enum {string} */
+        Sideband: "usb" | "lsb";
+        SsbParams: {
+            agc?: boolean;
+            /** Format: double */
+            bandwidth_hz?: number;
+            sideband?: components["schemas"]["Sideband"];
         };
         /**
          * @description Granularity of a `StateChanged` invalidation. The client maps each scope to the
@@ -359,6 +621,12 @@ export interface components {
             id: number;
             /** @enum {string} */
             scope: "device_set";
+        } | {
+            /** @enum {string} */
+            scope: "presets";
+        } | {
+            /** @enum {string} */
+            scope: "bookmarks";
         };
         /** @description Full state snapshot for initial load (PLAN §5 `GET /api/state`). */
         StateSnapshot: {
@@ -369,6 +637,21 @@ export interface components {
              */
             revision: number;
         };
+        /**
+         * @description Which binary stream a control event refers to. Spectrum stream ids are device-set ids
+         *     (< 0x8000) and audio ids are connection-allocated from `0x8000..=0xFFFF`, but only the
+         *     pair `(kind, stream_id)` identifies a stream — events must carry the kind or a spectrum
+         *     stop is indistinguishable from an audio stop.
+         * @enum {string}
+         */
+        StreamKind: "spectrum" | "audio";
+        WfmParams: {
+            /**
+             * Format: float
+             * @description De-emphasis time constant in µs (50 in most of the world, 75 in the Americas).
+             */
+            deemphasis_us?: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -378,6 +661,118 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_bookmarks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored bookmarks */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bookmark"][];
+                };
+            };
+        };
+    };
+    create_bookmark: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBookmarkRequest"];
+            };
+        };
+        responses: {
+            /** @description Bookmark stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRowId"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_bookmark: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Bookmark id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bookmark removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Bookmark not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_channel_types: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Available channel types */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelTypesResponse"];
+                };
+            };
+        };
+    };
     get_devices: {
         parameters: {
             query?: never;
@@ -438,6 +833,15 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     delete_device_set: {
@@ -458,6 +862,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
             };
             /** @description Device set not found */
             404: {
@@ -495,8 +908,26 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedId"];
                 };
             };
+            /** @description Invalid channel settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Device set not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -527,8 +958,71 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Device set or channel not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    patch_channel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Channel id */
+                ch: number;
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelSettings"];
+            };
+        };
+        responses: {
+            /** @description Settings applied */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid channel settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set or channel not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -572,6 +1066,168 @@ export interface operations {
             };
             /** @description Device set not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_presets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored presets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresetInfo"][];
+                };
+            };
+        };
+    };
+    create_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePresetRequest"];
+            };
+        };
+        responses: {
+            /** @description Preset stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRowId"];
+                };
+            };
+            /** @description Device set not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Preset id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preset removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Preset not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    apply_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Preset id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyPresetRequest"];
+            };
+        };
+        responses: {
+            /** @description Preset applied */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Preset rejected by the target device; `detail` reports what state a partial application left behind */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Preset or device set not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

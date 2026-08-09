@@ -105,6 +105,115 @@ against fabricated capability data).
 - [x] Rejected PATCHes surfaced in the UI; off-list bandwidth rendered honestly; pending gain commit flushed on unmount
 - [x] Seify decision recorded in `PLAN.md` §18 (soapysdr 0.5 adopted; gaps documented)
 
-## M2 — Listen (not started)
-DDC channels · NFM/AM/SSB/WFM · squelch/AGC · Opus audio · presets · bookmarks · phone-usable UI.
-See `PLAN.md` §16.
+## M2 — Listen ✅
+
+Goal (PLAN §16): DDC channels · NFM/AM/SSB/WFM · squelch/AGC · Opus audio in browser+Tauri ·
+presets · bookmarks · phone-usable UI.
+
+**Status: complete.** `cargo xtask check` + `cargo xtask test` green (136 Rust + 37 web tests);
+end-to-end listen path verified hardware-free: virtual modulated carriers → DDC → demod →
+Opus → WS → browser decode/playback.
+
+### Wire (single source of truth, PLAN §4)
+- [x] Typed per-mode channel settings: `ChannelParams` tagged enum (`nfm`/`am`/`ssb`/`wfm`) with
+  serde-default'd `NfmParams`/`AmParams`/`SsbParams`/`WfmParams` → TS discriminated union
+- [x] `ChannelSettings { offset_hz, squelch_db: Option, params }`; `ChannelDescriptor` gains
+  `input_rate_hz`; contract tests lock tagging + defaults
+- [x] `AudioFrame` binary codec (16-byte header · ch_layout · Opus payload) + roundtrip test
+- [x] WS: `SubscribeAudio`/`UnsubscribeAudio`, `AudioStreamStarted`; `StateScope::Presets`/`Bookmarks`
+- [x] REST DTOs: channel types, presets (versioned `PresetSnapshot`), bookmarks
+
+### DSP (`crates/dsp`, all pure + analytic golden tests)
+- [x] Windowed-sinc FIR design (Blackman, unity DC gain) + shared streaming FIR core
+- [x] Polyphase `Decimator`/`RealDecimator` (ragged-block bit-exact vs one-shot)
+- [x] `FracResampler` — 128-phase polyphase bank, arbitrary ratio, ±2 samples long-run
+- [x] `Ddc` — NCO mix → staged decimation → fractional resampler, exact output rate,
+  >50 dB alias suppression, cheap `set_offset` retune
+- [x] `FmDemod` quadrature discriminator · `Agc` (attack/release) · `Squelch`
+  (power + hysteresis + hold) · `Deemphasis`/`DcBlocker` · `FirC` complex-tap FIR (SSB)
+
+### Channels (`crates/channels`)
+- [x] NFM, AM, SSB (USB/LSB), WFM (mono, de-emphasis, 240k→48k) demods → 48 kHz mono PCM
+- [x] Registry: descriptors + `create()` from one per-module table (cannot drift); params-variant
+  and input-rate validation; `apply()` reconfigures mode params in place
+- [x] Per-demod analytic tests: 1 kHz tone recovery over ragged blocks, USB/LSB rejection,
+  WFM exact 5:1, AGC convergence
+
+### Engine (`crates/engine`)
+- [x] Channel hosting on the DSP thread via command queue (Add/Remove/Retune/ApplySettings) —
+  hot path keeps zero locks/steady-state allocation; closed squelch emits duration-exact silence
+- [x] Per-channel Opus encoder threads (libopus vendored via `opus`, mono 48 kHz, 20 ms frames)
+  → `AudioPacket` broadcast; clean join on remove/stop
+- [x] `patch_channel` (delta retune/apply, or rebuild swap on type change that keeps audio
+  subscribers), `subscribe_audio`, `channel_types`; offset+bandwidth validated against device rate
+- [x] Device sample-rate change rebuilds all hosted channels (pre-validated, ids + audio preserved)
+- [x] `device-virtual`: phase-continuous NFM/AM/WFM modulated test carriers (pub-const layout)
+- [x] e2e listen tests: NFM/AM/WFM tone recovery from decoded Opus, squelch gating + reopen via
+  patch, offset retune, type change with live subscription, rate-change rebuild, seq/timestamp
+  contiguity
+
+### Server (`crates/server`)
+- [x] WS audio: per-connection stream ids, `AudioStreamStarted`/`StreamStopped`, drop-oldest
+  forwarding; resubscribe replaces; teardown on close
+- [x] REST: `GET /api/channeltypes`, `PATCH /api/devicesets/{ds}/channels/{ch}`; create/delete
+  channel moved onto the blocking pool
+- [x] SQLite persistence (`rusqlite` bundled, `user_version` migrations): presets
+  (capture → list → apply → delete; apply = retune + replace channels) + bookmarks CRUD;
+  `Config.db_path` (None = in-memory); `sdrmm --db` flag; desktop uses Tauri app-data dir
+- [x] OpenAPI: new paths + force-registered `PresetSnapshot`; snapshot test; codegen regenerated,
+  no drift; handler tests for every new endpoint
+
+### Web
+- [x] Audio playback: `AudioFrame` decode (mirrors `wire/frame.rs`), WebCodecs `AudioDecoder`
+  fast path + `opus-decoder` WASM fallback, AudioWorklet jitter buffer (100 ms target,
+  underrun-rebuffer, 400 ms drop-oldest), per-channel gain, gesture-unlocked shared context,
+  reconnect auto-resubscribe — vitest-covered (frame/jitter/engine state machine)
+- [x] Channels panel: add-by-type, offset (kHz stepping), squelch toggle+slider, mode-specific
+  forms from the generated union, play/volume, remove; optimistic PATCH mirroring M1 pattern
+- [x] Spectrum channel markers (click-to-select, pointer-transparent overlay)
+- [x] Presets + bookmarks panels (save/apply/tune/delete, inline error banners)
+- [x] Phone-usable pass: <768px stacked collapsible sections, ≥40 px touch targets, no overflow
+  at 390 px; header badge `listen · M2`
+
+### Gates
+- [x] `cargo fmt` + `clippy -D warnings` + full Rust suite green (dsp 36 · channels 21 ·
+  engine 12+8 e2e · server 10 · wire 13 · device-virtual 9)
+- [x] `biome ci` + `oxlint --type-aware` + `tsgo` + web build + vitest green
+- [x] OpenAPI codegen regenerated, no drift; CI unchanged (same `xtask` gates)
+
+### Post-review hardening (adversarial multi-agent review, all verified & fixed)
+Critical/high:
+- [x] **Stale-snapshot rebuild race** (critical): `patch_device`/`patch_channel` rebuilds re-check
+  channel existence + settings under `inner` and send DSP commands under it (mpsc never blocks) —
+  a concurrent `remove_channel` can no longer strand a zombie channel that hangs the encoder join
+- [x] **Spectrum unsubscribe killed unrelated audio** (high): `StreamStopped` now carries
+  `StreamKind`; audio stream ids allocated from a disjoint high range; client acts only on
+  audio-kind stops
+- [x] **NFM/AM had no channel IQ filtering** (high): pipeline is now DDC → mode-aware complex
+  channel filter → squelch → demod; squelch measures filtered channel power (mode-comparable)
+- [x] **`apply_preset` validated against soon-deleted channels / non-atomic** (high): reordered
+  remove→patch→add; honest partial-state detail in the error
+- [x] **Capture-ring overruns silently corrupted output** (high): `DeviceSet.overruns` surfaced
+  in state; hotplug tick emits `StateChanged` + rate-limited warn when it grows
+- [x] **`ServerEvent::Error` unhandled + failed SubscribeAudio bricked Play** (high): errors shown
+  in a banner; failed subscribe resets to a retryable stopped state
+- [x] **Rapid Play→Stop→Play stale-event race** (high): generation-guarded subscribe binding so a
+  superseded `AudioStreamStarted`/`StreamStopped` can't tear down the live stream
+
+Medium/low:
+- [x] DDC alias floor restored to ≥50 dB for hostile resample ratios; one NaN sample no longer
+  latches Deemphasis/DcBlocker/AGC/Squelch state; `StreamFir` handles factor > taps without panic;
+  `FmDemod` seeds its first sample (no startup pop)
+- [x] Drop-oldest WS backpressure (was drop-newest); event forwarder synthesizes `StateChanged{All}`
+  on broadcast lag; spectrum subscribe moved to `spawn_blocking`; fps throttle delivers the
+  requested rate; REST extractor rejections return `ApiError` bodies
+- [x] Encoder-lag PCM drops surface as timestamp gaps (client conceals/resets); NFM/SSB level
+  clamped to Opus range (dropped SSB's 2× factor); `validate_channel` honors bandwidth + SSB
+  one-sided occupancy
+- [x] Web: sink teardown on decoder failure; suspended-`AudioContext` observed + resumed on gesture
+  (no false "playing"); jitter buffer sheds back to target after a burst; timestamp-gap loss
+  detection; device/channel errors surfaced; debounced PATCH cancelled on device change; spectrum
+  meta reset on device-set switch; ≥40 px marker touch targets
+- [x] Headless DB defaults to the platform data dir (`dirs`); virtual device rejects out-of-range
+  `center_hz`; per-block hot-path zero-fill allocation removed (documented bounded-cost note on the
+  remaining Arc/broadcast audio send)

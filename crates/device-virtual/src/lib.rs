@@ -1,7 +1,10 @@
 //! `sdrmm-device-virtual` — always-on backend (PLAN §6) providing a signal generator. This is
 //! how CI, demo mode, and decoder golden tests run without hardware. The siggen synthesizes a
-//! baseband IQ stream — a few fixed tones, one slowly drifting tone, and a white-noise floor —
-//! so the full device → ring → spectrum → waterfall path has something to show at M0.
+//! baseband IQ stream: a few fixed tones, one slowly drifting tone, and a white-noise floor
+//! (the M0 spectrum path), plus NFM/AM/WFM carriers modulated by a 1 kHz tone that the M2
+//! engine e2e tests demodulate. The plain tones sit at fixed fractions of the sample rate;
+//! the modulated carriers sit at fixed Hz offsets from center — both ride along when the
+//! device retunes, but Hz offsets let channels address the carriers at any sample rate.
 
 use std::{
     sync::{
@@ -21,6 +24,26 @@ const DRIVER_ID: &str = "virtual";
 const SIGGEN_KEY: &str = "siggen";
 /// Target block duration; the capture thread paces itself to roughly real time.
 const BLOCK_SECS: f64 = 0.025;
+
+/// Offset of the NFM test carrier from the *current* center frequency. All `*_OFFSET_HZ`
+/// are relative to center so the carriers retune with the device and tests can address them
+/// the way channels do: as plain offsets, at any center frequency.
+pub const NFM_CARRIER_OFFSET_HZ: f64 = 300_000.0;
+/// NFM peak deviation of the 1 kHz modulating tone.
+pub const NFM_DEVIATION_HZ: f64 = 2_500.0;
+/// Offset of the AM test carrier from the current center frequency.
+pub const AM_CARRIER_OFFSET_HZ: f64 = -300_000.0;
+/// AM modulation depth of the 1 kHz tone.
+pub const AM_MOD_DEPTH: f64 = 0.6;
+/// Offset of the WFM test carrier from the current center frequency.
+pub const WFM_CARRIER_OFFSET_HZ: f64 = 600_000.0;
+/// WFM peak deviation of the 1 kHz modulating tone.
+pub const WFM_DEVIATION_HZ: f64 = 75_000.0;
+/// Modulating tone shared by all three carriers.
+pub const MOD_TONE_HZ: f64 = 1_000.0;
+
+/// Comparable to the 0.10–0.30 static tones so the carriers get a similar SNR.
+const MOD_CARRIER_AMP: f64 = 0.20;
 
 /// Driver that exposes the virtual devices.
 #[derive(Default)]
@@ -140,6 +163,20 @@ impl SdrDevice for SigGen {
         {
             return Err(DeviceError::Unsupported(format!("sample_rate {rate}")));
         }
+        // The advertised freq_ranges are a contract: accepting a tune outside them would
+        // make this backend an unfaithful double for hardware that rejects it (device-soapy
+        // pre-flights the same check), hiding the reject path from every engine/server test.
+        if let Some(f) = settings.center_hz
+            && !self
+                .capabilities
+                .freq_ranges
+                .iter()
+                .any(|r| r.min <= f && f <= r.max)
+        {
+            return Err(DeviceError::Unsupported(format!(
+                "center_hz {f} outside tuner range"
+            )));
+        }
         // Store every field via the one shared merge (`wire`), so PATCHed values round-trip
         // into state even for knobs the siggen has no behavior for (ppm, gains, bandwidth…).
         self.settings.merge_from(settings);
@@ -196,16 +233,53 @@ impl Drop for SigGen {
     }
 }
 
-/// Baseband IQ synthesis state: continuous-phase tone oscillators + a noise source. Phases are
-/// `f64` so they stay accurate across long runs; output is cast to `f32` at the edge.
+/// A modulated test carrier at a fixed Hz offset from center (unlike the fraction-of-fs
+/// tones, so channels can address it identically at any sample rate).
+struct ModCarrier {
+    offset_hz: f64,
+    amp: f64,
+    kind: ModKind,
+    carrier_phase: f64,
+    mod_phase: f64,
+}
+
+#[derive(Clone, Copy)]
+enum ModKind {
+    Fm { deviation_hz: f64 },
+    Am { depth: f64 },
+}
+
+impl ModCarrier {
+    fn new(offset_hz: f64, kind: ModKind) -> Self {
+        Self {
+            offset_hz,
+            amp: MOD_CARRIER_AMP,
+            kind,
+            carrier_phase: 0.0,
+            mod_phase: 0.0,
+        }
+    }
+
+    /// Carson-rule half-width for FM; carrier ± one sideband for AM.
+    fn occupied_half_width_hz(&self) -> f64 {
+        match self.kind {
+            ModKind::Fm { deviation_hz } => deviation_hz + MOD_TONE_HZ,
+            ModKind::Am { .. } => MOD_TONE_HZ,
+        }
+    }
+}
+
+/// Baseband IQ synthesis state: continuous-phase tone oscillators, the modulated test
+/// carriers, and a noise source. Phases are `f64` so they stay accurate across long runs;
+/// output is cast to `f32` at the edge.
 struct Generator {
     /// (offset as fraction of fs, amplitude, phase) for the static tones.
     tones: Vec<(f64, f64, f64)>,
     /// Drifting tone phase and LFO phase for its slow frequency sweep.
     drift_phase: f64,
     lfo_phase: f64,
+    carriers: [ModCarrier; 3],
     noise: Xorshift,
-    elapsed: f64,
 }
 
 impl Generator {
@@ -214,24 +288,53 @@ impl Generator {
             tones: vec![(0.15, 0.30, 0.0), (-0.30, 0.16, 0.0), (0.05, 0.10, 0.0)],
             drift_phase: 0.0,
             lfo_phase: 0.0,
+            carriers: [
+                ModCarrier::new(
+                    NFM_CARRIER_OFFSET_HZ,
+                    ModKind::Fm {
+                        deviation_hz: NFM_DEVIATION_HZ,
+                    },
+                ),
+                ModCarrier::new(
+                    AM_CARRIER_OFFSET_HZ,
+                    ModKind::Am {
+                        depth: AM_MOD_DEPTH,
+                    },
+                ),
+                ModCarrier::new(
+                    WFM_CARRIER_OFFSET_HZ,
+                    ModKind::Fm {
+                        deviation_hz: WFM_DEVIATION_HZ,
+                    },
+                ),
+            ],
             noise: Xorshift::new(0x5DEE_CE66_D00D_1234),
-            elapsed: 0.0,
         }
     }
 
-    /// Fill `block` with one block of IQ at `sample_rate`. Uses incremental phasor rotation
-    /// (no per-sample transcendentals) and a cheap white-noise floor.
+    /// Fill `block` with one block of IQ at `sample_rate`. Every oscillator accumulates
+    /// phase per sample and carries it across calls — FM with phase resets at block edges
+    /// would be undemodulatable — and nothing here allocates, keeping the capture thread
+    /// real-time.
     fn fill(&mut self, block: &mut [Complex<f32>], sample_rate: f64) {
         use std::f64::consts::TAU;
-        let n = block.len();
 
+        let hz_to_w = TAU / sample_rate;
         // Drift tone: offset sweeps as a slow LFO across ±0.35·fs at ~0.08 Hz.
-        let lfo_hz = 0.08;
-        let drift_frac = 0.35 * (self.lfo_phase).sin();
-        let drift_w = TAU * drift_frac; // rad/sample (offset already in fs fractions)
+        let lfo_w = 0.08 * hz_to_w;
         let drift_amp = 0.20;
-
         let noise_amp = 0.012;
+        let mod_w = MOD_TONE_HZ * hz_to_w;
+
+        // A carrier whose occupied band would cross Nyquist is muted rather than allowed to
+        // alias bogus energy into the spectrum at low sample rates.
+        let nyquist = 0.5 * sample_rate;
+        let mut carrier_amps = [0.0f64; 3];
+        for (amp, carrier) in carrier_amps.iter_mut().zip(&self.carriers) {
+            if carrier.offset_hz.abs() + carrier.occupied_half_width_hz() <= nyquist {
+                *amp = carrier.amp;
+            }
+        }
 
         for slot in block.iter_mut() {
             let mut re = 0.0f64;
@@ -242,15 +345,32 @@ impl Generator {
                 re += *amp * phase.cos();
                 im += *amp * phase.sin();
             }
-            self.drift_phase += drift_w;
+
+            self.drift_phase += TAU * 0.35 * self.lfo_phase.sin();
+            self.lfo_phase += lfo_w;
             re += drift_amp * self.drift_phase.cos();
             im += drift_amp * self.drift_phase.sin();
+
+            for (carrier, &amp) in self.carriers.iter_mut().zip(&carrier_amps) {
+                let (inst_hz, envelope) = match carrier.kind {
+                    ModKind::Fm { deviation_hz } => (
+                        carrier.offset_hz + deviation_hz * carrier.mod_phase.sin(),
+                        1.0,
+                    ),
+                    ModKind::Am { depth } => {
+                        (carrier.offset_hz, 1.0 + depth * carrier.mod_phase.sin())
+                    }
+                };
+                carrier.mod_phase += mod_w;
+                carrier.carrier_phase += inst_hz * hz_to_w;
+                re += amp * envelope * carrier.carrier_phase.cos();
+                im += amp * envelope * carrier.carrier_phase.sin();
+            }
 
             re += noise_amp * self.noise.next_bipolar();
             im += noise_amp * self.noise.next_bipolar();
 
             *slot = Complex::new(re as f32, im as f32);
-            self.lfo_phase += TAU * lfo_hz / sample_rate;
         }
 
         // Keep phases bounded.
@@ -259,7 +379,10 @@ impl Generator {
         }
         self.drift_phase = self.drift_phase.rem_euclid(TAU);
         self.lfo_phase = self.lfo_phase.rem_euclid(TAU);
-        self.elapsed += n as f64 / sample_rate;
+        for carrier in &mut self.carriers {
+            carrier.carrier_phase = carrier.carrier_phase.rem_euclid(TAU);
+            carrier.mod_phase = carrier.mod_phase.rem_euclid(TAU);
+        }
     }
 }
 
@@ -286,9 +409,139 @@ impl Xorshift {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::mpsc, time::Duration};
+    use std::{
+        f64::consts::TAU,
+        sync::{OnceLock, mpsc},
+        time::Duration,
+    };
 
     use super::*;
+
+    /// 2.4 Msps keeps the fraction-of-fs tones (+360 kHz, +120 kHz, -720 kHz) and the drift
+    /// sweep (below ~190 kHz for the first half second) clear of every carrier band under test.
+    const SPECTRUM_FS: f64 = 2_400_000.0;
+    const SPECTRUM_LEN: usize = 1 << 20; // ~437 ms
+
+    fn power_spectrum(n: usize, sample_rate: f64) -> Vec<f64> {
+        let mut generator = Generator::new();
+        let mut block = vec![Complex::new(0.0f32, 0.0f32); n];
+        generator.fill(&mut block, sample_rate);
+
+        let mut buf: Vec<Complex<f64>> = block
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                // Hann window keeps tone leakage out of the quiet reference bands.
+                let w = 0.5 - 0.5 * (TAU * i as f64 / n as f64).cos();
+                Complex::new(f64::from(s.re) * w, f64::from(s.im) * w)
+            })
+            .collect();
+        rustfft::FftPlanner::new()
+            .plan_fft_forward(n)
+            .process(&mut buf);
+        buf.iter().map(|c| c.norm_sqr()).collect()
+    }
+
+    fn band_power(power: &[f64], sample_rate: f64, center_hz: f64, half_width_hz: f64) -> f64 {
+        let n = power.len() as f64;
+        let bin_hz = sample_rate / n;
+        power
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| {
+                let k = *k as f64;
+                let freq = if k <= n / 2.0 { k } else { k - n } * bin_hz;
+                (freq - center_hz).abs() <= half_width_hz
+            })
+            .map(|(_, p)| p)
+            .sum()
+    }
+
+    fn shared_spectrum() -> &'static [f64] {
+        static SPECTRUM: OnceLock<Vec<f64>> = OnceLock::new();
+        SPECTRUM.get_or_init(|| power_spectrum(SPECTRUM_LEN, SPECTRUM_FS))
+    }
+
+    #[test]
+    fn modulated_carriers_land_at_their_offsets() {
+        let power = shared_spectrum();
+        for (offset, half_width) in [
+            (NFM_CARRIER_OFFSET_HZ, 10_000.0),
+            (AM_CARRIER_OFFSET_HZ, 10_000.0),
+            (WFM_CARRIER_OFFSET_HZ, 100_000.0),
+        ] {
+            let in_band = band_power(power, SPECTRUM_FS, offset, half_width);
+            let reference = band_power(
+                power,
+                SPECTRUM_FS,
+                offset + offset.signum() * 4.0 * half_width,
+                half_width,
+            );
+            assert!(
+                in_band > 100.0 * reference,
+                "no carrier near {offset} Hz: in-band {in_band:.3e}, reference {reference:.3e}"
+            );
+        }
+    }
+
+    #[test]
+    fn modulation_bandwidths_are_roughly_right() {
+        let power = shared_spectrum();
+
+        // β = 75 WFM spreads energy across roughly ±(75 + 1) kHz (Carson), so a ±10 kHz
+        // slice holds a minority of it; NFM (±3.5 kHz) and AM (±1 kHz) fit inside ±10 kHz.
+        let wfm_wide = band_power(power, SPECTRUM_FS, WFM_CARRIER_OFFSET_HZ, 100_000.0);
+        let wfm_narrow = band_power(power, SPECTRUM_FS, WFM_CARRIER_OFFSET_HZ, 10_000.0);
+        assert!(
+            wfm_narrow < 0.5 * wfm_wide,
+            "WFM energy not wideband: {wfm_narrow:.3e} of {wfm_wide:.3e} within ±10 kHz"
+        );
+
+        for (offset, label) in [(NFM_CARRIER_OFFSET_HZ, "NFM"), (AM_CARRIER_OFFSET_HZ, "AM")] {
+            let wide = band_power(power, SPECTRUM_FS, offset, 30_000.0);
+            let narrow = band_power(power, SPECTRUM_FS, offset, 10_000.0);
+            assert!(
+                narrow > 0.95 * wide,
+                "{label} energy not confined to ±10 kHz: {narrow:.3e} of {wide:.3e}"
+            );
+        }
+    }
+
+    #[test]
+    fn output_is_identical_regardless_of_block_size() {
+        let fs = 2_048_000.0;
+        let mut whole = vec![Complex::new(0.0f32, 0.0f32); 8192];
+        Generator::new().fill(&mut whole, fs);
+
+        let mut generator = Generator::new();
+        let mut chunked = vec![Complex::new(0.0f32, 0.0f32); 8192];
+        // 999 is deliberately misaligned with the 1 kHz modulator period so a phase reset
+        // at block edges cannot hide.
+        for chunk in chunked.chunks_mut(999) {
+            generator.fill(chunk, fs);
+        }
+
+        for (i, (a, b)) in whole.iter().zip(&chunked).enumerate() {
+            assert!(
+                (a.re - b.re).abs() < 1e-4 && (a.im - b.im).abs() < 1e-4,
+                "sample {i} diverged: {a} vs {b}"
+            );
+        }
+    }
+
+    #[test]
+    fn carrier_past_nyquist_is_muted_not_aliased() {
+        let fs = 1_024_000.0;
+        let power = power_spectrum(1 << 19, fs);
+        // 600 kHz + Carson half-width exceeds Nyquist (512 kHz); folding would land the WFM
+        // carrier at -424 kHz.
+        let aliased = band_power(&power, fs, -424_000.0, 100_000.0);
+        let nfm = band_power(&power, fs, NFM_CARRIER_OFFSET_HZ, 10_000.0);
+        assert!(
+            nfm > 100.0 * aliased,
+            "WFM aliased past Nyquist: {aliased:.3e} vs NFM {nfm:.3e}"
+        );
+    }
 
     #[test]
     fn probe_lists_siggen() {
@@ -306,6 +559,29 @@ mod tests {
             ..DeviceSettings::default()
         };
         assert!(dev.apply(&bad).is_err());
+    }
+
+    #[test]
+    fn rejects_out_of_range_center() {
+        let mut dev = SigGen::new();
+        for bad in [7_000_000_000.0, -5_000_000_000.0, f64::NAN] {
+            let err = dev.apply(&DeviceSettings {
+                center_hz: Some(bad),
+                ..DeviceSettings::default()
+            });
+            assert!(
+                matches!(err, Err(DeviceError::Unsupported(_))),
+                "center {bad} must be rejected"
+            );
+        }
+        // The rejected tunes must not have leaked into settings.
+        assert_eq!(dev.settings().center_hz, Some(100_000_000.0));
+        dev.apply(&DeviceSettings {
+            center_hz: Some(5_900_000_000.0),
+            ..DeviceSettings::default()
+        })
+        .unwrap();
+        assert_eq!(dev.settings().center_hz, Some(5_900_000_000.0));
     }
 
     #[test]

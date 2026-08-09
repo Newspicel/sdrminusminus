@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+import { LossTracker } from "./loss";
+
+const MAX_GAP = 19_200;
+
+describe("LossTracker", () => {
+  it("learns the packet duration from deltas and stays continuous without loss", () => {
+    const t = new LossTracker(MAX_GAP);
+    expect(t.next(0n)).toEqual({ kind: "continuous" });
+    expect(t.next(960n)).toEqual({ kind: "continuous" });
+    expect(t.next(1_920n)).toEqual({ kind: "continuous" });
+    expect(t.next(2_880n)).toEqual({ kind: "continuous" });
+  });
+
+  it("reports the exact number of missing samples on a gap", () => {
+    const t = new LossTracker(MAX_GAP);
+    t.next(0n);
+    t.next(960n);
+    // Two packets lost: the delta is three packet durations.
+    expect(t.next(3_840n)).toEqual({ kind: "gap", samples: 1_920 });
+    // The clock is intact afterwards.
+    expect(t.next(4_800n)).toEqual({ kind: "continuous" });
+  });
+
+  it("resets on a hole too wide to conceal, keeping the learned duration", () => {
+    const t = new LossTracker(MAX_GAP);
+    t.next(0n);
+    t.next(960n);
+    expect(t.next(960n + 960n + 20_000n)).toEqual({ kind: "reset" });
+    expect(t.next(960n + 960n + 20_000n + 960n)).toEqual({ kind: "continuous" });
+  });
+
+  it("resets on a non-monotonic timestamp and relearns the duration", () => {
+    const t = new LossTracker(MAX_GAP);
+    t.next(0n);
+    t.next(960n);
+    expect(t.next(0n)).toEqual({ kind: "reset" });
+    expect(t.next(960n)).toEqual({ kind: "continuous" });
+    expect(t.next(2_880n)).toEqual({ kind: "gap", samples: 960 });
+  });
+
+  it("adopts a smaller delta when the first delta was itself a loss gap", () => {
+    const t = new LossTracker(MAX_GAP);
+    t.next(0n);
+    // First observed delta spans a lost packet: 1920 is provisionally the duration.
+    expect(t.next(1_920n)).toEqual({ kind: "continuous" });
+    // A true back-to-back pair corrects it downward.
+    expect(t.next(2_880n)).toEqual({ kind: "continuous" });
+    expect(t.next(3_840n)).toEqual({ kind: "continuous" });
+    expect(t.next(5_760n)).toEqual({ kind: "gap", samples: 960 });
+  });
+
+  it("reset() forgets history so a rebound stream starts clean", () => {
+    const t = new LossTracker(MAX_GAP);
+    t.next(0n);
+    t.next(960n);
+    t.reset();
+    // A fresh stream restarts its clock; no reset/gap must be reported.
+    expect(t.next(0n)).toEqual({ kind: "continuous" });
+    expect(t.next(960n)).toEqual({ kind: "continuous" });
+  });
+});

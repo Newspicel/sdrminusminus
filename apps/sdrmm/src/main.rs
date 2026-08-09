@@ -1,7 +1,7 @@
 //! `sdrmm` — the headless server binary (PLAN §3), a thin wrapper over `crates/server`. This is
 //! the Raspberry Pi target: one binary, embedded UI, browse to `http://host:8080`.
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 use anyhow::Context;
 use clap::Parser;
@@ -18,6 +18,25 @@ struct Args {
     /// Relax CORS for a separate dev origin (PLAN §10).
     #[arg(long)]
     dev_cors: bool,
+    /// SQLite database for presets/bookmarks (PLAN §11). Defaults to
+    /// `<platform data dir>/sdrmm/sdrmm.db` so the file never depends on the launch cwd
+    /// (systemd units, SSH sessions, and double-clicks all start elsewhere).
+    #[arg(long)]
+    db: Option<PathBuf>,
+}
+
+/// The absolute DB path: `--db` verbatim, otherwise the per-user data dir — mirroring the
+/// desktop app's `app_data_dir()` anchor. Absolute so logs and errors name the real file
+/// regardless of where the process was started.
+fn resolve_db_path(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    let path = match cli {
+        Some(path) => path,
+        None => dirs::data_dir()
+            .context("no platform data directory; pass --db")?
+            .join("sdrmm")
+            .join("sdrmm.db"),
+    };
+    std::path::absolute(&path).with_context(|| format!("cannot resolve {}", path.display()))
 }
 
 #[tokio::main]
@@ -30,15 +49,22 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
+    let db_path = resolve_db_path(args.db)?;
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("cannot create {}", parent.display()))?;
+    }
+
     let engine = Engine::new();
     let config = Config {
         bind: args.bind,
         dev_cors: args.dev_cors,
+        db_path: Some(db_path),
     };
 
     let handle = serve(config, engine)
         .await
-        .context("failed to bind server")?;
+        .context("failed to start server")?;
     tracing::info!(addr = %handle.local_addr, "sdr-- ready");
 
     tokio::select! {
@@ -46,4 +72,33 @@ async fn main() -> anyhow::Result<()> {
         _ = tokio::signal::ctrl_c() => tracing::info!("shutting down"),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: the default used to be cwd-relative "sdrmm.db", so launching from a
+    /// different directory silently opened a fresh empty database.
+    #[test]
+    fn default_db_path_is_absolute_and_in_the_data_dir() {
+        let path = resolve_db_path(None).expect("resolve");
+        assert!(path.is_absolute(), "{}", path.display());
+        assert!(
+            path.ends_with("sdrmm/sdrmm.db"),
+            "unexpected default {}",
+            path.display()
+        );
+    }
+
+    #[test]
+    fn db_flag_overrides_and_is_made_absolute() {
+        let path = resolve_db_path(Some(PathBuf::from("custom.db"))).expect("resolve");
+        assert!(path.is_absolute(), "{}", path.display());
+        assert!(path.ends_with("custom.db"), "{}", path.display());
+
+        let explicit = std::env::temp_dir().join("elsewhere").join("x.db");
+        let path = resolve_db_path(Some(explicit.clone())).expect("resolve");
+        assert_eq!(path, explicit);
+    }
 }

@@ -1,17 +1,15 @@
 // Device open/close + tuning (PLAN §5, §10). Well-known settings (frequency, rate) get
 // first-class controls; mutations rely on the WS `StateChanged` event to refresh state.
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { createDeviceSet, deleteDeviceSet, devicesQuery } from "../lib/api";
 import type { DeviceSet } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
+import { BTN, FIELD } from "./controls";
 import { FrequencyReadout } from "./FrequencyReadout";
-import { FIELD, NumberField } from "./NumberField";
+import { NumberField } from "./NumberField";
 
 const TUNE_STEPS_HZ = [-1_000_000, -100_000, 100_000, 1_000_000];
-
-const BTN =
-  "rounded border border-line bg-panel-2 px-2.5 py-1 text-sm text-ink transition-colors " +
-  "hover:border-accent hover:text-accent disabled:opacity-40";
 
 export function DeviceBar({
   active,
@@ -22,28 +20,47 @@ export function DeviceBar({
 }) {
   const devices = useQuery(devicesQuery());
   const { applyPatch, cachedSettings, patchError, dismissPatchError } = useDevicePatch();
-  const createMut = useMutation({ mutationFn: createDeviceSet, onSuccess: onSelect });
+  // A failed open/close must be visible (CLAUDE.md: no silent failure) — the WS state event
+  // never fires for a set that was never created, so nothing else can surface it.
+  const [mutError, setMutError] = useState<string | null>(null);
+  const createMut = useMutation({
+    mutationFn: createDeviceSet,
+    onSuccess: (id) => {
+      setMutError(null);
+      onSelect(id);
+    },
+    onError: (e) => setMutError(e.message),
+  });
   const deleteMut = useMutation({
     mutationFn: deleteDeviceSet,
-    onSuccess: () => onSelect(null),
+    onSuccess: () => {
+      setMutError(null);
+      onSelect(null);
+    },
+    onError: (e) => setMutError(e.message),
   });
 
   if (!active) {
     const found = devices.data?.devices ?? [];
     return (
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm text-ink-dim">No device open.</span>
-        {found.map((d) => (
-          <button
-            key={`${d.driver}:${d.key}`}
-            type="button"
-            className={BTN}
-            disabled={createMut.isPending}
-            onClick={() => createMut.mutate(`${d.driver}:${d.key}`)}
-          >
-            Open {d.label}
-          </button>
-        ))}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm text-ink-dim">No device open.</span>
+          {found.map((d) => (
+            <button
+              key={`${d.driver}:${d.key}`}
+              type="button"
+              className={BTN}
+              disabled={createMut.isPending}
+              onClick={() => createMut.mutate(`${d.driver}:${d.key}`)}
+            >
+              Open {d.label}
+            </button>
+          ))}
+        </div>
+        {mutError !== null && (
+          <MutationErrorBanner message={mutError} onDismiss={() => setMutError(null)} />
+        )}
       </div>
     );
   }
@@ -130,6 +147,10 @@ export function DeviceBar({
         </div>
       )}
 
+      {mutError !== null && (
+        <MutationErrorBanner message={mutError} onDismiss={() => setMutError(null)} />
+      )}
+
       {patchError !== null && (
         <div
           role="alert"
@@ -141,6 +162,20 @@ export function DeviceBar({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function MutationErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
+    >
+      <span>Rejected: {message}</span>
+      <button type="button" className="shrink-0 underline" onClick={onDismiss}>
+        dismiss
+      </button>
     </div>
   );
 }

@@ -1,11 +1,85 @@
 //! `sdrmm-channels` — the `ChannelRx` plugin surface (PLAN §8). Depends only on `dsp` + `wire`.
-//! No demodulators exist yet: they arrive at M2 (PLAN §16). This crate defines the trait, the
-//! output collector, and the static registry so the engine, server, and codegen already share
-//! one shape — adding a decoder later touches exactly one module here plus a `wire` settings
-//! struct.
+//! Phase-1 analog demodulators (PLAN §13): NFM, AM, SSB, WFM mono. Each demod is one module
+//! whose descriptor and constructor sit in the same [`REGISTRY`] row, so the "add channel" UI
+//! and `create` dispatch cannot drift apart.
 
+mod am;
+mod nfm;
+mod ssb;
+mod wfm;
+
+#[cfg(test)]
+mod testutil;
+
+pub use am::AmChannel;
+pub use nfm::NfmChannel;
 use num_complex::Complex;
-use sdrmm_wire::{ChannelDescriptor, ChannelSettings};
+use sdrmm_dsp::{Agc, Decimator, FirC};
+use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, Sideband};
+pub use ssb::SsbChannel;
+pub use wfm::WfmChannel;
+
+/// Every channel emits mono PCM at this rate; the engine's audio path is sized against it.
+pub const AUDIO_RATE: u32 = 48_000;
+
+/// Opus integer-API decoders (and the browser DAC) hard-clip PCM beyond ±1.0, so every demod
+/// bounds its final output here — overshoot (open-squelch FM noise, over-deviated carriers)
+/// must never leave the channel as out-of-range samples.
+pub(crate) fn clamp_full_scale(pcm: &mut [f32]) {
+    for s in pcm {
+        *s = s.clamp(-1.0, 1.0);
+    }
+}
+
+/// The RF band a channel occupies relative to its offset, in Hz (`(low, high)`): symmetric
+/// at the configured bandwidth for NFM/AM, at the descriptor nominal for WFM; SSB occupies
+/// one sideband only. Drives the engine's passband-fit validation, so it must track what
+/// [`channel_filter`] actually selects.
+#[must_use]
+pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
+    match params {
+        ChannelParams::Nfm(p) => (-p.bandwidth_hz / 2.0, p.bandwidth_hz / 2.0),
+        ChannelParams::Am(p) => (-p.bandwidth_hz / 2.0, p.bandwidth_hz / 2.0),
+        ChannelParams::Ssb(p) => match p.sideband {
+            Sideband::Usb => (ssb::PASSBAND_LOW_HZ, p.bandwidth_hz),
+            Sideband::Lsb => (-p.bandwidth_hz, -ssb::PASSBAND_LOW_HZ),
+        },
+        ChannelParams::Wfm(_) => {
+            let half = WfmChannel::descriptor().bandwidth_hz / 2.0;
+            (-half, half)
+        }
+    }
+}
+
+/// Channel-selection filter the engine host runs on the DDC output ahead of squelch and
+/// demod, so the gate measures in-channel power and adjacent-channel energy never reaches
+/// the detector. Symmetric modes use a real-tap FIR (half the MACs of a complex one); SSB
+/// needs the one-sided [`FirC`] mirroring its demod passband.
+pub enum ChannelFilter {
+    Symmetric(Decimator),
+    Sideband(FirC),
+}
+
+impl ChannelFilter {
+    /// Replaces `out` with one filtered sample per input sample.
+    pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
+        match self {
+            Self::Symmetric(f) => f.process(input, out),
+            Self::Sideband(f) => f.process(input, out),
+        }
+    }
+}
+
+/// Build the channel filter for `params` at the mode's descriptor input rate, applying the
+/// same bandwidth bounds the demod constructors enforce.
+pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelError> {
+    match params {
+        ChannelParams::Nfm(p) => nfm::channel_filter(p),
+        ChannelParams::Am(p) => am::channel_filter(p),
+        ChannelParams::Ssb(p) => Ok(ChannelFilter::Sideband(ssb::sideband_filter(p)?)),
+        ChannelParams::Wfm(_) => Ok(wfm::channel_filter()),
+    }
+}
 
 /// Errors raised while constructing or configuring a channel.
 #[derive(Debug, thiserror::Error)]
@@ -16,8 +90,9 @@ pub enum ChannelError {
     InvalidSettings(String),
 }
 
-/// Construction context passed to a channel: the IQ rate it receives after the DDC, and its
-/// offset from the device center. Grows as the plugin API matures (PLAN §8).
+/// Construction context passed to a channel: the IQ rate it receives after the DDC. The
+/// engine decimates to the descriptor's `input_rate_hz` before construction; channels verify
+/// and refuse anything else. Grows as the plugin API matures (PLAN §8).
 #[derive(Clone, Copy, Debug)]
 pub struct ChannelCtx {
     /// Sample rate of the decimated IQ stream the channel will `process`, in Hz.
@@ -48,6 +123,8 @@ impl ChannelOutputs {
 }
 
 /// A receive channel: consumes decimated IQ, produces audio/events/taps (PLAN §8).
+/// `offset_hz` and `squelch_db` in [`ChannelSettings`] are host concerns (DDC tuning and
+/// gating happen in the engine); channels read only their mode params.
 pub trait ChannelRx: Send {
     /// Static description that drives the "add channel" UI. Object-safe callers use the
     /// registry; this associated fn is for the concrete type.
@@ -59,14 +136,234 @@ pub trait ChannelRx: Send {
     where
         Self: Sized;
 
+    /// Reconfigure mode params in place. A params variant of another channel type is an
+    /// [`ChannelError::InvalidSettings`] — the engine rebuilds the pipeline on type change.
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError>;
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs);
 }
 
-/// Descriptors for every compiled-in channel type (PLAN §8: static, feature-gated registry).
-/// Empty at M0; each demod adds its entry here as it lands.
+struct Registration {
+    descriptor: fn() -> &'static ChannelDescriptor,
+    create: fn(ChannelCtx, ChannelSettings) -> Result<Box<dyn ChannelRx>, ChannelError>,
+}
+
+fn boxed<C: ChannelRx + 'static>(
+    ctx: ChannelCtx,
+    settings: ChannelSettings,
+) -> Result<Box<dyn ChannelRx>, ChannelError> {
+    Ok(Box::new(C::new(ctx, settings)?))
+}
+
+/// One row per demod module; both columns come from the same concrete type, so the
+/// descriptor list and the `create` dispatch share a single source (PLAN §8).
+const REGISTRY: &[Registration] = &[
+    Registration {
+        descriptor: NfmChannel::descriptor,
+        create: boxed::<NfmChannel>,
+    },
+    Registration {
+        descriptor: AmChannel::descriptor,
+        create: boxed::<AmChannel>,
+    },
+    Registration {
+        descriptor: SsbChannel::descriptor,
+        create: boxed::<SsbChannel>,
+    },
+    Registration {
+        descriptor: WfmChannel::descriptor,
+        create: boxed::<WfmChannel>,
+    },
+];
+
+/// Descriptors for every compiled-in channel type (PLAN §8: static registry).
 #[must_use]
 pub fn descriptors() -> Vec<ChannelDescriptor> {
-    Vec::new()
+    REGISTRY.iter().map(|r| (r.descriptor)().clone()).collect()
+}
+
+/// Build the channel matching `settings.params`.
+pub fn create(
+    ctx: ChannelCtx,
+    settings: &ChannelSettings,
+) -> Result<Box<dyn ChannelRx>, ChannelError> {
+    let type_id = settings.params.type_id();
+    let registration = REGISTRY
+        .iter()
+        .find(|r| (r.descriptor)().type_id == type_id)
+        .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))?;
+    (registration.create)(ctx, settings.clone())
+}
+
+pub(crate) fn check_input_rate(
+    ctx: ChannelCtx,
+    descriptor: &ChannelDescriptor,
+) -> Result<(), ChannelError> {
+    if ctx.input_rate == descriptor.input_rate_hz {
+        Ok(())
+    } else {
+        Err(ChannelError::InvalidSettings(format!(
+            "{} expects {} Hz input, engine supplied {} Hz",
+            descriptor.type_id, descriptor.input_rate_hz, ctx.input_rate
+        )))
+    }
+}
+
+/// Shared audio AGC: fast attack so voice peaks never blast, slow release so syllable gaps
+/// don't pump.
+pub(crate) fn audio_agc() -> Agc {
+    Agc::new(f64::from(AUDIO_RATE), 0.25, 0.005, 0.2, 100.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use sdrmm_wire::{AmParams, ChannelParams, NfmParams, SsbParams, WfmParams};
+
+    use super::*;
+    use crate::testutil::settings;
+
+    fn default_params(type_id: &str) -> ChannelParams {
+        match type_id {
+            "nfm" => ChannelParams::Nfm(NfmParams::default()),
+            "am" => ChannelParams::Am(AmParams::default()),
+            "ssb" => ChannelParams::Ssb(SsbParams::default()),
+            "wfm" => ChannelParams::Wfm(WfmParams::default()),
+            other => panic!("unexpected type id {other}"),
+        }
+    }
+
+    #[test]
+    fn descriptors_are_unique_and_complete() {
+        let all = descriptors();
+        assert_eq!(all.len(), 4);
+        let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
+        assert_eq!(ids, HashSet::from(["nfm", "am", "ssb", "wfm"]));
+        for d in &all {
+            let (bandwidth, rate) = match d.type_id.as_str() {
+                "nfm" => (12_500.0, 48_000.0),
+                "am" => (10_000.0, 48_000.0),
+                "ssb" => (3_000.0, 48_000.0),
+                "wfm" => (200_000.0, 240_000.0),
+                other => panic!("unexpected type id {other}"),
+            };
+            assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);
+            assert_eq!(d.input_rate_hz, rate, "{}", d.type_id);
+            assert!(!d.name.is_empty(), "{}", d.type_id);
+        }
+    }
+
+    #[test]
+    fn create_builds_every_registered_type() {
+        for d in descriptors() {
+            let ctx = ChannelCtx {
+                input_rate: d.input_rate_hz,
+            };
+            let built = create(ctx, &settings(default_params(&d.type_id)));
+            assert!(built.is_ok(), "{}: {:?}", d.type_id, built.err());
+        }
+    }
+
+    #[test]
+    fn create_rejects_mismatched_input_rate() {
+        let ctx = ChannelCtx {
+            input_rate: 96_000.0,
+        };
+        let err = create(ctx, &settings(ChannelParams::Nfm(NfmParams::default())));
+        assert!(matches!(err, Err(ChannelError::InvalidSettings(_))));
+    }
+
+    #[test]
+    fn occupied_band_tracks_params_and_sideband() {
+        assert_eq!(
+            occupied_band(&ChannelParams::Nfm(NfmParams {
+                bandwidth_hz: 25_000.0
+            })),
+            (-12_500.0, 12_500.0)
+        );
+        assert_eq!(
+            occupied_band(&ChannelParams::Am(AmParams {
+                bandwidth_hz: 8_000.0,
+                agc: false
+            })),
+            (-4_000.0, 4_000.0)
+        );
+        assert_eq!(
+            occupied_band(&ChannelParams::Ssb(SsbParams {
+                sideband: Sideband::Usb,
+                bandwidth_hz: 10_000.0,
+                agc: false
+            })),
+            (100.0, 10_000.0)
+        );
+        assert_eq!(
+            occupied_band(&ChannelParams::Ssb(SsbParams {
+                sideband: Sideband::Lsb,
+                bandwidth_hz: 10_000.0,
+                agc: false
+            })),
+            (-10_000.0, -100.0)
+        );
+        assert_eq!(
+            occupied_band(&ChannelParams::Wfm(WfmParams::default())),
+            (-100_000.0, 100_000.0)
+        );
+    }
+
+    fn filter_rms(filter: &mut ChannelFilter, freq_norm: f64) -> f32 {
+        let mut out = Vec::new();
+        filter.process(&crate::testutil::complex_tone(freq_norm, 8_192), &mut out);
+        let settled = &out[512..];
+        (settled.iter().map(|v| f64::from(v.norm_sqr())).sum::<f64>() / settled.len() as f64).sqrt()
+            as f32
+    }
+
+    #[test]
+    fn channel_filter_passes_in_channel_and_rejects_adjacent() {
+        // NFM at the default 12.5 kHz: a 15 kHz tone sits inside the DDC's flat ±19.2 kHz
+        // passband but outside the channel — it must be gone, not merely damped.
+        let mut f = channel_filter(&ChannelParams::Nfm(NfmParams::default())).unwrap();
+        let pass = filter_rms(&mut f, 1_000.0 / 48_000.0);
+        assert!((0.9..1.05).contains(&pass), "in-channel rms {pass}");
+        let mut f = channel_filter(&ChannelParams::Nfm(NfmParams::default())).unwrap();
+        let reject = filter_rms(&mut f, 15_000.0 / 48_000.0);
+        assert!(reject < 0.01, "adjacent leak rms {reject}");
+
+        // SSB keeps its one-sided selection: the opposite sideband is rejected.
+        let ssb = ChannelParams::Ssb(SsbParams::default());
+        let mut f = channel_filter(&ssb).unwrap();
+        let pass = filter_rms(&mut f, 1_000.0 / 48_000.0);
+        assert!((0.9..1.05).contains(&pass), "usb rms {pass}");
+        let mut f = channel_filter(&ssb).unwrap();
+        let reject = filter_rms(&mut f, -1_000.0 / 48_000.0);
+        assert!(reject < 0.01, "lsb leak rms {reject}");
+    }
+
+    #[test]
+    fn channel_filter_rejects_out_of_range_bandwidth() {
+        for params in [
+            ChannelParams::Nfm(NfmParams {
+                bandwidth_hz: f64::NAN,
+            }),
+            ChannelParams::Am(AmParams {
+                bandwidth_hz: 0.0,
+                agc: false,
+            }),
+            ChannelParams::Ssb(SsbParams {
+                sideband: Sideband::Usb,
+                bandwidth_hz: 50.0,
+                agc: false,
+            }),
+        ] {
+            assert!(
+                matches!(
+                    channel_filter(&params),
+                    Err(ChannelError::InvalidSettings(_))
+                ),
+                "{} must be rejected",
+                params.type_id()
+            );
+        }
+    }
 }
