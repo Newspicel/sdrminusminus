@@ -13,6 +13,11 @@ workspace = true
 [dependencies]
 sdrmm-wire.workspace = true
 sdrmm-device.workspace = true
-hackrf-nusb.workspace = true
+sdrmm-hackrf-driver.workspace = true
+sdrmm-usb-stream.workspace = true
 num-complex.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+# Constructing the driver error variants the backend maps, without a radio attached.
+nusb.workspace = true

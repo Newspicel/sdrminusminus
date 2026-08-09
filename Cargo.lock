@@ -1566,18 +1566,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hackrf-nusb"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3485c4c14902cd7f2d35d3bdd7dc3f55a5e6b3b60cb12162814c6ea2b59a6d9b"
-dependencies = [
- "atomic-waker",
- "num-complex",
- "nusb",
- "wasm-bindgen-futures",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3424,9 +3412,11 @@ dependencies = [
 name = "sdrmm-device-hackrf"
 version = "0.0.0"
 dependencies = [
- "hackrf-nusb",
  "num-complex",
+ "nusb",
  "sdrmm-device",
+ "sdrmm-hackrf-driver",
+ "sdrmm-usb-stream",
  "sdrmm-wire",
  "tracing",
 ]
@@ -3499,6 +3489,16 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "sdrmm-hackrf-driver"
+version = "0.0.0"
+dependencies = [
+ "nusb",
+ "sdrmm-usb-stream",
+ "thiserror 2.0.20",
  "tracing",
 ]
 
