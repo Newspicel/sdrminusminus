@@ -16,17 +16,17 @@ jobs:
     name: Full gate (ubuntu)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns
       # empty). --no-install-recommends is required: libsoapysdr0.8 recommends
       # soapysdr-modules-all, and loading real modules headless is fatal (SoapyUHD aborts).
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsoapysdr-dev
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.15.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm --dir web install --frozen-lockfile
@@ -42,16 +42,16 @@ jobs:
     name: Rust tests (macos-arm64)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns empty).
       - run: brew install soapysdr
       # `cargo xtask test` runs the web unit tests too, so it needs pnpm + node.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.15.1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm --dir web install --frozen-lockfile
