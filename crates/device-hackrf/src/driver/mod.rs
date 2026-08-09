@@ -4,8 +4,7 @@
 //! Everything here is device-level and knows nothing about the wire capability model — `caps` is
 //! the only place that translates. Streaming is not here either: the transfer queue and the USB
 //! error policy are `sdrmm-usb-stream`, shared with the RTL-SDR backend, because getting that
-//! policy wrong was the defect this driver exists to fix (PLAN §17,
-//! `PLAN-NATIVE-DRIVERS.md`).
+//! policy wrong was the defect this driver exists to fix (PLAN §17, §18).
 //!
 //! The radio is half duplex — one direction at a time — but nothing here arbitrates that: the
 //! rule is `sdrmm-device`'s [`DuplexState`](sdrmm_device::DuplexState), shared with every other

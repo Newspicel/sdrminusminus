@@ -1,9 +1,9 @@
 //! What to do about a transfer that did not succeed.
 //!
-//! This is the one piece both native drivers used to own privately and both got wrong (see
-//! `PLAN-NATIVE-DRIVERS.md` §1). It is librtlsdr's policy (`src/librtlsdr.c:3814`): a
-//! cancellation is never an error, only genuine failures count, the threshold is the queue
-//! depth, and any success clears the count. Where it differs — deliberately — is that an errored
+//! This is the one piece both native drivers used to own privately and both got wrong (PLAN
+//! §18). It is librtlsdr's policy (`src/librtlsdr.c:3814`): a cancellation is never an error,
+//! only genuine failures count, the threshold is the queue depth, and any success clears the
+//! count. Where it differs — deliberately — is that an errored
 //! transfer is resubmitted and the stream continues instead of being retired, which is what
 //! makes a single fault survivable.
 //!
