@@ -28,3 +28,7 @@ web/src/generated/*.tsbuildinfo
 
 # mdBook build output (docs/ is the source; the site is built in CI).
 docs/book
+
+# Off-air IQ captures from hardware sessions: hundreds of MB each, kept locally as
+# reproductions for decoder work (fixtures/ holds the small synthesized pairs instead).
+captures

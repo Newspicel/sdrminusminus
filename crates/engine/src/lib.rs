@@ -802,8 +802,10 @@ impl Engine {
         // both of those do: the fresh device's own settings as the base, the stored ones
         // merged over them. Reading `device.settings()` alone would depend on every backend
         // reflecting `apply` back into its own state, which the trait does not require.
-        let mut settings = device.settings().clone();
-        settings.merge_from(&stored_settings);
+        // Same rule as `patch_device`: the configuration being restored, with whatever the
+        // reopened device actually reports laid over it.
+        let mut settings = stored_settings.clone();
+        settings.merge_from(&device.settings().clone());
         let center = settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
         let rate = sample_rate_of(&settings);
         // A fault from the *fresh* capture that lands before the swap below would be applied
@@ -1169,7 +1171,14 @@ impl Engine {
             });
             (runtime, guard)
         };
-        lock_runtime(&runtime).apply(&delta)?;
+        // Read the device's own view back while the runtime lock is already held: what it
+        // actually holds is not always what was asked for (a gain lands on the tuner's step
+        // grid, a rate on the resampler's achievable ratio), and the client renders this.
+        let actual = {
+            let mut runtime = lock_runtime(&runtime);
+            runtime.apply(&delta)?;
+            runtime.device_settings()
+        };
         let (center, rate, rebuilds) = {
             let mut inner = self.lock();
             // The set may have been removed while `apply` ran; its runtime was stopped by
@@ -1199,7 +1208,15 @@ impl Engine {
                     "sample rate is locked while recording; stop the recording first".to_string(),
                 ));
             }
+            // The request first, then the device's truth over the top. Both are needed: a
+            // backend that reports a field must win (a HackRF asked for 13 dB of LNA holds
+            // 16 — the grid has no 13), and one that reports nothing for a field must not
+            // erase what was asked. Reporting the request alone is a lie the whole
+            // capability-driven UI is built on top of.
             state.settings.merge_from(&delta);
+            if let Some(actual) = &actual {
+                state.settings.merge_from(actual);
+            }
             let center = state.settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
             let rate = sample_rate_of(&state.settings);
             let rebuilds: Vec<RebuildEntry> = if rate == old_rate {
@@ -2444,6 +2461,61 @@ mod tests {
         }
     }
 
+    /// Driver whose device quantises what it is asked for, the way real tuners do: a HackRF's
+    /// LNA moves in 8 dB steps and an RTL-SDR's resampler lands on achievable ratios, so the
+    /// value the hardware holds is routinely not the value that was requested.
+    struct SnappingDriver;
+
+    impl DeviceDriver for SnappingDriver {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+
+        fn probe(&self) -> Vec<DeviceInfo> {
+            vec![mock_info("snapping", None)]
+        }
+
+        fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+            Ok(Box::new(SnappingDevice {
+                capabilities: empty_capabilities(),
+                settings: DeviceSettings::default(),
+            }))
+        }
+    }
+
+    struct SnappingDevice {
+        capabilities: Capabilities,
+        settings: DeviceSettings,
+    }
+
+    impl SdrDevice for SnappingDevice {
+        fn capabilities(&self) -> &Capabilities {
+            &self.capabilities
+        }
+
+        fn settings(&self) -> &DeviceSettings {
+            &self.settings
+        }
+
+        fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+            let mut snapped = settings.clone();
+            if let Some(center) = snapped.center_hz {
+                snapped.center_hz = Some((center / 1_000_000.0).round() * 1_000_000.0);
+            }
+            for gain in &mut snapped.gains {
+                gain.value_db = (gain.value_db / 8.0).round() * 8.0;
+            }
+            self.settings.merge_from(&snapped);
+            Ok(())
+        }
+
+        fn rx_start(&mut self, _sink: RxSink) -> Result<(), DeviceError> {
+            Ok(())
+        }
+
+        fn rx_stop(&mut self) {}
+    }
+
     /// Driver whose device can only be open once at a time — which every USB backend is, and
     /// which is what makes releasing the handle on fault load-bearing for replug recovery.
     struct ExclusiveDriver {
@@ -3482,6 +3554,60 @@ mod tests {
             .expect("audio within timeout")
             .expect("audio packet after reconnect");
         assert!(!packet.opus.is_empty());
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    /// The client renders `DeviceSet.settings` as the truth about the radio, so a patch must
+    /// report what the device *holds*, not what was asked for. Found on a HackRF: asking for
+    /// 13 dB of LNA gain (a value its 8 dB grid cannot express) reported 13 dB back while the
+    /// radio sat at 16.
+    #[tokio::test]
+    async fn a_patch_reports_what_the_device_holds_not_what_was_asked() {
+        let mut registry = DeviceRegistry::new();
+        registry.register(50, Box::new(SnappingDriver));
+        let engine = Engine::with_registry(registry, None);
+        let ds = engine.create_device_set("mock:snapping").unwrap();
+
+        engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    center_hz: Some(100_400_000.0),
+                    gains: vec![sdrmm_wire::GainValue {
+                        stage: "LNA".to_string(),
+                        value_db: 13.0,
+                    }],
+                    ..DeviceSettings::default()
+                },
+            )
+            .unwrap();
+
+        let set = &engine.snapshot().device_sets[0];
+        assert_eq!(set.settings.center_hz, Some(100_000_000.0));
+        assert_eq!(
+            set.settings
+                .gains
+                .iter()
+                .find(|g| g.stage == "LNA")
+                .map(|g| g.value_db),
+            Some(16.0),
+            "the request was echoed instead of the device's own value"
+        );
+
+        // A field the device reports nothing about must survive: the request is the base, and
+        // only what the device actually speaks for is laid over it.
+        engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    antenna: Some("RX2".to_string()),
+                    ..DeviceSettings::default()
+                },
+            )
+            .unwrap();
+        let set = &engine.snapshot().device_sets[0];
+        assert_eq!(set.settings.antenna.as_deref(), Some("RX2"));
+        assert_eq!(set.settings.center_hz, Some(100_000_000.0));
         engine.remove_device_set(ds).unwrap();
     }
 
