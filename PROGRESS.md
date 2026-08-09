@@ -1,7 +1,9 @@
 # Implementation progress
 
-Checklist tracked against `PLAN.md` §16 milestones. `PLAN.md` remains the source of truth;
-this file only records what is built. Tick items as they land with tests green.
+Checklist tracked against `PLAN.md` §16 milestones. `PLAN.md` remains the source of truth for
+the idea, the binding rules and everything still unbuilt; this file is the record of what
+shipped and how it was verified, and the plan points here rather than repeating it. Tick items
+as they land with tests green.
 
 ## M0 — Walking skeleton ✅
 
