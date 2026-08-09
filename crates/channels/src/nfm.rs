@@ -23,6 +23,8 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "NFM".to_owned(),
     bandwidth_hz: 12_500.0,
     input_rate_hz: 48_000.0,
+    has_audio: true,
+    decoder_kind: None,
 });
 
 pub struct NfmChannel {

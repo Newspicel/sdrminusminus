@@ -14,6 +14,18 @@ const PASSBAND_FRAC: f64 = 0.4;
 /// Alias-protected band each side of DC as a fraction of the output rate.
 const PROTECT_FRAC: f64 = 0.5;
 
+/// Widest signal, in Hz, a *resampling* DDC can deliver at `output_rate`.
+///
+/// Every rate conversion needs somewhere to put its filter transition: the band between the
+/// flat passband and the protected edge. A channel that occupies the full output rate leaves
+/// no room for it and can only be served by a transparent DDC — one whose input rate already
+/// equals its output rate. Callers must refuse such a channel on any other device rate rather
+/// than hand its decoder a smeared signal that silently decodes nothing.
+#[must_use]
+pub fn resamplable_bandwidth_hz(output_rate: f64) -> f64 {
+    2.0 * PROTECT_FRAC * output_rate
+}
+
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DdcError {
     #[error("rates must be positive and finite (input {input} Hz, output {output} Hz)")]

@@ -22,9 +22,9 @@ use sdrmm_device::{DeviceError, DeviceRegistry};
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
-    Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DeviceInfo,
-    DeviceSet, DeviceSetStatus, DeviceSettings, RecordingStatus, ServerEvent, StateScope,
-    StateSnapshot,
+    Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DecodedRecord,
+    DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, RecordingStatus, ServerEvent,
+    StateScope, StateSnapshot,
 };
 use tokio::sync::broadcast;
 
@@ -38,7 +38,7 @@ pub use runtime::{SpectrumSnapshot, adaptive_db_window};
 use crate::{
     audio::PcmBlock,
     recording::RecordingShared,
-    runtime::{CaptureRuntime, ChannelHost, DspCommand},
+    runtime::{CaptureRuntime, ChannelHost, DecodedSink, DspCommand, RawDecoded},
 };
 
 /// Merge priority for the built-in virtual driver (native backends register higher, PLAN §6).
@@ -47,6 +47,12 @@ const VIRTUAL_PRIORITY: u8 = 10;
 #[cfg(feature = "soapy")]
 const SOAPY_PRIORITY: u8 = 20;
 const EVENT_CHANNEL_CAP: usize = 256;
+/// Decoder frames buffered between the DSP plane and the stamping pump. Deep enough to
+/// absorb an ADS-B burst; overflow is counted and reported, never silently swallowed.
+const DECODED_QUEUE_CAP: usize = 4096;
+/// Fan-out depth for stamped decoder records. Consumers that fall behind lag the broadcast
+/// (drop-oldest) rather than stalling the pump — the UI path is lossy by design (PLAN §5).
+const DECODED_CHANNEL_CAP: usize = 1024;
 /// Fallbacks for devices that report no tuning/rate; mirrored wherever settings are read.
 const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
 const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
@@ -153,6 +159,25 @@ fn validate_channel(
             "channel band [{band_low}, {band_high}] Hz exceeds the ±{nyquist} Hz device passband"
         ))
         .into());
+    }
+    // A rate conversion needs a guard band for its filter transition, so a channel that
+    // occupies its full output rate can only be served by a transparent DDC. ADS-B is the one
+    // such mode: at any other device rate its 0.5 µs pulses arrive smeared and it decodes
+    // nothing at all — a silent failure, which is worse than a rejection naming the rate that
+    // works (CLAUDE.md: no silent failure).
+    if device_rate != descriptor.input_rate_hz {
+        let widest = sdrmm_dsp::resamplable_bandwidth_hz(descriptor.input_rate_hz);
+        if high - low >= widest {
+            return Err(ChannelError::InvalidSettings(format!(
+                "{} occupies {} Hz, which a resampling DDC cannot deliver at {} Hz; set the \
+                 device to exactly {} Hz",
+                descriptor.type_id,
+                high - low,
+                descriptor.input_rate_hz,
+                descriptor.input_rate_hz
+            ))
+            .into());
+        }
     }
     Ok(())
 }
@@ -335,6 +360,12 @@ pub struct Engine {
     event_tx: broadcast::Sender<ServerEvent>,
     /// Cloned into each capture runtime's fatal handler; the fault drainer holds the receiver.
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
+    /// Cloned into every hosted channel's [`DecodedSink`]; the pump holds the receiver.
+    decoded_tx: mpsc::SyncSender<RawDecoded>,
+    /// Frames the DSP plane could not hand over because [`DECODED_QUEUE_CAP`] was full.
+    decoded_dropped: Arc<AtomicU64>,
+    /// Stamped decoder records, fanned out to the WS hub and the decoder-log writer.
+    decoded_tx_out: broadcast::Sender<DecodedRecord>,
     /// Where `start_recording` writes SigMF pairs; `None` disables recording (PLAN §11).
     recordings_dir: Option<PathBuf>,
 }
@@ -366,15 +397,84 @@ impl Engine {
     pub fn with_registry(registry: DeviceRegistry, recordings_dir: Option<PathBuf>) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(EVENT_CHANNEL_CAP);
         let (fault_tx, fault_rx) = mpsc::channel();
+        let (decoded_tx, decoded_rx) = mpsc::sync_channel(DECODED_QUEUE_CAP);
+        let (decoded_tx_out, _) = broadcast::channel(DECODED_CHANNEL_CAP);
         let engine = Arc::new(Self {
             registry,
             inner: Mutex::new(Inner::default()),
             event_tx,
             fault_tx,
+            decoded_tx,
+            decoded_dropped: Arc::new(AtomicU64::new(0)),
+            decoded_tx_out,
             recordings_dir,
         });
         engine.spawn_fault_drainer(fault_rx);
+        engine.spawn_decoded_pump(decoded_rx);
         engine
+    }
+
+    /// Stamp decoder frames with wall-clock time and fan them out (PLAN §5). Runs off the
+    /// DSP thread so no decoder ever formats a timestamp on the hot path. Holds a `Weak`,
+    /// and exits once every sink sender is gone (engine dropped, DSP threads joined).
+    fn spawn_decoded_pump(self: &Arc<Self>, decoded_rx: mpsc::Receiver<RawDecoded>) {
+        let weak = Arc::downgrade(self);
+        let spawned = std::thread::Builder::new()
+            .name("sdrmm-decoded".to_string())
+            .spawn(move || {
+                let mut lost_seen = 0u64;
+                while let Ok(raw) = decoded_rx.recv() {
+                    let Some(engine) = weak.upgrade() else { return };
+                    // Fixed nanosecond precision, not `Timestamp::to_string()`: that trims
+                    // trailing fractional zeros, so `12:00:00.5Z` sorts before `12:00:00Z`.
+                    // The log's index is a text comparison over exactly this string, and the
+                    // live record a client sees must be byte-identical to the stored one.
+                    let at = format!("{:.9}", jiff::Timestamp::now());
+                    // send() only errors with no subscribers — the common headless case.
+                    let _ = engine.decoded_tx_out.send(DecodedRecord {
+                        device_set: raw.device_set,
+                        channel: raw.channel,
+                        at,
+                        freq_hz: raw.freq_hz,
+                        event: raw.event,
+                    });
+                    // Report queue overflow from here rather than the DSP thread, which must
+                    // not emit: the count is cumulative, so one event per growth suffices.
+                    let lost = engine.decoded_dropped.load(Ordering::Relaxed);
+                    if lost > lost_seen {
+                        let count = lost - lost_seen;
+                        lost_seen = lost;
+                        tracing::warn!(count, "decoder frames dropped: control plane behind");
+                        engine.emit(ServerEvent::DecodedLost { count });
+                    }
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::error!("failed to spawn decoder pump: {e}");
+        }
+    }
+
+    /// Subscribe to stamped decoder frames (PLAN §5). Lossy by design: a subscriber that
+    /// falls behind lags the broadcast rather than stalling the DSP plane.
+    #[must_use]
+    pub fn subscribe_decoded(&self) -> broadcast::Receiver<DecodedRecord> {
+        self.decoded_tx_out.subscribe()
+    }
+
+    /// Cumulative decoder frames dropped before reaching the pump (PLAN §5: surfaced loss).
+    #[must_use]
+    pub fn decoded_dropped(&self) -> u64 {
+        self.decoded_dropped.load(Ordering::Relaxed)
+    }
+
+    /// A decoder-frame outlet bound to one channel, handed to its [`ChannelHost`].
+    fn decoded_sink(&self, ds: u32, channel: u32) -> DecodedSink {
+        DecodedSink::new(
+            self.decoded_tx.clone(),
+            self.decoded_dropped.clone(),
+            ds,
+            channel,
+        )
     }
 
     /// The directory `start_recording` writes into (PLAN §11: files on disk are the source
@@ -872,8 +972,14 @@ impl Engine {
             let built = descriptor_for(&settings.params)
                 .and_then(|d| validate_channel(&d, &settings, built_rate))
                 .and_then(|()| {
-                    ChannelHost::build(built_rate, &settings, pcm_tx.clone(), pcm_pos.clone())
-                        .map_err(EngineError::from)
+                    ChannelHost::build(
+                        built_rate,
+                        &settings,
+                        pcm_tx.clone(),
+                        pcm_pos.clone(),
+                        self.decoded_sink(ds, id),
+                    )
+                    .map_err(EngineError::from)
                 });
             let mut inner = self.lock();
             let Some(state) = inner.device_sets.get_mut(&ds) else {
@@ -916,13 +1022,17 @@ impl Engine {
     /// queue. Construction failures surface here as bad requests.
     pub fn add_channel(&self, ds: u32, settings: ChannelSettings) -> Result<u32, EngineError> {
         let descriptor = descriptor_for(&settings.params)?;
-        let mut device_rate = {
-            let inner = self.lock();
+        // Reserve the id before building: the host's decoder sink is bound to it, and ids
+        // are never reused, so a failed add simply leaves a gap.
+        let (mut device_rate, id) = {
+            let mut inner = self.lock();
             let state = inner
                 .device_sets
-                .get(&ds)
+                .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
-            sample_rate_of(&state.settings)
+            let id = state.next_channel_id;
+            state.next_channel_id += 1;
+            (sample_rate_of(&state.settings), id)
         };
         let created = ChannelAudio::new()?;
         let pcm_tx = created.pcm_tx.clone();
@@ -935,8 +1045,14 @@ impl Engine {
         // concurrent removal or swap can interleave between them.
         let staged = loop {
             let built = validate_channel(&descriptor, &settings, device_rate).and_then(|()| {
-                ChannelHost::build(device_rate, &settings, pcm_tx.clone(), pcm_pos.clone())
-                    .map_err(EngineError::from)
+                ChannelHost::build(
+                    device_rate,
+                    &settings,
+                    pcm_tx.clone(),
+                    pcm_pos.clone(),
+                    self.decoded_sink(ds, id),
+                )
+                .map_err(EngineError::from)
             });
             let host = match built {
                 Ok(host) => host,
@@ -951,8 +1067,6 @@ impl Engine {
                 device_rate = current_rate;
                 continue;
             }
-            let id = state.next_channel_id;
-            state.next_channel_id += 1;
             state.channels.push(ChannelInfo {
                 id,
                 settings: settings.clone(),
@@ -1031,7 +1145,13 @@ impl Engine {
                 break Err(e);
             }
             let host = if need_host {
-                match ChannelHost::build(device_rate, &settings, pcm_tx.clone(), pcm_pos.clone()) {
+                match ChannelHost::build(
+                    device_rate,
+                    &settings,
+                    pcm_tx.clone(),
+                    pcm_pos.clone(),
+                    self.decoded_sink(ds, ch),
+                ) {
                     Ok(host) => Some(host),
                     Err(e) => break Err(e.into()),
                 }

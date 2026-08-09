@@ -1,8 +1,30 @@
 # fixtures/ — golden IQ fixture library
 
-Recorded IQ samples for decoder golden tests (PLAN §14): every decoder ships with short
-fixtures plus expected decoded output, and building this library *is* part of building each
-decoder. The library starts at M3 (record & replay); the first real decoders land at M4.
+IQ samples for decoder golden tests (PLAN §14): every decoder ships with short fixtures plus
+expected decoded output, and building this library *is* part of building each decoder. The
+library starts at M3 (record & replay); the wave-1 decoders landed at M4.
+
+## What `cargo xtask fixtures` writes
+
+One pair per wave-1 decoder, rendered by the same `channels::testgen` modulators the decoder
+unit tests and the engine end-to-end run use — a fixture can therefore never drift from what
+the decoders are tested against. Each is meant to be *played*: open it as a `virtual:file:`
+device, add the named channel at the stated offset, and the decoder log fills up.
+
+| stem | rate | channel | expected |
+|---|---|---|---|
+| `siggen_2m4_1s` | 2.4 M | any demod | the virtual siggen's tones (record/replay fixture) |
+| `pocsag_1200_240k` | 240 k | `pocsag` @ +50 kHz | address 1234567, `SDR-- FIXTURE` |
+| `ais_position_240k` | 240 k | `ais` @ +25 kHz | MMSI 211234560 at 53.5413, 9.9846 |
+| `aprs_afsk1200_240k` | 240 k | `aprs` @ −40 kHz | `DL1ABC-9>APRS,WIDE1-1` at 52.5, 13.4 |
+| `rtty_45_170_48k` | 48 k | `rtty` @ +5 kHz | `CQ CQ DE DL1ABC K` |
+| `morse_20wpm_48k` | 48 k | `morse` @ −5 kHz | `CQ DE DL1ABC K` at 20 wpm |
+| `adsb_squitters_2m` | 2 M | `adsb` @ 0 Hz | `3C6444`/`DLH123`, FL380, a solved position |
+| `rds_station_960k` | 960 k | `wfm` @ +200 kHz, `rds` on | PI `D3C2`, PS `SDR-M4`, 1 kHz audio |
+
+ADS-B is the one fixture whose device rate is not negotiable: it fills its whole 2 MHz
+channel, so a resampling DDC cannot carry it and the engine refuses the channel at any other
+rate (PLAN §18).
 
 Every fixture is a SigMF pair — `<stem>.sigmf-meta` + `<stem>.sigmf-data`, mono-channel
 `cf32_le` — readable by `sdrmm-recorder` and playable in-app as a `virtual:file:<stem>`

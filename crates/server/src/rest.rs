@@ -4,9 +4,9 @@
 use axum::{
     extract::{
         FromRequest, FromRequestParts, State,
-        rejection::{JsonRejection, PathRejection},
+        rejection::{JsonRejection, PathRejection, QueryRejection},
     },
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use sdrmm_engine::EngineError;
@@ -14,9 +14,9 @@ use sdrmm_recorder::{SigmfMeta, SigmfReader, data_path, meta_path, scan_stems};
 use sdrmm_wire::{
     ApiError, ApplyPresetRequest, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
     CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
-    CreatedId, CreatedRowId, DeviceSettings, DevicesResponse, PresetInfo, PresetSnapshot,
-    RecordAction, RecordRequest, RecordingStatus, RecordingsResponse, ServerEvent, StateScope,
-    StateSnapshot,
+    CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
+    DeviceSettings, DevicesResponse, ExportFormat, PresetInfo, PresetSnapshot, RecordAction,
+    RecordRequest, RecordingStatus, RecordingsResponse, ServerEvent, StateScope, StateSnapshot,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -81,6 +81,11 @@ impl<T: serde::Serialize> IntoResponse for Json<T> {
 #[from_request(via(axum::extract::Path), rejection(AppError))]
 pub(crate) struct Path<T>(pub T);
 
+/// `axum::extract::Query` with the rejection remapped like [`Json`].
+#[derive(FromRequestParts)]
+#[from_request(via(axum::extract::Query), rejection(AppError))]
+pub(crate) struct Query<T>(pub T);
+
 /// Keeps axum's status split (400 syntax / 415 content type / 422 schema mismatch); only the
 /// body shape changes.
 impl From<JsonRejection> for AppError {
@@ -101,6 +106,18 @@ impl From<PathRejection> for AppError {
             status: rej.status(),
             body: ApiError {
                 error: "invalid path parameter".to_string(),
+                detail: Some(rej.body_text()),
+            },
+        }
+    }
+}
+
+impl From<QueryRejection> for AppError {
+    fn from(rej: QueryRejection) -> Self {
+        Self {
+            status: rej.status(),
+            body: ApiError {
+                error: "invalid query parameter".to_string(),
                 detail: Some(rej.body_text()),
             },
         }
@@ -132,6 +149,7 @@ impl From<StoreError> for AppError {
             StoreError::PresetNotFound(_)
             | StoreError::BookmarkNotFound(_)
             | StoreError::RecordingNotFound(_) => StatusCode::NOT_FOUND,
+            StoreError::Timestamp(_) => StatusCode::BAD_REQUEST,
             StoreError::Db(_) | StoreError::Corrupt(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self {
@@ -671,6 +689,139 @@ async fn delete_recording(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get, path = "/api/decoderlog",
+    params(DecoderLogQuery),
+    responses(
+        (
+            status = 200,
+            description = "Stored decodes, newest first, with the total the filter matches \
+                           and the frames lost on the way to the log",
+            body = DecoderLogResponse,
+        ),
+        (status = 400, description = "Malformed filter (`since`/`until`, `limit`)", body = ApiError),
+    ),
+)]
+async fn list_decoder_log(
+    State(state): State<AppState>,
+    Query(filter): Query<DecoderLogQuery>,
+) -> Result<Json<DecoderLogResponse>, AppError> {
+    let store = state.store.clone();
+    let (entries, total) =
+        tokio::task::spawn_blocking(move || store.query_decoder_log(&filter)).await??;
+    Ok(Json(DecoderLogResponse {
+        entries,
+        total,
+        dropped: state.decoder_log_dropped() + state.engine.decoded_dropped(),
+    }))
+}
+
+#[utoipa::path(
+    delete, path = "/api/decoderlog",
+    params(DecoderLogQuery),
+    responses(
+        (status = 200, description = "Entries removed", body = DeletedCount),
+        (status = 400, description = "Malformed filter (`since`/`until`, `limit`)", body = ApiError),
+    ),
+)]
+async fn clear_decoder_log(
+    State(state): State<AppState>,
+    Query(filter): Query<DecoderLogQuery>,
+) -> Result<Json<DeletedCount>, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let deleted = tokio::task::spawn_blocking(move || -> Result<u64, AppError> {
+        let deleted = store.delete_decoder_log(&filter)?;
+        engine.emit_scope(StateScope::DecoderLog);
+        Ok(deleted)
+    })
+    .await??;
+    Ok(Json(DeletedCount { deleted }))
+}
+
+#[utoipa::path(
+    get, path = "/api/decoderlog/export/{format}",
+    params(("format" = ExportFormat, Path, description = "Export encoding"), DecoderLogQuery),
+    responses(
+        (
+            status = 200,
+            description = "The matching entries as a downloadable file, capped at the \
+                           server's export limit; `limit` is ignored",
+            content(
+                (String = "text/csv"),
+                (Vec<DecoderLogEntry> = "application/json"),
+            ),
+        ),
+        (status = 400, description = "Unknown format or malformed filter", body = ApiError),
+    ),
+)]
+async fn export_decoder_log(
+    State(state): State<AppState>,
+    Path(format): Path<ExportFormat>,
+    Query(filter): Query<DecoderLogQuery>,
+) -> Result<Response, AppError> {
+    let store = state.store.clone();
+    let entries = tokio::task::spawn_blocking(move || store.export_decoder_log(&filter)).await??;
+    let (content_type, body) = match format {
+        ExportFormat::Csv => ("text/csv; charset=utf-8", csv_export(&entries)),
+        ExportFormat::Json => ("application/json", serde_json::to_string(&entries)),
+    };
+    let body = body
+        .map_err(|err| AppError::internal(format!("serializing the decoder-log export: {err}")))?;
+    let extension = match format {
+        ExportFormat::Csv => "csv",
+        ExportFormat::Json => "json",
+    };
+    // Colons are illegal in filenames on Windows, so the stamp is the basic ISO 8601 form.
+    let stamp = jiff::Timestamp::now().strftime("%Y%m%dT%H%M%SZ");
+    Ok((
+        [
+            (header::CONTENT_TYPE, content_type.to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"decoderlog-{stamp}.{extension}\""),
+            ),
+        ],
+        body,
+    )
+        .into_response())
+}
+
+/// RFC4180 CSV: the projected columns a spreadsheet wants, plus the full JSON event as the
+/// last column so an export loses nothing the log stored.
+fn csv_export(entries: &[DecoderLogEntry]) -> Result<String, serde_json::Error> {
+    let mut out = String::from("at,device_set,channel,kind,freq_hz,station,summary,event\r\n");
+    for entry in entries {
+        let event = serde_json::to_string(&entry.event)?;
+        out.push_str(&csv_field(&entry.at));
+        out.push(',');
+        out.push_str(&entry.device_set.to_string());
+        out.push(',');
+        out.push_str(&entry.channel.to_string());
+        out.push(',');
+        out.push_str(&csv_field(&entry.kind));
+        out.push(',');
+        out.push_str(&entry.freq_hz.to_string());
+        out.push(',');
+        out.push_str(&csv_field(entry.station.as_deref().unwrap_or_default()));
+        out.push(',');
+        out.push_str(&csv_field(&entry.summary));
+        out.push(',');
+        out.push_str(&csv_field(&event));
+        out.push_str("\r\n");
+    }
+    Ok(out)
+}
+
+/// RFC4180 §2: quote a field containing a comma, a quote or a line break, doubling the quotes.
+fn csv_field(value: &str) -> String {
+    if value.contains(['"', ',', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
 fn lock_gate(gate: &std::sync::Mutex<()>) -> std::sync::MutexGuard<'_, ()> {
     gate.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -745,7 +896,9 @@ fn recording_created_at(stem: &std::path::Path, meta: &SigmfMeta) -> String {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "sdr-- API", version = env!("CARGO_PKG_VERSION")),
-    components(schemas(ServerEvent, ClientCommand, PresetSnapshot)),
+    // `ExportFormat` is reachable only as a path parameter, which utoipa emits as a `$ref`
+    // without registering the component — `openapi-typescript` then fails to resolve it.
+    components(schemas(ServerEvent, ClientCommand, PresetSnapshot, ExportFormat)),
 )]
 struct ApiDoc;
 
@@ -769,4 +922,6 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(record_device_set))
         .routes(routes!(list_recordings))
         .routes(routes!(delete_recording))
+        .routes(routes!(list_decoder_log, clear_decoder_log))
+        .routes(routes!(export_decoder_log))
 }

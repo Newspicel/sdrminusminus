@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 
 use crate::{
     channel::{ChannelDescriptor, ChannelSettings},
+    decode::DecoderEvent,
     device::{DeviceInfo, DeviceSettings},
 };
 
@@ -134,6 +135,81 @@ pub struct RecordingInfo {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingsResponse {
     pub recordings: Vec<RecordingInfo>,
+}
+
+/// One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not
+/// scroll-back-only). The typed `event` is stored verbatim so an export loses nothing;
+/// `kind`, `summary` and `station` are the indexed projections the list view filters on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DecoderLogEntry {
+    pub id: i64,
+    /// RFC3339 UTC.
+    pub at: String,
+    pub device_set: u32,
+    pub channel: u32,
+    /// [`crate::DecoderEvent::kind`] of `event`.
+    pub kind: String,
+    pub freq_hz: f64,
+    /// Emitter identity within the decoder (ICAO, MMSI, callsign, pager address).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station: Option<String>,
+    pub summary: String,
+    pub event: DecoderEvent,
+}
+
+/// `GET /api/decoderlog` — newest first, bounded by the requested `limit`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DecoderLogResponse {
+    pub entries: Vec<DecoderLogEntry>,
+    /// Rows matching the filter, ignoring `limit`.
+    pub total: u64,
+    /// Frames dropped on the way to the log since the server started, because a consumer
+    /// fell behind (PLAN §5: bounded queues surface their loss).
+    pub dropped: u64,
+}
+
+/// Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a
+/// path segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing
+/// [`DecoderLogQuery`] across list/export/clear requires the format to live elsewhere.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportFormat {
+    #[default]
+    Csv,
+    Json,
+}
+
+/// Filters shared by the decoder-log list, export and clear endpoints. Every field is
+/// optional; an empty query means "everything".
+#[derive(
+    Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema, utoipa::IntoParams,
+)]
+#[into_params(parameter_in = Query)]
+pub struct DecoderLogQuery {
+    /// Restrict to one decoder ([`crate::DecoderEvent::kind`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Restrict to one device set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_set: Option<u32>,
+    /// Only entries at or after this RFC3339 timestamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    /// Only entries at or before this RFC3339 timestamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    /// Substring match against `station` and `summary`, case-insensitive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub q: Option<String>,
+    /// Maximum rows returned by the list endpoint (server-clamped). Ignored by export.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// `DELETE /api/decoderlog` — how many rows the filtered clear removed.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DeletedCount {
+    pub deleted: u64,
 }
 
 /// Identifier returned when an engine resource (device set, channel) is created.

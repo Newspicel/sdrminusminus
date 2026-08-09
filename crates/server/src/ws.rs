@@ -21,7 +21,9 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{decimate_max, quantize_db};
 use sdrmm_engine::{AudioPacket, Engine, SpectrumSnapshot, adaptive_db_window};
-use sdrmm_wire::{AudioFrame, ClientCommand, ServerEvent, SpectrumFrame, StateScope, StreamKind};
+use sdrmm_wire::{
+    AudioFrame, ClientCommand, DecodedRecord, ServerEvent, SpectrumFrame, StateScope, StreamKind,
+};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::AppState;
@@ -58,12 +60,16 @@ async fn handle_socket(socket: WebSocket, engine: Arc<Engine>) {
     // through the gap — otherwise a mutation between snapshot and subscribe would be lost, and
     // StateChanged carries no revision for the client to detect it (PLAN §5).
     let event_rx = engine.subscribe_events();
+    // Subscribed alongside the control stream, before the snapshot, for the same reason: a
+    // decode landing in the gap would otherwise never reach this client's live view.
+    let decoded_rx = engine.subscribe_decoded();
     let hello = ServerEvent::Hello {
         revision: engine.snapshot().revision,
     };
     let _ = out_tx.send(text_event(&hello)).await;
 
     let events = spawn_events(event_rx, out_tx.clone());
+    let decoded = spawn_decoded(decoded_rx, out_tx.clone());
 
     let mut spectra: HashMap<u32, tokio::task::JoinHandle<()>> = HashMap::new();
     // Audio streams keyed by (device_set, channel); resubscribing replaces the running task.
@@ -215,6 +221,7 @@ async fn handle_socket(socket: WebSocket, engine: Arc<Engine>) {
         task.abort();
     }
     events.abort();
+    decoded.abort();
     writer.abort();
 }
 
@@ -271,6 +278,38 @@ fn spawn_events(
                         scope: StateScope::All,
                     };
                     if out_tx.send(text_event(&resync)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    })
+}
+
+/// Forward decoder frames (PLAN §5). Unlike the control events above, this stream is lossy by
+/// design: a lagging client loses decodes, and the honest answer is to say how many rather
+/// than force a full-state refetch — the log endpoint holds the authoritative history, so a
+/// gap here costs the live view, not correctness.
+fn spawn_decoded(
+    mut decoded_rx: broadcast::Receiver<DecodedRecord>,
+    out_tx: mpsc::Sender<Message>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match decoded_rx.recv().await {
+                Ok(record) => {
+                    if out_tx
+                        .send(text_event(&ServerEvent::Decoded(Box::new(record))))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    let lost = ServerEvent::DecodedLost { count: missed };
+                    if out_tx.send(text_event(&lost)).await.is_err() {
                         break;
                     }
                 }

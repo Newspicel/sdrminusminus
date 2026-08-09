@@ -7,6 +7,7 @@
 //! may use it.
 
 pub mod channel;
+pub mod decode;
 pub mod device;
 pub mod frame;
 pub mod rest;
@@ -14,8 +15,13 @@ pub mod state;
 pub mod ws;
 
 pub use channel::{
-    AmParams, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, NfmParams, Sideband,
-    SsbParams, WfmParams,
+    AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, ChannelDescriptor,
+    ChannelInfo, ChannelParams, ChannelSettings, MorseParams, NfmParams, PocsagBaud, PocsagParams,
+    RttyParams, RttyStopBits, Sideband, SsbParams, WfmParams,
+};
+pub use decode::{
+    AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, MorseText, PocsagMessage,
+    PocsagPayload, RdsUpdate, RttyText,
 };
 pub use device::{
     Capabilities, DeviceInfo, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
@@ -24,7 +30,8 @@ pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFra
 pub use rest::{
     ApiError, ApplyPresetRequest, Bookmark, ChannelTypesResponse, CreateBookmarkRequest,
     CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
-    DevicesResponse, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingInfo,
+    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DevicesResponse,
+    ExportFormat, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingInfo,
     RecordingsResponse,
 };
 pub use state::{DeviceSet, DeviceSetStatus, RecordingStatus, StateSnapshot};
@@ -70,6 +77,7 @@ mod contract_tests {
             (StateScope::Presets, "presets"),
             (StateScope::Bookmarks, "bookmarks"),
             (StateScope::Recordings, "recordings"),
+            (StateScope::DecoderLog, "decoder_log"),
         ] {
             let json = serde_json::to_value(&scope).unwrap();
             assert_eq!(json["scope"], tag);
@@ -150,9 +158,110 @@ mod contract_tests {
         assert_eq!(
             settings.params,
             ChannelParams::Wfm(WfmParams {
-                deemphasis_us: 75.0
+                deemphasis_us: 75.0,
+                rds: false,
             })
         );
+    }
+
+    /// Every M4 decoder type must deserialize from an empty `settings` object at its
+    /// documented defaults — the client sends exactly that when adding a channel.
+    #[test]
+    fn decoder_params_default_from_empty_settings() {
+        use channel::{AdsbParams, AisParams, AprsParams, MorseParams, PocsagParams, RttyParams};
+        for (json, expected) in [
+            (
+                r#"{"type":"pocsag","settings":{}}"#,
+                ChannelParams::Pocsag(PocsagParams::default()),
+            ),
+            (
+                r#"{"type":"adsb","settings":{}}"#,
+                ChannelParams::Adsb(AdsbParams::default()),
+            ),
+            (
+                r#"{"type":"ais","settings":{}}"#,
+                ChannelParams::Ais(AisParams::default()),
+            ),
+            (
+                r#"{"type":"aprs","settings":{}}"#,
+                ChannelParams::Aprs(AprsParams::default()),
+            ),
+            (
+                r#"{"type":"rtty","settings":{}}"#,
+                ChannelParams::Rtty(RttyParams::default()),
+            ),
+            (
+                r#"{"type":"morse","settings":{}}"#,
+                ChannelParams::Morse(MorseParams::default()),
+            ),
+        ] {
+            let parsed: ChannelParams = serde_json::from_str(json).unwrap();
+            assert_eq!(parsed, expected, "{json}");
+            assert_eq!(parsed.type_id(), expected.type_id());
+        }
+
+        let rtty: ChannelParams = serde_json::from_str(r#"{"type":"rtty","settings":{}}"#).unwrap();
+        assert_eq!(
+            rtty,
+            ChannelParams::Rtty(RttyParams {
+                baud: 45.45,
+                shift_hz: 170.0,
+                stop_bits: channel::RttyStopBits::OneAndHalf,
+                invert: false,
+                unshift_on_space: true,
+            })
+        );
+    }
+
+    /// A decoder frame reaches the client as `{"type":"Decoded","data":{…record…}}`; the
+    /// nested `kind` is what the panel switches on.
+    #[test]
+    fn decoded_event_shape() {
+        let ev = ServerEvent::Decoded(Box::new(decode::DecodedRecord {
+            device_set: 1,
+            channel: 4,
+            at: "2026-08-09T12:00:00Z".to_owned(),
+            freq_hz: 162_025_000.0,
+            event: DecoderEvent::Ais(decode::AisMessage {
+                mmsi: 211_234_560,
+                msg_type: 1,
+                ais_channel: 'B',
+                nmea: "!AIVDM,1,1,,B,test,0*00".to_owned(),
+                ..decode::AisMessage::default()
+            }),
+        }));
+        let json = serde_json::to_value(&ev).unwrap();
+        assert_eq!(json["type"], "Decoded");
+        assert_eq!(json["data"]["channel"], 4);
+        assert_eq!(json["data"]["event"]["kind"], "ais");
+        assert_eq!(json["data"]["event"]["data"]["mmsi"], 211_234_560);
+        let back: ServerEvent = serde_json::from_value(json).unwrap();
+        assert_eq!(back, ev);
+
+        let lost = serde_json::to_value(ServerEvent::DecodedLost { count: 7 }).unwrap();
+        assert_eq!(lost["type"], "DecodedLost");
+        assert_eq!(lost["data"]["count"], 7);
+    }
+
+    /// `has_audio` post-dates M3: snapshots from older peers omit it and must keep reading
+    /// as an audio channel, while decoders serialize it explicitly.
+    #[test]
+    fn channel_descriptor_has_audio_defaults_true() {
+        let mut json = serde_json::json!({
+            "type_id": "nfm",
+            "name": "NFM",
+            "bandwidth_hz": 12_500.0,
+            "input_rate_hz": 48_000.0,
+        });
+        let back: ChannelDescriptor = serde_json::from_value(json.clone()).unwrap();
+        assert!(back.has_audio);
+        assert_eq!(back.decoder_kind, None);
+
+        json["has_audio"] = serde_json::json!(false);
+        json["decoder_kind"] = serde_json::json!("adsb");
+        let back: ChannelDescriptor = serde_json::from_value(json).unwrap();
+        assert!(!back.has_audio);
+        assert_eq!(back.decoder_kind.as_deref(), Some("adsb"));
     }
 
     fn sample_device_set() -> DeviceSet {

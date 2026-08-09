@@ -19,6 +19,10 @@ workspace = true
 sdrmm-server.workspace = true
 sdrmm-recorder.workspace = true
 sdrmm-device-virtual.workspace = true
+# `fixtures` renders the decoder reference signals (PLAN §14) with the same modulators the
+# decoder tests use, so a fixture can never drift from what the decoders are tested against.
+sdrmm-channels = { workspace = true, features = ["test-signals"] }
+num-complex.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 

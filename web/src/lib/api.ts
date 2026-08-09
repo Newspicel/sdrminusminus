@@ -10,8 +10,11 @@ import type {
   ChannelSettings,
   ChannelTypesResponse,
   CreateBookmarkRequest,
+  DecoderLogFilter,
+  DecoderLogResponse,
   DeviceSettings,
   DevicesResponse,
+  ExportFormat,
   PresetInfo,
   RecordAction,
   RecordingStatus,
@@ -27,6 +30,7 @@ export const CHANNEL_TYPES_KEY = ["get", "/api/channeltypes"] as const;
 export const PRESETS_KEY = ["get", "/api/presets"] as const;
 export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
 export const RECORDINGS_KEY = ["get", "/api/recordings"] as const;
+export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
 
 export function stateQuery() {
   return queryOptions({
@@ -182,6 +186,52 @@ export async function deleteRecording(id: number): Promise<void> {
       params: { path: { id } },
     }),
   );
+}
+
+export function decoderLogQuery(filter: DecoderLogFilter) {
+  const query = normalizeFilter(filter);
+  return queryOptions({
+    // The filter is part of the key so changing it refetches, and it sits under
+    // DECODER_LOG_KEY so a `decoder_log` StateChanged invalidates every filter at once.
+    queryKey: [...DECODER_LOG_KEY, query] as const,
+    queryFn: async (): Promise<DecoderLogResponse> =>
+      unwrap(await client.GET("/api/decoderlog", { params: { query } })),
+  });
+}
+
+export async function clearDecoderLog(filter: DecoderLogFilter): Promise<number> {
+  return unwrap(
+    await client.DELETE("/api/decoderlog", {
+      params: { query: normalizeFilter(filter) },
+    }),
+  ).deleted;
+}
+
+/** A plain href for a download link — the browser must navigate to it so the server's
+ * `Content-Disposition` applies, which a fetch through `client` would swallow. `limit` is
+ * dropped: the export endpoint ignores it in favour of its own cap. */
+export function decoderLogExportUrl(format: ExportFormat, filter: DecoderLogFilter): string {
+  const { limit: _limit, ...rest } = normalizeFilter(filter);
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(rest)) {
+    params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query.length > 0
+    ? `/api/decoderlog/export/${format}?${query}`
+    : `/api/decoderlog/export/${format}`;
+}
+
+/** Blank fields are absent fields: a cleared filter input must not become `q=` (which the
+ * server would match on) nor a second query key for what is the same request. */
+function normalizeFilter(filter: DecoderLogFilter): DecoderLogFilter {
+  const normalized: DecoderLogFilter = {};
+  for (const [key, value] of Object.entries(filter)) {
+    if (value != null && value !== "") {
+      (normalized as Record<string, string | number>)[key] = value;
+    }
+  }
+  return normalized;
 }
 
 /** Narrows the `ApiError` contract at runtime: openapi-fetch yields `{ error: undefined }`
