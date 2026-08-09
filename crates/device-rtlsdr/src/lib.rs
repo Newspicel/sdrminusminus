@@ -9,15 +9,19 @@
 
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
+        mpsc::RecvTimeoutError,
     },
     thread::JoinHandle,
+    time::{Duration, Instant},
 };
 
 use caps::{GainMode, Plan};
 use convert::IqConverter;
-use sdrmm_device::{DeviceDriver, DeviceError, RxSink, SdrDevice};
+use sdrmm_device::{
+    DeviceDriver, DeviceError, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, SdrDevice,
+};
 use sdrmm_rtl_driver::{DeviceDescriptor, DeviceDescriptors, DeviceId, RtlSdr, TRANSFER_BUF_SIZE};
 use sdrmm_usb_stream::{RxStream, Stopper};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, ExtraValue};
@@ -26,6 +30,15 @@ mod caps;
 mod convert;
 
 pub(crate) const DRIVER_ID: &str = "rtlsdr";
+
+/// How often the capture loop wakes to re-check its stop flag and the silence clock.
+const RECV_POLL: Duration = Duration::from_millis(100);
+
+/// A mutex this crate holds is only ever held across infallible register writes, so a poisoned
+/// one carries no half-written state worth refusing — and refusing would mean losing the radio.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// Tuning the dongle powers up with. The RTL2832U has no resampler ratio and an untuned PLL
 /// after a cold open, so a device that reported that state as its settings would stream
@@ -103,16 +116,20 @@ impl DeviceDriver for RtlSdrDriver {
 /// `RtlSdr` setters ride the USB *control* endpoint on a clone-backed `nusb::Interface`,
 /// independent of the streaming thread's bulk queue, so a retune while streaming costs the
 /// sample path nothing and still returns the hardware's real answer.
+///
+/// The radio is behind a mutex because the capture thread needs it too: an in-place stream
+/// restart (tier 1, `PLAN-NATIVE-DRIVERS.md` §2.2) calls `start_streaming` from there. The lock
+/// is never held across a blocking read — `apply` takes the same one.
 pub struct RtlSdrDevice {
-    sdr: RtlSdr,
+    sdr: Arc<Mutex<RtlSdr>>,
     capabilities: Capabilities,
     settings: DeviceSettings,
     /// The tuner's discrete gain table in tenths of a dB; `apply` snaps to it.
     gain_table: Vec<i32>,
     running: Arc<AtomicBool>,
-    /// Live only while streaming: the one way to stop the transfer pump once the stream has
-    /// moved to the capture thread.
-    stopper: Option<Stopper>,
+    /// Live only while streaming, and replaced by the capture thread on every restart, so
+    /// `rx_stop` always reaches the stream that is actually running.
+    stopper: Arc<Mutex<Option<Stopper>>>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -154,49 +171,47 @@ impl RtlSdrDevice {
         };
 
         Ok(Self {
-            sdr,
+            sdr: Arc::new(Mutex::new(sdr)),
             capabilities,
             settings,
             gain_table,
             running: Arc::new(AtomicBool::new(false)),
-            stopper: None,
+            stopper: Arc::new(Mutex::new(None)),
             worker: None,
         })
     }
+}
 
-    fn apply_to_hardware(&mut self, plan: &Plan) -> Result<(), DeviceError> {
-        // Rate first: `set_sample_rate` re-tunes the tuner and recomputes its filter from the
-        // new rate (the driver mirrors librtlsdr here), so a center or bandwidth written before it
-        // would be overwritten.
-        if let Some(rate) = plan.sample_rate {
-            self.sdr.set_sample_rate(rate).map_err(map_err)?;
-        }
-        if let Some(hz) = plan.center_hz {
-            self.sdr.set_center_freq(hz).map_err(map_err)?;
-        }
-        if let Some(bw) = plan.bandwidth {
-            self.sdr.set_bandwidth(bw).map_err(map_err)?;
-            // A width change reassigns the tuner's IF and rewrites only the demodulator's IF
-            // register — the tuner PLL still sits at `centre + old_IF`, so the radio quietly
-            // receives `centre + (old_IF - new_IF)` while every consumer is told `centre`.
-            // librtlsdr's `r820t_set_bw` ends with a re-tune for exactly this reason, and
-            // the driver keeps that re-tune in `set_sample_rate` but not here. Re-programming the
-            // PLL from the cached centre closes the loop.
-            let center = self.sdr.center_freq();
-            self.sdr.set_center_freq(center).map_err(map_err)?;
-        }
-        match plan.gain {
-            Some(GainMode::Auto) => self.sdr.set_gain_auto().map_err(map_err)?,
-            Some(GainMode::Manual(tenths)) => {
-                self.sdr.set_gain_manual(tenths).map_err(map_err)?;
-            }
-            None => {}
-        }
-        if let Some(on) = plan.bias_tee {
-            self.sdr.set_bias_t(on).map_err(map_err)?;
-        }
-        Ok(())
+fn apply_to_hardware(sdr: &mut RtlSdr, plan: &Plan) -> Result<(), DeviceError> {
+    // Rate first: `set_sample_rate` re-tunes the tuner and recomputes its filter from the new
+    // rate (the driver mirrors librtlsdr here), so a center or bandwidth written before it
+    // would be overwritten.
+    if let Some(rate) = plan.sample_rate {
+        sdr.set_sample_rate(rate).map_err(map_err)?;
     }
+    if let Some(hz) = plan.center_hz {
+        sdr.set_center_freq(hz).map_err(map_err)?;
+    }
+    if let Some(bw) = plan.bandwidth {
+        sdr.set_bandwidth(bw).map_err(map_err)?;
+        // A width change reassigns the tuner's IF and rewrites only the demodulator's IF
+        // register — the tuner PLL still sits at `centre + old_IF`, so the radio quietly
+        // receives `centre + (old_IF - new_IF)` while every consumer is told `centre`.
+        // librtlsdr's `r820t_set_bw` ends with a re-tune for exactly this reason, and the
+        // driver keeps that re-tune in `set_sample_rate` but not here. Re-programming the PLL
+        // from the cached centre closes the loop.
+        let center = sdr.center_freq();
+        sdr.set_center_freq(center).map_err(map_err)?;
+    }
+    match plan.gain {
+        Some(GainMode::Auto) => sdr.set_gain_auto().map_err(map_err)?,
+        Some(GainMode::Manual(tenths)) => sdr.set_gain_manual(tenths).map_err(map_err)?,
+        None => {}
+    }
+    if let Some(on) = plan.bias_tee {
+        sdr.set_bias_t(on).map_err(map_err)?;
+    }
+    Ok(())
 }
 
 impl SdrDevice for RtlSdrDevice {
@@ -215,14 +230,18 @@ impl SdrDevice for RtlSdrDevice {
             &self.settings,
             &self.gain_table,
         )?;
-        let result = self.apply_to_hardware(&plan);
+        let (result, center_hz, sample_rate) = {
+            let mut sdr = lock(&self.sdr);
+            let result = apply_to_hardware(&mut sdr, &plan);
+            (result, sdr.center_freq(), sdr.sample_rate())
+        };
         // The driver caches the values it last wrote successfully — including the resampler's
         // *actual* rate, which integer division can move off the request — so these two
         // getters are the device's own truth. Resync them either way: a mid-batch failure
         // leaves the hardware partially retuned, and the control plane must not keep
         // reporting pre-batch values (the Soapy backend resyncs for the same reason).
-        self.settings.center_hz = Some(f64::from(self.sdr.center_freq()));
-        self.settings.sample_rate = Some(f64::from(self.sdr.sample_rate()));
+        self.settings.center_hz = Some(f64::from(center_hz));
+        self.settings.sample_rate = Some(f64::from(sample_rate));
         result?;
         self.settings.merge_from(&plan.applied);
         // `merge_from` cannot clear a field, and an automatic filter width is the absence of
@@ -237,30 +256,43 @@ impl SdrDevice for RtlSdrDevice {
         if self.worker.is_some() {
             return Err(DeviceError::AlreadyStreaming);
         }
-        let stream = self.sdr.start_streaming().map_err(map_err)?;
-        let stopper = stream.stopper();
+        let stream = lock(&self.sdr).start_streaming().map_err(map_err)?;
+        *lock(&self.stopper) = Some(stream.stopper());
         self.running.store(true, Ordering::Release);
         let running = self.running.clone();
-        let worker = std::thread::Builder::new()
+        let sdr = self.sdr.clone();
+        let stopper = self.stopper.clone();
+        match std::thread::Builder::new()
             .name("sdrmm-rtlsdr-rx".to_string())
-            .spawn(move || capture_loop(&stream, &running, sink))
-            .map_err(|e| DeviceError::Io(format!("spawn capture thread: {e}")))?;
-        self.stopper = Some(stopper);
-        self.worker = Some(worker);
-        Ok(())
+            .spawn(move || capture_loop(stream, &sdr, &stopper, &running, sink))
+        {
+            Ok(worker) => {
+                self.worker = Some(worker);
+                Ok(())
+            }
+            Err(e) => {
+                // The un-spawned closure drops the stream, which stops the pump; clear the
+                // state so a retry is not left looking like a live capture.
+                self.running.store(false, Ordering::Release);
+                *lock(&self.stopper) = None;
+                Err(DeviceError::Io(format!("spawn capture thread: {e}")))
+            }
+        }
     }
 
     fn rx_stop(&mut self) {
         self.running.store(false, Ordering::Release);
-        // The capture thread is parked in a blocking `recv`, so the stop has to come from the
-        // far end: the transfer pump closes the block channel on its way out, which is what
-        // releases that `recv`.
-        if let Some(stopper) = self.stopper.take() {
+        // Cloned rather than taken: the capture thread may be mid-restart and about to publish
+        // a fresh stopper. It re-checks `running` after publishing, so whichever of the two
+        // happens second still ends the stream and the join below cannot hang.
+        let stopper = lock(&self.stopper).clone();
+        if let Some(stopper) = stopper {
             stopper.stop();
         }
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+        *lock(&self.stopper) = None;
     }
 }
 
@@ -270,34 +302,131 @@ impl Drop for RtlSdrDevice {
     }
 }
 
-/// Blocking capture loop on our own thread. Borrows the transport stream, which is dropped on
-/// every exit path, stopping the transfer pump and releasing the bulk endpoint.
-fn capture_loop(stream: &RxStream, running: &AtomicBool, mut sink: RxSink) {
+/// Why a stream stopped delivering, when nobody asked it to.
+struct Failure {
+    reason: String,
+    /// The radio left the bus. Restarting in place cannot help — the endpoint, the interface
+    /// claim and the device handle went with it — so tier 2 is the only option.
+    fatal: bool,
+}
+
+/// Blocking capture loop on our own thread, and tier-1 supervisor for its stream.
+///
+/// Owns the stream, so every exit path drops it, stopping the transfer pump and releasing the
+/// bulk endpoint. A stream that ends by itself is restarted in place under [`RestartPolicy`] —
+/// measured at 3 ms against the ~9 s a fault, teardown and re-open cost — and only a restart
+/// that runs out of attempts reaches `sink.fail` and the engine's destructive fault path.
+fn capture_loop(
+    mut stream: RxStream,
+    sdr: &Mutex<RtlSdr>,
+    stopper: &Mutex<Option<Stopper>>,
+    running: &AtomicBool,
+    mut sink: RxSink,
+) {
     let mut converter = IqConverter::with_capacity(TRANSFER_BUF_SIZE / 2);
+    let mut policy = RestartPolicy::default();
     let mut dropped = 0u64;
-    while running.load(Ordering::Acquire) {
-        let Some(block) = stream.recv() else {
-            // The pump closes the channel when its error policy gives up on the endpoint or
-            // when it was told to stop. `running` still set means nobody asked, so it faulted.
-            if running.load(Ordering::Acquire) {
-                let reason = stream.error().map_or_else(
-                    || "usb stream ended".to_string(),
-                    std::string::ToString::to_string,
-                );
-                sink.fail(DeviceError::Io(format!("device lost: {reason}")));
-            }
-            break;
+    loop {
+        let started = Instant::now();
+        let Some(failure) = drain(&stream, running, &mut sink, &mut converter, &mut dropped) else {
+            return;
         };
-        sink.push(converter.convert(&block));
-        // USB-level loss is a different failure from the engine's ring overruns and must not be
-        // silent: a dropped transfer is a gap in the sample stream that no counter downstream
-        // can see.
-        let total = stream.stats().dropped;
-        if total > dropped {
-            tracing::warn!(dropped = total, "rtlsdr dropped usb transfers");
-            dropped = total;
+        if !running.load(Ordering::Acquire) {
+            return;
+        }
+        if failure.fatal {
+            sink.fail(DeviceError::Io(format!("device lost: {}", failure.reason)));
+            return;
+        }
+        let Recovery::RetryAfter { attempt, delay } = policy.on_failure(started.elapsed()) else {
+            sink.fail(DeviceError::Io(format!(
+                "device lost after {} restart attempts: {}",
+                policy.attempts() - 1,
+                failure.reason
+            )));
+            return;
+        };
+        // A restart drops whatever the pipe had in flight, so it is never free and never silent.
+        tracing::warn!(
+            attempt,
+            ?delay,
+            reason = %failure.reason,
+            "rtlsdr stream failed; restarting in place"
+        );
+        drop(stream);
+        std::thread::sleep(delay);
+        // A stalled transfer can complete on an odd length, and that half sample's partner is
+        // never coming; carried into the fresh stream it would swap I and Q for good.
+        converter.reset();
+        let restarted = lock(sdr).start_streaming();
+        match restarted {
+            Ok(fresh) => {
+                // Published before the re-check, so a concurrent `rx_stop` either stops this
+                // stream or is seen by the check below. One of the two always happens.
+                *lock(stopper) = Some(fresh.stopper());
+                if !running.load(Ordering::Acquire) {
+                    return;
+                }
+                tracing::info!(attempt, "rtlsdr stream restarted");
+                stream = fresh;
+            }
+            Err(e) => {
+                sink.fail(DeviceError::Io(format!("stream restart failed: {e}")));
+                return;
+            }
         }
     }
+}
+
+/// Consume blocks until the stream ends or goes quiet. `None` means the caller asked to stop.
+fn drain(
+    stream: &RxStream,
+    running: &AtomicBool,
+    sink: &mut RxSink,
+    converter: &mut IqConverter,
+    dropped: &mut u64,
+) -> Option<Failure> {
+    let mut last_block = Instant::now();
+    while running.load(Ordering::Acquire) {
+        match stream.recv_timeout(RECV_POLL) {
+            Ok(block) => {
+                last_block = Instant::now();
+                sink.push(converter.convert(&block));
+                // USB-level loss is a different failure from the engine's ring overruns and
+                // must not be silent: a dropped transfer is a gap in the sample stream that no
+                // counter downstream can see.
+                let total = stream.stats().dropped;
+                if total > *dropped {
+                    tracing::warn!(dropped = total, "rtlsdr dropped usb transfers");
+                    *dropped = total;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                // A streaming dongle free-runs and cannot go quiet while healthy, so silence
+                // this long is a wedged board — which has no error to report and would
+                // otherwise park this thread forever behind a dead waterfall.
+                if last_block.elapsed() >= SILENT_STREAM_TIMEOUT {
+                    return Some(Failure {
+                        reason: format!("no samples for {SILENT_STREAM_TIMEOUT:?}"),
+                        fatal: false,
+                    });
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                return Some(stream.error().map_or_else(
+                    || Failure {
+                        reason: "usb stream ended".to_string(),
+                        fatal: false,
+                    },
+                    |error| Failure {
+                        reason: error.to_string(),
+                        fatal: error.is_disconnected(),
+                    },
+                ));
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

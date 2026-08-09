@@ -107,7 +107,9 @@ pub trait SdrDevice: Send {
 }
 
 pub mod registry;
+pub mod restart;
 pub use registry::DeviceRegistry;
+pub use restart::{Recovery, RestartPolicy, SILENT_STREAM_TIMEOUT};
 
 #[cfg(test)]
 mod tests {
