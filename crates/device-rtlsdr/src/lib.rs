@@ -7,34 +7,26 @@
 //! Four layers, in dependency order:
 //!
 //! - [`driver`] — the radio: enumeration, registers, I2C, the R82xx tuner. No wire types.
-//! - `convert` — the RTL2832U's unsigned 8-bit IQ to the one `cf32` format the pipeline speaks.
+//! - `convert` — the table that turns the RTL2832U's unsigned 8-bit codes into `cf32`.
 //! - `caps` — the pure translation to the wire capability model, and `apply`'s validation.
-//! - this module — `DeviceDriver`/`SdrDevice`, the capture thread and its tier-1 supervisor.
+//! - this module — `DeviceDriver`/`SdrDevice` over `sdrmm-device`'s shared capture machinery.
 //!
-//! Streaming lives in `sdrmm-usb-stream`, shared with the HackRF backend: the transfer queue and
-//! the USB error policy are the one thing both radios genuinely have in common, and getting that
-//! policy wrong on each side separately is the defect this driver exists to fix (PLAN §17).
+//! Streaming lives in `sdrmm-usb-stream` and supervision in `sdrmm-device`, both shared with the
+//! HackRF backend: the transfer queue, the USB error policy and the restart loop are what the
+//! two radios genuinely have in common, and getting them wrong on each side separately is the
+//! defect this driver exists to fix (PLAN §17). What is left here is the RTL-SDR itself.
 //!
 //! What the driver does not program is not advertised: direct sampling, offset tuning and the
 //! RTL2832U digital AGC. `apply` rejects those settings rather than accepting them silently.
 
-use std::{
-    sync::{
-        Arc, Mutex, MutexGuard, PoisonError,
-        atomic::{AtomicBool, Ordering},
-        mpsc::RecvTimeoutError,
-    },
-    thread::JoinHandle,
-    time::{Duration, Instant},
-};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use caps::{GainMode, Plan};
-use convert::IqConverter;
-use driver::{DeviceDescriptor, DeviceDescriptors, RtlSdr, TRANSFER_BUF_SIZE};
+use driver::{DeviceDescriptor, DeviceDescriptors, RtlSdr};
 use sdrmm_device::{
-    DeviceDriver, DeviceError, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, SdrDevice,
+    Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice, lock,
 };
-use sdrmm_usb_stream::{RxStream, Stopper};
+use sdrmm_usb_stream::RxStream;
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, ExtraValue};
 
 mod caps;
@@ -42,15 +34,6 @@ mod convert;
 mod driver;
 
 pub(crate) const DRIVER_ID: &str = "rtlsdr";
-
-/// How often the capture loop wakes to re-check its stop flag and the silence clock.
-const RECV_POLL: Duration = Duration::from_millis(100);
-
-/// A mutex this crate holds is only ever held across infallible register writes, so a poisoned
-/// one carries no half-written state worth refusing — and refusing would mean losing the radio.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// Tuning the dongle powers up with. The RTL2832U has no resampler ratio and an untuned PLL
 /// after a cold open, so a device that reported that state as its settings would stream
@@ -123,27 +106,42 @@ impl DeviceDriver for RtlSdrDriver {
     }
 }
 
-/// An opened RTL-SDR receiver.
+/// The radio, as the shared capture supervisor sees it.
 ///
-/// The capture thread owns the transport's [`RxStream`]; every setter stays on this side. The
-/// `RtlSdr` setters ride the USB *control* endpoint on a clone-backed `nusb::Interface`,
+/// Behind a mutex because both threads need it: the control thread retunes through it while the
+/// capture thread re-arms the stream from it. The lock is never held across a blocking read —
+/// the `RtlSdr` setters ride the USB *control* endpoint on a clone-backed `nusb::Interface`,
 /// independent of the streaming thread's bulk queue, so a retune while streaming costs the
 /// sample path nothing and still returns the hardware's real answer.
-///
-/// The radio is behind a mutex because the capture thread needs it too: an in-place stream
-/// restart (tier 1, `PLAN-NATIVE-DRIVERS.md` §2.2) calls `start_streaming` from there. The lock
-/// is never held across a blocking read — `apply` takes the same one.
+struct RtlRadio {
+    sdr: Mutex<RtlSdr>,
+}
+
+impl RtlRadio {
+    fn lock(&self) -> MutexGuard<'_, RtlSdr> {
+        lock(&self.sdr)
+    }
+}
+
+impl CaptureRadio for RtlRadio {
+    type Stream = RxStream;
+
+    /// `start_streaming` resets the endpoint's FIFO before it queues anything, so the same call
+    /// serves a cold start and an in-place restart. There is nothing to disarm afterwards: the
+    /// dongle stops producing when the transfers stop being submitted.
+    fn arm(&self) -> Result<RxStream, DeviceError> {
+        self.lock().start_streaming().map_err(map_err)
+    }
+}
+
+/// An opened RTL-SDR receiver.
 pub struct RtlSdrDevice {
-    sdr: Arc<Mutex<RtlSdr>>,
+    radio: Arc<RtlRadio>,
     capabilities: Capabilities,
     settings: DeviceSettings,
     /// The tuner's discrete gain table in tenths of a dB; `apply` snaps to it.
     gain_table: Vec<i32>,
-    running: Arc<AtomicBool>,
-    /// Live only while streaming, and replaced by the capture thread on every restart, so
-    /// `rx_stop` always reaches the stream that is actually running.
-    stopper: Arc<Mutex<Option<Stopper>>>,
-    worker: Option<JoinHandle<()>>,
+    capture: Capture<RtlRadio>,
 }
 
 impl RtlSdrDevice {
@@ -185,13 +183,13 @@ impl RtlSdrDevice {
         };
 
         Ok(Self {
-            sdr: Arc::new(Mutex::new(sdr)),
+            radio: Arc::new(RtlRadio {
+                sdr: Mutex::new(sdr),
+            }),
             capabilities,
             settings,
             gain_table,
-            running: Arc::new(AtomicBool::new(false)),
-            stopper: Arc::new(Mutex::new(None)),
-            worker: None,
+            capture: Capture::new(),
         })
     }
 }
@@ -250,7 +248,7 @@ impl SdrDevice for RtlSdrDevice {
             &self.gain_table,
         )?;
         let (result, center_hz, sample_rate, ppm) = {
-            let mut sdr = lock(&self.sdr);
+            let mut sdr = self.radio.lock();
             let result = apply_to_hardware(&mut sdr, &plan);
             (
                 result,
@@ -278,180 +276,17 @@ impl SdrDevice for RtlSdrDevice {
     }
 
     fn rx_start(&mut self, sink: RxSink) -> Result<(), DeviceError> {
-        if self.worker.is_some() {
-            return Err(DeviceError::AlreadyStreaming);
-        }
-        let stream = lock(&self.sdr).start_streaming().map_err(map_err)?;
-        *lock(&self.stopper) = Some(stream.stopper());
-        self.running.store(true, Ordering::Release);
-        let running = self.running.clone();
-        let sdr = self.sdr.clone();
-        let stopper = self.stopper.clone();
-        match std::thread::Builder::new()
-            .name("sdrmm-rtlsdr-rx".to_string())
-            .spawn(move || capture_loop(stream, &sdr, &stopper, &running, sink))
-        {
-            Ok(worker) => {
-                self.worker = Some(worker);
-                Ok(())
-            }
-            Err(e) => {
-                // The un-spawned closure drops the stream, which stops the pump; clear the
-                // state so a retry is not left looking like a live capture.
-                self.running.store(false, Ordering::Release);
-                *lock(&self.stopper) = None;
-                Err(DeviceError::Io(format!("spawn capture thread: {e}")))
-            }
-        }
+        self.capture.start(
+            self.radio.clone(),
+            convert::converter(),
+            sink,
+            CaptureConfig::new("sdrmm-rtlsdr-rx", DRIVER_ID),
+        )
     }
 
     fn rx_stop(&mut self) {
-        self.running.store(false, Ordering::Release);
-        // Cloned rather than taken: the capture thread may be mid-restart and about to publish
-        // a fresh stopper. It re-checks `running` after publishing, so whichever of the two
-        // happens second still ends the stream and the join below cannot hang.
-        let stopper = lock(&self.stopper).clone();
-        if let Some(stopper) = stopper {
-            stopper.stop();
-        }
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-        *lock(&self.stopper) = None;
+        self.capture.stop();
     }
-}
-
-impl Drop for RtlSdrDevice {
-    fn drop(&mut self) {
-        self.rx_stop();
-    }
-}
-
-/// Why a stream stopped delivering, when nobody asked it to.
-struct Failure {
-    reason: String,
-    /// The radio left the bus. Restarting in place cannot help — the endpoint, the interface
-    /// claim and the device handle went with it — so tier 2 is the only option.
-    fatal: bool,
-}
-
-/// Blocking capture loop on our own thread, and tier-1 supervisor for its stream.
-///
-/// Owns the stream, so every exit path drops it, stopping the transfer pump and releasing the
-/// bulk endpoint. A stream that ends by itself is restarted in place under [`RestartPolicy`] —
-/// measured at 3 ms against the ~9 s a fault, teardown and re-open cost — and only a restart
-/// that runs out of attempts reaches `sink.fail` and the engine's destructive fault path.
-fn capture_loop(
-    mut stream: RxStream,
-    sdr: &Mutex<RtlSdr>,
-    stopper: &Mutex<Option<Stopper>>,
-    running: &AtomicBool,
-    mut sink: RxSink,
-) {
-    let mut converter = IqConverter::with_capacity(TRANSFER_BUF_SIZE / 2);
-    let mut policy = RestartPolicy::default();
-    let mut dropped = 0u64;
-    loop {
-        let started = Instant::now();
-        let Some(failure) = drain(&stream, running, &mut sink, &mut converter, &mut dropped) else {
-            return;
-        };
-        if !running.load(Ordering::Acquire) {
-            return;
-        }
-        if failure.fatal {
-            sink.fail(DeviceError::Io(format!("device lost: {}", failure.reason)));
-            return;
-        }
-        let Recovery::RetryAfter { attempt, delay } = policy.on_failure(started.elapsed()) else {
-            sink.fail(DeviceError::Io(format!(
-                "device lost after {} restart attempts: {}",
-                policy.attempts() - 1,
-                failure.reason
-            )));
-            return;
-        };
-        // A restart drops whatever the pipe had in flight, so it is never free and never silent.
-        tracing::warn!(
-            attempt,
-            ?delay,
-            reason = %failure.reason,
-            "rtlsdr stream failed; restarting in place"
-        );
-        drop(stream);
-        std::thread::sleep(delay);
-        // A stalled transfer can complete on an odd length, and that half sample's partner is
-        // never coming; carried into the fresh stream it would swap I and Q for good.
-        converter.reset();
-        let restarted = lock(sdr).start_streaming();
-        match restarted {
-            Ok(fresh) => {
-                // Published before the re-check, so a concurrent `rx_stop` either stops this
-                // stream or is seen by the check below. One of the two always happens.
-                *lock(stopper) = Some(fresh.stopper());
-                if !running.load(Ordering::Acquire) {
-                    return;
-                }
-                tracing::info!(attempt, "rtlsdr stream restarted");
-                stream = fresh;
-            }
-            Err(e) => {
-                sink.fail(DeviceError::Io(format!("stream restart failed: {e}")));
-                return;
-            }
-        }
-    }
-}
-
-/// Consume blocks until the stream ends or goes quiet. `None` means the caller asked to stop.
-fn drain(
-    stream: &RxStream,
-    running: &AtomicBool,
-    sink: &mut RxSink,
-    converter: &mut IqConverter,
-    dropped: &mut u64,
-) -> Option<Failure> {
-    let mut last_block = Instant::now();
-    while running.load(Ordering::Acquire) {
-        match stream.recv_timeout(RECV_POLL) {
-            Ok(block) => {
-                last_block = Instant::now();
-                sink.push(converter.convert(&block));
-                // USB-level loss is a different failure from the engine's ring overruns and
-                // must not be silent: a dropped transfer is a gap in the sample stream that no
-                // counter downstream can see.
-                let total = stream.stats().dropped;
-                if total > *dropped {
-                    tracing::warn!(dropped = total, "rtlsdr dropped usb transfers");
-                    *dropped = total;
-                }
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                // A streaming dongle free-runs and cannot go quiet while healthy, so silence
-                // this long is a wedged board — which has no error to report and would
-                // otherwise park this thread forever behind a dead waterfall.
-                if last_block.elapsed() >= SILENT_STREAM_TIMEOUT {
-                    return Some(Failure {
-                        reason: format!("no samples for {SILENT_STREAM_TIMEOUT:?}"),
-                        fatal: false,
-                    });
-                }
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                return Some(stream.error().map_or_else(
-                    || Failure {
-                        reason: "usb stream ended".to_string(),
-                        fatal: false,
-                    },
-                    |error| Failure {
-                        reason: error.to_string(),
-                        fatal: error.is_disconnected(),
-                    },
-                ));
-            }
-        }
-    }
-    None
 }
 
 #[cfg(test)]

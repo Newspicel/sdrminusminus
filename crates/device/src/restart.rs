@@ -45,11 +45,11 @@ pub enum Recovery {
 /// Attempt counting and backoff for one capture thread.
 #[derive(Clone, Copy, Debug)]
 pub struct RestartPolicy {
-    max_attempts: u32,
-    base_delay: Duration,
-    max_delay: Duration,
-    min_healthy: Duration,
-    attempts: u32,
+    pub(crate) max_attempts: u32,
+    pub(crate) base_delay: Duration,
+    pub(crate) max_delay: Duration,
+    pub(crate) min_healthy: Duration,
+    pub(crate) attempts: u32,
 }
 
 impl Default for RestartPolicy {

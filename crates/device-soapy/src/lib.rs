@@ -5,14 +5,13 @@
 
 use std::{
     sync::{
-        Arc, Mutex, PoisonError,
+        Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
-    thread::JoinHandle,
     time::{Duration, Instant},
 };
 
-use sdrmm_device::{DeviceDriver, DeviceError, RxSink, Sample, SdrDevice};
+use sdrmm_device::{DeviceDriver, DeviceError, RxSink, Sample, SdrDevice, Worker};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, GainStage, GainValue};
 use soapysdr::{Direction, ErrorCode};
 
@@ -178,8 +177,7 @@ pub struct SoapyDevice {
     /// wrapper, so PPM goes through that component or must error (never dropped).
     ppm_supported: bool,
     identity: ProbeIdentity,
-    running: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
+    worker: Worker,
 }
 
 /// Overwrite `settings` with the hardware's current state, field by field; a failed query
@@ -271,8 +269,7 @@ impl SoapyDevice {
             settings,
             ppm_supported,
             identity,
-            running: Arc::new(AtomicBool::new(false)),
-            worker: None,
+            worker: Worker::new(),
         })
     }
 
@@ -353,36 +350,24 @@ impl SdrDevice for SoapyDevice {
     }
 
     fn rx_start(&mut self, sink: RxSink) -> Result<(), DeviceError> {
-        if self.worker.is_some() {
+        if self.worker.is_running() {
             return Err(DeviceError::AlreadyStreaming);
         }
+        // Activated here rather than on the worker so a stream the driver refuses reports
+        // through this `Result` instead of through the engine's fault path a moment later.
         let mut stream = self
             .device
             .rx_stream::<Sample>(&[RX_CHANNEL])
             .map_err(map_err)?;
         stream.activate(None).map_err(map_err)?;
-        self.running.store(true, Ordering::Release);
-        let running = self.running.clone();
         let identity = self.identity.clone();
-        let worker = std::thread::Builder::new()
-            .name("sdrmm-soapy-rx".to_string())
-            .spawn(move || capture_loop(stream, &identity, &running, sink))
-            .map_err(|e| DeviceError::Io(format!("spawn capture thread: {e}")))?;
-        self.worker = Some(worker);
-        Ok(())
+        self.worker.start("sdrmm-soapy-rx", move |running| {
+            capture_loop(stream, &identity, running, sink);
+        })
     }
 
     fn rx_stop(&mut self) {
-        self.running.store(false, Ordering::Release);
-        if let Some(handle) = self.worker.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-impl Drop for SoapyDevice {
-    fn drop(&mut self) {
-        self.rx_stop();
+        self.worker.stop();
     }
 }
 

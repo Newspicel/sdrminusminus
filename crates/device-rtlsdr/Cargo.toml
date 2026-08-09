@@ -12,7 +12,7 @@ workspace = true
 
 [dependencies]
 sdrmm-wire.workspace = true
-sdrmm-device.workspace = true
+sdrmm-device = { workspace = true, features = ["usb"] }
 sdrmm-usb-stream.workspace = true
 nusb.workspace = true
 thiserror.workspace = true

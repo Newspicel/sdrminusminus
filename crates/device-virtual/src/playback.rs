@@ -5,17 +5,13 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::JoinHandle,
+    sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
 };
 
 use arc_swap::ArcSwap;
 use num_complex::Complex;
-use sdrmm_device::{DeviceError, RxSink, SdrDevice};
+use sdrmm_device::{DeviceError, RxSink, SdrDevice, Worker};
 use sdrmm_recorder::{SigmfError, SigmfReader};
 use sdrmm_wire::{Capabilities, DeviceSettings, ExtraSetting, ExtraValue, Range};
 
@@ -37,8 +33,7 @@ pub struct FilePlayback {
     capabilities: Capabilities,
     settings: DeviceSettings,
     shared: Arc<ArcSwap<PlaybackParams>>,
-    running: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
+    worker: Worker,
 }
 
 impl FilePlayback {
@@ -100,8 +95,7 @@ impl FilePlayback {
             capabilities,
             settings,
             shared: Arc::new(ArcSwap::from_pointee(PlaybackParams { looping: true })),
-            running: Arc::new(AtomicBool::new(false)),
-            worker: None,
+            worker: Worker::new(),
         })
     }
 
@@ -172,16 +166,10 @@ impl SdrDevice for FilePlayback {
     }
 
     fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
-        if self.running.load(Ordering::Acquire) {
-            return Err(DeviceError::AlreadyStreaming);
-        }
-        self.running.store(true, Ordering::Release);
-        let running = self.running.clone();
         let shared = self.shared.clone();
         let stem = self.stem.clone();
         let sample_rate = self.sample_rate;
-
-        self.worker = Some(std::thread::spawn(move || {
+        self.worker.start("sdrmm-playback-rx", move |running| {
             // Opened on the worker so a file that vanished since `open` surfaces through the
             // fault channel like any other dead capture, not as an rx_start error.
             let mut reader = match SigmfReader::open(&stem) {
@@ -239,21 +227,11 @@ impl SdrDevice for FilePlayback {
                     next = now;
                 }
             }
-        }));
-        Ok(())
+        })
     }
 
     fn rx_stop(&mut self) {
-        self.running.store(false, Ordering::Release);
-        if let Some(handle) = self.worker.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-impl Drop for FilePlayback {
-    fn drop(&mut self) {
-        self.rx_stop();
+        self.worker.stop();
     }
 }
 
