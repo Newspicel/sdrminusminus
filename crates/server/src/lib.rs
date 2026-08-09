@@ -20,11 +20,26 @@ mod ws;
 
 pub use store::{Store, StoreError};
 
-/// Shared application state handed to every handler (cheap to clone: two `Arc`s).
+/// Shared application state handed to every handler (cheap to clone: three `Arc`s).
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub engine: Arc<Engine>,
     pub store: Arc<Store>,
+    /// Serializes disk↔index recording transitions (reconcile, delete, stop-indexing), which
+    /// all run on the blocking pool: an unserialized reconcile prune interleaving into a
+    /// delete's unlink→row-delete window turns a successful delete into a 404 (skipping its
+    /// Recordings emit), and stale-scan prunes churn row ids held by clients.
+    pub recordings_gate: Arc<std::sync::Mutex<()>>,
+}
+
+impl AppState {
+    fn new(engine: Arc<Engine>, store: Arc<Store>) -> Self {
+        Self {
+            engine,
+            store,
+            recordings_gate: Arc::new(std::sync::Mutex::new(())),
+        }
+    }
 }
 
 /// Server configuration (PLAN §11 `config.toml`; token auth lands at M5).
@@ -33,7 +48,9 @@ pub struct Config {
     pub bind: SocketAddr,
     /// Relax CORS for the Vite dev origin (PLAN §10 dev mode).
     pub dev_cors: bool,
-    /// SQLite database for presets/bookmarks (PLAN §11); `None` = in-memory.
+    /// SQLite database for presets/bookmarks/recordings index (PLAN §11); `None` = in-memory.
+    /// The recordings *directory* is not configured here: the [`Engine`] owns it
+    /// (`Engine::new(recordings_dir)`), so REST and the playback probe share one source.
     pub db_path: Option<PathBuf>,
 }
 
@@ -58,13 +75,7 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 /// Build the full axum app: REST + WebSocket + Swagger UI + embedded SPA, over `engine` and
 /// `store`.
 pub fn router(engine: Arc<Engine>, store: Store, dev_cors: bool) -> Router {
-    router_with_state(
-        AppState {
-            engine,
-            store: Arc::new(store),
-        },
-        dev_cors,
-    )
+    router_with_state(AppState::new(engine, Arc::new(store)), dev_cors)
 }
 
 fn router_with_state(state: AppState, dev_cors: bool) -> Router {
@@ -108,6 +119,10 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         Some(path) => tracing::info!(db = %path.display(), "opening database"),
         None => tracing::info!("using in-memory database (nothing will persist)"),
     }
+    match engine.recordings_dir() {
+        Some(dir) => tracing::info!(dir = %dir.display(), "recordings directory"),
+        None => tracing::info!("recording disabled (engine has no recordings directory)"),
+    }
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
     let app = router(engine, store, config.dev_cors);
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
@@ -119,6 +134,8 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
 
 #[cfg(test)]
 mod tests {
+    use std::{path::Path, time::Instant};
+
     use axum::{
         body::{Body, Bytes},
         http::{Request, StatusCode},
@@ -126,7 +143,8 @@ mod tests {
     use http_body_util::BodyExt;
     use sdrmm_wire::{
         ApiError, Bookmark, ChannelParams, ChannelSettings, ChannelTypesResponse, CreatedId,
-        CreatedRowId, DeviceSettings, NfmParams, PresetInfo, PresetSnapshot, StateSnapshot,
+        CreatedRowId, DeviceSettings, NfmParams, PresetInfo, PresetSnapshot, RecordingStatus,
+        RecordingsResponse, StateSnapshot,
     };
     use tower::ServiceExt;
 
@@ -144,11 +162,25 @@ mod tests {
         let mut registry = sdrmm_device::DeviceRegistry::new();
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
         let store = Arc::new(Store::open(None).expect("in-memory store"));
-        let state = AppState {
-            engine: Engine::with_registry(registry),
-            store: store.clone(),
-        };
+        let state = AppState::new(Engine::with_registry(registry, None), store.clone());
         (router_with_state(state, false), store)
+    }
+
+    /// Hermetic recording setup: the virtual driver and the engine share one scoped temp
+    /// recordings dir, so `start_recording` output is immediately probeable for playback.
+    fn recording_router(dir: &Path) -> Router {
+        let mut registry = sdrmm_device::DeviceRegistry::new();
+        registry.register(
+            1,
+            Box::new(sdrmm_device_virtual::VirtualDriver::with_recordings(
+                dir.to_path_buf(),
+            )),
+        );
+        let state = AppState::new(
+            Engine::with_registry(registry, Some(dir.to_path_buf())),
+            Arc::new(Store::open(None).expect("in-memory store")),
+        );
+        router_with_state(state, false)
     }
 
     async fn request(
@@ -214,6 +246,9 @@ mod tests {
             "/api/presets/{id}/apply",
             "/api/bookmarks",
             "/api/bookmarks/{id}",
+            "/api/devicesets/{ds}/record",
+            "/api/recordings",
+            "/api/recordings/{id}",
         ] {
             assert!(spec.contains(path), "missing path {path}");
         }
@@ -224,7 +259,13 @@ mod tests {
             "ClientCommand schema missing"
         );
         // Path-referenced DTOs the generated client needs as named schemas.
-        for schema in ["ChannelParams", "ChannelSettings", "PresetSnapshot"] {
+        for schema in [
+            "ChannelParams",
+            "ChannelSettings",
+            "PresetSnapshot",
+            "RecordingStatus",
+            "RecordingInfo",
+        ] {
             assert!(
                 spec.contains(&format!("\"{schema}\"")),
                 "{schema} schema missing"
@@ -633,5 +674,246 @@ mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT);
         let (status, _) = request(app, "DELETE", &format!("/api/bookmarks/{id}"), None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    async fn record(app: &Router, ds: u32, action: &str) -> (StatusCode, Bytes) {
+        request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/record"),
+            Some(&format!(r#"{{"action":"{action}"}}"#)),
+        )
+        .await
+    }
+
+    async fn list_recordings(app: &Router) -> Vec<sdrmm_wire::RecordingInfo> {
+        let (status, body) = request(app.clone(), "GET", "/api/recordings", None).await;
+        assert_eq!(status, StatusCode::OK);
+        serde_json::from_slice::<RecordingsResponse>(&body)
+            .expect("json")
+            .recordings
+    }
+
+    /// The virtual device paces itself to real time, so recording progress needs polling.
+    async fn wait_for_recorded_samples(app: &Router, ds: u32, min: u64) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let snap = get_state(app).await;
+            let recording = snap
+                .device_sets
+                .iter()
+                .find(|s| s.id == ds)
+                .expect("set listed")
+                .recording
+                .clone();
+            if recording.is_some_and(|r| r.samples >= min) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "recording never reached {min} samples"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn record_start_stop_index_and_delete_roundtrip_over_http() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let ds = create_virtual_set(&app).await;
+
+        let (status, body) = record(&app, ds, "start").await;
+        assert_eq!(status, StatusCode::OK);
+        let live: RecordingStatus = serde_json::from_slice(&body).expect("json");
+        assert!(!live.file.is_empty());
+        assert_eq!(live.error, None);
+        live.started_at.parse::<jiff::Timestamp>().expect("rfc3339");
+
+        wait_for_recorded_samples(&app, ds, 1).await;
+
+        let (status, body) = record(&app, ds, "stop").await;
+        assert_eq!(status, StatusCode::OK);
+        let done: RecordingStatus = serde_json::from_slice(&body).expect("json");
+        assert_eq!(done.file, live.file);
+        assert!(done.samples > 0);
+        assert_eq!(done.bytes, done.samples * sdrmm_recorder::BYTES_PER_SAMPLE);
+        assert_eq!(done.error, None);
+
+        let listed = list_recordings(&app).await;
+        assert_eq!(listed.len(), 1);
+        let rec = &listed[0];
+        assert_eq!(rec.file, done.file);
+        assert_eq!(rec.samples, done.samples);
+        assert_eq!(rec.sample_rate, 2_048_000.0);
+        assert_eq!(rec.center_hz, 100_000_000.0);
+        assert_eq!(rec.device_label, "Signal Generator (virtual)");
+        assert!(rec.duration_s > 0.0);
+        assert_eq!(
+            rec.device_id,
+            format!("virtual:file:{}", dir.path().join(&rec.file).display())
+        );
+
+        // The indexed device_id must open as a playback set as-is (the wire contract).
+        let (status, _) = request(
+            app.clone(),
+            "POST",
+            "/api/devicesets",
+            Some(&format!(r#"{{"device_id":"{}"}}"#, rec.device_id)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, _) = request(
+            app.clone(),
+            "DELETE",
+            &format!("/api/recordings/{}", rec.id),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let stem = dir.path().join(&rec.file);
+        assert!(!sdrmm_recorder::meta_path(&stem).exists());
+        assert!(!sdrmm_recorder::data_path(&stem).exists());
+        assert!(list_recordings(&app).await.is_empty());
+        let (status, _) =
+            request(app, "DELETE", &format!("/api/recordings/{}", rec.id), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn recordings_list_reconciles_planted_files_and_prunes_vanished_ones() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+
+        let stem = dir.path().join("planted");
+        let block: Vec<num_complex::Complex<f32>> =
+            vec![num_complex::Complex::new(0.5, -0.5); 4_800];
+        let mut writer =
+            sdrmm_recorder::SigmfWriter::create(&stem, 48_000.0, 7_100_000.0, "Foreign HW")
+                .expect("writer");
+        writer.write_block(&block).expect("write");
+        writer.finalize().expect("finalize");
+        // A crashed pair (breadcrumb meta only) must never be listed.
+        drop(
+            sdrmm_recorder::SigmfWriter::create(&dir.path().join("crashed"), 48_000.0, 1e6, "hw")
+                .expect("writer"),
+        );
+
+        let listed = list_recordings(&app).await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].file, "planted");
+        assert_eq!(listed[0].samples, 4_800);
+        assert_eq!(listed[0].duration_s, 0.1);
+        assert_eq!(listed[0].device_label, "Foreign HW");
+        listed[0]
+            .created_at
+            .parse::<jiff::Timestamp>()
+            .expect("rfc3339");
+
+        // Disk is the source of truth: a vanished pair is pruned on the next list.
+        std::fs::remove_file(sdrmm_recorder::meta_path(&stem)).expect("remove meta");
+        std::fs::remove_file(sdrmm_recorder::data_path(&stem)).expect("remove data");
+        assert!(list_recordings(&app).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn record_error_mapping_over_http() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+
+        let (status, _) = record(&app, 999, "start").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let ds = create_virtual_set(&app).await;
+        let (status, body) = record(&app, ds, "stop").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+        let (status, _) = record(&app, ds, "start").await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = record(&app, ds, "start").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // One sample rate per SigMF file: a rate patch must bounce while recording.
+        let (status, body) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(r#"{"sample_rate":2400000.0}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+        let (status, _) = record(&app, ds, "stop").await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn recording_endpoints_without_a_recordings_dir() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+
+        let (status, body) = record(&app, ds, "start").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+        // A missing set is a 404 even while recording is disabled: 404 beats 400.
+        let (status, _) = record(&app, 999, "start").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        assert!(list_recordings(&app).await.is_empty());
+        let (status, _) = request(app, "DELETE", "/api/recordings/1", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// Delete and list-triggered reconciles race on separate blocking threads; the
+    /// recordings gate must keep a successful delete from turning into a 404 (with its
+    /// Recordings emit skipped) when a reconcile prunes the row first.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn delete_recording_never_404s_against_concurrent_reconciles() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let block: Vec<num_complex::Complex<f32>> = vec![num_complex::Complex::new(0.5, -0.5); 64];
+        for i in 0..10 {
+            let file = format!("planted_{i}");
+            let mut writer =
+                sdrmm_recorder::SigmfWriter::create(&dir.path().join(&file), 48_000.0, 1e6, "hw")
+                    .expect("writer");
+            writer.write_block(&block).expect("write");
+            writer.finalize().expect("finalize");
+
+            let listed = list_recordings(&app).await;
+            let id = listed.iter().find(|r| r.file == file).expect("indexed").id;
+            let delete = {
+                let app = app.clone();
+                tokio::spawn(async move {
+                    request(app, "DELETE", &format!("/api/recordings/{id}"), None).await
+                })
+            };
+            let lists: Vec<_> = (0..3)
+                .map(|_| {
+                    let app = app.clone();
+                    tokio::spawn(async move {
+                        request(app, "GET", "/api/recordings", None).await;
+                    })
+                })
+                .collect();
+            let (status, body) = delete.await.expect("join");
+            assert_eq!(
+                status,
+                StatusCode::NO_CONTENT,
+                "iteration {i}: {}",
+                String::from_utf8_lossy(&body)
+            );
+            for list in lists {
+                list.await.expect("join");
+            }
+            assert!(
+                !list_recordings(&app).await.iter().any(|r| r.file == file),
+                "iteration {i}: deleted recording resurfaced"
+            );
+        }
     }
 }

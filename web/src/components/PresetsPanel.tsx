@@ -99,6 +99,7 @@ export function PresetsPanel({ active }: { active: DeviceSet | null }) {
           <button
             type="button"
             className={`${BTN} hover:border-danger hover:text-danger`}
+            disabled={deleteMut.isPending}
             onClick={() => deleteMut.mutate(p.id)}
           >
             Delete

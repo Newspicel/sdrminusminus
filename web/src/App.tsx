@@ -9,8 +9,16 @@ import { DeviceBar } from "./components/DeviceBar";
 import { DeviceSettingsPanel } from "./components/DeviceSettings";
 import { PanelSection } from "./components/PanelSection";
 import { PresetsPanel } from "./components/PresetsPanel";
+import { RecordingsPanel } from "./components/RecordingsPanel";
 import { SpectrumDisplay } from "./components/SpectrumDisplay";
-import { BOOKMARKS_KEY, DEVICES_KEY, PRESETS_KEY, STATE_KEY, stateQuery } from "./lib/api";
+import {
+  BOOKMARKS_KEY,
+  DEVICES_KEY,
+  PRESETS_KEY,
+  RECORDINGS_KEY,
+  STATE_KEY,
+  stateQuery,
+} from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
 import type { ServerEvent, StateScope } from "./lib/types";
 import { SdrSocket } from "./lib/ws";
@@ -68,7 +76,7 @@ export function App() {
       <header className="flex items-center justify-between border-b border-line px-4 py-2">
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-lg font-semibold tracking-tight text-accent">sdr--</span>
-          <span className="text-xs text-ink-dim">listen · M2</span>
+          <span className="text-xs text-ink-dim">record &amp; replay · M3</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-ink-dim">
           <span
@@ -113,24 +121,40 @@ export function App() {
         />
       )}
 
-      {socket && active && (
+      {socket && (
         <div className="flex max-h-[45dvh] shrink-0 flex-col overflow-y-auto border-t border-line md:flex-row md:overflow-hidden">
-          <div className="min-w-0 flex-1 md:overflow-y-auto">
-            <PanelSection title="Channels">
-              <ChannelsPanel
-                socket={socket}
-                deviceSet={active}
-                selected={selectedChannel}
-                onSelect={setSelectedChannel}
-              />
-            </PanelSection>
-          </div>
-          <div className="shrink-0 border-line max-md:border-t md:w-80 md:overflow-y-auto md:border-l">
-            <PanelSection title="Presets" defaultOpen={false}>
-              <PresetsPanel active={active} />
-            </PanelSection>
-            <PanelSection title="Bookmarks" defaultOpen={false}>
-              <BookmarksPanel active={active} />
+          {active && (
+            <div className="min-w-0 flex-1 md:overflow-y-auto">
+              <PanelSection title="Channels">
+                <ChannelsPanel
+                  socket={socket}
+                  deviceSet={active}
+                  selected={selectedChannel}
+                  onSelect={setSelectedChannel}
+                />
+              </PanelSection>
+            </div>
+          )}
+          {/* Recordings are a device-independent library: they must stay browsable (and
+              playable — Play opens a set) with zero device sets open, unlike the set-bound
+              panels above. */}
+          <div
+            className={`shrink-0 md:overflow-y-auto ${
+              active ? "border-line max-md:border-t md:w-80 md:border-l" : "min-w-0 flex-1"
+            }`}
+          >
+            {active && (
+              <>
+                <PanelSection title="Presets" defaultOpen={false}>
+                  <PresetsPanel active={active} />
+                </PanelSection>
+                <PanelSection title="Bookmarks" defaultOpen={false}>
+                  <BookmarksPanel active={active} />
+                </PanelSection>
+              </>
+            )}
+            <PanelSection title="Recordings" defaultOpen={false}>
+              <RecordingsPanel onSelect={setActiveDs} />
             </PanelSection>
           </div>
         </div>
@@ -157,6 +181,9 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "bookmarks":
       void queryClient.invalidateQueries({ queryKey: BOOKMARKS_KEY });
+      break;
+    case "recordings":
+      void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });
       break;
   }
 }

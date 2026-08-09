@@ -148,6 +148,22 @@ export interface paths {
         patch: operations["patch_device"];
         trace?: never;
     };
+    "/api/devicesets/{ds}/record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["record_device_set"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/presets": {
         parameters: {
             query?: never;
@@ -191,6 +207,38 @@ export interface paths {
         put?: never;
         post: operations["apply_preset"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recordings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_recordings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recordings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_recording"];
         options?: never;
         head?: never;
         patch?: never;
@@ -430,6 +478,7 @@ export interface components {
              *     `status` stays `running` (PLAN §5 backpressure; CLAUDE.md no-silent-failure).
              */
             overruns?: number;
+            recording?: null | components["schemas"]["RecordingStatus"];
             settings: components["schemas"]["DeviceSettings"];
             status: components["schemas"]["DeviceSetStatus"];
         };
@@ -533,6 +582,79 @@ export interface components {
             /** Format: double */
             step?: number | null;
         };
+        /**
+         * @description What a [`RecordRequest`] should do.
+         * @enum {string}
+         */
+        RecordAction: "start" | "stop";
+        /**
+         * @description One finalized SigMF recording in the library (PLAN §11: the files on disk are the source
+         *     of truth; this row is its SQLite index entry).
+         */
+        RecordingInfo: {
+            /** Format: int64 */
+            bytes: number;
+            /** Format: double */
+            center_hz: number;
+            /** @description RFC3339 UTC. */
+            created_at: string;
+            /**
+             * @description `driver:key` that replays this recording (`virtual:file:<stem>`), usable directly
+             *     in `POST /api/devicesets`.
+             */
+            device_id: string;
+            /** @description Label of the device the recording was captured from (SigMF `core:hw`). */
+            device_label: string;
+            /** Format: double */
+            duration_s: number;
+            /** @description Recording stem: file name without directory or `.sigmf-*` extension. */
+            file: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: double */
+            sample_rate: number;
+            /** Format: int64 */
+            samples: number;
+        };
+        /** @description `GET /api/recordings`. */
+        RecordingsResponse: {
+            recordings: components["schemas"]["RecordingInfo"][];
+        };
+        /**
+         * @description Live IQ recording on a device set (PLAN §5: the recording path is lossless, so a writer
+         *     fault must surface here rather than dropping samples silently).
+         */
+        RecordingStatus: {
+            /** Format: int64 */
+            bytes: number;
+            /**
+             * @description Fatal recording fault (queue overflow, disk error); the writer has stopped but the
+             *     cause stays visible (CLAUDE.md no-silent-failure).
+             */
+            error?: string | null;
+            /** @description Recording stem: file name without directory or `.sigmf-*` extension. */
+            file: string;
+            /**
+             * Format: int64
+             * @description Capture-ring drops while this recording ran. The file stays contiguous as the DSP
+             *     plane saw the stream, so growth means the recording has upstream gaps (PLAN §5).
+             */
+            overruns: number;
+            /**
+             * Format: int64
+             * @description Samples written to the `.sigmf-data` file so far.
+             */
+            samples: number;
+            /** @description RFC3339 UTC. */
+            started_at: string;
+        };
+        /**
+         * @description `POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream
+         *     (PLAN §5: the recording path is lossless).
+         */
+        RecordRequest: {
+            action: components["schemas"]["RecordAction"];
+        };
         /** @description Server → client push (PLAN §5). Adjacently tagged so unit variants stay compact. */
         ServerEvent: {
             /** @description First frame after connect: current state revision so the client can detect gaps. */
@@ -627,6 +749,9 @@ export interface components {
         } | {
             /** @enum {string} */
             scope: "bookmarks";
+        } | {
+            /** @enum {string} */
+            scope: "recordings";
         };
         /** @description Full state snapshot for initial load (PLAN §5 `GET /api/state`). */
         StateSnapshot: {
@@ -1084,6 +1209,60 @@ export interface operations {
             };
         };
     };
+    record_device_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordRequest"];
+            };
+        };
+        responses: {
+            /** @description Recording status: live after `start`; final counts after `stop`, where `error` reports a truncated recording and the finalized pair appears in `GET /api/recordings` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingStatus"];
+                };
+            };
+            /** @description Cannot record: no recordings directory, set not running, already recording, or not recording */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     list_presets: {
         parameters: {
             query?: never;
@@ -1228,6 +1407,65 @@ export interface operations {
             };
             /** @description Malformed request body */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_recordings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recording library, reconciled with the SigMF pairs on disk */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordingsResponse"];
+                };
+            };
+        };
+    };
+    delete_recording: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Recording id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recording removed: SigMF pair and index row */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Recording not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

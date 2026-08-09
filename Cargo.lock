@@ -2100,6 +2100,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "linux-raw-sys"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
+
+[[package]]
 name = "litemap"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3079,6 +3085,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustix"
+version = "1.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
+dependencies = [
+ "bitflags 2.13.1",
+ "errno",
+ "libc",
+ "linux-raw-sys",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3224,7 +3243,10 @@ dependencies = [
  "num-complex",
  "rustfft",
  "sdrmm-device",
+ "sdrmm-recorder",
  "sdrmm-wire",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -3241,6 +3263,7 @@ name = "sdrmm-engine"
 version = "0.0.0"
 dependencies = [
  "arc-swap",
+ "jiff",
  "num-complex",
  "opus",
  "rtrb",
@@ -3249,10 +3272,24 @@ dependencies = [
  "sdrmm-device-soapy",
  "sdrmm-device-virtual",
  "sdrmm-dsp",
+ "sdrmm-recorder",
  "sdrmm-wire",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "sdrmm-recorder"
+version = "0.0.0"
+dependencies = [
+ "jiff",
+ "num-complex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -3264,15 +3301,18 @@ dependencies = [
  "http-body-util",
  "jiff",
  "mime_guess",
+ "num-complex",
  "rusqlite",
  "rust-embed",
  "sdrmm-device",
  "sdrmm-device-virtual",
  "sdrmm-dsp",
  "sdrmm-engine",
+ "sdrmm-recorder",
  "sdrmm-wire",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tokio-tungstenite",
@@ -4061,6 +4101,19 @@ dependencies = [
  "dunce",
  "embed-resource",
  "toml 1.1.4+spec-1.1.0",
+]
+
+[[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom 0.4.3",
+ "once_cell",
+ "rustix",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5435,6 +5488,8 @@ dependencies = [
  "anyhow",
  "clap",
  "libc",
+ "sdrmm-device-virtual",
+ "sdrmm-recorder",
  "sdrmm-server",
 ]
 

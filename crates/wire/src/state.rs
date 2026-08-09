@@ -18,6 +18,26 @@ pub enum DeviceSetStatus {
     Error,
 }
 
+/// Live IQ recording on a device set (PLAN §5: the recording path is lossless, so a writer
+/// fault must surface here rather than dropping samples silently).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RecordingStatus {
+    /// Recording stem: file name without directory or `.sigmf-*` extension.
+    pub file: String,
+    /// RFC3339 UTC.
+    pub started_at: String,
+    /// Samples written to the `.sigmf-data` file so far.
+    pub samples: u64,
+    pub bytes: u64,
+    /// Capture-ring drops while this recording ran. The file stays contiguous as the DSP
+    /// plane saw the stream, so growth means the recording has upstream gaps (PLAN §5).
+    pub overruns: u64,
+    /// Fatal recording fault (queue overflow, disk error); the writer has stopped but the
+    /// cause stays visible (CLAUDE.md no-silent-failure).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// One opened device and everything hosted on it (PLAN §2: "one device set per opened device").
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceSet {
@@ -34,6 +54,9 @@ pub struct DeviceSet {
     pub overruns: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Active IQ recording, if any (M3, PLAN §5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<RecordingStatus>,
 }
 
 /// Full state snapshot for initial load (PLAN §5 `GET /api/state`).

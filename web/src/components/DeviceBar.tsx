@@ -1,13 +1,21 @@
 // Device open/close + tuning (PLAN §5, §10). Well-known settings (frequency, rate) get
 // first-class controls; mutations rely on the WS `StateChanged` event to refresh state.
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { createDeviceSet, deleteDeviceSet, devicesQuery } from "../lib/api";
-import type { DeviceSet } from "../lib/types";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import {
+  createDeviceSet,
+  deleteDeviceSet,
+  devicesQuery,
+  RECORDINGS_KEY,
+  recordDeviceSet,
+  STATE_KEY,
+} from "../lib/api";
+import type { DeviceSet, RecordAction, RecordingStatus } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
 import { BTN, FIELD } from "./controls";
 import { FrequencyReadout } from "./FrequencyReadout";
 import { NumberField } from "./NumberField";
+import { deriveRecordControl, formatBytes, formatDuration, recordingElapsedS } from "./recordings";
 
 const TUNE_STEPS_HZ = [-1_000_000, -100_000, 100_000, 1_000_000];
 
@@ -18,6 +26,7 @@ export function DeviceBar({
   active: DeviceSet | null;
   onSelect: (ds: number | null) => void;
 }) {
+  const queryClient = useQueryClient();
   const devices = useQuery(devicesQuery());
   const { applyPatch, cachedSettings, patchError, dismissPatchError } = useDevicePatch();
   // A failed open/close must be visible (CLAUDE.md: no silent failure) — the WS state event
@@ -38,6 +47,18 @@ export function DeviceBar({
       onSelect(null);
     },
     onError: (e) => setMutError(e.message),
+  });
+  // Belt-and-braces like the panels': the server emits "recordings" (stop indexes a SigMF pair)
+  // and "device_set" (the state this control derives from), but a missed WS event must not
+  // strand the record button.
+  const recordMut = useMutation({
+    mutationFn: (v: { ds: number; action: RecordAction }) => recordDeviceSet(v.ds, v.action),
+    onSuccess: () => setMutError(null),
+    onError: (e) => setMutError(e.message),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: STATE_KEY });
+      void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });
+    },
   });
 
   if (!active) {
@@ -68,6 +89,7 @@ export function DeviceBar({
   const centerHz = active.settings.center_hz ?? 0;
   const sampleRate = active.settings.sample_rate ?? 0;
   const rateRange = active.capabilities.sample_rate_range;
+  const record = deriveRecordControl(active);
 
   return (
     <div className="flex flex-col gap-2">
@@ -129,6 +151,29 @@ export function DeviceBar({
           </span>
         </span>
 
+        {record.kind === "recording" ? (
+          <span className="flex items-center gap-2">
+            <RecordingReadout status={record.status} sampleRate={sampleRate} />
+            <button
+              type="button"
+              className={BTN}
+              disabled={recordMut.isPending}
+              onClick={() => recordMut.mutate({ ds: active.id, action: "stop" })}
+            >
+              ■ Stop
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            className={BTN}
+            disabled={!record.canStart || recordMut.isPending}
+            onClick={() => recordMut.mutate({ ds: active.id, action: "start" })}
+          >
+            ● Rec
+          </button>
+        )}
+
         <button
           type="button"
           className={`${BTN} ml-auto hover:border-danger hover:text-danger`}
@@ -144,6 +189,15 @@ export function DeviceBar({
           className="rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
         >
           device fault · {active.error ?? "unknown error"}
+        </div>
+      )}
+
+      {record.kind === "recording" && record.status.error != null && (
+        <div
+          role="alert"
+          className="rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
+        >
+          recording fault · {record.status.error}
         </div>
       )}
 
@@ -163,6 +217,27 @@ export function DeviceBar({
         </div>
       )}
     </div>
+  );
+}
+
+// Child component so the 1 s elapsed tick re-renders only the readout, not the whole bar.
+// Once the recording faulted the writer is dead, so the ticker stops — wall clock would
+// overstate what was captured.
+function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sampleRate: number }) {
+  const faulted = status.error != null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (faulted) {
+      return;
+    }
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [faulted]);
+  return (
+    <span className="font-mono text-xs tabular-nums text-danger">
+      ● {formatDuration(recordingElapsedS(status, now, sampleRate))} · {formatBytes(status.bytes)}
+      {status.overruns > 0 && ` · ${status.overruns} overruns`}
+    </span>
   );
 }
 

@@ -23,6 +23,10 @@ struct Args {
     /// (systemd units, SSH sessions, and double-clicks all start elsewhere).
     #[arg(long)]
     db: Option<PathBuf>,
+    /// Directory for SigMF recordings (PLAN §11). Defaults to
+    /// `<platform data dir>/sdrmm/recordings`, cwd-independent like `--db`.
+    #[arg(long)]
+    recordings_dir: Option<PathBuf>,
 }
 
 /// The absolute DB path: `--db` verbatim, otherwise the per-user data dir — mirroring the
@@ -35,6 +39,19 @@ fn resolve_db_path(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
             .context("no platform data directory; pass --db")?
             .join("sdrmm")
             .join("sdrmm.db"),
+    };
+    std::path::absolute(&path).with_context(|| format!("cannot resolve {}", path.display()))
+}
+
+/// The absolute recordings dir, resolved like [`resolve_db_path`]. Not created here: the
+/// engine creates it on the first recording, and an absent dir just means no recordings yet.
+fn resolve_recordings_dir(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+    let path = match cli {
+        Some(path) => path,
+        None => dirs::data_dir()
+            .context("no platform data directory; pass --recordings-dir")?
+            .join("sdrmm")
+            .join("recordings"),
     };
     std::path::absolute(&path).with_context(|| format!("cannot resolve {}", path.display()))
 }
@@ -55,14 +72,14 @@ async fn main() -> anyhow::Result<()> {
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
 
-    let engine = Engine::new();
+    let engine = Engine::new(Some(resolve_recordings_dir(args.recordings_dir)?));
     let config = Config {
         bind: args.bind,
         dev_cors: args.dev_cors,
         db_path: Some(db_path),
     };
 
-    let handle = serve(config, engine)
+    let handle = serve(config, engine.clone())
         .await
         .context("failed to start server")?;
     tracing::info!(addr = %handle.local_addr, "sdr-- ready");
@@ -71,6 +88,9 @@ async fn main() -> anyhow::Result<()> {
         res = handle.join() => res.context("server task failed")?,
         _ = tokio::signal::ctrl_c() => tracing::info!("shutting down"),
     }
+    // A live recording only finalizes through the writer join in here; exiting without it
+    // would leave a breadcrumb-only pair that is never listed again.
+    engine.shutdown();
     Ok(())
 }
 
@@ -99,6 +119,28 @@ mod tests {
 
         let explicit = std::env::temp_dir().join("elsewhere").join("x.db");
         let path = resolve_db_path(Some(explicit.clone())).expect("resolve");
+        assert_eq!(path, explicit);
+    }
+
+    #[test]
+    fn default_recordings_dir_is_absolute_and_in_the_data_dir() {
+        let path = resolve_recordings_dir(None).expect("resolve");
+        assert!(path.is_absolute(), "{}", path.display());
+        assert!(
+            path.ends_with("sdrmm/recordings"),
+            "unexpected default {}",
+            path.display()
+        );
+    }
+
+    #[test]
+    fn recordings_dir_flag_overrides_and_is_made_absolute() {
+        let path = resolve_recordings_dir(Some(PathBuf::from("recs"))).expect("resolve");
+        assert!(path.is_absolute(), "{}", path.display());
+        assert!(path.ends_with("recs"), "{}", path.display());
+
+        let explicit = std::env::temp_dir().join("elsewhere").join("recs");
+        let path = resolve_recordings_dir(Some(explicit.clone())).expect("resolve");
         assert_eq!(path, explicit);
     }
 }

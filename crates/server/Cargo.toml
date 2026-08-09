@@ -19,6 +19,8 @@ soapy = ["sdrmm-engine/soapy"]
 sdrmm-wire.workspace = true
 sdrmm-engine.workspace = true
 sdrmm-dsp.workspace = true
+# SigMF scan/parse for the recordings-index reconcile (PLAN §11).
+sdrmm-recorder.workspace = true
 
 # `macros` for the FromRequest/FromRequestParts derives that remap extractor rejections
 # onto the ApiError contract.
@@ -50,3 +52,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 sdrmm-device.workspace = true
 sdrmm-device-virtual.workspace = true
 tokio-tungstenite.workspace = true
+# Planting SigMF pairs on disk for the recordings-index tests.
+num-complex.workspace = true
+tempfile.workspace = true

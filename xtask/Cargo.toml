@@ -17,6 +17,8 @@ workspace = true
 
 [dependencies]
 sdrmm-server.workspace = true
+sdrmm-recorder.workspace = true
+sdrmm-device-virtual.workspace = true
 clap.workspace = true
 anyhow.workspace = true
 

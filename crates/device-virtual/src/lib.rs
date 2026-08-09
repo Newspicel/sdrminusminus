@@ -1,4 +1,5 @@
-//! `sdrmm-device-virtual` — always-on backend (PLAN §6) providing a signal generator. This is
+//! `sdrmm-device-virtual` — always-on backend (PLAN §6) providing a signal generator and
+//! SigMF file playback (PLAN §3: playback lives here, SigMF IO in `sdrmm-recorder`). This is
 //! how CI, demo mode, and decoder golden tests run without hardware. The siggen synthesizes a
 //! baseband IQ stream: a few fixed tones, one slowly drifting tone, and a white-noise floor
 //! (the M0 spectrum path), plus NFM/AM/WFM carriers modulated by a 1 kHz tone that the M2
@@ -7,6 +8,7 @@
 //! device retunes, but Hz offsets let channels address the carriers at any sample rate.
 
 use std::{
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -18,10 +20,17 @@ use std::{
 use arc_swap::ArcSwap;
 use num_complex::Complex;
 use sdrmm_device::{DeviceDriver, DeviceError, RxSink, SdrDevice};
+use sdrmm_recorder::scan_stems;
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, Range};
+
+mod playback;
+pub use playback::{FilePlayback, LOOP_SETTING};
 
 const DRIVER_ID: &str = "virtual";
 const SIGGEN_KEY: &str = "siggen";
+/// Playback device keys are `file:<stem>`, so the full id `virtual:file:<stem>` embeds the
+/// recording stem (the registry splits ids on the first `:` only).
+const FILE_KEY_PREFIX: &str = "file:";
 /// Target block duration; the capture thread paces itself to roughly real time.
 const BLOCK_SECS: f64 = 0.025;
 
@@ -45,14 +54,24 @@ pub const MOD_TONE_HZ: f64 = 1_000.0;
 /// Comparable to the 0.10–0.30 static tones so the carriers get a similar SNR.
 const MOD_CARRIER_AMP: f64 = 0.20;
 
-/// Driver that exposes the virtual devices.
+/// Driver that exposes the virtual devices: the signal generator always, plus one playback
+/// device per finalized SigMF recording when constructed with a recordings dir.
 #[derive(Default)]
-pub struct VirtualDriver;
+pub struct VirtualDriver {
+    recordings_dir: Option<PathBuf>,
+}
 
 impl VirtualDriver {
     #[must_use]
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn with_recordings(dir: PathBuf) -> Self {
+        Self {
+            recordings_dir: Some(dir),
+        }
     }
 
     fn siggen_info() -> DeviceInfo {
@@ -63,6 +82,18 @@ impl VirtualDriver {
             serial: None,
         }
     }
+
+    fn playback_info(stem: &Path) -> Option<DeviceInfo> {
+        // Non-UTF-8 stems cannot round-trip through the string device id; skip them.
+        let stem_str = stem.to_str()?;
+        let name = stem.file_name()?.to_str()?;
+        Some(DeviceInfo {
+            driver: DRIVER_ID.to_string(),
+            key: format!("{FILE_KEY_PREFIX}{stem_str}"),
+            label: format!("{name} (recording)"),
+            serial: None,
+        })
+    }
 }
 
 impl DeviceDriver for VirtualDriver {
@@ -71,15 +102,37 @@ impl DeviceDriver for VirtualDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        vec![Self::siggen_info()]
+        let mut infos = vec![Self::siggen_info()];
+        // The hotplug prober calls this every 5 s: scan_stems is one readdir, no meta
+        // parses. An unreadable dir hides the playback devices, never fails the probe.
+        if let Some(dir) = &self.recordings_dir
+            && let Ok(stems) = scan_stems(dir)
+        {
+            infos.extend(stems.iter().filter_map(|stem| Self::playback_info(stem)));
+        }
+        infos
     }
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+        if let Some(stem) = info.key.strip_prefix(FILE_KEY_PREFIX) {
+            return Ok(Box::new(FilePlayback::open(Path::new(stem))?));
+        }
         match info.key.as_str() {
             SIGGEN_KEY => Ok(Box::new(SigGen::new())),
             other => Err(DeviceError::NotFound(format!("{DRIVER_ID}:{other}"))),
         }
     }
+}
+
+/// Deterministically render the first `n` samples of the siggen baseband at `sample_rate` —
+/// the stream a freshly started [`SigGen`] produces. For xtask fixture synthesis and hermetic
+/// tests. The output is center-independent: the modulated carriers sit at Hz offsets from
+/// center, so retuning shifts what the offsets *mean*, never the baseband itself.
+#[must_use]
+pub fn render(sample_rate: f64, n: usize) -> Vec<Complex<f32>> {
+    let mut block = vec![Complex::new(0.0, 0.0); n];
+    Generator::new().fill(&mut block, sample_rate);
+    block
 }
 
 /// Parameters the capture thread reads per block via [`ArcSwap`] (snapshot, no per-sample lock).
@@ -549,6 +602,88 @@ mod tests {
         let infos = d.probe();
         assert_eq!(infos.len(), 1);
         assert_eq!(infos[0].id(), "virtual:siggen");
+    }
+
+    #[test]
+    fn probe_lists_finalized_recordings() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let stem = dir.path().join("capture");
+        let mut writer =
+            sdrmm_recorder::SigmfWriter::create(&stem, 250_000.0, 100_000_000.0, "test").unwrap();
+        writer.write_block(&[Complex::new(0.5, -0.5)]).unwrap();
+        writer.finalize().unwrap();
+        // Crashed recording: only the .tmp breadcrumb exists; it must not be listed.
+        drop(
+            sdrmm_recorder::SigmfWriter::create(
+                &dir.path().join("crashed"),
+                250_000.0,
+                100_000_000.0,
+                "test",
+            )
+            .unwrap(),
+        );
+
+        let d = VirtualDriver::with_recordings(dir.path().to_path_buf());
+        let infos = d.probe();
+        assert_eq!(infos.len(), 2);
+        assert_eq!(infos[0].id(), "virtual:siggen");
+        assert_eq!(infos[1].id(), format!("virtual:file:{}", stem.display()));
+        assert_eq!(infos[1].label, "capture (recording)");
+        assert!(infos[1].serial.is_none());
+        // The probed info must be openable — the registry's open path re-probes and matches it.
+        d.open(&infos[1]).unwrap();
+
+        assert!(matches!(
+            d.open(&DeviceInfo {
+                driver: "virtual".to_string(),
+                key: format!("file:{}", dir.path().join("crashed").display()),
+                label: String::new(),
+                serial: None,
+            }),
+            Err(DeviceError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn render_is_deterministic() {
+        let a = render(2_048_000.0, 4096);
+        let b = render(2_048_000.0, 4096);
+        for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+            assert_eq!(x.re.to_bits(), y.re.to_bits(), "re mismatch at {i}");
+            assert_eq!(x.im.to_bits(), y.im.to_bits(), "im mismatch at {i}");
+        }
+    }
+
+    #[test]
+    fn render_matches_the_streamed_siggen() {
+        let n = 8192;
+        let rendered = render(250_000.0, n);
+
+        let mut dev = SigGen::new();
+        dev.apply(&DeviceSettings {
+            sample_rate: Some(250_000.0),
+            ..DeviceSettings::default()
+        })
+        .unwrap();
+        let (tx, rx) = mpsc::channel::<Vec<Complex<f32>>>();
+        dev.rx_start(RxSink::new(move |s| {
+            let _ = tx.send(s.to_vec());
+        }))
+        .unwrap();
+        let mut streamed = Vec::new();
+        while streamed.len() < n {
+            streamed.extend(rx.recv_timeout(Duration::from_secs(2)).unwrap());
+        }
+        dev.rx_stop();
+
+        // Same tolerance as the block-size test: phase renormalization at block edges keeps
+        // chunked output equal only to ~1e-4, not bit-exact.
+        for (i, (a, b)) in rendered.iter().zip(&streamed).enumerate() {
+            assert!(
+                (a.re - b.re).abs() < 1e-4 && (a.im - b.im).abs() < 1e-4,
+                "sample {i} diverged: {a} vs {b}"
+            );
+        }
     }
 
     #[test]

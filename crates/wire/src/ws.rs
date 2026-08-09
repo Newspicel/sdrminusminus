@@ -20,6 +20,8 @@ pub enum StateScope {
     Presets,
     /// The stored bookmarks changed; refetch `GET /api/bookmarks`.
     Bookmarks,
+    /// The recordings index changed; refetch `GET /api/recordings`.
+    Recordings,
 }
 
 /// Which binary stream a control event refers to. Spectrum stream ids are device-set ids

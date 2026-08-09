@@ -1,14 +1,15 @@
-//! SQLite persistence (PLAN §11): presets (full device-set + channels snapshots) and
-//! bookmarks. `rusqlite` with the bundled engine — zero system deps. All calls block, so
-//! handlers reach the store via `spawn_blocking` only.
+//! SQLite persistence (PLAN §11): presets (full device-set + channels snapshots), bookmarks,
+//! and the recordings index (the SigMF pairs on disk are the source of truth; rows here are
+//! reconciled from them). `rusqlite` with the bundled engine — zero system deps. All calls
+//! block, so handlers reach the store via `spawn_blocking` only.
 
 use std::{
     path::Path,
     sync::{Mutex, MutexGuard},
 };
 
-use rusqlite::{Connection, OptionalExtension, params};
-use sdrmm_wire::{Bookmark, CreateBookmarkRequest, PresetInfo, PresetSnapshot};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use sdrmm_wire::{Bookmark, CreateBookmarkRequest, PresetInfo, PresetSnapshot, RecordingInfo};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -16,6 +17,8 @@ pub enum StoreError {
     PresetNotFound(i64),
     #[error("bookmark {0} not found")]
     BookmarkNotFound(i64),
+    #[error("recording {0} not found")]
+    RecordingNotFound(i64),
     #[error("database: {0}")]
     Db(#[from] rusqlite::Error),
     #[error("stored snapshot corrupt: {0}")]
@@ -24,7 +27,8 @@ pub enum StoreError {
 
 /// Migrations keyed off `PRAGMA user_version`: each entry runs inside a transaction that also
 /// bumps the version, so a crash mid-migration leaves the previous version intact. Append-only.
-const MIGRATIONS: &[&str] = &["
+const MIGRATIONS: &[&str] = &[
+    "
     CREATE TABLE presets (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
@@ -39,7 +43,33 @@ const MIGRATIONS: &[&str] = &["
         mode TEXT,
         grp TEXT
     );
-    "];
+    ",
+    "
+    CREATE TABLE recordings (
+        id INTEGER PRIMARY KEY,
+        stem TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        device_label TEXT NOT NULL,
+        center_hz REAL NOT NULL,
+        sample_rate REAL NOT NULL,
+        samples INTEGER NOT NULL,
+        bytes INTEGER NOT NULL
+    );
+    ",
+];
+
+/// Index fields for one finalized recording, derived from its SigMF pair during
+/// reconciliation (PLAN §11: the files are the source of truth; rows are upserted by stem).
+pub struct RecordingRow {
+    /// File name without directory or `.sigmf-*` extension — unique within the recordings dir.
+    pub stem: String,
+    pub created_at: String,
+    pub device_label: String,
+    pub center_hz: f64,
+    pub sample_rate: f64,
+    pub samples: u64,
+    pub bytes: u64,
+}
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -138,6 +168,98 @@ impl Store {
         if deleted == 0 {
             return Err(StoreError::BookmarkNotFound(id));
         }
+        Ok(())
+    }
+
+    pub fn upsert_recording(&self, row: &RecordingRow) -> Result<(), StoreError> {
+        self.lock().execute(
+            "INSERT INTO recordings (stem, created_at, device_label, center_hz, sample_rate, \
+             samples, bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+             ON CONFLICT(stem) DO UPDATE SET created_at = excluded.created_at, \
+             device_label = excluded.device_label, center_hz = excluded.center_hz, \
+             sample_rate = excluded.sample_rate, samples = excluded.samples, \
+             bytes = excluded.bytes",
+            // SQLite integers are i64; counts can't realistically overflow them.
+            params![
+                row.stem,
+                row.created_at,
+                row.device_label,
+                row.center_hz,
+                row.sample_rate,
+                row.samples as i64,
+                row.bytes as i64
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// List the index, deriving the fields that depend on where the recordings dir currently
+    /// is (`device_id`, per the wire contract `virtual:file:<dir-joined stem>`) instead of
+    /// persisting them — a moved dir must not strand stale absolute paths in rows.
+    pub fn list_recordings(&self, dir: &Path) -> Result<Vec<RecordingInfo>, StoreError> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, stem, created_at, device_label, center_hz, sample_rate, samples, bytes \
+             FROM recordings ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let stem: String = row.get(1)?;
+            let sample_rate: f64 = row.get(5)?;
+            let samples = row.get::<_, i64>(6)? as u64;
+            Ok(RecordingInfo {
+                id: row.get(0)?,
+                device_id: format!("virtual:file:{}", dir.join(&stem).display()),
+                file: stem,
+                created_at: row.get(2)?,
+                device_label: row.get(3)?,
+                center_hz: row.get(4)?,
+                sample_rate,
+                samples,
+                bytes: row.get::<_, i64>(7)? as u64,
+                duration_s: if sample_rate > 0.0 {
+                    samples as f64 / sample_rate
+                } else {
+                    0.0
+                },
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn recording_stem(&self, id: i64) -> Result<String, StoreError> {
+        self.lock()
+            .query_row(
+                "SELECT stem FROM recordings WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(StoreError::RecordingNotFound(id))
+    }
+
+    pub fn delete_recording(&self, id: i64) -> Result<(), StoreError> {
+        let deleted = self
+            .lock()
+            .execute("DELETE FROM recordings WHERE id = ?1", params![id])?;
+        if deleted == 0 {
+            return Err(StoreError::RecordingNotFound(id));
+        }
+        Ok(())
+    }
+
+    /// Drop rows whose SigMF pair vanished from disk — the reconcile pass hands in every
+    /// stem it found.
+    pub fn prune_recordings(&self, keep_stems: &[String]) -> Result<(), StoreError> {
+        let conn = self.lock();
+        if keep_stems.is_empty() {
+            conn.execute("DELETE FROM recordings", [])?;
+            return Ok(());
+        }
+        let placeholders = vec!["?"; keep_stems.len()].join(", ");
+        conn.execute(
+            &format!("DELETE FROM recordings WHERE stem NOT IN ({placeholders})"),
+            params_from_iter(keep_stems),
+        )?;
         Ok(())
     }
 
@@ -275,5 +397,74 @@ mod tests {
             Err(StoreError::BookmarkNotFound(_))
         ));
         store.delete_bookmark(bare_id).expect("delete");
+    }
+
+    fn recording_row(stem: &str, samples: u64) -> RecordingRow {
+        RecordingRow {
+            stem: stem.to_string(),
+            created_at: "2026-08-09T12:00:00Z".to_string(),
+            device_label: "Signal Generator (virtual)".to_string(),
+            center_hz: 100_000_000.0,
+            sample_rate: 2_048_000.0,
+            samples,
+            bytes: samples * 8,
+        }
+    }
+
+    #[test]
+    fn recording_index_upsert_list_prune_roundtrip() {
+        let store = Store::open(None).expect("open");
+        let dir = Path::new("/tmp/recs");
+        assert!(store.list_recordings(dir).expect("list").is_empty());
+
+        store
+            .upsert_recording(&recording_row("rec_1_a", 2_048_000))
+            .expect("upsert");
+        store
+            .upsert_recording(&recording_row("rec_1_b", 1_024_000))
+            .expect("upsert");
+        let listed = store.list_recordings(dir).expect("list");
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].file, "rec_1_a");
+        assert_eq!(
+            listed[0].device_id,
+            format!("virtual:file:{}", dir.join("rec_1_a").display())
+        );
+        assert_eq!(listed[0].duration_s, 1.0);
+        assert_eq!(listed[0].bytes, 2_048_000 * 8);
+        let id = listed[0].id;
+        assert_eq!(store.recording_stem(id).expect("stem"), "rec_1_a");
+
+        // Upsert by stem updates in place: same row id, fresh counts.
+        store
+            .upsert_recording(&recording_row("rec_1_a", 4_096_000))
+            .expect("upsert");
+        let listed = store.list_recordings(dir).expect("list");
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].id, id);
+        assert_eq!(listed[0].samples, 4_096_000);
+
+        store
+            .prune_recordings(&["rec_1_a".to_string()])
+            .expect("prune");
+        let listed = store.list_recordings(dir).expect("list");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].file, "rec_1_a");
+
+        store.delete_recording(id).expect("delete");
+        assert!(matches!(
+            store.delete_recording(id),
+            Err(StoreError::RecordingNotFound(_))
+        ));
+        assert!(matches!(
+            store.recording_stem(id),
+            Err(StoreError::RecordingNotFound(_))
+        ));
+
+        store
+            .upsert_recording(&recording_row("rec_1_c", 1))
+            .expect("upsert");
+        store.prune_recordings(&[]).expect("prune all");
+        assert!(store.list_recordings(dir).expect("list").is_empty());
     }
 }

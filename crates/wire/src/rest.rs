@@ -94,6 +94,48 @@ pub struct CreateBookmarkRequest {
     pub group: Option<String>,
 }
 
+/// `POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream
+/// (PLAN §5: the recording path is lossless).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RecordRequest {
+    pub action: RecordAction,
+}
+
+/// What a [`RecordRequest`] should do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordAction {
+    Start,
+    Stop,
+}
+
+/// One finalized SigMF recording in the library (PLAN §11: the files on disk are the source
+/// of truth; this row is its SQLite index entry).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RecordingInfo {
+    pub id: i64,
+    /// Recording stem: file name without directory or `.sigmf-*` extension.
+    pub file: String,
+    /// `driver:key` that replays this recording (`virtual:file:<stem>`), usable directly
+    /// in `POST /api/devicesets`.
+    pub device_id: String,
+    /// Label of the device the recording was captured from (SigMF `core:hw`).
+    pub device_label: String,
+    pub center_hz: f64,
+    pub sample_rate: f64,
+    pub samples: u64,
+    pub bytes: u64,
+    pub duration_s: f64,
+    /// RFC3339 UTC.
+    pub created_at: String,
+}
+
+/// `GET /api/recordings`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RecordingsResponse {
+    pub recordings: Vec<RecordingInfo>,
+}
+
 /// Identifier returned when an engine resource (device set, channel) is created.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreatedId {
