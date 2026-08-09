@@ -69,6 +69,7 @@ This file is binding for any AI or human contributor. Read it before touching co
 - [ ] No hand-written TS DTOs; no useless comments; no leftover dead code.
 - [ ] Nearby off-pattern code fixed, not propagated.
 - [ ] Newest versions used; no ESLint/Prettier introduced.
+- [ ] Comment and Push directly to main.
 
 ## Commands (via xtask / just — the only entry points)
 - `cargo xtask dev` — server + Vite dev server (HMR).
