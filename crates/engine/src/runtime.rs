@@ -438,6 +438,13 @@ impl CaptureRuntime {
         }));
     }
 
+    /// What the device says it currently holds, which is not always what was asked for: a
+    /// gain lands on the tuner's step grid, a rate on the resampler's achievable ratio. `None`
+    /// once the device has been released ([`CaptureRuntime::stop`]).
+    pub fn device_settings(&self) -> Option<sdrmm_wire::DeviceSettings> {
+        self.device.as_ref().map(|d| d.settings().clone())
+    }
+
     pub fn apply(&mut self, settings: &sdrmm_wire::DeviceSettings) -> Result<(), DeviceError> {
         self.device
             .as_mut()

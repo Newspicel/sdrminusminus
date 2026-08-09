@@ -621,8 +621,10 @@ backends → self-contained binaries · Tauri packaging/signing · Docker/Pi ima
 - [x] `cargo xtask dist` produces a 24 MB `dist/sdrmm` that links no libSoapySDR, libusb,
   libopus or libsqlite (checked with `otool -L`) — PLAN §15's "release artifacts just run"
 
-### Field session (first real hardware on the native backend)
-Run against the built release artifact and a Nooelec NESDR SMArt v5 (R820T), not in CI:
+### Field sessions (real hardware on the native backends)
+Run against the built release artifact, not in CI.
+
+**RTL-SDR — Nooelec NESDR SMArt v5 (R820T):**
 - [x] The native RTL-SDR backend enumerated, opened and streamed the dongle with no SoapySDR
   and no C library present: `rtlsdr:89084597`, 24 MHz–1.766 GHz, one TUNER stage of 29 steps,
   `bias_tee`/`agc` extras — and `sdrmm --doctor` reported exactly that
@@ -635,6 +637,38 @@ Run against the built release artifact and a Nooelec NESDR SMArt v5 (R820T), not
   probe re-opened it and restored the channel ~9 s later with no operator action. Confirmed
   *not* self-inflicted: eight rapid `GET /api/devices` probes during streaming (which
   re-enumerate and read string descriptors) disturbed nothing
+
+**HackRF One (serial 230865dc3170af47):**
+- [x] Enumerated, opened and streamed through the native backend with no libhackrf present.
+  The capability model is the per-stage one Soapy's collapsed "overall gain" hides: LNA
+  0–40 dB in 8 dB steps, VGA 0–62 in 2 dB steps, `amp` and `bias_tee`, 1 MHz–6 GHz, a
+  *continuous* 2–20 Msps range
+- [x] **20 Msps with zero overruns** — the whole 88–108 MHz broadcast band in one window, six
+  stations resolved. Gain writes verified against the radio rather than the API: sweeping VGA
+  0→62 dB moved the measured noise floor −100.7 → −42.9 dB (the peak barely moves because a
+  local broadcast station compresses the front end, which is physics, not a bug)
+- [x] The scanner swept 88–108 MHz (201 targets) at 8 Msps, held on a real station at
+  91.100 MHz, and parked the WFM channel exactly on it — the whole M5 chain (native backend →
+  DDC → scanner → hold channel) on real RF, zero overruns
+- [x] **Found a real bug this session, fixed and regression-tested:** asking for 13 dB of LNA
+  gain returned `204` and reported 13 dB back, but the HackRF's grid has no 13 — the radio was
+  at 16. `Engine::patch_device` recorded the *request* (`merge_from(&delta)`) instead of what
+  the device holds, so every backend-driven control could show a value the hardware never took.
+  The device's own `settings()` is now laid over the request after a successful apply (both are
+  needed: a backend that reports a field must win, one that reports nothing must not erase it).
+  Verified on the radio afterwards: 13 → 16, 7 → 8, out-of-range still rejected
+
+**Off-air RDS: a real gap, precisely bounded.** Five strong stations (88.0, 93.6, 97.8, 99.9,
+107.5 MHz) plus the −31 dBFS station at 100.976 produced *no* RDS in tens of seconds each, on
+both radios. The control run rules the plumbing out: the same binary decodes the synthesized
+`rds_station_960k` fixture immediately and completely (PI D3C2, PS "SDR-M4", PTY, RadioText).
+So the decoder is right against the specification and wrong against the air — exactly the risk
+PLAN §14 names, now with evidence. Leading hypothesis, not yet proven: real broadcast is
+*stereo*, and the 23–53 kHz L−R subcarrier sits directly against RDS at 57 kHz, while the
+fixture is mono by construction (WFM stereo is deliberately unbuilt, PLAN §18). An 8 s off-air
+SigMF capture of the 100.976 MHz station (HackRF, 2 Msps) reproduces the failure deterministically
+with no hardware attached; it is 129 MB, so it is kept in `captures/` (gitignored) rather than
+committed.
 
 ### Known gaps (honest, not deferred silently)
 - A *transient* USB stall costs a full teardown and re-open — about nine seconds of dead air —
@@ -653,13 +687,14 @@ Run against the built release artifact and a Nooelec NESDR SMArt v5 (R820T), not
   `start_streaming()` after the channel closes restarts in place — no re-open, no re-tune, no
   bias-tee reset. It needs `sdr` behind an `Arc<Mutex<…>>` so the capture thread can become a
   supervisor loop with bounded retries before it faults the set.
-- RDS did not decode in the short live window on the station tested. Inconclusive rather than a
-  regression — the station may carry no RDS, and the window was tens of seconds — but it means
-  the M4 decoders still have no off-air proof, exactly as PROGRESS said at M4.
+- The other M4 decoders (POCSAG, ADS-B, AIS, APRS, RTTY, Morse) still have no off-air proof at
+  all; only RDS has been tried against the air.
 - Workspaces/tabs (dockview) were never built in M0–M2 despite PLAN §16's parenthetical; the
   plan is corrected in the same change and the shell is deferred to M6.
-- The HackRF backend is proven against its crate's API and unit-tested hardware-free; unlike
-  the RTL-SDR one it has had no live session (no HackRF to hand).
+- RDS does not decode off air (see the field sessions above). The decoder is proven against the
+  specification and reproduced failing against a real capture; the cause is unresolved and the
+  stereo-subcarrier hypothesis is untested. This is the M4 "no off-air proof" gap turning into a
+  concrete defect, and it is the first thing to pick up.
 - rs-rtl exposes no PPM or direct sampling, and hackrf-nusb no independent baseband-filter
   bandwidth or hardware sweep; those settings are *rejected* rather than advertised and faked.
   Soapy still covers them, which is what the `soapy` feature is for.
