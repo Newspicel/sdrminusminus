@@ -146,9 +146,9 @@ crates/device-hackrf         unchanged in role   + new convert.rs (cs8 → cf32)
 `rs-rtl` and `hackrf-nusb` leave the workspace manifest and `Cargo.lock`. Record fork points in
 each vendored crate's `lib.rs`:
 
-- `rs-rtl` 0.4.2 — upstream `xoolive/desperado`, path `crates/rs-rtl`, sha
+- `rs-rtl` 0.4.2 — upstream `xoolive/desperado`, path `crates/rtl-driver`, sha
   `32c76e10c5b0c852cdc2550c5368b2fc0af8c611`
-- `hackrf-nusb` 0.3.0 — upstream `bastibl/hackrf-nusb`
+- `hackrf-nusb` 0.3.0 — upstream `bastibl/hackrf-nusb`, path `crates/hackrf-driver`
 
 We keep `hackrf-nusb`'s code rather than switching to `rs-hackrf` from the desperado repo: at
 ~736 lines it is a sixth the size, and our field session (20 Msps zero overruns, per-stage
@@ -209,9 +209,11 @@ Now that we own the driver, do it *in* the driver rather than as the caller-side
 the resampler (demod page 1, regs 0x3f/0x3e) and the tuner crystal, then re-tuning. `rtlsdr-pure`
 0.2.3's `set_frequency_correction` / `rtl2832.rs` is a clean reference for the resampler half.
 
-Expose `ppm` as a typed extra setting in `crates/wire` beside `biastee`/`agc` — one source of
-truth, regenerate the TS, never hand-write it. Validate in `caps.rs`, apply in `lib.rs`, stop
-rejecting it. `settings()` must keep reporting what the hardware holds.
+Expose `ppm` on the wire — **corrected during the work: no wire change is needed.**
+`DeviceSettings.ppm` has been a first-class field since M1 (it is how `device-soapy` drives the
+`"CORR"` component) and the web UI already renders the control, so an extra setting beside
+`biastee`/`agc` would have been a second way to say the same thing. Validate in `caps.rs`, apply
+in `lib.rs`, stop rejecting it. `settings()` must keep reporting what the hardware holds.
 
 ---
 
