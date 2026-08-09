@@ -371,13 +371,22 @@ The stack is settled and lives in `web/package.json` + CLAUDE.md, not here. What
 - **Server state discipline:** TanStack Query is the *only* holder of REST data; WS
   `StateChanged` events invalidate keys — no polling, no manual refetch. High-rate binary
   streams bypass Query entirely → Zustand/refs → canvas.
-- **Workspaces & tabs (not yet built — M6):** server-persisted **workspaces** — exactly one
-  active at a time, unlimited **tabs** per workspace, each tab a dockable panel layout
-  (`dockview`: splitting, floating, drag-rearrange). Panels: spectrum/waterfall, channel
-  controls, audio mixer, maps, decoder logs, analyzers, tools. Workspaces live in SQLite next
-  to presets — your station layout is part of the station config, not browser state, so every
-  client sees the same setup. M0–M5 shipped a fixed panel layout instead; the panels this
-  shell would host all exist, so it is a shell change, not a feature.
+- **Workspaces & tabs (M6, shipped):** server-persisted **workspaces** — exactly one active at
+  a time, unlimited **tabs** per workspace, each tab a dockable panel layout (`dockview`:
+  splitting, floating, drag-rearrange). Workspaces live in SQLite next to presets — your
+  station layout is part of the station config, not browser state, so every client sees the
+  same setup. What binds:
+  - **The layout tree is ours, in `wire`** (§4), not the dock library's serialization: templates
+    author layouts in Rust, and a dock-library major must not invalidate stored workspaces. The
+    client compiles that tree into its dock and maps the dock's state back.
+  - **A panel names no device set and no channel.** Engine ids are per-run and reused after a
+    restart, so a stored panel pinned to one would silently bind to a different radio. Panels
+    follow the client's active set; per-panel pinning waits for stable device identity.
+  - **Sizes are relative, and a viewport that cannot honour the layout does not write it back.**
+    Below the phone breakpoint every panel is one stack and nothing is persisted — otherwise the
+    dock's minimum sizes would flatten a layout authored on a desktop.
+  - Layout writes are debounced to the end of a gesture and carry the revision they were read
+    at; a stale one is refused rather than overwriting another client's arrangement.
 - **Maps:** MapLibre GL on OpenFreeMap tiles (free, no key). Offline/self-contained mode is
   still open: drop a region **`.pmtiles`** file next to the server and it serves the tiles
   itself — a Pi in a field needs no internet. Globe projection for satellite views, openAIP
@@ -637,9 +646,9 @@ M5 ops & UX polish (scanner, auto-reconnect, token auth, MCP, templates, native 
 packaging, docs, `--doctor`) — **all shipped; `PROGRESS.md` records what each one built and how
 it was verified.**
 
-- **M6 — the UI shell.** Workspaces → tabs → dockview panel layouts, server-persisted (§10).
-  M0–M5 shipped a fixed layout and no dockview dependency; every panel this would host already
-  exists, so it is a shell change, not a feature. Templates gain layouts here.
+- **M6 — the UI shell ✅ shipped.** Workspaces → tabs → dockview panel layouts, server-persisted
+  (§10); templates gained layouts. `PROGRESS.md` records what it built, how it was verified and
+  the gaps it left.
 - **M7+ — Phase 3/4 waves** per §13, prioritized by demand, plus the open Phase 1/2 items.
 
 The milestone rule that outlives the list: a milestone is done when its tests are green
@@ -682,6 +691,7 @@ What follows is the rest — the choices with a rejected alternative or a reason
 | Digital voice (DMR/P25 …) | default-on, voice included; use proven libs (DSDcc/mbelib) via FFI |
 | MQTT / Home Assistant export | rejected — not wanted |
 | UI shell | Workspaces (one active) → unlimited tabs → dockview panel layouts, server-persisted (M6) |
+| Workspace layout model (M6) | Our own tree in `wire` (`LayoutNode` = split/group, weights in **permille**), not the dock library's JSON: templates author layouts in Rust, stored workspaces survive a dockview major, and integer weights make a load→save cycle a fixed point instead of drifting. Panels carry no device-set or channel binding — engine ids are per-run and *reused*, so a stored pin would silently attach a panel to a different radio; panels follow the client's active set. One snapshot blob per row like presets (written atomically, read whole, never queried by inner field), with `tabs` denormalized so a layout this build cannot parse breaks opening *that* workspace, never the switcher. Concurrent clients converge via a revision-checked update (409, refetch, re-apply) rather than last-write-wins |
 | Maps | MapLibre GL; OpenFreeMap default (no key), self-hosted PMTiles for offline, optional satellite-imagery key |
 | MCP server | yes — `rmcp` over streamable HTTP at `/mcp`, same token auth (M5) |
 | Onboarding | template gallery + first-run wizard + band-plan explorer (M5) |

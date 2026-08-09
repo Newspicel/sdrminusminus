@@ -388,6 +388,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_workspaces"];
+        put?: never;
+        post: operations["create_workspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_workspace"];
+        put: operations["update_workspace"];
+        post?: never;
+        delete: operations["delete_workspace"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["activate_workspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -784,6 +832,11 @@ export interface components {
             device_set: number;
             name: string;
         };
+        /** @description `POST /api/workspaces`. */
+        CreateWorkspaceRequest: {
+            name: string;
+            snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
+        };
         /**
          * @description A decoder event with the coordinates the DSP plane cannot supply. The engine stamps `at`
          *     on the control plane (the DSP thread never formats time) and computes `freq_hz` from the
@@ -991,6 +1044,22 @@ export interface components {
             name: string;
             value: unknown;
         };
+        /**
+         * @description A group floating above the grid (PLAN §10). Geometry is a fraction of the dock, never
+         *     pixels: the same workspace opens on a phone and on a 4K desktop, and stored pixels would put
+         *     a floating panel off-screen on the smaller one.
+         */
+        FloatingGroup: {
+            group: components["schemas"]["PanelGroup"];
+            /** Format: float */
+            h_frac: number;
+            /** Format: float */
+            w_frac: number;
+            /** Format: float */
+            x_frac: number;
+            /** Format: float */
+            y_frac: number;
+        };
         /** @description A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA). */
         GainStage: {
             name: string;
@@ -1001,6 +1070,34 @@ export interface components {
             stage: string;
             /** Format: double */
             value_db: number;
+        };
+        /** @description One child of a split, with its share of the parent's extent. */
+        LayoutChild: {
+            /**
+             * @description The subtree. `no_recursion` breaks the schema cycle — utoipa would otherwise recurse
+             *     forever collecting `LayoutNode` → `LayoutChild` → `LayoutNode`.
+             */
+            node: components["schemas"]["LayoutNode"];
+            /**
+             * Format: int32
+             * @description Share of the parent along its axis, in permille. Integers, not fractions: the layout is
+             *     re-persisted on every gesture, and a float would drift across load→save cycles (and can
+             *     serialize as `null` for NaN, which fails the *whole* snapshot on the way back in).
+             */
+            weight_permille: number;
+        };
+        /**
+         * @description The panel-layout tree of one tab. Adjacently tagged like [`crate::ChannelParams`], so the
+         *     generated TypeScript is a union the client can exhaustively switch on.
+         */
+        LayoutNode: {
+            data: components["schemas"]["SplitNode"];
+            /** @enum {string} */
+            node: "split";
+        } | {
+            data: components["schemas"]["PanelGroup"];
+            /** @enum {string} */
+            node: "group";
         };
         MorseParams: {
             /**
@@ -1026,6 +1123,33 @@ export interface components {
         NfmParams: {
             /** Format: double */
             bandwidth_hz?: number;
+        };
+        /** @description A tab-stack of panels sharing one rectangle. */
+        PanelGroup: {
+            /**
+             * @description Which panel is on top. An id, never an index: an index goes stale the moment a panel is
+             *     closed. `None` means "the first one".
+             */
+            active?: string | null;
+            panels: components["schemas"]["PanelSpec"][];
+        };
+        /**
+         * @description What a panel shows. A closed enum on purpose: the web UI ships inside the same binary as
+         *     this crate, so client and server can never disagree about the set — and a stored workspace
+         *     naming a kind this build does not have must fail loudly (the row is refused) rather than be
+         *     silently rewritten without the panels it could not read.
+         * @enum {string}
+         */
+        PanelKind: "spectrum" | "channels" | "scanner" | "decoders" | "map" | "decoder_log" | "presets" | "bookmarks" | "templates" | "recordings";
+        /**
+         * @description One panel in a group. `id` is stored rather than derived from `kind`: two spectrum panels in
+         *     one tab is a legitimate layout, and the dock needs unique panel ids.
+         */
+        PanelSpec: {
+            id: string;
+            kind: components["schemas"]["PanelKind"];
+            /** @description User-renamed caption; `None` renders the client's default name for the kind. */
+            title?: string | null;
         };
         /**
          * @description Bit rate of a POCSAG transmission. Pagers on one frequency may use several, so `Auto`
@@ -1443,6 +1567,16 @@ export interface components {
         };
         /** @enum {string} */
         Sideband: "usb" | "lsb";
+        /**
+         * @description How a split arranges its children.
+         * @enum {string}
+         */
+        SplitDirection: "row" | "column";
+        /** @description A split and its children. */
+        SplitNode: {
+            children: components["schemas"]["LayoutChild"][];
+            direction: components["schemas"]["SplitDirection"];
+        };
         SsbParams: {
             agc?: boolean;
             /** Format: double */
@@ -1482,6 +1616,9 @@ export interface components {
         } | {
             /** @enum {string} */
             scope: "decoder_log";
+        } | {
+            /** @enum {string} */
+            scope: "workspaces";
         };
         /** @description Full state snapshot for initial load (PLAN §5 `GET /api/state`). */
         StateSnapshot: {
@@ -1500,6 +1637,13 @@ export interface components {
          * @enum {string}
          */
         StreamKind: "spectrum" | "audio";
+        /** @description One tab: a named panel layout. */
+        TabSpec: {
+            floating?: components["schemas"]["FloatingGroup"][];
+            id: string;
+            layout: components["schemas"]["LayoutNode"];
+            name: string;
+        };
         /**
          * @description One built-in station template (PLAN §10: the template gallery). Read-only and
          *     device-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry
@@ -1516,6 +1660,7 @@ export interface components {
             explainer: string;
             /** @description Stable slug used in `POST /api/templates/{id}/apply`. */
             id: string;
+            layout?: null | components["schemas"]["LayoutNode"];
             /** Format: double */
             max_freq_hz: number;
             /**
@@ -1532,6 +1677,16 @@ export interface components {
         TemplatesResponse: {
             templates: components["schemas"]["TemplateInfo"][];
         };
+        /** @description `PUT /api/workspaces/{id}` — rename, re-layout, or both. */
+        UpdateWorkspaceRequest: {
+            name?: string | null;
+            /**
+             * Format: int64
+             * @description The revision the client last saw. A mismatch is a `409`, never a silent overwrite.
+             */
+            revision: number;
+            snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
+        };
         WfmParams: {
             /**
              * Format: float
@@ -1543,6 +1698,54 @@ export interface components {
              *     it costs a second demod chain on the same channel.
              */
             rds?: boolean;
+        };
+        /** @description `GET /api/workspaces/{id}` — the row plus its layout. */
+        WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {
+            snapshot: components["schemas"]["WorkspaceSnapshot"];
+        };
+        /** @description `GET /api/workspaces` list entry — the projection a switcher needs, without the layout. */
+        WorkspaceInfo: {
+            /** @description RFC3339 UTC. */
+            created_at: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description Bumped on every stored change. An update carrying a stale revision is refused rather
+             *     than silently overwriting another client's layout.
+             */
+            revision: number;
+            /**
+             * Format: int32
+             * @description Tab count, so the switcher can describe a workspace without fetching its layout.
+             */
+            tabs: number;
+            /** @description RFC3339 UTC. */
+            updated_at: string;
+        };
+        /**
+         * @description The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — it is
+         *     written atomically, read whole, and never queried by inner field).
+         */
+        WorkspaceSnapshot: {
+            /** @description Id of the tab on top; `None` means the first one. */
+            active_tab?: string | null;
+            tabs: components["schemas"]["TabSpec"][];
+            /**
+             * Format: int32
+             * @description [`WORKSPACE_SNAPSHOT_VERSION`] at the time of writing.
+             */
+            version: number;
+        };
+        /** @description `GET /api/workspaces`. */
+        WorkspacesResponse: {
+            /**
+             * Format: int64
+             * @description The active workspace, or `None` when the last one was deleted.
+             */
+            active?: number | null;
+            workspaces: components["schemas"]["WorkspaceInfo"][];
         };
     };
     responses: never;
@@ -2569,6 +2772,259 @@ export interface operations {
             };
             /** @description Malformed request body */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_workspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored workspaces and which one is active. Layouts are not included — fetch one workspace for that */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspacesResponse"];
+                };
+            };
+        };
+    };
+    create_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Workspace stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedRowId"];
+                };
+            };
+            /** @description Layout rejected */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A workspace of that name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace and its layout */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDetail"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The stored layout no longer parses — the row is left intact so a newer build can still read it */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    update_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Workspace updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceInfo"];
+                };
+            };
+            /** @description Layout rejected */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Another client wrote first (stale revision) or the name is taken; reload and reapply */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Malformed request body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    delete_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    activate_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workspace activated for every client */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

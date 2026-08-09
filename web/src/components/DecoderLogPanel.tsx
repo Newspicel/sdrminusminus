@@ -96,7 +96,7 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
   const total = log.data?.total ?? 0;
 
   return (
-    <div className="flex min-h-0 flex-col gap-2 px-4 py-3">
+    <div className="flex h-full min-h-0 flex-col gap-2 px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         <select
           className={`${FIELD} text-sm`}
@@ -215,7 +215,9 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
         {cleared !== null && <span>{cleared} rows cleared.</span>}
       </div>
 
-      <div className="min-h-0 max-h-80 overflow-auto rounded border border-line">
+      {/* Fills the panel it is docked in: a fixed cap would waste a tall panel and overflow a
+          short one. */}
+      <div className="min-h-0 flex-1 overflow-auto rounded border border-line">
         <table className="w-full border-collapse font-mono text-xs">
           <thead className="sticky top-0 bg-panel">
             <tr className="border-b border-line">

@@ -1292,6 +1292,286 @@
           }
         }
       }
+    },
+    "/api/workspaces": {
+      "get": {
+        "operationId": "list_workspaces",
+        "responses": {
+          "200": {
+            "description": "Stored workspaces and which one is active. Layouts are not included — fetch one workspace for that",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspacesResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "create_workspace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Workspace stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedRowId"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Layout rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A workspace of that name already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}": {
+      "get": {
+        "operationId": "get_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspace and its layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The stored layout no longer parses — the row is left intact so a newer build can still read it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "update_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Workspace updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Layout rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another client wrote first (stale revision) or the name is taken; reload and reapply",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Workspace removed"
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/activate": {
+      "post": {
+        "operationId": "activate_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Workspace activated for every client"
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2333,6 +2613,29 @@
           }
         }
       },
+      "CreateWorkspaceRequest": {
+        "type": "object",
+        "description": "`POST /api/workspaces`.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "snapshot": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkspaceSnapshot",
+                "description": "Layout to start from; omitted means [`WorkspaceSnapshot::station_default`]."
+              }
+            ]
+          }
+        }
+      },
       "CreatedId": {
         "type": "object",
         "description": "Identifier returned when an engine resource (device set, channel) is created.",
@@ -2965,6 +3268,38 @@
           "value": {}
         }
       },
+      "FloatingGroup": {
+        "type": "object",
+        "description": "A group floating above the grid (PLAN §10). Geometry is a fraction of the dock, never\npixels: the same workspace opens on a phone and on a 4K desktop, and stored pixels would put\na floating panel off-screen on the smaller one.",
+        "required": [
+          "group",
+          "x_frac",
+          "y_frac",
+          "w_frac",
+          "h_frac"
+        ],
+        "properties": {
+          "group": {
+            "$ref": "#/components/schemas/PanelGroup"
+          },
+          "h_frac": {
+            "type": "number",
+            "format": "float"
+          },
+          "w_frac": {
+            "type": "number",
+            "format": "float"
+          },
+          "x_frac": {
+            "type": "number",
+            "format": "float"
+          },
+          "y_frac": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
       "GainStage": {
         "type": "object",
         "description": "A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA).",
@@ -2997,6 +3332,67 @@
             "format": "double"
           }
         }
+      },
+      "LayoutChild": {
+        "type": "object",
+        "description": "One child of a split, with its share of the parent's extent.",
+        "required": [
+          "weight_permille",
+          "node"
+        ],
+        "properties": {
+          "node": {
+            "$ref": "#/components/schemas/LayoutNode",
+            "description": "The subtree. `no_recursion` breaks the schema cycle — utoipa would otherwise recurse\nforever collecting `LayoutNode` → `LayoutChild` → `LayoutNode`."
+          },
+          "weight_permille": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Share of the parent along its axis, in permille. Integers, not fractions: the layout is\nre-persisted on every gesture, and a float would drift across load→save cycles (and can\nserialize as `null` for NaN, which fails the *whole* snapshot on the way back in).",
+            "minimum": 0
+          }
+        }
+      },
+      "LayoutNode": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "node"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SplitNode"
+              },
+              "node": {
+                "type": "string",
+                "enum": [
+                  "split"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "node"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/PanelGroup"
+              },
+              "node": {
+                "type": "string",
+                "enum": [
+                  "group"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The panel-layout tree of one tab. Adjacently tagged like [`crate::ChannelParams`], so the\ngenerated TypeScript is a union the client can exhaustively switch on."
       },
       "MorseParams": {
         "type": "object",
@@ -3040,6 +3436,67 @@
           "bandwidth_hz": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "PanelGroup": {
+        "type": "object",
+        "description": "A tab-stack of panels sharing one rectangle.",
+        "required": [
+          "panels"
+        ],
+        "properties": {
+          "active": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Which panel is on top. An id, never an index: an index goes stale the moment a panel is\nclosed. `None` means \"the first one\"."
+          },
+          "panels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PanelSpec"
+            }
+          }
+        }
+      },
+      "PanelKind": {
+        "type": "string",
+        "description": "What a panel shows. A closed enum on purpose: the web UI ships inside the same binary as\nthis crate, so client and server can never disagree about the set — and a stored workspace\nnaming a kind this build does not have must fail loudly (the row is refused) rather than be\nsilently rewritten without the panels it could not read.",
+        "enum": [
+          "spectrum",
+          "channels",
+          "scanner",
+          "decoders",
+          "map",
+          "decoder_log",
+          "presets",
+          "bookmarks",
+          "templates",
+          "recordings"
+        ]
+      },
+      "PanelSpec": {
+        "type": "object",
+        "description": "One panel in a group. `id` is stored rather than derived from `kind`: two spectrum panels in\none tab is a legitimate layout, and the dock needs unique panel ids.",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PanelKind"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "User-renamed caption; `None` renders the client's default name for the kind."
           }
         }
       },
@@ -3945,6 +4402,33 @@
           "lsb"
         ]
       },
+      "SplitDirection": {
+        "type": "string",
+        "description": "How a split arranges its children.",
+        "enum": [
+          "row",
+          "column"
+        ]
+      },
+      "SplitNode": {
+        "type": "object",
+        "description": "A split and its children.",
+        "required": [
+          "direction",
+          "children"
+        ],
+        "properties": {
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LayoutChild"
+            }
+          },
+          "direction": {
+            "$ref": "#/components/schemas/SplitDirection"
+          }
+        }
+      },
       "SsbParams": {
         "type": "object",
         "properties": {
@@ -4088,6 +4572,21 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "description": "The stored workspaces changed: created, renamed, deleted, switched, or the active\nlayout was re-persisted (M6, PLAN §10). Layout writes are debounced to the end of a\nuser gesture at the writer — one event per resize frame would be the decoder-traffic\nmistake repeated on the control plane.",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "workspaces"
+                ]
+              }
+            }
           }
         ],
         "description": "Granularity of a `StateChanged` invalidation. The client maps each scope to the\nTanStack Query keys it must invalidate (PLAN §10: the *only* cache-invalidation path)."
@@ -4121,6 +4620,32 @@
           "spectrum",
           "audio"
         ]
+      },
+      "TabSpec": {
+        "type": "object",
+        "description": "One tab: a named panel layout.",
+        "required": [
+          "id",
+          "name",
+          "layout"
+        ],
+        "properties": {
+          "floating": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FloatingGroup"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/LayoutNode"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
       },
       "TemplateInfo": {
         "type": "object",
@@ -4160,6 +4685,17 @@
             "type": "string",
             "description": "Stable slug used in `POST /api/templates/{id}/apply`."
           },
+          "layout": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LayoutNode",
+                "description": "Panel layout the template opens as a tab in the active workspace (M6, PLAN §16). A\ntemplate that names none leaves the workspace alone."
+              }
+            ]
+          },
           "max_freq_hz": {
             "type": "number",
             "format": "double"
@@ -4193,6 +4729,37 @@
           }
         }
       },
+      "UpdateWorkspaceRequest": {
+        "type": "object",
+        "description": "`PUT /api/workspaces/{id}` — rename, re-layout, or both.",
+        "required": [
+          "revision"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The revision the client last saw. A mismatch is a `409`, never a silent overwrite.",
+            "minimum": 0
+          },
+          "snapshot": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkspaceSnapshot"
+              }
+            ]
+          }
+        }
+      },
       "WfmParams": {
         "type": "object",
         "properties": {
@@ -4204,6 +4771,118 @@
           "rds": {
             "type": "boolean",
             "description": "Decode the 57 kHz RDS subcarrier alongside the audio (PLAN §13 P2). Off by default:\nit costs a second demod chain on the same channel."
+          }
+        }
+      },
+      "WorkspaceDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WorkspaceInfo"
+          },
+          {
+            "type": "object",
+            "required": [
+              "snapshot"
+            ],
+            "properties": {
+              "snapshot": {
+                "$ref": "#/components/schemas/WorkspaceSnapshot"
+              }
+            }
+          }
+        ],
+        "description": "`GET /api/workspaces/{id}` — the row plus its layout."
+      },
+      "WorkspaceInfo": {
+        "type": "object",
+        "description": "`GET /api/workspaces` list entry — the projection a switcher needs, without the layout.",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "updated_at",
+          "revision",
+          "tabs"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bumped on every stored change. An update carrying a stale revision is refused rather\nthan silently overwriting another client's layout.",
+            "minimum": 0
+          },
+          "tabs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Tab count, so the switcher can describe a workspace without fetching its layout.",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          }
+        }
+      },
+      "WorkspaceSnapshot": {
+        "type": "object",
+        "description": "The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — it is\nwritten atomically, read whole, and never queried by inner field).",
+        "required": [
+          "version",
+          "tabs"
+        ],
+        "properties": {
+          "active_tab": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Id of the tab on top; `None` means the first one."
+          },
+          "tabs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TabSpec"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "[`WORKSPACE_SNAPSHOT_VERSION`] at the time of writing.",
+            "minimum": 0
+          }
+        }
+      },
+      "WorkspacesResponse": {
+        "type": "object",
+        "description": "`GET /api/workspaces`.",
+        "required": [
+          "workspaces"
+        ],
+        "properties": {
+          "active": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The active workspace, or `None` when the last one was deleted."
+          },
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceInfo"
+            }
           }
         }
       }

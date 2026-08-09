@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "dockview-react/dist/styles/dockview.css";
 
 /* Instrumentation palette (PLAN §10): dark-first, restrained neutrals, one accent, mono
    numerals. No decorative gradients. */
@@ -27,6 +28,51 @@ body {
   color: var(--color-ink);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The dock's instrumentation skin (PLAN §10): dockview reads these `--dv-*` variables off the
+   class its theme object names, so the palette above stays the single source of colour and its
+   stylesheet is never forked. Square corners, 1px separators, no decorative anything. */
+.dv-theme-sdrmm {
+  --dv-group-view-background-color: var(--color-bg);
+  --dv-tabs-and-actions-container-background-color: var(--color-panel);
+  --dv-tabs-and-actions-container-height: 28px;
+  --dv-tabs-and-actions-container-font-size: 11px;
+  --dv-tab-font-size: 11px;
+  --dv-tab-margin: 0;
+  --dv-tab-border-radius: 0px;
+  --dv-border-radius: 0px;
+  --dv-sash-border-radius: 0px;
+  --dv-spacing-padding: 0px;
+
+  --dv-activegroup-visiblepanel-tab-background-color: var(--color-panel-2);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--color-panel);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--color-panel-2);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--color-panel);
+  --dv-activegroup-visiblepanel-tab-color: var(--color-accent);
+  --dv-activegroup-hiddenpanel-tab-color: var(--color-ink-dim);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--color-ink);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--color-ink-dim);
+
+  --dv-separator-border: var(--color-line);
+  --dv-tab-divider-color: var(--color-line);
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: var(--color-accent);
+  --dv-drag-over-background-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --dv-drag-over-border-color: var(--color-accent);
+  --dv-floating-border: 1px solid var(--color-line);
+  --dv-floating-box-shadow: 0 8px 32px rgb(0 0 0 / 0.6);
+  --dv-floating-titlebar-background-color: var(--color-panel);
+  --dv-icon-hover-background-color: var(--color-panel-2);
+  --dv-context-menu-background-color: var(--color-panel);
+  --dv-context-menu-color: var(--color-ink);
+  --dv-scrollbar-background-color: var(--color-line);
+}
+
+/* The dock measures its own host; without a definite height it collapses inside a flex column. */
+.dv-theme-sdrmm .dv-dockview,
+.dv-dockview {
+  height: 100%;
 }
 
 /* Sliders are primary tuning controls; on touch screens widen the hit area to ≥40px

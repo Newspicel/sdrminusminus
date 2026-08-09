@@ -12,7 +12,8 @@ use std::{
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 use sdrmm_wire::{
     Bookmark, CreateBookmarkRequest, DecodedRecord, DecoderLogEntry, DecoderLogQuery, PresetInfo,
-    PresetSnapshot, RecordingInfo,
+    PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceError,
+    WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -23,6 +24,14 @@ pub enum StoreError {
     BookmarkNotFound(i64),
     #[error("recording {0} not found")]
     RecordingNotFound(i64),
+    #[error("workspace {0} not found")]
+    WorkspaceNotFound(i64),
+    #[error("a workspace named {0:?} already exists")]
+    WorkspaceNameTaken(String),
+    #[error("workspace {id} moved on (revision {current}, not {sent}) — reload and reapply")]
+    WorkspaceConflict { id: i64, sent: u64, current: u64 },
+    #[error("invalid workspace layout: {0}")]
+    WorkspaceLayout(#[from] sdrmm_wire::WorkspaceError),
     #[error("not an RFC3339 timestamp: {0}")]
     Timestamp(String),
     #[error("database: {0}")]
@@ -92,6 +101,27 @@ const MIGRATIONS: &[&str] = &[
     -- a substring match no B-tree can serve.
     CREATE INDEX decoder_log_kind_at ON decoder_log (kind, at DESC, id DESC);
     ",
+    "
+    CREATE TABLE workspaces (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        -- Denormalized from the snapshot so the switcher never parses a layout blob: a row
+        -- whose JSON this build cannot read must break opening that one workspace, never the
+        -- list that would let the user switch away from it.
+        tabs INTEGER NOT NULL,
+        snapshot TEXT NOT NULL
+    );
+    -- One active workspace is an invariant, so the schema holds it: a per-row `active` flag
+    -- makes \"two rows true\" representable, and something would eventually write it.
+    CREATE TABLE active_workspace (
+        id INTEGER PRIMARY KEY CHECK (id = 0),
+        workspace_id INTEGER
+    );
+    INSERT INTO active_workspace (id, workspace_id) VALUES (0, NULL);
+    ",
 ];
 
 /// Index fields for one finalized recording, derived from its SigMF pair during
@@ -119,9 +149,11 @@ impl Store {
             None => Connection::open_in_memory()?,
         };
         migrate(&conn)?;
-        Ok(Self {
+        let store = Self {
             conn: Mutex::new(conn),
-        })
+        };
+        store.seed_workspaces()?;
+        Ok(store)
     }
 
     pub fn create_preset(&self, name: &str, snapshot: &PresetSnapshot) -> Result<i64, StoreError> {
@@ -383,10 +415,249 @@ impl Store {
         Ok(dropped as u64)
     }
 
+    /// The switcher's view: every workspace, plus which one is active (PLAN §10 — exactly one
+    /// is, server-wide, so every client opens the same station). Reads projection columns only.
+    pub fn list_workspaces(&self) -> Result<WorkspacesResponse, StoreError> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, created_at, updated_at, revision, tabs FROM workspaces ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(WorkspaceInfo {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+                revision: row.get::<_, i64>(4)?.unsigned_abs(),
+                tabs: row.get(5)?,
+            })
+        })?;
+        let workspaces: Vec<WorkspaceInfo> = rows.collect::<Result<_, _>>()?;
+        Ok(WorkspacesResponse {
+            workspaces,
+            active: active_workspace(&conn)?,
+        })
+    }
+
+    pub fn workspace(&self, id: i64) -> Result<WorkspaceDetail, StoreError> {
+        let conn = self.lock();
+        read_workspace(&conn, id)
+    }
+
+    /// Store a new workspace. The snapshot is validated first: a layout the client could not
+    /// render back is refused at the edge, never persisted.
+    pub fn create_workspace(
+        &self,
+        name: &str,
+        snapshot: &WorkspaceSnapshot,
+    ) -> Result<i64, StoreError> {
+        snapshot.validate()?;
+        let json = serde_json::to_string(snapshot)?;
+        let now = now_rfc3339();
+        let conn = self.lock();
+        conn.execute(
+            "INSERT INTO workspaces (name, created_at, updated_at, revision, tabs, snapshot) \
+             VALUES (?1, ?2, ?2, 1, ?3, ?4)",
+            params![name, now, snapshot.tabs.len() as i64, json],
+        )
+        .map_err(|err| name_taken(err, name))?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Rename and/or re-lay-out a workspace. `revision` is the one the caller last saw: a
+    /// mismatch means another client wrote in between, and the write is refused instead of
+    /// silently discarding that client's layout.
+    pub fn update_workspace(
+        &self,
+        id: i64,
+        req: &UpdateWorkspaceRequest,
+    ) -> Result<WorkspaceInfo, StoreError> {
+        if let Some(snapshot) = &req.snapshot {
+            snapshot.validate()?;
+        }
+        if let Some(name) = &req.name
+            && (name.trim().is_empty()
+                || name.chars().count() > sdrmm_wire::workspace::MAX_NAME_LEN)
+        {
+            return Err(StoreError::WorkspaceLayout(WorkspaceError::Name));
+        }
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        let current: u64 = tx
+            .query_row(
+                "SELECT revision FROM workspaces WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .ok_or(StoreError::WorkspaceNotFound(id))?
+            .unsigned_abs();
+        if current != req.revision {
+            return Err(StoreError::WorkspaceConflict {
+                id,
+                sent: req.revision,
+                current,
+            });
+        }
+        let revision = i64::try_from(current.saturating_add(1)).unwrap_or(i64::MAX);
+        let now = now_rfc3339();
+        if let Some(name) = &req.name {
+            tx.execute(
+                "UPDATE workspaces SET name = ?2 WHERE id = ?1",
+                params![id, name],
+            )
+            .map_err(|err| name_taken(err, name))?;
+        }
+        if let Some(snapshot) = &req.snapshot {
+            tx.execute(
+                "UPDATE workspaces SET snapshot = ?2, tabs = ?3 WHERE id = ?1",
+                params![
+                    id,
+                    serde_json::to_string(snapshot)?,
+                    snapshot.tabs.len() as i64
+                ],
+            )?;
+        }
+        tx.execute(
+            "UPDATE workspaces SET revision = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, revision, now],
+        )?;
+        let info = read_workspace_info(&tx, id)?;
+        tx.commit()?;
+        Ok(info)
+    }
+
+    /// Delete a workspace, handing back the workspace that is active afterwards. Deleting the
+    /// active one promotes the lowest-id survivor rather than leaving the station with no
+    /// layout at all; deleting the last one leaves `None` and the client offers to create one.
+    pub fn delete_workspace(&self, id: i64) -> Result<Option<i64>, StoreError> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        let deleted = tx.execute("DELETE FROM workspaces WHERE id = ?1", params![id])?;
+        if deleted == 0 {
+            return Err(StoreError::WorkspaceNotFound(id));
+        }
+        // The `active_workspace` row is maintained here rather than by a foreign key: rusqlite
+        // leaves `PRAGMA foreign_keys` off by default, so an `ON DELETE SET NULL` would be
+        // inert documentation and the pointer would dangle.
+        if active_workspace(&tx)? == Some(id) {
+            let next: Option<i64> = tx
+                .query_row("SELECT id FROM workspaces ORDER BY id LIMIT 1", [], |row| {
+                    row.get(0)
+                })
+                .optional()?;
+            set_active_workspace(&tx, next)?;
+        }
+        let active = active_workspace(&tx)?;
+        tx.commit()?;
+        Ok(active)
+    }
+
+    pub fn activate_workspace(&self, id: i64) -> Result<(), StoreError> {
+        let conn = self.lock();
+        let exists: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM workspaces WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if exists.is_none() {
+            return Err(StoreError::WorkspaceNotFound(id));
+        }
+        set_active_workspace(&conn, Some(id))
+    }
+
+    /// The active workspace with its layout, if there is one. `None` when the station has no
+    /// workspaces at all (every one deleted).
+    pub fn active_workspace(&self) -> Result<Option<WorkspaceDetail>, StoreError> {
+        let conn = self.lock();
+        match active_workspace(&conn)? {
+            Some(id) => Ok(Some(read_workspace(&conn, id)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Give a workspace-less database the layout M0–M5 shipped as a fixed arrangement, so a
+    /// first run lands on a working station instead of an empty grid. Runs on every open and
+    /// only acts on an empty table — a station whose last workspace was deleted gets the
+    /// default back on the next restart, which beats a permanently empty shell.
+    fn seed_workspaces(&self) -> Result<(), StoreError> {
+        {
+            let conn = self.lock();
+            let existing: i64 =
+                conn.query_row("SELECT COUNT(*) FROM workspaces", [], |row| row.get(0))?;
+            if existing > 0 {
+                return Ok(());
+            }
+        }
+        let id = self.create_workspace("Station", &WorkspaceSnapshot::station_default())?;
+        self.activate_workspace(id)
+    }
+
     fn lock(&self) -> MutexGuard<'_, Connection> {
         self.conn
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+fn active_workspace(conn: &Connection) -> Result<Option<i64>, StoreError> {
+    Ok(conn.query_row(
+        "SELECT workspace_id FROM active_workspace WHERE id = 0",
+        [],
+        |row| row.get(0),
+    )?)
+}
+
+fn set_active_workspace(conn: &Connection, id: Option<i64>) -> Result<(), StoreError> {
+    conn.execute(
+        "UPDATE active_workspace SET workspace_id = ?1 WHERE id = 0",
+        params![id],
+    )?;
+    Ok(())
+}
+
+fn read_workspace_info(conn: &Connection, id: i64) -> Result<WorkspaceInfo, StoreError> {
+    conn.query_row(
+        "SELECT id, name, created_at, updated_at, revision, tabs FROM workspaces WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(WorkspaceInfo {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                created_at: row.get(2)?,
+                updated_at: row.get(3)?,
+                revision: row.get::<_, i64>(4)?.unsigned_abs(),
+                tabs: row.get(5)?,
+            })
+        },
+    )
+    .optional()?
+    .ok_or(StoreError::WorkspaceNotFound(id))
+}
+
+fn read_workspace(conn: &Connection, id: i64) -> Result<WorkspaceDetail, StoreError> {
+    let info = read_workspace_info(conn, id)?;
+    let json: String = conn.query_row(
+        "SELECT snapshot FROM workspaces WHERE id = ?1",
+        params![id],
+        |row| row.get(0),
+    )?;
+    Ok(WorkspaceDetail {
+        info,
+        snapshot: serde_json::from_str(&json)?,
+    })
+}
+
+/// `name` is `UNIQUE`, and a collision is the user picking a name that is already taken — a
+/// 409, not a database failure. Every other constraint violation stays a `Db` error.
+fn name_taken(err: rusqlite::Error, name: &str) -> StoreError {
+    match err.sqlite_error_code() {
+        Some(rusqlite::ErrorCode::ConstraintViolation) => {
+            StoreError::WorkspaceNameTaken(name.to_string())
+        }
+        _ => StoreError::Db(err),
     }
 }
 
@@ -1011,6 +1282,153 @@ mod tests {
                 Err(StoreError::Timestamp(_))
             ));
         }
+    }
+
+    #[test]
+    fn a_fresh_database_is_seeded_with_one_active_workspace() {
+        let store = Store::open(None).expect("open");
+        let listed = store.list_workspaces().expect("list");
+        assert_eq!(listed.workspaces.len(), 1);
+        assert_eq!(listed.workspaces[0].name, "Station");
+        assert_eq!(listed.workspaces[0].revision, 1);
+        assert_eq!(listed.workspaces[0].tabs, 2);
+        assert_eq!(listed.active, Some(listed.workspaces[0].id));
+
+        let active = store.active_workspace().expect("active").expect("seeded");
+        assert_eq!(active.snapshot, WorkspaceSnapshot::station_default());
+
+        // Seeding is an empty-table rule, not a first-open rule: reopening must not add a
+        // second "Station" (and the UNIQUE name would fail loudly if it tried).
+        drop(store);
+    }
+
+    #[test]
+    fn workspace_crud_roundtrip() {
+        let store = Store::open(None).expect("open");
+        let seeded = store.list_workspaces().expect("list").workspaces[0].id;
+
+        let snapshot = WorkspaceSnapshot::station_default();
+        let id = store.create_workspace("Bench", &snapshot).expect("create");
+        let listed = store.list_workspaces().expect("list");
+        assert_eq!(listed.workspaces.len(), 2);
+        assert_eq!(listed.active, Some(seeded), "creating does not activate");
+
+        store.activate_workspace(id).expect("activate");
+        assert_eq!(store.list_workspaces().expect("list").active, Some(id));
+
+        let detail = store.workspace(id).expect("read");
+        assert_eq!(detail.snapshot, snapshot);
+        assert_eq!(detail.info.revision, 1);
+        assert_eq!(detail.info.created_at, detail.info.updated_at);
+
+        let mut edited = snapshot.clone();
+        edited.tabs.truncate(1);
+        edited.active_tab = None;
+        let info = store
+            .update_workspace(
+                id,
+                &UpdateWorkspaceRequest {
+                    revision: 1,
+                    name: Some("Bench 2".to_string()),
+                    snapshot: Some(edited.clone()),
+                },
+            )
+            .expect("update");
+        assert_eq!(info.revision, 2);
+        assert_eq!(info.name, "Bench 2");
+        assert_eq!(info.tabs, 1);
+        assert_eq!(store.workspace(id).expect("read").snapshot, edited);
+
+        // Deleting the active workspace promotes a survivor rather than leaving none.
+        assert_eq!(store.delete_workspace(id).expect("delete"), Some(seeded));
+        assert!(matches!(
+            store.delete_workspace(id),
+            Err(StoreError::WorkspaceNotFound(_))
+        ));
+        assert!(matches!(
+            store.workspace(id),
+            Err(StoreError::WorkspaceNotFound(_))
+        ));
+        assert!(matches!(
+            store.activate_workspace(id),
+            Err(StoreError::WorkspaceNotFound(_))
+        ));
+
+        // Deleting the last one leaves the station with none, honestly reported.
+        assert_eq!(store.delete_workspace(seeded).expect("delete"), None);
+        assert_eq!(store.list_workspaces().expect("list").active, None);
+        assert!(store.active_workspace().expect("active").is_none());
+    }
+
+    /// Layouts are re-persisted on every gesture, so an update carrying a revision the caller
+    /// no longer holds must be refused — otherwise an idle browser's stale layout silently
+    /// overwrites the one someone is arranging.
+    #[test]
+    fn workspace_update_refuses_a_stale_revision() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+        let update = |revision| UpdateWorkspaceRequest {
+            revision,
+            name: None,
+            snapshot: Some(WorkspaceSnapshot::station_default()),
+        };
+        store.update_workspace(id, &update(1)).expect("first write");
+        assert!(matches!(
+            store.update_workspace(id, &update(1)),
+            Err(StoreError::WorkspaceConflict {
+                sent: 1,
+                current: 2,
+                ..
+            })
+        ));
+        store.update_workspace(id, &update(2)).expect("fresh write");
+    }
+
+    #[test]
+    fn workspace_writes_reject_a_bad_layout_and_a_taken_name() {
+        let store = Store::open(None).expect("open");
+        let id = store.list_workspaces().expect("list").workspaces[0].id;
+        let empty = WorkspaceSnapshot {
+            version: sdrmm_wire::WORKSPACE_SNAPSHOT_VERSION,
+            tabs: Vec::new(),
+            active_tab: None,
+        };
+        assert!(matches!(
+            store.create_workspace("Empty", &empty),
+            Err(StoreError::WorkspaceLayout(WorkspaceError::NoTabs))
+        ));
+        assert!(matches!(
+            store.update_workspace(
+                id,
+                &UpdateWorkspaceRequest {
+                    revision: 1,
+                    name: None,
+                    snapshot: Some(empty),
+                }
+            ),
+            Err(StoreError::WorkspaceLayout(WorkspaceError::NoTabs))
+        ));
+        // A refused write leaves the revision alone, or the next honest write would 409.
+        assert_eq!(store.workspace(id).expect("read").info.revision, 1);
+
+        assert!(matches!(
+            store.create_workspace("Station", &WorkspaceSnapshot::station_default()),
+            Err(StoreError::WorkspaceNameTaken(_))
+        ));
+        let other = store
+            .create_workspace("Bench", &WorkspaceSnapshot::station_default())
+            .expect("create");
+        assert!(matches!(
+            store.update_workspace(
+                other,
+                &UpdateWorkspaceRequest {
+                    revision: 1,
+                    name: Some("Station".to_string()),
+                    snapshot: None,
+                }
+            ),
+            Err(StoreError::WorkspaceNameTaken(_))
+        ));
     }
 
     /// A blob that no longer parses is a corrupt database, not a row to skip quietly.

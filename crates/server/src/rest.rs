@@ -14,11 +14,13 @@ use sdrmm_recorder::{SigmfMeta, SigmfReader, data_path, meta_path, scan_stems};
 use sdrmm_wire::{
     ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelSettings,
     ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
-    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreatedId, CreatedRowId,
-    DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceSettings,
-    DevicesResponse, DoctorReport, ExportFormat, PresetInfo, PresetSnapshot, RecordAction,
-    RecordRequest, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest, ScannerStatus,
-    ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse,
+    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
+    CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
+    DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, PresetInfo, PresetSnapshot,
+    RecordAction, RecordRequest, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest,
+    ScannerStatus, ServerEvent, StateScope, StateSnapshot, TabSpec, TemplateInfo,
+    TemplatesResponse, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot,
+    WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -161,8 +163,14 @@ impl From<StoreError> for AppError {
         let status = match err {
             StoreError::PresetNotFound(_)
             | StoreError::BookmarkNotFound(_)
-            | StoreError::RecordingNotFound(_) => StatusCode::NOT_FOUND,
-            StoreError::Timestamp(_) => StatusCode::BAD_REQUEST,
+            | StoreError::RecordingNotFound(_)
+            | StoreError::WorkspaceNotFound(_) => StatusCode::NOT_FOUND,
+            StoreError::Timestamp(_) | StoreError::WorkspaceLayout(_) => StatusCode::BAD_REQUEST,
+            // A name collision and a stale revision are both "someone else got there first";
+            // the client resolves them by renaming or by reloading, never by retrying blind.
+            StoreError::WorkspaceNameTaken(_) | StoreError::WorkspaceConflict { .. } => {
+                StatusCode::CONFLICT
+            }
             StoreError::Db(_) | StoreError::Corrupt(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self {
@@ -1002,14 +1010,205 @@ async fn apply_template(
     let template = crate::templates::get(&id)
         .ok_or_else(|| AppError::not_found(format!("template {id} not found")))?;
     let engine = state.engine.clone();
+    let store = state.store.clone();
     let settings = DeviceSettings {
         center_hz: Some(template.center_hz),
         sample_rate: Some(template.sample_rate),
         ..DeviceSettings::default()
     };
     let channels = template.channels.clone();
-    tokio::task::spawn_blocking(move || {
-        apply_configuration(&engine, req.device_set, settings, channels, "template")
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        apply_configuration(&engine, req.device_set, settings, channels, "template")?;
+        apply_template_tab(&engine, &store, template)
+    })
+    .await??;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Open the template's panel layout as a tab in the active workspace (M6, PLAN §16). The tab id
+/// is derived from the template, so applying one twice replaces its tab instead of stacking
+/// copies of it.
+///
+/// The device configuration has already been applied when this runs, and it is the part the
+/// user asked for: a workspace that cannot take the tab (none active, or another client just
+/// rewrote it) must not turn a successful apply into an error. The failure is swallowed here
+/// and only here.
+fn apply_template_tab(
+    engine: &sdrmm_engine::Engine,
+    store: &Store,
+    template: &TemplateInfo,
+) -> Result<(), AppError> {
+    let Some(layout) = template.layout.clone() else {
+        return Ok(());
+    };
+    let Some(mut active) = store.active_workspace()? else {
+        return Ok(());
+    };
+    active.snapshot.upsert_tab(TabSpec {
+        id: format!("template:{}", template.id),
+        name: template.name.clone(),
+        layout,
+        floating: Vec::new(),
+    });
+    let update = UpdateWorkspaceRequest {
+        revision: active.info.revision,
+        name: None,
+        snapshot: Some(active.snapshot),
+    };
+    match store.update_workspace(active.info.id, &update) {
+        Ok(_) => {
+            engine.emit_scope(StateScope::Workspaces);
+            Ok(())
+        }
+        Err(StoreError::WorkspaceConflict { .. }) => Ok(()),
+        Err(err) => Err(err.into()),
+    }
+}
+
+#[utoipa::path(
+    get, path = "/api/workspaces",
+    responses((
+        status = 200,
+        description = "Stored workspaces and which one is active. Layouts are not included — \
+                       fetch one workspace for that",
+        body = WorkspacesResponse,
+    )),
+)]
+async fn list_workspaces(
+    State(state): State<AppState>,
+) -> Result<Json<WorkspacesResponse>, AppError> {
+    let store = state.store.clone();
+    let workspaces = tokio::task::spawn_blocking(move || store.list_workspaces()).await??;
+    Ok(Json(workspaces))
+}
+
+#[utoipa::path(
+    post, path = "/api/workspaces",
+    request_body = CreateWorkspaceRequest,
+    responses(
+        (status = 200, description = "Workspace stored", body = CreatedRowId),
+        (status = 400, description = "Layout rejected", body = ApiError),
+        (status = 409, description = "A workspace of that name already exists", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+async fn create_workspace(
+    State(state): State<AppState>,
+    Json(req): Json<CreateWorkspaceRequest>,
+) -> Result<Json<CreatedRowId>, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let id = tokio::task::spawn_blocking(move || -> Result<i64, AppError> {
+        let snapshot = req
+            .snapshot
+            .unwrap_or_else(WorkspaceSnapshot::station_default);
+        let id = store.create_workspace(&req.name, &snapshot)?;
+        engine.emit_scope(StateScope::Workspaces);
+        Ok(id)
+    })
+    .await??;
+    Ok(Json(CreatedRowId { id }))
+}
+
+#[utoipa::path(
+    get, path = "/api/workspaces/{id}",
+    params(("id" = i64, Path, description = "Workspace id")),
+    responses(
+        (status = 200, description = "The workspace and its layout", body = WorkspaceDetail),
+        (status = 404, description = "Workspace not found", body = ApiError),
+        (
+            status = 500,
+            description = "The stored layout no longer parses — the row is left intact so a \
+                           newer build can still read it",
+            body = ApiError,
+        ),
+    ),
+)]
+async fn get_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<WorkspaceDetail>, AppError> {
+    let store = state.store.clone();
+    let workspace = tokio::task::spawn_blocking(move || store.workspace(id)).await??;
+    Ok(Json(workspace))
+}
+
+#[utoipa::path(
+    put, path = "/api/workspaces/{id}",
+    params(("id" = i64, Path, description = "Workspace id")),
+    request_body = UpdateWorkspaceRequest,
+    responses(
+        (status = 200, description = "Workspace updated", body = WorkspaceInfo),
+        (status = 400, description = "Layout rejected", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError),
+        (
+            status = 409,
+            description = "Another client wrote first (stale revision) or the name is taken; \
+                           reload and reapply",
+            body = ApiError,
+        ),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+async fn update_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(req): Json<UpdateWorkspaceRequest>,
+) -> Result<Json<WorkspaceInfo>, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let info = tokio::task::spawn_blocking(move || -> Result<WorkspaceInfo, AppError> {
+        let info = store.update_workspace(id, &req)?;
+        engine.emit_scope(StateScope::Workspaces);
+        Ok(info)
+    })
+    .await??;
+    Ok(Json(info))
+}
+
+#[utoipa::path(
+    delete, path = "/api/workspaces/{id}",
+    params(("id" = i64, Path, description = "Workspace id")),
+    responses(
+        (status = 204, description = "Workspace removed"),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError),
+    ),
+)]
+async fn delete_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        store.delete_workspace(id)?;
+        engine.emit_scope(StateScope::Workspaces);
+        Ok(())
+    })
+    .await??;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post, path = "/api/workspaces/{id}/activate",
+    params(("id" = i64, Path, description = "Workspace id")),
+    responses(
+        (status = 204, description = "Workspace activated for every client"),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError),
+    ),
+)]
+async fn activate_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        store.activate_workspace(id)?;
+        engine.emit_scope(StateScope::Workspaces);
+        Ok(())
     })
     .await??;
     Ok(StatusCode::NO_CONTENT)
@@ -1115,6 +1314,9 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(scan_device_set))
         .routes(routes!(list_templates))
         .routes(routes!(apply_template))
+        .routes(routes!(list_workspaces, create_workspace))
+        .routes(routes!(get_workspace, update_workspace, delete_workspace))
+        .routes(routes!(activate_workspace))
         .routes(routes!(get_auth))
         .routes(routes!(get_clients))
         .routes(routes!(get_doctor))
