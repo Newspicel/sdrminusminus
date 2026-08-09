@@ -17,8 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns empty).
-      - run: sudo apt-get update && sudo apt-get install -y libsoapysdr-dev
+      # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns
+      # empty). --no-install-recommends is required: libsoapysdr0.8 recommends
+      # soapysdr-modules-all, and loading real modules headless is fatal (SoapyUHD aborts).
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsoapysdr-dev
       - uses: pnpm/action-setup@v4
         with:
           version: 11.15.1
