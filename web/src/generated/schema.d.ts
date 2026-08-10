@@ -1434,12 +1434,13 @@ export interface components {
          */
         PocsagPayload: "tone" | "numeric" | "alpha";
         /**
-         * @description When a port exists. A channel's outputs depend on what its type produces, and that answer
-         *     lives once in [`ChannelDescriptor`] — the catalog states the dependency instead of the client
-         *     inventing port names for it.
+         * @description When a port exists. A conditional port depends on what is *behind* the node — the channel type
+         *     it names, or the radio it is bound to — and those answers live once in [`ChannelDescriptor`]
+         *     and [`Capabilities`]. The catalog states the dependency instead of the client inventing port
+         *     names for it.
          * @enum {string}
          */
-        PortCondition: "always" | "channel_has_audio" | "channel_is_decoder";
+        PortCondition: "always" | "channel_has_audio" | "channel_is_decoder" | "device_is_tx_capable";
         /**
          * @description Which side of a node a port sits on.
          * @enum {string}

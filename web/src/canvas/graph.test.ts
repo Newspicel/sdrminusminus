@@ -43,6 +43,7 @@ const CATALOG: PatchCatalog = {
           port_type: "tx",
           direction: "in",
           multi: false,
+          condition: "device_is_tx_capable",
           note: "reserved: transmit is not built (PLAN §12a)",
         },
         { name: "iq", port_type: "iq", direction: "out", multi: true },
@@ -136,9 +137,19 @@ function station(): PatchGraph {
 
 const port = (n: string, p: string) => ({ node: n, port: p });
 
-/** The device node bound to a set running at this rate — all the live rate rule reads. */
-const boundAt = (rate: number) =>
-  new Map([["dev", { settings: { sample_rate: rate } } as DeviceSet]]);
+/** A device node bound to an attached radio, carrying the two things the rules read off one: the
+ * rate the live rate warning measures a channel against, and whether there is a transmitter to
+ * draw an input for. */
+const bound = (node: string, radio: { rate?: number; tx?: boolean }) =>
+  new Map([
+    [
+      node,
+      {
+        settings: { sample_rate: radio.rate },
+        capabilities: { tx_capable: radio.tx === true },
+      } as DeviceSet,
+    ],
+  ]);
 
 describe("ports", () => {
   it("resolves a channel's conditional outputs against its type", () => {
@@ -152,6 +163,24 @@ describe("ports", () => {
   it("gives an unknown channel type only its input", () => {
     const ghost = node("x", { kind: "channel", data: { channel_type: "wefax" } });
     expect(portsOf(context, ghost).map((p) => p.name)).toEqual(["iq"]);
+  });
+
+  /** An RTL-SDR has no transmitter, so the node standing for one has no socket to key. The port
+   * follows the radio, not the node kind — which is why it is answered from the binding. */
+  it("draws a transmit input only on a radio that has one", () => {
+    const dev = station().nodes[0];
+    if (dev === undefined) {
+      throw new Error("the station has a device node");
+    }
+    const receiver = { ...context, bound: bound("dev", { tx: false }) };
+    expect(portsOf(receiver, dev).map((p) => p.name)).toEqual(["control", "iq"]);
+
+    const transceiver = { ...context, bound: bound("dev", { tx: true }) };
+    expect(portsOf(transceiver, dev).map((p) => p.name)).toEqual(["control", "tx", "iq"]);
+
+    // Nothing is attached: a radio out of reach keeps the ports the patch can vouch for, and the
+    // one it cannot is left off rather than promised.
+    expect(portsOf(context, dev).map((p) => p.name)).toEqual(["control", "iq"]);
   });
 });
 
@@ -224,14 +253,19 @@ describe("connectionRefusal", () => {
   });
 
   /** The transmit input is reserved (PLAN §12a): nothing emits its type, and what the operator
-   * gets for trying is the server's own reason rather than a type-mismatch line. */
+   * gets for trying is the server's own reason rather than a type-mismatch line. Only a radio
+   * that can transmit has the input at all — on a receiver there is nothing there to aim at. */
   it("refuses everything at the reserved transmit input, with the reason", () => {
     const graph = {
       ...station(),
       nodes: [...station().nodes, node("dev2", { kind: "device", data: {} })],
     };
-    expect(connectionRefusal(context, graph, port("dev", "iq"), port("dev2", "tx"))).toMatch(
+    const transceiver = { ...context, bound: bound("dev2", { tx: true }) };
+    expect(connectionRefusal(transceiver, graph, port("dev", "iq"), port("dev2", "tx"))).toMatch(
       /transmit is not built/,
+    );
+    expect(connectionRefusal(context, graph, port("dev", "iq"), port("dev2", "tx"))).toMatch(
+      /does not exist/,
     );
   });
 
@@ -247,7 +281,7 @@ describe("connectionRefusal", () => {
     };
     // Past the top of the range: ADS-B reads the radio's own samples, and above 4 Msps there is
     // nothing left for its slicer to gain.
-    const wrong = { ...context, bound: boundAt(10_000_000) };
+    const wrong = { ...context, bound: bound("dev", { rate: 10_000_000 }) };
     expect(connectionRefusal(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
 
     // Short enough to sit on a wire; the face at its end carries the explanation.
@@ -255,7 +289,7 @@ describe("connectionRefusal", () => {
       "needs 2.000–4.000 MHz",
     );
 
-    const right = { ...context, bound: boundAt(2_048_000) };
+    const right = { ...context, bound: bound("dev", { rate: 2_048_000 }) };
     expect(edgeWarning(right, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
     // An unbound device has no rate to be wrong about yet.
     expect(edgeWarning(context, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();

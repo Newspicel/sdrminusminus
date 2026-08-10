@@ -1,9 +1,6 @@
 # DESIGN.md — the visual and interaction system for sdr--
 
-This file is binding the way `CLAUDE.md` is binding. `PLAN.md` §10 says *what* the client must
-be and `PLAN-CANVAS.md` says what shape it takes; this says *how it looks and behaves*, in
-numbers a reviewer can check. If a change needs a value that is not here, add it here in the
-same change.
+This file is binding the way `CLAUDE.md` is binding. 
 
 This is the canvas edition (`CANVAS §8` phase ②). It replaces the edition written for the
 top-bar / tab-bar / dock shell. Two things are gone, not deprecated: the anodized single-accent
@@ -130,8 +127,11 @@ Four of the five are things that move today. `tx` is the one reservation, and it
 it is: `iq`'s own circle, going the other way, **left unfilled because nothing fills it** — no node
 kind emits that type, so the port refuses every wire and says so in its hover title. It earns a row
 here rather than waiting, because the device node's shape is what tells an operator a radio has a
-send side at all. `iq-tap` (decimated channel IQ) and `position` (GPS) get no such reservation and
-stay out until their features land: nothing is holding a place for them.
+send side at all — and it says that per *radio*, not per node kind: the input is drawn only where
+`tx_capable` is true (`PortCondition::DeviceIsTxCapable`), so an RTL-SDR node has two ports and a
+transceiver has three. A receiver never shows a socket its hardware does not have. `iq-tap`
+(decimated channel IQ) and `position` (GPS) get no such reservation and stay out until their
+features land: nothing is holding a place for them.
 
 A wire and a marker are non-text graphics, so the floor is 3:1 against the ground they are drawn
 on — the canvas `bg` for a wire, `panel` or `panel-2` for a marker. The columns above are measured
@@ -551,7 +551,11 @@ Named so they are not mistaken for oversights.
   wire running into the radio it drives, and a new node lands to the right of everything already
   drawn rather than docked to anything.)
 - **What a device node looks like once it can transmit** (`PLAN §12a`). The reserved `tx` input is
-  drawn; the send half of the face behind it — power, keying, the on-air indicator, the
-  authorized-use gate — is not designed, and neither is per-radio gating of the port itself. A
-  static catalog cannot say `tx_capable`, which is live per binding, so today every device node
-  shows the same reserved input whatever radio it names.
+  drawn on the radios that have one; the send half of the face behind it — power, keying, the
+  on-air indicator, the authorized-use gate — is not designed. (The question this entry used to
+  carry alongside it is answered: per-radio gating of the port. The claim that a static catalog
+  cannot say `tx_capable` was the wrong shape of answer — the catalog does not have to *say* it,
+  only to state that the port depends on it, which is what it already did for a channel's
+  conditional outputs. The port table now carries `PortCondition::DeviceIsTxCapable` and the
+  client resolves it against the binding, so an unbound or receive-only node has no transmit
+  input at all.)

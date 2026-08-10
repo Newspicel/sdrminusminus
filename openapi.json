@@ -4163,11 +4163,12 @@
       },
       "PortCondition": {
         "type": "string",
-        "description": "When a port exists. A channel's outputs depend on what its type produces, and that answer\nlives once in [`ChannelDescriptor`] — the catalog states the dependency instead of the client\ninventing port names for it.",
+        "description": "When a port exists. A conditional port depends on what is *behind* the node — the channel type\nit names, or the radio it is bound to — and those answers live once in [`ChannelDescriptor`]\nand [`Capabilities`]. The catalog states the dependency instead of the client inventing port\nnames for it.",
         "enum": [
           "always",
           "channel_has_audio",
-          "channel_is_decoder"
+          "channel_is_decoder",
+          "device_is_tx_capable"
         ]
       },
       "PortDirection": {
