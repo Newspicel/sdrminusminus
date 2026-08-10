@@ -1519,8 +1519,42 @@ to `nodes`; the seed then puts the default station back, and a test pins that or
 ### Gates
 - [x] `cargo xtask check` green (fmt, clippy `-D warnings`, Soapy-free and native-driver builds,
   `biome ci`, type-aware `oxlint`, `tsgo`, web build, zero codegen drift)
-- [x] `cargo xtask test` green — 764 Rust tests, 271 web tests
+- [x] `cargo xtask test` green — 766 Rust tests, 270 web tests
 - [x] `cargo xtask smoke` green — the Playwright flow, in CI behind a browser install step
+
+### The review round
+
+A five-dimension review (wire/server, canvas core, faces and GL, plan conformance, lost
+capability) with every finding put to an independent skeptic: 48 raised, 18 refuted, 30 fixed
+here. The three that mattered most were all invisible to the gates:
+
+- **The mode ring desynced the node from its channel.** `m` PATCHed the engine channel's params
+  *type*, but the node names the type (CANVAS §4), so the face unbound itself and the next apply
+  added a *second* channel for it — unbounded growth across reloads. The gesture now moves both
+  halves, and the smoke flow presses `m` and asserts one channel and a bound face.
+- **Apply never ran on load.** The effect keyed on the id the workspace *list* reports, while
+  `apply()` reads the id off the *detail* query, which is still resolving on that render — so it
+  fired once into a no-op and marked itself done. A restart therefore came back as a canvas full
+  of disconnected nodes, which is the exact case apply-on-load exists for. Keyed on the loaded
+  station now.
+- **Removing a node left the engine running it.** Apply is additive by design, so removal is the
+  only gesture that closes anything — and it only edited the graph. `DELETE /api/devicesets/{ds}`
+  and `.../channels/{ch}` had lost their last callers in the same change. Removal now stops the
+  engine object first and edits the patch only if that succeeded.
+
+The rest, in one line each: selection changes arrive as a diff in node order and were applied one
+at a time, so clicking a node that sorted earlier read as deselecting; rebuilding every React
+Flow node on each write discarded the library's own `selected` and measured bounds; the wire
+refusal was unreachable because React Flow only calls `onConnect` for connections
+`isValidConnection` already accepted (it comes from `onConnectEnd` now); two concurrent applies
+both probed and both opened the same radio; re-applying a template took away the receiver another
+template's channels were hanging off; a merged template could land on top of a node that had
+never been resized; arrow-key tuning had lost the dial's clamp; the map plotted every decoder
+rather than the ones wired into it; a lost WebGL context blacked out every scope for good; the
+spectrum panned at the wrong rate under canvas zoom; the recorder face had lost its
+"receiver must be running" gate and its elapsed readout; the Library drawer silently targeted the
+first radio; and a set of stale `DESIGN.md §N` citations, wrong numbers and a first-run guide
+still describing the deleted shell.
 
 ### Known gaps (honest, not deferred silently)
 - **Three node kinds in `CANVAS §1` are not built**: the GPS source (PLAN §13 Phase 4), the UDP

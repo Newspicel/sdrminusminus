@@ -64,6 +64,16 @@ export interface TargetDetail {
   rows: readonly (readonly [string, string])[];
 }
 
+/**
+ * The kinds a map node plots, from the decoder kinds wired into it (CANVAS §1: layers per
+ * connected decoder). Deduplicated and in `MAP_KINDS` order, so the layer stack does not depend
+ * on the order the wires happen to be stored in; a decoder that reports no position — POCSAG,
+ * ACARS — simply drops out, and a map fed only by those gets nothing to draw.
+ */
+export function mapKindsOf(kinds: readonly string[]): MapKind[] {
+  return MAP_KINDS.filter((kind) => kinds.includes(kind));
+}
+
 export function sourceId(kind: MapKind): string {
   return `targets-${kind}`;
 }

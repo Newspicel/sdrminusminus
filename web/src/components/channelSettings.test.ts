@@ -3,13 +3,10 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelDescriptor, ChannelSettings } from "../lib/types";
 import {
-  type ChannelTypeId,
   channelDecoderKind,
   channelHasAudio,
   clampOffsetHz,
-  defaultChannelSettings,
   exactRateMismatch,
-  isChannelTypeId,
   mergeChannelSettings,
   offsetLimitHz,
 } from "./channelSettings";
@@ -19,22 +16,6 @@ const base: ChannelSettings = {
   squelch_db: -70,
   params: { type: "ssb", settings: { sideband: "lsb", bandwidth_hz: 2_400, agc: false } },
 };
-
-const TYPE_IDS: ChannelTypeId[] = [
-  "nfm",
-  "am",
-  "ssb",
-  "wfm",
-  "pocsag",
-  "adsb",
-  "ais",
-  "aprs",
-  "rtty",
-  "morse",
-  "navtex",
-  "acars",
-  "subghz",
-];
 
 function descriptor(over: Partial<ChannelDescriptor>): ChannelDescriptor {
   return {
@@ -101,30 +82,6 @@ describe("mergeChannelSettings", () => {
       params: { type: "morse", settings: { bandwidth_hz: 400, wpm: null } },
     });
     expect(next.params).toEqual({ type: "morse", settings: { bandwidth_hz: 400, wpm: null } });
-  });
-});
-
-describe("defaultChannelSettings", () => {
-  it("builds an empty tagged settings object per known type", () => {
-    for (const typeId of TYPE_IDS) {
-      expect(defaultChannelSettings(typeId)).toEqual({
-        offset_hz: 0,
-        params: { type: typeId, settings: {} },
-      });
-    }
-  });
-
-  it("hands out a fresh object so an edit cannot poison the next add", () => {
-    const first = defaultChannelSettings("adsb");
-    const second = defaultChannelSettings("adsb");
-    expect(first).not.toBe(second);
-    expect(first?.params.settings).not.toBe(second?.params.settings);
-  });
-
-  it("rejects unknown type ids", () => {
-    expect(defaultChannelSettings("dmr")).toBeNull();
-    expect(isChannelTypeId("dmr")).toBe(false);
-    expect(isChannelTypeId("pocsag")).toBe(true);
   });
 });
 

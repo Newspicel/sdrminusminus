@@ -1,12 +1,18 @@
 // Aircraft (ADS-B), ships (AIS) and APRS stations on one MapLibre map (PLAN §10 Maps, §13 P2).
 // Targets come from the decoded store, never from TanStack Query — this is the high-rate plane.
-// There is deliberately no React element per target: MapLibre owns one GeoJSON source per kind
-// and gets a `setData` on the `DRAW_TICK_MS` tick, so a thousand aircraft cost three source
-// updates every 500 ms rather than a thousand components.
+// There is deliberately no React element per target: MapLibre owns one GeoJSON source per wired
+// kind and gets a `setData` on the `DRAW_TICK_MS` tick, so a thousand aircraft cost one source
+// update every 500 ms rather than a thousand components.
+//
+// `kinds` is the whole content of the map: a map node draws layers per *connected* decoder
+// (CANVAS §1), so two map nodes on different wires plot different things. It changes while the
+// map lives, and the layer stack is rebuilt in place rather than the map — the operator's view
+// is not something a wire change may take away.
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   type GeoJSONSource,
   Map as MapLibreMap,
+  type MapMouseEvent,
   type MapOptions,
   NavigationControl,
   setWorkerUrl,
@@ -21,6 +27,7 @@ import {
   layerId,
   MAP_KINDS,
   type MapKind,
+  mapKindsOf,
   sourceId,
   TARGET_MAX_AGE_MS,
   type Target,
@@ -54,7 +61,7 @@ type Counts = Record<MapKind, number>;
 const EMPTY_COLLECTION: TargetCollection = { type: "FeatureCollection", features: [] };
 const ZERO_COUNTS: Counts = { adsb: 0, ais: 0, aprs: 0 };
 
-export function MapPanel({ className }: { className?: string }) {
+export function MapPanel({ kinds, className }: { kinds: readonly MapKind[]; className?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const readyRef = useRef(false);
@@ -63,6 +70,11 @@ export function MapPanel({ className }: { className?: string }) {
   const drawnRef = useRef<Partial<Record<MapKind, readonly Target[]>>>({});
   const selectedRef = useRef<{ kind: MapKind; id: string } | null>(null);
   const framedRef = useRef(false);
+  // The map is built once and outlives any number of wire changes, so the listeners and the draw
+  // tick read the wired kinds and the theme edge from here rather than closing over them.
+  const kindsRef = useRef(kinds);
+  kindsRef.current = kinds;
+  const edgeRef = useRef("");
 
   const countsRef = useRef<Counts>(ZERO_COUNTS);
 
@@ -80,13 +92,15 @@ export function MapPanel({ className }: { className?: string }) {
     const select = (next: { kind: MapKind; id: string } | null): void => {
       selectedRef.current = next;
       setDetail(next === null ? null : findDetail(next.kind, next.id));
-      highlight(mapRef.current, next);
+      highlight(mapRef.current, kindsRef.current, next);
     };
 
+    // One token does double duty: the offline backdrop, and the outline that keeps every target
+    // readable against whichever basemap is under it.
+    const edge = themeColor(container, "--color-bg", "#0b0e14");
+    edgeRef.current = edge;
+
     void (async () => {
-      // One token does double duty: the offline backdrop, and the outline that keeps every
-      // target readable against whichever basemap is under it.
-      const edge = themeColor(container, "--color-bg", "#0b0e14");
       const style = await fetchStyle();
       if (disposed) {
         return;
@@ -104,10 +118,10 @@ export function MapPanel({ className }: { className?: string }) {
       map.addControl(new NavigationControl({ showCompass: false }), "top-right");
 
       map.on("style.load", () => {
-        installLayers(map, edge);
+        installLayers(map, edge, kindsRef.current);
         readyRef.current = true;
         drawnRef.current = {};
-        highlight(map, selectedRef.current);
+        highlight(map, kindsRef.current, selectedRef.current);
       });
 
       // Once the operator has moved the map themselves, the auto-frame below must never take the
@@ -118,31 +132,14 @@ export function MapPanel({ className }: { className?: string }) {
         }
       });
 
-      map.on("click", (event) => {
-        const { x, y } = event.point;
-        const hit = map.queryRenderedFeatures(
-          [
-            [x - HIT_SLOP_PX, y - HIT_SLOP_PX],
-            [x + HIT_SLOP_PX, y + HIT_SLOP_PX],
-          ],
-          // A kind whose course icon could not be rasterised has no heading layer, and querying
-          // a layer the style does not have is an error.
-          { layers: allLayerIds().filter((id) => map.getLayer(id) !== undefined) },
-        )[0];
-        const kind = hit === undefined ? undefined : LAYER_KIND.get(hit.layer.id);
-        const id: unknown = hit?.properties.id;
-        select(kind === undefined || typeof id !== "string" ? null : { kind, id });
-      });
+      map.on("click", (event) => select(hitTarget(map, event)));
 
-      for (const kind of MAP_KINDS) {
-        const clickable = [layerId(kind, "dot"), layerId(kind, "label")];
-        map.on("mouseenter", clickable, () => {
-          map.getCanvas().style.cursor = "pointer";
-        });
-        map.on("mouseleave", clickable, () => {
-          map.getCanvas().style.cursor = "";
-        });
-      }
+      // One hit test against the layers that exist, rather than MapLibre's per-layer
+      // enter/leave listeners: the layer set follows the wires, and a delegated listener
+      // outlives the layer it names.
+      map.on("mousemove", (event) => {
+        map.getCanvas().style.cursor = hitTarget(map, event) === null ? "" : "pointer";
+      });
     })();
 
     return () => {
@@ -164,7 +161,7 @@ export function MapPanel({ className }: { className?: string }) {
       const next = { ...countsRef.current };
       let changed = false;
 
-      for (const kind of MAP_KINDS) {
+      for (const kind of kindsRef.current) {
         const rows = stations[kind] ?? EMPTY_STATIONS;
         if (rows === drawnRef.current[kind]) {
           continue;
@@ -197,7 +194,7 @@ export function MapPanel({ className }: { className?: string }) {
         );
         if (current === null) {
           selectedRef.current = null;
-          highlight(map, null);
+          highlight(map, kindsRef.current, null);
         }
       }
     };
@@ -215,13 +212,38 @@ export function MapPanel({ className }: { className?: string }) {
     };
   }, []);
 
+  // Rewiring the node changes what it plots. The key, not the array, is the dependency: `kinds`
+  // is rebuilt on every render, and a rebuilt layer stack twice a second is not what a wire
+  // change costs.
+  const kindsKey = kinds.join(" ");
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || !readyRef.current) {
+      // Before the style lands there is nothing to install into; `style.load` does the first one.
+      return;
+    }
+    const wired = mapKindsOf(kindsKey.split(" "));
+    installLayers(map, edgeRef.current, wired);
+    // Every source starts empty again, so nothing may be held back as already drawn.
+    drawnRef.current = {};
+    const selected = selectedRef.current;
+    if (selected !== null && !wired.includes(selected.kind)) {
+      // The layer the selection was drawn on is gone with its wire.
+      selectedRef.current = null;
+      setDetail(null);
+    }
+    // A rebuilt dot layer carries default paint, so a selection that survived the rewire has to
+    // be drawn onto it again.
+    highlight(map, wired, selectedRef.current);
+  }, [kindsKey]);
+
   return (
     <div className={`relative ${className ?? "h-[min(60dvh,28rem)] min-h-64 w-full"}`}>
       <div ref={containerRef} className="absolute inset-0 bg-bg" />
 
       <div className="pointer-events-none absolute top-2 left-2 flex flex-col items-start gap-1">
         <div className="flex flex-col gap-1 rounded border border-line bg-bg/85 px-2 py-1.5">
-          {MAP_KINDS.map((kind) => (
+          {kinds.map((kind) => (
             <div key={kind} className="flex items-center gap-2 font-mono text-[10px] tabular-nums">
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full"
@@ -254,7 +276,7 @@ export function MapPanel({ className }: { className?: string }) {
               onClick={() => {
                 selectedRef.current = null;
                 setDetail(null);
-                highlight(mapRef.current, null);
+                highlight(mapRef.current, kinds, null);
               }}
               aria-label="Clear target selection"
             >
@@ -282,14 +304,31 @@ export function MapPanel({ className }: { className?: string }) {
 
 const EMPTY_STATIONS: readonly Target[] = Object.freeze([]);
 
+const LAYER_PARTS = ["dot", "heading", "label"] as const;
+
 const LAYER_KIND: ReadonlyMap<string, MapKind> = new Map(
-  MAP_KINDS.flatMap((kind) =>
-    (["dot", "heading", "label"] as const).map((part) => [layerId(kind, part), kind]),
-  ),
+  MAP_KINDS.flatMap((kind) => LAYER_PARTS.map((part) => [layerId(kind, part), kind])),
 );
 
-function allLayerIds(): string[] {
-  return [...LAYER_KIND.keys()];
+/** The topmost target under the pointer. Layers the style does not carry are filtered out
+ * first: an unwired kind has none at all, a kind whose course icon could not be rasterised has
+ * no heading layer, and querying a layer that is not there is an error. */
+function hitTarget(map: MapLibreMap, event: MapMouseEvent): { kind: MapKind; id: string } | null {
+  const layers = [...LAYER_KIND.keys()].filter((id) => map.getLayer(id) !== undefined);
+  if (layers.length === 0) {
+    return null;
+  }
+  const { x, y } = event.point;
+  const hit = map.queryRenderedFeatures(
+    [
+      [x - HIT_SLOP_PX, y - HIT_SLOP_PX],
+      [x + HIT_SLOP_PX, y + HIT_SLOP_PX],
+    ],
+    { layers },
+  )[0];
+  const kind = hit === undefined ? undefined : LAYER_KIND.get(hit.layer.id);
+  const id: unknown = hit?.properties.id;
+  return kind === undefined || typeof id !== "string" ? null : { kind, id };
 }
 
 /** `null` = the basemap could not be reached, so the caller falls back to the offline backdrop.
@@ -320,8 +359,22 @@ function offlineStyle(background: string): MapStyle {
   };
 }
 
-function installLayers(map: MapLibreMap, edge: string): void {
+/** The map's layer stack, rebuilt from scratch for exactly the wired kinds. Taking the whole
+ * stack down first is what keeps a rewire cheap to reason about: the alternative is a diff whose
+ * insertion order has to reproduce the dots-then-labels rule below. */
+function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]): void {
   for (const kind of MAP_KINDS) {
+    for (const part of LAYER_PARTS) {
+      if (map.getLayer(layerId(kind, part)) !== undefined) {
+        map.removeLayer(layerId(kind, part));
+      }
+    }
+    if (map.getSource(sourceId(kind)) !== undefined) {
+      map.removeSource(sourceId(kind));
+    }
+  }
+
+  for (const kind of kinds) {
     const { color } = KIND_STYLE[kind];
     map.addSource(sourceId(kind), { type: "geojson", data: EMPTY_COLLECTION });
 
@@ -340,13 +393,16 @@ function installLayers(map: MapLibreMap, edge: string): void {
     });
 
     // A course indicator only exists if we could rasterise one; without it the map keeps its
-    // dots rather than asking MapLibre for an image that is not there.
+    // dots rather than asking MapLibre for an image that is not there. Images outlive the layer
+    // stack, so a rewire reuses the one already registered.
     const arrow = `${sourceId(kind)}-arrow`;
-    const image = arrowImage(color, edge);
-    if (image === null) {
-      continue;
+    if (!map.hasImage(arrow)) {
+      const image = arrowImage(color, edge);
+      if (image === null) {
+        continue;
+      }
+      map.addImage(arrow, image, { pixelRatio: ARROW_SCALE });
     }
-    map.addImage(arrow, image, { pixelRatio: ARROW_SCALE });
     map.addLayer({
       id: layerId(kind, "heading"),
       type: "symbol",
@@ -363,7 +419,7 @@ function installLayers(map: MapLibreMap, edge: string): void {
   }
 
   // Labels last so no kind's dots can cover another kind's text.
-  for (const kind of MAP_KINDS) {
+  for (const kind of kinds) {
     map.addLayer({
       id: layerId(kind, "label"),
       type: "symbol",
@@ -386,11 +442,19 @@ function installLayers(map: MapLibreMap, edge: string): void {
   }
 }
 
-function highlight(map: MapLibreMap | null, selected: { kind: MapKind; id: string } | null): void {
-  if (map === null || !map.getLayer(layerId(MAP_KINDS[0], "dot"))) {
+function highlight(
+  map: MapLibreMap | null,
+  kinds: readonly MapKind[],
+  selected: { kind: MapKind; id: string } | null,
+): void {
+  if (map === null) {
     return;
   }
-  for (const kind of MAP_KINDS) {
+  for (const kind of kinds) {
+    // The style has no target layers before `style.load`, and none for a kind whose wire went.
+    if (map.getLayer(layerId(kind, "dot")) === undefined) {
+      continue;
+    }
     const active = selected !== null && selected.kind === kind ? selected.id : null;
     map.setPaintProperty(
       layerId(kind, "dot"),

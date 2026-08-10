@@ -7,7 +7,8 @@ binaries, no piping audio to another tool.
 Every decoder emits a typed event, not a line of text. The event travels three ways from one
 definition: pushed to clients over the WebSocket, stored in the
 [decoder log](decoder-log.md), and rendered by the log table, the CSV export, the map and the
-per-decoder panel. Adding a field to a decoder's event adds it everywhere at once.
+decoding channel's own node face. Adding a field to a decoder's event adds it everywhere at
+once.
 
 Decoder channels advertise no audio, so the client hides the audio transport instead of
 offering a silent stream. The exception is RDS, which rides the WFM channel: one demod chain
@@ -15,10 +16,11 @@ produces both the audio and the subcarrier.
 
 ## How to run one
 
-Add the channel type at the right offset on a device whose rate is high enough for the
-descriptor's input rate. `cargo xtask fixtures` writes a playable SigMF pair per decoder with
-the exact channel and offset documented in `fixtures/README.md` — that is the fastest way to
-see one work.
+Add a channel node of that type, wire it to a receiver whose rate is high enough for the
+descriptor's input rate, and set its offset. Wire its `events` output into a decoder log, a map
+or an export to keep what it produces. `cargo xtask fixtures` writes a playable SigMF pair per
+decoder with the exact channel and offset documented in `fixtures/README.md` — that is the
+fastest way to see one work.
 
 ## RDS
 

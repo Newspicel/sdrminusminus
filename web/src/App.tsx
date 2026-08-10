@@ -10,14 +10,14 @@ import { useEffect, useMemo, useState } from "react";
 import { bindChannels, bindDevices } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { StationProvider } from "./canvas/context";
-import { isPinned, pin, unpin } from "./canvas/graph";
+import { isPinned, patchNode, pin, unpin } from "./canvas/graph";
 import { deviceDialId } from "./canvas/nodes/DeviceFace";
 import { Rack } from "./canvas/Rack";
 import { StationBar, type View } from "./canvas/StationBar";
 import { useHotkeys } from "./canvas/useHotkeys";
 import { useStation } from "./canvas/useStation";
 import { BTN_PRIMARY } from "./components/controls";
-import { TUNE_STEPS_HZ } from "./components/dial";
+import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
 import { Shortcuts } from "./components/Shortcuts";
 import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
@@ -163,10 +163,15 @@ export function App() {
 
   useHotkeys({
     tune: (steps) => {
-      if (selectedSet !== null) {
-        const current = cachedSettings(selectedSet.id)?.center_hz ?? 0;
-        applyPatch(selectedSet.id, { center_hz: current + steps * stepHz });
+      if (selectedSet === null) {
+        return;
       }
+      // Clamped like the dial: a radio at the edge of its range should stop there, not send the
+      // driver a frequency it will refuse and toast about once per keypress.
+      const range = tuningRange(selectedSet.capabilities);
+      const current = cachedSettings(selectedSet.id)?.center_hz ?? 0;
+      const wanted = current + steps * stepHz;
+      applyPatch(selectedSet.id, { center_hz: Math.min(range.max, Math.max(range.min, wanted)) });
     },
     stepBy: (direction) => {
       const at = TUNE_STEPS_HZ.indexOf(stepHz as (typeof TUNE_STEPS_HZ)[number]);
@@ -195,9 +200,21 @@ export function App() {
       // A decoder channel is not on the ring; entering it at the first mode is the only sane
       // answer, and the settings for the new mode start at the server's defaults.
       const next = MODE_RING[(Math.max(0, at) + direction + MODE_RING.length) % MODE_RING.length];
-      if (next !== undefined) {
-        applyEdit(selectedSet.id, selectedChannel.id, { params: { type: next, settings: {} } });
+      if (next === undefined || selected === null) {
+        return;
       }
+      // Both halves, or the node and its channel disagree: the engine keeps the channel's id
+      // across a type change, but the *node* names the type (CANVAS §4), so a patch left saying
+      // `nfm` would unbind this face and the next apply would add a second channel for it.
+      applyEdit(selectedSet.id, selectedChannel.id, { params: { type: next, settings: {} } });
+      station.save((current) => ({
+        ...current,
+        graph: patchNode(current.graph, selected, (node) =>
+          node.kind === "channel"
+            ? { ...node, kind: "channel" as const, data: { channel_type: next } }
+            : node,
+        ),
+      }));
     },
     adjustSquelch: (deltaDb) => {
       if (selectedSet === null || selectedChannel === null) {

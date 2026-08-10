@@ -62,6 +62,12 @@ pub(crate) struct AppState {
     /// delete's unlink→row-delete window turns a successful delete into a 404 (skipping its
     /// Recordings emit), and stale-scan prunes churn row ids held by clients.
     pub recordings_gate: Arc<std::sync::Mutex<()>>,
+    /// Serializes `POST /api/workspaces/{id}/apply`. Apply decides what to open by comparing the
+    /// patch against a probe and the current state, so two of them interleaving both see "no set
+    /// for this radio" and both open it — a second streaming device set that apply, being
+    /// additive, can never close again. Two clients loading the same station at once is the
+    /// ordinary way that happens.
+    pub apply_gate: Arc<std::sync::Mutex<()>>,
     /// Decoder frames the log writer itself lost. Shared with the writer task and reported by
     /// `GET /api/decoderlog`.
     decoder_log_dropped: Arc<AtomicU64>,
@@ -81,6 +87,7 @@ impl AppState {
             auth: auth::Auth::default(),
             db_path: None,
             recordings_gate: Arc::new(std::sync::Mutex::new(())),
+            apply_gate: Arc::new(std::sync::Mutex::new(())),
             decoder_log_dropped: Arc::new(AtomicU64::new(0)),
             decoded_text: tokio::sync::broadcast::channel(DECODED_TEXT_CAP).0,
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),

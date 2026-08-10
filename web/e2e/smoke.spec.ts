@@ -5,6 +5,8 @@
 // the unit suite cannot reach (PLAN §14). It asserts behaviour, not markup: what an operator
 // would check after each gesture.
 import { expect, type Locator, type Page, test } from "@playwright/test";
+// The state shape is generated from the server's OpenAPI, like everywhere else (CLAUDE.md #1).
+import type { StateSnapshot } from "../src/lib/types";
 
 /** Draw a wire between two ports the way a pointer does. */
 async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
@@ -55,10 +57,26 @@ test.describe("the station", () => {
     // The state the server reports is the contract; the canvas is just its picture.
     await expect
       .poll(async () => {
-        const state = await page.request.get("/api/state").then((r) => r.json());
-        return [state.device_sets.length, state.device_sets[0]?.channels?.length ?? 0];
+        const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
+        return [state.device_sets.length, state.device_sets[0]?.channels.length ?? 0];
       })
       .toEqual([1, 1]);
+
+    // Cycling the mode has to move the node and its engine channel together: the node names the
+    // type (CANVAS §4), so a patch left naming the old one unbinds the face and the next apply
+    // adds a second channel for it.
+    const channel = page.locator('.react-flow__node[data-id^="channel:"]');
+    await channel.getByText("NFM", { exact: true }).first().click();
+    await page.keyboard.press("m");
+    await expect
+      .poll(async () => {
+        const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
+        return state.device_sets[0]?.channels.map((c) => c.settings.params.type) ?? [];
+      })
+      .toEqual(["wfm"]);
+    // Still one face, still bound — not the "not created" state a desynced node falls into.
+    await expect(channel).toHaveCount(1);
+    await expect(channel.getByText(/nothing feeds this channel|not been created/i)).toHaveCount(0);
 
     // Pinning moves the live face to the rack and leaves a placeholder behind (CANVAS §5).
     await node("scope")
@@ -70,9 +88,14 @@ test.describe("the station", () => {
     await rack.click();
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
 
-    // The arrangement is server state, not browser state (PLAN §10): a reload restores it.
+    // The arrangement is server state, not browser state (PLAN §10): a reload restores it — and
+    // the station comes back bound, which is what applying on load buys.
     await page.reload();
     await expect(node("scope").getByText(/pinned to the rack/i)).toBeVisible();
+    await expect(node("device").locator('[id^="frequency-dial"]')).toBeVisible();
+    await expect(
+      page.locator('.react-flow__node[data-id^="channel:"]').getByText(/nothing feeds/i),
+    ).toHaveCount(0);
     await rack.click();
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
   });

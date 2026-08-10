@@ -1,4 +1,4 @@
-// The tuning dial (DESIGN.md §6) — the signature control of the UI. Every digit is its own
+// The tuning dial (DESIGN.md §9) — the signature control of the UI. Every digit is its own
 // target: scroll it, arrow it, or type over it. The arithmetic lives in `dial.ts`;
 // this routes events and draws the place-value grouping.
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -17,30 +17,24 @@ import {
 export const DIAL_ID = "frequency-dial";
 
 /**
- * How large the digits are drawn. The bar's dial is the tallest thing in the chrome and sizes
- * off the viewport; a node face sizes off the node, which the operator resizes — so there the
- * digits follow the container the face puts around them (CANVAS §6: the dial is the face of
- * every device node, at whatever size that node has been given).
+ * The dial sizes off the node, never off the viewport: the operator resizes the node, so the
+ * digits follow the `@container` the face puts around them (CANVAS §6 — the dial is the face of
+ * every device node, at whatever size that node has been given). Every step is on DESIGN.md §3's
+ * scale.
  */
-export type DialSize = "bar" | "face";
-
-const DIGIT_SIZE: Record<DialSize, string> = {
-  bar: "text-[20px] md:text-[34px]",
-  face: "text-[15px] @min-[17rem]:text-[19px] @min-[22rem]:text-[26px] @min-[28rem]:text-[34px]",
-};
+const DIGIT_SIZE =
+  "text-[16px] @min-[17rem]:text-[20px] @min-[22rem]:text-[26px] @min-[28rem]:text-[34px]";
 
 export function FrequencyDial({
   hz,
   range,
   onTune,
-  size = "bar",
   disabled = false,
   id = DIAL_ID,
 }: {
   hz: number;
   range: Range;
   onTune: (hz: number) => void;
-  size?: DialSize;
   /** Something else owns the tuning: a running scanner drives the radio and the server refuses a
    * client retune while it does (PLAN §18). The readout stays live; only the controls go. */
   disabled?: boolean;
@@ -143,7 +137,6 @@ export function FrequencyDial({
         <Digit
           key={digit.place}
           digit={digit}
-          size={size}
           active={i === index}
           disabled={disabled}
           onSelect={() => setActive(i)}
@@ -158,19 +151,17 @@ export function FrequencyDial({
 /** Groups are drawn by the separators between digits, not by wrapper elements: a boundary that
  * is a margin cannot be clicked by mistake, and the digits stay one flat row for the arrows.
  *
- * Each digit is split across its own height (DESIGN.md §6): the upper half steps that decade up,
+ * Each digit is split across its own height (DESIGN.md §9): the upper half steps that decade up,
  * the lower half down. The armed half is tinted and takes a directional cursor *before* the
  * press, because a control that retunes the radio has to say which way it is about to go. */
 function Digit({
   digit,
-  size,
   active,
   disabled,
   onSelect,
   onStep,
 }: {
   digit: DialDigit;
-  size: DialSize;
   active: boolean;
   disabled: boolean;
   onSelect: () => void;
@@ -188,7 +179,7 @@ function Digit({
         disabled={disabled}
         data-place={digit.place}
         aria-label={`${10 ** digit.place} hertz digit`}
-        className={`relative min-h-7 overflow-hidden rounded-[2px] px-[2px] tabular-nums transition-colors duration-100 pointer-coarse:min-h-10 ${DIGIT_SIZE[size]} ${
+        className={`relative min-h-7 overflow-hidden rounded-[2px] px-[2px] tabular-nums transition-colors duration-100 pointer-coarse:min-h-10 ${DIGIT_SIZE} ${
           armed === null ? "" : armed > 0 ? "cursor-n-resize" : "cursor-s-resize"
         } ${
           armed !== null || active ? "text-accent" : digit.leading ? "text-ink-faint" : "text-ink"
@@ -233,7 +224,7 @@ function Digit({
         <span className="relative">{digit.digit}</span>
       </button>
       {separator !== "" && (
-        <span aria-hidden className={`text-ink-dim ${DIGIT_SIZE[size]}`}>
+        <span aria-hidden className={`text-ink-dim ${DIGIT_SIZE}`}>
           {separator}
         </span>
       )}
@@ -263,10 +254,10 @@ function DirectEntry({
       autoFocus
       aria-label="Tune to frequency"
       placeholder="145.5 · 433800k · 2.4g"
-      // Deliberately not the dial's display size: this is a field being typed into for a
-      // second, not the readout being watched, and matching the 34px digits made the top bar
-      // read as if the whole instrument had been replaced by a text box.
-      className={`h-9 w-[15ch] rounded-[3px] border bg-panel-2 px-2 font-mono text-[17px] leading-none tabular-nums text-ink placeholder:text-[11px] placeholder:text-ink-faint md:text-[20px] ${
+      // Deliberately below the digits it replaces: this is a field being typed into for a
+      // second, not the readout being watched, and at dial size it reads as if the instrument
+      // itself had been swapped for a text box.
+      className={`h-9 w-[15ch] rounded-[3px] border bg-panel-2 px-2 font-mono text-[16px] leading-none tabular-nums text-ink placeholder:text-[11px] placeholder:text-ink-faint @min-[22rem]:text-[20px] ${
         empty || parsed !== null ? "border-accent" : "border-danger"
       }`}
       value={draft}

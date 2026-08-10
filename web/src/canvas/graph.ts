@@ -182,26 +182,6 @@ export function patchNode(
   };
 }
 
-/** Apply positions and sizes from a drag or resize gesture in one pass. */
-export function applyGeometry(
-  graph: PatchGraph,
-  moved: ReadonlyMap<
-    string,
-    { position: { x: number; y: number }; size?: { w: number; h: number } }
-  >,
-): PatchGraph {
-  return {
-    ...graph,
-    nodes: graph.nodes.map((node) => {
-      const next = moved.get(node.id);
-      if (next === undefined) {
-        return node;
-      }
-      return { ...node, position: next.position, ...(next.size ? { size: next.size } : {}) };
-    }),
-  };
-}
-
 /** Structural equality, used to drop an echo of our own write and an aborted drag. Stringify is
  * enough because every producer builds these objects in field order from the same code. */
 export function sameGraph(a: PatchGraph, b: PatchGraph): boolean {
@@ -210,8 +190,8 @@ export function sameGraph(a: PatchGraph, b: PatchGraph): boolean {
 
 // ── the rack ──────────────────────────────────────────────────────────────────────────────
 
-/** Default cells a newly pinned face occupies. Wide enough for a scope, short enough that four
- * fit on a 24-column grid. */
+/** Default cells a newly pinned face occupies. Wide enough for a scope, and six of them tile the
+ * grid — two across, three down. */
 export const RACK_DEFAULT = { w: 12, h: 8 } as const;
 export const RACK_COLS = 24;
 export const RACK_ROWS = 24;

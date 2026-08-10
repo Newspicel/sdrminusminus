@@ -1,4 +1,4 @@
-// The control kit (DESIGN.md §4, §9). One place so every strip, panel and popover in the UI is
+// The control kit (DESIGN.md §4, §11). One place so every strip, panel and popover in the UI is
 // built from the same parts — a control that needs a look not in here is a missing entry, not a
 // local class string.
 //
@@ -14,7 +14,7 @@ export const BTN =
   `${INTERACTIVE} h-7 border border-line-strong bg-panel-2 px-2.5 text-xs text-ink ` +
   "hover:border-accent hover:text-accent";
 
-/** The single most likely next action in a view. Exactly one per view (DESIGN.md §9). */
+/** The single most likely next action in a view. Exactly one per view (DESIGN.md §11). */
 export const BTN_PRIMARY =
   `${INTERACTIVE} h-7 border border-accent bg-accent px-3 text-xs font-medium text-bg ` +
   "hover:brightness-110";

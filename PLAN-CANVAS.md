@@ -160,7 +160,10 @@ camera.
   alone is a complete UI.
 - **One live surface per node:** a pinned face renders in the rack and the canvas node
   collapses to a compact "pinned →" placeholder. Never two GL contexts for one instrument.
-- Keyboard-first carries over: tune step, mode, squelch, focus-next-face all bound.
+- Keyboard-first carries over: tune step, mode, squelch, selecting a node, pinning it and
+  swapping patch for rack are all bound (`DESIGN.md §10`). There is no focus-next-face key this
+  section once promised — the number row addresses a node directly, which is what an operator
+  looking at the canvas actually wants.
 
 ---
 
@@ -198,7 +201,9 @@ floors, plot-ink and colormap rules, tabular numerals, zero idle motion) still b
 
 Tests are part of every phase (`CLAUDE.md`), not listed per line: wire types get codegen +
 drift checks, server handlers get handler tests + OpenAPI snapshots, validation gets unit
-tests, and the canvas gets the Playwright smoke flow the web suite still owes.
+tests, and the canvas got the Playwright smoke flow the web suite had owed since M6 —
+`web/e2e/smoke.spec.ts` via `cargo xtask smoke`, in CI. It covers the spine only; what it does
+not cover is listed in `PROGRESS.md`'s M7 entry.
 
 1. ✅ **Identity + wire model.** `DeviceRef`, `PatchGraph`, `RackLayout` in `wire`; server
    endpoints + graph validation; codegen.
@@ -210,6 +215,14 @@ tests, and the canvas gets the Playwright smoke flow the web suite still owes.
 5. ✅ **Deletion.** dockview, tabs and the `LayoutNode` tree removed from `wire`, server and
    web. Stored M6 workspaces do not migrate — personal project, a clean reset is accepted
    and recorded here rather than buying a converter for layouts the new model cannot express.
+
+**Templates author a patch and no rack.** Phase ④ first promised both; the shipped
+`crates/server/src/templates.rs` emits a `PatchGraph` only, and `PLAN §10` was struck to match
+rather than left saying otherwise. A rack is the arrangement of the faces *this* operator is
+working right now, and §5 says the canvas alone is a complete UI — a template that arrived
+pre-pinned would be tidying someone else's bench, and unpinning six faces is worse than pinning
+the two you want. `TemplateInfo` can carry a `rack` beside its `patch` the day a template has a
+reason to.
 
 **The transitional dual shell was skipped.** Phase ② said the dockview shell would ship
 alongside the canvas until ⑤; all five phases landed in one change instead, so the two never

@@ -43,7 +43,7 @@ import { channelNodesOf, sourcesOf } from "../binding";
 import { deviceSetOf, useStationContext } from "../context";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
 
-/** Below this a pointer gesture is a click, not a pan (DESIGN.md §7). */
+/** Below this a pointer gesture is a click, not a pan (DESIGN.md §9). */
 const DRAG_SLOP_PX = 4;
 /** How close the pointer must be to a marker to grab it rather than pan the plot. */
 const GRAB_PX = 10;
@@ -52,7 +52,7 @@ const TRACE_MIN = 0.15;
 const TRACE_MAX = 0.75;
 /** Rows the frequency axis reserves at the bottom of the trace canvas, in CSS pixels. */
 const AXIS_H = 16;
-/** Gridlines carry less ink than the data they sit behind (DESIGN.md §7). */
+/** Gridlines carry less ink than the data they sit behind (DESIGN.md §2). */
 const GRID_ALPHA = 0.16;
 
 interface FrameMeta {
@@ -171,7 +171,10 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
     }
     let renderer: WaterfallView;
     try {
-      renderer = attachWaterfall(canvas);
+      // `setGlError` is also the renderer's channel for what goes wrong later — a GPU reset takes
+      // the shared context out from under every scope at once — and for clearing it again once
+      // the plot is drawing from a rebuilt one.
+      renderer = attachWaterfall(canvas, setGlError);
     } catch (error) {
       // No WebGL2, or a driver that refuses the shader. The waterfall is the centerpiece, but
       // throwing out of a node's mount takes the whole canvas down with it; the trace, the
@@ -307,12 +310,11 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
       return;
     }
     setPanning(true);
-    setView(
-      panView(
-        gesture.view,
-        (gesture.pointerX - event.clientX) / (plotRef.current?.clientWidth || 1),
-      ),
-    );
+    // The rendered width, not the laid-out one: `clientX` is screen pixels, and React Flow
+    // magnifies the node with a CSS transform, so dividing by `clientWidth` would pan the
+    // spectrum by the canvas zoom factor rather than by however far the pointer moved.
+    const rect = plotRef.current?.getBoundingClientRect();
+    setView(panView(gesture.view, (gesture.pointerX - event.clientX) / (rect?.width || 1)));
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>): void => {

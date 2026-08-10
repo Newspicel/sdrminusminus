@@ -7,7 +7,7 @@ flow.
 
 ## Recording
 
-Press record on a device set, or:
+Wire a **Recorder** node to a receiver's `iq` output and press record on its face, or:
 
 ```http
 POST /api/devicesets/{ds}/record
@@ -65,7 +65,8 @@ from, and the `device_id` that replays it. The index is reconciled from the file
 on every listing: the SigMF pairs are the source of truth, the database row is a cache. Delete
 removes both.
 
-The panel is visible with no device set open — the library is device-independent.
+It lives in the **Library** drawer on the station bar, not on the canvas: a recording is not a
+stream a wire can carry, and the list is there with no radio open at all.
 
 ## Replay
 
@@ -89,8 +90,8 @@ tap — and recording a playback works too.
 `cargo xtask fixtures` renders one playable SigMF pair per wave-1 decoder from the same
 reference modulators the decoder tests use, so a fixture can never drift from what the
 decoders are tested against. `fixtures/README.md` documents the channel type and offset for
-each one, and each is meant to be *played*: open it, add the named channel, watch the decoder
-log fill.
+each one, and each is meant to be *played*: pick it in a receiver node, wire the named channel
+to it, watch the decoder log fill.
 
 Synthesized fixtures are deterministic and therefore never committed — regenerate them.
 Recorded off-air captures are the honest gap: as of M4, every decoder is proven against its

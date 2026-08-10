@@ -33,6 +33,12 @@ pub const MAX_NAME_LEN: usize = 64;
 /// Vertical gap between an existing station and a patch merged under it, in canvas units.
 const MERGE_GAP: f32 = 120.0;
 
+/// Height to assume for a node that has never been resized. `size` is `None` until the operator
+/// drags a corner, so without this the merge offset would measure to the *top* of the lowest
+/// node and drop the new block on top of it. The number is the node height the canvas lays out
+/// by default (`web/src/index.css`, `.react-flow__node`).
+const NATURAL_NODE_H: f32 = 220.0;
+
 /// The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written
 /// atomically, read whole, never queried by inner field).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -146,7 +152,10 @@ impl WorkspaceSnapshot {
     /// station already has a node for that radio the patch wires into *it* rather than drawing a
     /// second box for one receiver.
     pub fn merge_patch(&mut self, patch: &PatchGraph, prefix: &str, device: Option<&DeviceRef>) {
-        self.remove_prefixed(prefix);
+        // Where the prefix's nodes were, so a re-apply puts them back in the same place. Node
+        // order is binding order (CANVAS §3), so appending them instead would renumber which
+        // face drives which channel whenever a template is re-applied over another one's.
+        let at = self.remove_prefixed(prefix);
 
         let existing_device = device.and_then(|want| {
             self.graph
@@ -159,7 +168,9 @@ impl WorkspaceSnapshot {
         });
         let offset = self.merge_offset();
 
+        let base = at.unwrap_or(self.graph.nodes.len());
         let mut mapped: Vec<(String, String)> = Vec::with_capacity(patch.nodes.len());
+        let mut added = 0;
         for node in &patch.nodes {
             let is_device = matches!(node.body, NodeBody::Device(_));
             if is_device && let Some(reuse) = &existing_device {
@@ -178,7 +189,7 @@ impl WorkspaceSnapshot {
                 }
                 (body, _) => body.clone(),
             };
-            self.graph.nodes.push(PatchNode {
+            let placed = PatchNode {
                 id,
                 body,
                 position: Position {
@@ -187,7 +198,11 @@ impl WorkspaceSnapshot {
                 },
                 size: node.size,
                 label: node.label.clone(),
-            });
+            };
+            self.graph
+                .nodes
+                .insert((base + added).min(self.graph.nodes.len()), placed);
+            added += 1;
         }
 
         let remap = |id: &str| -> Option<String> {
@@ -218,14 +233,36 @@ impl WorkspaceSnapshot {
     }
 
     /// Drop every node this prefix owns, and everything that referenced them.
-    fn remove_prefixed(&mut self, prefix: &str) {
-        self.graph.nodes.retain(|node| !node.id.starts_with(prefix));
-        self.graph.edges.retain(|edge| {
-            !edge.from.node.starts_with(prefix) && !edge.to.node.starts_with(prefix)
-        });
-        self.rack
-            .slots
-            .retain(|slot| !slot.node.starts_with(prefix));
+    ///
+    /// One exception: a *device* node this prefix created may since have become the radio
+    /// another template's channels hang off, and taking it away would unwire them. It is kept,
+    /// and the merge that follows finds it again by its [`DeviceRef`] — so the re-applied
+    /// template wires into the same box instead of drawing a second one for one antenna.
+    ///
+    /// Returns where the prefix's first node was, so the caller can put its replacement back
+    /// there.
+    fn remove_prefixed(&mut self, prefix: &str) -> Option<usize> {
+        let shared: Vec<String> = self
+            .graph
+            .nodes
+            .iter()
+            .filter(|node| node.id.starts_with(prefix) && matches!(node.body, NodeBody::Device(_)))
+            .filter(|node| {
+                self.graph.edges.iter().any(|edge| {
+                    (edge.from.node == node.id && !edge.to.node.starts_with(prefix))
+                        || (edge.to.node == node.id && !edge.from.node.starts_with(prefix))
+                })
+            })
+            .map(|node| node.id.clone())
+            .collect();
+        let dropped = |id: &str| id.starts_with(prefix) && !shared.iter().any(|kept| kept == id);
+        let at = self.graph.nodes.iter().position(|node| dropped(&node.id));
+        self.graph.nodes.retain(|node| !dropped(&node.id));
+        self.graph
+            .edges
+            .retain(|edge| !dropped(&edge.from.node) && !dropped(&edge.to.node));
+        self.rack.slots.retain(|slot| !dropped(&slot.node));
+        at
     }
 
     /// Where a merged block starts: under everything already drawn, so a template never lands on
@@ -234,7 +271,7 @@ impl WorkspaceSnapshot {
         self.graph
             .nodes
             .iter()
-            .map(|node| node.position.y + node.size.map_or(0.0, |s| s.h))
+            .map(|node| node.position.y + node.size.map_or(NATURAL_NODE_H, |s| s.h))
             .fold(f32::NEG_INFINITY, f32::max)
             .max(0.0)
             + MERGE_GAP
@@ -488,6 +525,64 @@ mod tests {
                 .map(|n| n.id.as_str())
                 .collect::<Vec<_>>(),
             vec!["template:airband:ch"]
+        );
+    }
+
+    /// A second template wires into the receiver the first one drew. Re-applying the first must
+    /// not take that receiver — and the channels hanging off it — away with its own block.
+    #[test]
+    fn re_applying_a_template_keeps_a_receiver_another_template_is_using() {
+        let mut snap = WorkspaceSnapshot::station_default();
+        snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
+        snap.merge_patch(&template(), "template:marine:", Some(&rtlsdr()));
+        // The second template reused the first's receiver rather than drawing its own.
+        assert!(snap.graph.node("template:marine:dev").is_none());
+        assert_eq!(
+            snap.graph
+                .channels_of("template:airband:dev")
+                .map(|n| n.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["template:airband:ch", "template:marine:ch"]
+        );
+
+        snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
+        snap.validate().expect("valid after the re-apply");
+        assert!(
+            snap.graph.node("template:airband:dev").is_some(),
+            "the shared receiver survives its own template's re-apply"
+        );
+        assert_eq!(
+            snap.graph
+                .channels_of("template:airband:dev")
+                .map(|n| n.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["template:airband:ch", "template:marine:ch"],
+            "the other template's channel keeps its radio"
+        );
+    }
+
+    /// A node that was never resized still occupies space; measuring to its top would drop the
+    /// merged block on top of it.
+    #[test]
+    fn merge_offset_clears_a_node_that_has_never_been_resized() {
+        let mut snap = WorkspaceSnapshot::station_default();
+        let lowest = snap
+            .graph
+            .nodes
+            .iter()
+            .map(|node| node.position.y)
+            .fold(f32::NEG_INFINITY, f32::max);
+        snap.merge_patch(&template(), "template:airband:", None);
+        let merged = snap
+            .graph
+            .nodes
+            .iter()
+            .filter(|node| node.id.starts_with("template:"))
+            .map(|node| node.position.y)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            merged >= lowest + NATURAL_NODE_H,
+            "merged at {merged}, which overlaps a face at {lowest}"
         );
     }
 

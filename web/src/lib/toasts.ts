@@ -1,4 +1,4 @@
-// Every failure the operator must see, in one place (DESIGN.md §5). A banner row at the top of
+// Every failure the operator must see, in one place (DESIGN.md §7). A banner row at the top of
 // the shell moved every panel underneath it whenever the server refused something; a toast
 // stack reports the same fact without the layout the operator did not ask for.
 //

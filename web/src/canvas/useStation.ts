@@ -134,13 +134,18 @@ export function useStation(): StationState {
   // Applying is idempotent, so it runs once per station that becomes active: opening the app on
   // a station whose radios are attached should give you the station, not an empty canvas waiting
   // to be clicked into life.
+  //
+  // Keyed on the *loaded* station, not on the id the list reports: `apply` reads the id off the
+  // detail query, which is still resolving on the render the list first names one, so an effect
+  // keyed on that id would fire once into a no-op and mark itself done.
   const applied = useRef<number | null>(null);
+  const loaded = active?.id ?? null;
   useEffect(() => {
-    if (activeId !== null && applied.current !== activeId) {
-      applied.current = activeId;
+    if (loaded !== null && applied.current !== loaded) {
+      applied.current = loaded;
       apply();
     }
-  }, [activeId, apply]);
+  }, [loaded, apply]);
 
   return {
     workspaces: list.data?.workspaces ?? [],

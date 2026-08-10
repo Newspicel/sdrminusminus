@@ -4,6 +4,7 @@ import {
   isStale,
   layerId,
   MAP_KINDS,
+  mapKindsOf,
   sourceId,
   TARGET_MAX_AGE_MS,
   type Target,
@@ -69,6 +70,19 @@ describe("MAP_KINDS", () => {
       layerId(kind, "label"),
     ]);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("mapKindsOf", () => {
+  it("keeps only the decoders that report a position", () => {
+    expect(mapKindsOf(["adsb", "pocsag", "acars"])).toEqual(["adsb"]);
+    expect(mapKindsOf(["pocsag", "rtty"])).toEqual([]);
+    expect(mapKindsOf([])).toEqual([]);
+  });
+
+  it("deduplicates and orders by MAP_KINDS, not by wire order", () => {
+    expect(mapKindsOf(["aprs", "adsb", "aprs"])).toEqual(["adsb", "aprs"]);
+    expect(mapKindsOf(["ais", "adsb"])).toEqual(mapKindsOf(["adsb", "ais"]));
   });
 });
 

@@ -48,7 +48,7 @@ The two are deliberately separate:
   signalled by a `StateChanged { DecoderLog }` event. Invalidating on every decode would
   refetch the whole log hundreds of times a second.
 
-Live rows are visually distinct from stored ones in the panel.
+Live rows are visually distinct from stored ones in the **Decoder log** node's face.
 
 ## Export
 

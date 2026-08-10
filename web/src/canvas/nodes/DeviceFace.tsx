@@ -139,12 +139,11 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         <div className="flex min-h-full flex-col">
-          {/* The dial sizes off the node, not the viewport: this is the container its digits read
-              (see `DialSize`). */}
+          {/* The dial sizes off the node, not the viewport: this is the container its digits
+              read (see `DIGIT_SIZE`). */}
           <div className="@container flex flex-col gap-1 border-b border-line p-2">
             <FrequencyDial
               id={deviceDialId(node.id)}
-              size="face"
               hz={set.settings.center_hz ?? 0}
               range={tuningRange(set.capabilities)}
               disabled={scanning}
