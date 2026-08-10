@@ -1,14 +1,8 @@
-# CLAUDE.md — working agreement for sdr--
-
-This file is binding for any AI or human contributor. Read it before touching code.
-
 ## The plan is the source of truth
 - **`PLAN.md` governs.** Architecture, crate boundaries, transport, milestones, and scope all
   come from it. Do not invent structure that contradicts the plan.
 - If a change requires deviating from the plan, **update `PLAN.md` in the same change** and say
   why. The plan is allowed to evolve — silent drift from it is not.
-- Work milestone by milestone (§16). Don't build later-phase features before their milestone
-  unless explicitly asked.
 
 ## Non-negotiables
 1. **One source of truth for wire types.** All DTOs / WS messages / settings live once in
@@ -58,7 +52,7 @@ This file is binding for any AI or human contributor. Read it before touching co
   - React 19 + TanStack Query + shadcn/ui on Base UI. Server state lives in TanStack Query
     only; invalidate via WS events, never poll.
 - **CI is GitHub Actions**, added incrementally as the project matures — a workflow lands at
-  M0 and grows each milestone. Every gate below must be runnable locally via `xtask`/`just`
+  M0 and grows each milestone. Every gate below must be runnable locally via `xtask`
   first, then mirrored in the workflow. Keep local and CI in lockstep.
 
 ## Definition of done (every change)
@@ -70,15 +64,6 @@ This file is binding for any AI or human contributor. Read it before touching co
 - [ ] Nearby off-pattern code fixed, not propagated.
 - [ ] Newest versions used; no ESLint/Prettier introduced.
 - [ ] Comment and Push directly to main.
-
-## Commands (via xtask / just — the only entry points)
-- `cargo xtask dev` — server + Vite dev server (HMR).
-- `cargo xtask codegen` — regenerate OpenAPI + TS client. Run after changing `crates/wire`.
-- `cargo xtask test` — full test suite (uses `device-virtual`, no hardware).
-- `cargo xtask check` — the full local gate = fmt + clippy + `biome ci` + `oxlint`
-  (type-aware) + `tsgo` typecheck + codegen-drift. Must be green before every commit;
-  CI runs the same steps.
-- `cargo xtask dist` — release artifacts.
 
 When in doubt, re-read `PLAN.md`. If the plan is silent, pick the option most consistent with
 the existing codebase and note the decision.
