@@ -1653,10 +1653,42 @@ the radio did not have. Nothing decoded, so the map stayed empty.
   offers the lowest rate *that radio actually has* inside the range instead of a number it cannot
   produce
 
+### The air owes the sample grid nothing ✅
+The first real attempt at 2.048 Msps decoded *nothing* — an empty map over a working radio,
+while all 225 channel tests were green. The tests could not have caught it: the generator's
+sample-to-chip mapping was mathematically the decoder's own window arithmetic (`floor(k/p)` and
+`ceil(j·p)` cut the integers identically), and every generated frame started phase-0 on its own
+first sample. A real transmitter's bit clock owes the receiver's sample grid nothing, and at
+1.024 samples per half-chip the leftover fraction shifts *within* the frame — so whatever single
+alignment the slicer assumed, some chip's energy slid into the neighbouring window: one flipped
+PPM bit, a CRC-24 that cannot pass, silence. Measured off-grid before the fix: 0–6% decode at
+2.048 Msps, 0% once band-limited.
+
+- [x] **Eight sub-sample phase tables per candidate**, first CRC pass wins. The scan covers
+  whole samples; the tables cover the fraction in between (`Timing`, `PHASE_TABLES`)
+- [x] **Energy, not a peak**: each half-chip is an overlap-weighted sum, because a band-limited
+  pulse at ~1 sample per chip straddles two samples and a single-sample peak cannot tell which
+  chip owned it. dump1090's hard-coded 2.4 Msps demodulator, generalized to any rate
+- [x] **The preamble gaps that sit between two pulses (1 and 8) are judged against their pulses
+  jointly** — chip-by-chip the margin can vanish at the worst phases while the pair keeps a
+  clear one; only gaps a whole chip from every pulse are held to a level
+- [x] **The generator became a radio**: `transmission` renders at 16× and integrates each output
+  sample's aperture, so pulse edges read partial amplitude and a decoder test can never share
+  the decoder's arithmetic again. `transmission_at_phase` sweeps the sub-sample phase; the rate
+  test runs every rate × six phases, plus a noisy off-grid test at the RTL rate, and the engine
+  e2e frames land off-grid too
+- [x] **Measured after** (16-phase sweep, band-limited, independent cross-model): 2.048 Msps
+  0% → 100% (98% under noise 34 dB down), 2.4/2.56/4.0 Msps 100%. Exactly 2.000 keeps a
+  physical blind spot near half-sample phases — every sample integrates half a pulse and half a
+  gap and reads the same level, nothing left to decode (dump1090's known 2.0 weakness); the
+  2.048 real receivers produce has no such phase
+
 ### Still open
-- **Not yet proven off-air.** The chain is tested at every rate a receiver offers, as a unit and
-  through the engine, but the RTL-SDR here heard no aircraft in the minute it was pointed at
-  1090 MHz — which says something about the antenna on it, not about the decoder
+- **Not yet proven off-air.** The chain is tested at every rate a receiver offers — now off the
+  sample grid and band-limited, which is what the first field attempt showed the grid-aligned
+  suite was blind to — but an off-air frame has still never been decoded here. A 30 s IQ
+  capture at 1090 MHz / 2.048 Msps as a fixture would settle it and satisfy the decoder-fixture
+  rule (PLAN §14)
 - **The waterfall washes out.** Its colour range is the frame's own min…max, so a noise floor at
   −40 dB in a −93…−13 dB range lands two thirds up the colormap and everything is bright. A
   percentile-anchored range is the fix

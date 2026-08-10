@@ -8,8 +8,13 @@
 //! Measured, not assumed — through the production DDC and through an unfiltered interpolation,
 //! a 2.048 Msps signal resampled to 2.000 decodes nothing at all. So the decoder meets the radio
 //! at its rate instead: a half-chip is 1.024 samples on an RTL-SDR, 1.2 on a 2.4 Msps one, and
-//! the window boundaries are rounded per chip rather than stepped by a constant. dump1090 does
-//! the same thing for 2.4 Msps, one hard-coded rate at a time.
+//! the window boundaries are rounded per chip rather than stepped by a constant.
+//!
+//! It also meets the radio at its **phase**: the scan aligns to whole samples, but a
+//! transmitter's bit clock owes the receiver's sample grid nothing, so every candidate is
+//! sliced against a few sub-sample phase tables and the CRC picks the one that was right
+//! (see [`Timing`]). dump1090 hard-codes the same two ideas for 2.4 Msps; this is the
+//! any-rate form of them.
 //!
 //! Only DF17/DF18 extended squitters are accepted. Every other downlink format overlays the
 //! aircraft address (or the interrogator id) on the parity, so a zero syndrome is not
@@ -39,7 +44,11 @@ const CHIP_S: f64 = 0.5e-6;
 /// §3.1.2.3.1) — half-chips 0, 2, 7 and 9 of sixteen.
 const PREAMBLE_CHIPS: usize = 16;
 const PREAMBLE_PULSES: [usize; 4] = [0, 2, 7, 9];
-const PREAMBLE_GAPS: [usize; 12] = [1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14, 15];
+/// Preamble gaps a whole chip or more from every pulse, which must therefore be quiet. The
+/// gaps *adjacent* to a pulse (1, 3, 6, 8, 10) are deliberately absent: at ~1 sample per chip
+/// a band-limited pulse legitimately leaves up to half its energy in the neighbouring window,
+/// so those are held to be weaker than their pulse, never to a level.
+const PREAMBLE_FAR_GAPS: [usize; 7] = [4, 5, 11, 12, 13, 14, 15];
 const SHORT_BYTES: usize = 7;
 const LONG_BYTES: usize = 14;
 /// Half-chips in a long frame: the preamble plus two per bit.
@@ -48,49 +57,94 @@ const LONG_FRAME_CHIPS: usize = PREAMBLE_CHIPS + LONG_BYTES * 8 * 2;
 /// is four equal pulses; one noise spike plus three background samples is not one.
 const PULSE_SPREAD: f32 = 4.0;
 
-/// Where each half-chip of a long frame starts, in samples from the frame's first one.
+/// Sub-sample phases tried per candidate, `k / PHASE_TABLES` of a sample apart. The scan only
+/// tries whole-sample alignments, so the tables cover the fraction in between; eight bounds
+/// the residual mismatch to a sixteenth of a sample. Four was measured to be not enough — at
+/// an eighth of a sample some bit patterns' first-versus-second margins invert and whole
+/// frames vanish. Phase 0 keeps the decoder's original grid, so on a grid-aligned signal
+/// nothing changes but the extra first-comparison rejects per sample.
+const PHASE_TABLES: usize = 8;
+
+/// A chip is at most 2.05 samples wide (4 Msps ceiling), so it overlaps at most three.
+const CHIP_TAPS: usize = 3;
+
+/// Where each half-chip of a long frame falls, as per-sample overlap weights, for one assumed
+/// sub-sample phase.
 ///
 /// Computed per chip and not stepped by a constant: at 2.048 Msps a half-chip is 1.024 samples,
 /// so a fixed stride would drift a whole sample by the end of a 120 µs frame and slice the last
-/// bits against the wrong halves. A sample belongs to the chip its own instant falls in, which
-/// makes the first index of chip `j` the *ceiling* of `j × per_chip` — some chips then hold two
-/// samples and the rest one. Rounding instead would put a sample in the chip before its own,
-/// which at 2.048 Msps is every second bit sliced against the wrong half.
+/// bits against the wrong halves.
+///
+/// Two things here were measured to be non-negotiable, and both come from the same field
+/// failure — off-grid frames at 2.048 Msps decoded 0–6% while every test stayed green, because
+/// the tests' generator shared the decoder's grid:
+///
+/// - **One phase table is not enough.** A transmitter's bit clock owes the receiver's sample
+///   grid nothing, and at a non-integer samples-per-chip the leftover fraction shifts *within*
+///   the frame (`frac(j × per_chip)` cycles with `j`), so whatever single phase is assumed,
+///   some chip's energy lands in the neighbouring window — one flipped PPM bit and the CRC
+///   drops the frame. Every table gets its chance and the CRC arbitrates.
+/// - **Energy, not a peak.** A band-limited 0.5 µs pulse arrives with roughly a sample of rise
+///   time, so at ~1 sample per chip its energy straddles two samples and a single-sample peak
+///   cannot tell which chip owned it. The fractional-overlap sum can: with the right table
+///   ~three quarters of the pulse lands in its own chip and an eighth leaks to each neighbour.
+///   dump1090's 2.4 Msps demodulator hard-codes exactly this weighting, one rate at a time.
 struct Timing {
-    /// `LONG_FRAME_CHIPS + 1` boundaries, so chip `j` is `edges[j]..edges[j + 1]`.
-    edges: Vec<usize>,
+    /// Per half-chip (`LONG_FRAME_CHIPS + 1` entries; the last is the consume boundary):
+    /// index of its first sample in the frame window and the overlap of each touched sample.
+    chips: Vec<(usize, [f32; CHIP_TAPS])>,
+    /// Samples a full long frame spans at this phase — the window the scan slices.
+    span: usize,
 }
 
 impl Timing {
-    fn new(input_rate: f64) -> Self {
+    fn tables(input_rate: f64) -> Vec<Self> {
+        (0..PHASE_TABLES)
+            .map(|k| Self::new(input_rate, k as f64 / PHASE_TABLES as f64))
+            .collect()
+    }
+
+    fn new(input_rate: f64, phase: f64) -> Self {
         let per_chip = input_rate * CHIP_S;
+        let chips = (0..=LONG_FRAME_CHIPS)
+            .map(|j| {
+                let from = j as f64 * per_chip + phase;
+                let to = from + per_chip;
+                let start = from.floor() as usize;
+                let mut weights = [0.0f32; CHIP_TAPS];
+                for (i, w) in weights.iter_mut().enumerate() {
+                    let k = (start + i) as f64;
+                    *w = (to.min(k + 1.0) - from.max(k)).max(0.0) as f32;
+                }
+                (start, weights)
+            })
+            .collect();
         Self {
-            edges: (0..=LONG_FRAME_CHIPS)
-                .map(|chip| (chip as f64 * per_chip).ceil() as usize)
-                .collect(),
+            chips,
+            span: (LONG_FRAME_CHIPS as f64 * per_chip + phase).ceil() as usize,
         }
     }
 
-    fn edge(&self, chip: usize) -> usize {
-        self.edges.get(chip).copied().unwrap_or(0)
+    /// First sample of half-chip `chip` — the consume boundary once a frame is accepted.
+    fn start(&self, chip: usize) -> usize {
+        self.chips.get(chip).map_or(0, |&(start, _)| start)
     }
 
     fn frame_samples(&self) -> usize {
-        self.edge(LONG_FRAME_CHIPS)
+        self.span
     }
 
-    /// Peak magnitude in half-chip `chip` of a window starting at a frame's first sample.
-    ///
-    /// The peak, not the mean: a window is one sample at 2 Msps and two at 4, and a window that
-    /// happens to straddle the end of a pulse would have its energy averaged away by the silence
-    /// beside it — which is the same thing that makes resampling fatal here.
-    fn chip(&self, window: &[f32], chip: usize) -> f32 {
-        window
-            .get(self.edge(chip)..self.edge(chip + 1))
-            .unwrap_or_default()
+    /// Overlap-weighted magnitude of half-chip `chip` in a window starting at a frame's
+    /// first sample.
+    fn energy(&self, window: &[f32], chip: usize) -> f32 {
+        let Some(&(start, weights)) = self.chips.get(chip) else {
+            return 0.0;
+        };
+        weights
             .iter()
-            .copied()
-            .fold(0.0, f32::max)
+            .enumerate()
+            .map(|(i, &w)| w * window.get(start + i).copied().unwrap_or(0.0))
+            .sum()
     }
 }
 
@@ -157,9 +211,11 @@ impl Aircraft {
 pub struct AdsbChannel {
     crc_fix: bool,
     reference: Option<(f64, f64)>,
-    /// Half-chip boundaries at this radio's rate — the decoder runs at whatever the device
-    /// gives it (see the module header).
-    timing: Timing,
+    /// Half-chip boundary tables at this radio's rate, one per assumed sub-sample phase —
+    /// the decoder runs at whatever the device gives it (see [`Timing`]).
+    timings: Vec<Timing>,
+    /// The longest frame any table spans: the scan bound and the block-boundary carry.
+    frame_span: usize,
     /// How far apart two CPR frames may be and still solve globally, in samples at this rate.
     cpr_pair_max_age: u64,
     /// Sample magnitudes: the tail of the previous block followed by the current one.
@@ -219,14 +275,23 @@ pub(crate) fn channel_filter() -> ChannelFilter {
 /// pulses themselves — receive levels differ by tens of dB between an overhead aircraft and
 /// one at the horizon, so no fixed level can gate this.
 fn preamble_ok(timing: &Timing, window: &[f32]) -> bool {
-    let chip = |index: usize| timing.chip(window, index);
-    // Cheapest discriminator first: noise fails one of these four most of the time, which is
-    // what keeps the per-sample cost near the magnitude computation itself.
-    if !(chip(0) > chip(1) && chip(2) > chip(3) && chip(7) > chip(8) && chip(9) > chip(10)) {
+    let chip = |index: usize| timing.energy(window, index);
+    // Cheapest discriminator first: noise fails one of these early most of the time, which is
+    // what keeps the per-sample cost near the magnitude computation itself. The gaps at 1 and
+    // 8 sit *between* two pulses and collect band-limited tails from both sides, so each is
+    // judged against its two pulses jointly — chip-by-chip the margin can shrink to nothing
+    // at the worst sub-sample phases, while the pair keeps a clear one. The outer gaps see
+    // one tail at most and a plain ordering holds.
+    if !(chip(0) + chip(2) > 2.0 * chip(1)
+        && chip(2) > chip(3)
+        && chip(7) > chip(6)
+        && chip(7) + chip(9) > 2.0 * chip(8)
+        && chip(9) > chip(10))
+    {
         return false;
     }
     let pulses = PREAMBLE_PULSES.map(chip);
-    let gaps = PREAMBLE_GAPS.map(chip);
+    let far_gaps = PREAMBLE_FAR_GAPS.map(chip);
     let mean = pulses.iter().sum::<f32>() * 0.25;
     if mean <= 0.0 {
         return false;
@@ -237,7 +302,7 @@ fn preamble_ok(timing: &Timing, window: &[f32]) -> bool {
         return false;
     }
     let threshold = mean * 0.5;
-    weakest > threshold && gaps.iter().all(|&g| g < threshold)
+    weakest > threshold && far_gaps.iter().all(|&g| g < threshold)
 }
 
 /// PPM slicing: a 1 is energy in the first half of the bit, a 0 in the second. `window` starts
@@ -247,8 +312,8 @@ fn slice_bits(timing: &Timing, window: &[f32], frame: &mut [u8; LONG_BYTES]) {
         let mut value = 0u8;
         for bit in 0..8 {
             let chip = PREAMBLE_CHIPS + (index * 8 + bit) * 2;
-            let first = timing.chip(window, chip);
-            let second = timing.chip(window, chip + 1);
+            let first = timing.energy(window, chip);
+            let second = timing.energy(window, chip + 1);
             value = value << 1 | u8::from(first > second);
         }
         *byte = value;
@@ -610,30 +675,41 @@ impl AdsbChannel {
     }
 
     /// Try to decode a frame starting at `at` in [`Self::mag`], returning the samples it
-    /// consumed. `None` means "not a frame here" and the scan advances one sample.
+    /// consumed. Every phase table gets its chance and the first CRC pass wins; `None` means
+    /// "not a frame here at any phase" and the scan advances one sample.
     fn try_frame(&mut self, at: usize, out: &mut ChannelOutputs) -> Option<usize> {
-        let window = self.mag.get(at..at + self.timing.frame_samples())?;
-        if !preamble_ok(&self.timing, window) {
-            return None;
-        }
-        let mut frame = [0u8; LONG_BYTES];
-        slice_bits(&self.timing, window, &mut frame);
-
-        let long = frame.first()? >> 3 >= 16;
-        let bytes = frame.get_mut(..if long { LONG_BYTES } else { SHORT_BYTES })?;
-        if mode_s_syndrome(bytes) != 0 {
-            // A flipped bit inside DF picks the wrong frame length, so the syndrome cannot
-            // close over the right byte count: such frames are dropped, never mis-repaired.
-            if !self.crc_fix || mode_s_fix_single_bit(bytes).is_none() {
-                return None;
+        let mut hit = None;
+        for timing in &self.timings {
+            let Some(window) = self.mag.get(at..at + timing.frame_samples()) else {
+                continue;
+            };
+            if !preamble_ok(timing, window) {
+                continue;
             }
+            let mut frame = [0u8; LONG_BYTES];
+            slice_bits(timing, window, &mut frame);
+
+            let long = frame.first().is_some_and(|&b| b >> 3 >= 16);
+            let len = if long { LONG_BYTES } else { SHORT_BYTES };
+            let Some(bytes) = frame.get_mut(..len) else {
+                continue;
+            };
+            if mode_s_syndrome(bytes) != 0 {
+                // A flipped bit inside DF picks the wrong frame length, so the syndrome cannot
+                // close over the right byte count: such frames are dropped, never mis-repaired.
+                if !self.crc_fix || mode_s_fix_single_bit(bytes).is_none() {
+                    continue;
+                }
+            }
+            let df = bytes.first().map_or(0, |&b| b >> 3);
+            if df != 17 && df != 18 {
+                continue;
+            }
+            hit = Some((frame, len, df, timing.start(PREAMBLE_CHIPS + len * 8 * 2)));
+            break;
         }
-        let df = bytes.first()? >> 3;
-        if df != 17 && df != 18 {
-            return None;
-        }
-        let consumed = self.timing.edge(PREAMBLE_CHIPS + bytes.len() * 8 * 2);
-        let message = self.message(bytes, df, self.stream_pos + at as u64);
+        let (frame, len, df, consumed) = hit?;
+        let message = self.message(frame.get(..len)?, df, self.stream_pos + at as u64);
         out.events.push(DecoderEvent::Adsb(message));
         Some(consumed)
     }
@@ -648,10 +724,13 @@ impl ChannelRx for AdsbChannel {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = params(&settings)?;
         check_params(p)?;
+        let timings = Timing::tables(ctx.input_rate);
+        let frame_span = timings.iter().map(Timing::frame_samples).max().unwrap_or(0);
         Ok(Self {
             crc_fix: p.crc_fix,
             reference: p.ref_lat.zip(p.ref_lon),
-            timing: Timing::new(ctx.input_rate),
+            timings,
+            frame_span,
             cpr_pair_max_age: (CPR_PAIR_MAX_AGE_S * ctx.input_rate) as u64,
             mag: Vec::new(),
             stream_pos: 0,
@@ -674,16 +753,17 @@ impl ChannelRx for AdsbChannel {
         self.mag
             .extend(iq.iter().map(|s| s.re.mul_add(s.re, s.im * s.im).sqrt()));
 
-        let frame_samples = self.timing.frame_samples();
+        let frame_span = self.frame_span;
         let mut at = 0;
-        while at + frame_samples <= self.mag.len() {
+        while at + frame_span <= self.mag.len() {
             at += self.try_frame(at, out).unwrap_or(1);
         }
 
-        // Keep everything a frame could still start in. Only offsets with a full frame behind
-        // them are scanned, and those are exactly the ones dropped here, so results never
-        // depend on where the host cut the block — and no frame is emitted twice.
-        let keep = self.mag.len().saturating_sub(frame_samples - 1);
+        // Keep everything a frame could still start in. Only offsets with a full frame (at
+        // the longest phase table) behind them are scanned, and those are exactly the ones
+        // dropped here, so results never depend on where the host cut the block — and no
+        // frame is emitted twice.
+        let keep = self.mag.len().saturating_sub(frame_span - 1);
         self.mag.drain(..keep);
         self.stream_pos += keep as u64;
     }
@@ -702,6 +782,7 @@ mod tests {
             adsb::{
                 me_airborne_position, me_airborne_position_gnss, me_identification,
                 me_surface_position, me_velocity, position_me_raw, squitter, transmission,
+                transmission_at_phase,
             },
         },
         testutil::settings,
@@ -774,9 +855,11 @@ mod tests {
 
     /// The rule PLAN §18 wrote — "ADS-B needs the device at exactly 2 Msps" — cost the commonest
     /// ADS-B receiver there is: no RTL-SDR can produce 2.000 Msps, and its nearest rate is 2.048.
-    /// The decoder runs at the radio's rate now, so these are the rates a real one offers.
+    /// The decoder runs at the radio's rate now, so these are the rates a real one offers — and
+    /// the phases: a frame off the sample grid is what the air always sends, and the alignment
+    /// this test's generator would otherwise share with the decoder's own windows.
     #[test]
-    fn decodes_at_every_rate_a_receiver_actually_offers() {
+    fn decodes_at_every_rate_and_phase_a_receiver_actually_offers() {
         for rate in [
             INPUT_RATE_HZ,
             2_048_000.0,
@@ -784,23 +867,62 @@ mod tests {
             2_560_000.0,
             MAX_INPUT_RATE_HZ,
         ] {
-            let frames = [
-                squitter(0x3C_6444, me_identification("DLH123")),
-                squitter(0x3C_6444, me_airborne_position(38_000, LAT, LON, false)),
-            ];
-            let iq = transmission(&frames, GAP_US, LEVEL, rate);
+            for phase in [0.0f64, 0.21, 0.43, 0.5, 0.68, 0.9] {
+                // Exactly 2 Msps near a half-sample offset is a blind spot of the rate, not
+                // of the decoder: with one sample per half-chip, every band-limited sample
+                // integrates half a pulse and half a gap and reads the same level whatever
+                // the bits — there is nothing left to decode, which is dump1090's known 2.0
+                // weakness too. The radios the rate range exists for (2.048 up) put a
+                // different fraction of each chip on each sample, so they have no such phase.
+                if rate == INPUT_RATE_HZ && (phase - 0.5).abs() < 0.2 {
+                    continue;
+                }
+                let frames = [
+                    squitter(0x3C_6444, me_identification("DLH123")),
+                    squitter(0x3C_6444, me_airborne_position(38_000, LAT, LON, false)),
+                ];
+                let iq = transmission_at_phase(&frames, GAP_US, LEVEL, rate, phase);
+                let mut chan = AdsbChannel::new(
+                    ChannelCtx { input_rate: rate },
+                    adsb_params(AdsbParams::default()),
+                )
+                .expect("channel");
+                let messages = feed(&mut chan, &iq, &[4_096]);
+                let calls: Vec<_> = messages.iter().filter_map(|m| m.callsign.clone()).collect();
+                assert_eq!(
+                    calls,
+                    vec!["DLH123"],
+                    "at {rate} Hz phase {phase}: {messages:?}"
+                );
+                assert!(
+                    messages.iter().any(|m| m.altitude_ft == Some(38_000)),
+                    "at {rate} Hz phase {phase}: {messages:?}"
+                );
+            }
+        }
+    }
+
+    /// Off the sample grid *and* with noise under it is what an RTL-SDR at 2.048 Msps
+    /// actually hands this decoder — the condition the field reported as an empty map while
+    /// the grid-aligned tests stayed green.
+    #[test]
+    fn noisy_off_grid_frames_decode_at_the_rtl_rate() {
+        for (index, phase) in [0.05, 0.19, 0.33, 0.47, 0.61, 0.75, 0.89]
+            .into_iter()
+            .enumerate()
+        {
+            let frames = [squitter(0x3C_6444, me_identification("DLH123"))];
+            let mut iq = transmission_at_phase(&frames, GAP_US, LEVEL, 2_048_000.0, phase);
+            add_noise(&mut iq, 0xADB0 + index as u32, 0.01);
             let mut chan = AdsbChannel::new(
-                ChannelCtx { input_rate: rate },
+                ChannelCtx {
+                    input_rate: 2_048_000.0,
+                },
                 adsb_params(AdsbParams::default()),
             )
             .expect("channel");
-            let messages = feed(&mut chan, &iq, &[4_096]);
-            let calls: Vec<_> = messages.iter().filter_map(|m| m.callsign.clone()).collect();
-            assert_eq!(calls, vec!["DLH123"], "at {rate} Hz: {messages:?}");
-            assert!(
-                messages.iter().any(|m| m.altitude_ft == Some(38_000)),
-                "at {rate} Hz: {messages:?}"
-            );
+            let msg = only(feed(&mut chan, &iq, &[4_096]));
+            assert_eq!(msg.callsign.as_deref(), Some("DLH123"), "phase {phase}");
         }
     }
 
