@@ -1,9 +1,3 @@
-## The plan is the source of truth
-- **`PLAN.md` governs.** Architecture, crate boundaries, transport, milestones, and scope all
-  come from it. Do not invent structure that contradicts the plan.
-- If a change requires deviating from the plan, **update `PLAN.md` in the same change** and say
-  why. The plan is allowed to evolve — silent drift from it is not.
-
 ## Non-negotiables
 1. **One source of truth for wire types.** All DTOs / WS messages / settings live once in
    `crates/wire` (serde + utoipa). TypeScript is generated from OpenAPI. **Never hand-write a
@@ -58,7 +52,6 @@
   first, then mirrored in the workflow. Keep local and CI in lockstep.
 
 ## Definition of done (every change)
-- [ ] Follows `PLAN.md` (or updates it in the same change with a reason).
 - [ ] Rust: `cargo fmt` + `cargo clippy -D warnings` clean.
 - [ ] Web: `biome ci` clean, `oxlint` (type-aware) clean, `tsgo` typecheck + web build clean.
 - [ ] Tests added/updated and passing; OpenAPI codegen regenerated, no drift.
