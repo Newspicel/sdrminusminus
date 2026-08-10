@@ -28,15 +28,15 @@ fn code_for(ch: char) -> Option<(u8, Option<bool>)> {
     }
 }
 
-/// Encode `text` as ITA2, inserting the LTRS/FIGS shifts it needs. Lowercase is folded to
+/// Encode `text` as ITA2 codes, inserting the LTRS/FIGS shifts it needs. Lowercase is folded to
 /// upper case and characters outside the alphabet are dropped, since the code has no room for
-/// them. A space is assumed to unshift (the amateur convention), so the shift is re-sent after
-/// one — the stream then decodes the same with `unshift_on_space` either way.
+/// them.
 ///
-/// Cells are half a bit each: 1.5 stop bits is a standard RTTY option and has no bit-resolution
-/// representation. [`modulate`] keys them at twice the baud rate.
+/// `unshift_on_space` re-sends the shift after a space, which is the amateur RTTY convention;
+/// SITOR-B tracks the shift strictly and passes `false`. This is the character layer both
+/// modulators share — only the framing below it differs.
 #[must_use]
-pub fn encode(text: &str, stop_bits: f64) -> Vec<bool> {
+pub fn ita2_codes(text: &str, unshift_on_space: bool) -> Vec<u8> {
     let mut codes = Vec::new();
     let mut figs = false;
     for ch in text.chars() {
@@ -50,11 +50,21 @@ pub fn encode(text: &str, stop_bits: f64) -> Vec<bool> {
             figs = row;
         }
         codes.push(code);
-        if code == SPACE_CODE {
+        if code == SPACE_CODE && unshift_on_space {
             figs = false;
         }
     }
-    encode_codes(&codes, stop_bits)
+    codes
+}
+
+/// Frame `text` for RTTY, where a space is assumed to unshift — the stream then decodes the
+/// same with `unshift_on_space` either way.
+///
+/// Cells are half a bit each: 1.5 stop bits is a standard RTTY option and has no bit-resolution
+/// representation. [`modulate`] keys them at twice the baud rate.
+#[must_use]
+pub fn encode(text: &str, stop_bits: f64) -> Vec<bool> {
+    encode_codes(&ita2_codes(text, true), stop_bits)
 }
 
 /// Frame raw ITA2 codes without any shift handling — the way to build a stream whose shift

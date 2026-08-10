@@ -481,6 +481,67 @@ fn decoder_fixtures() -> Vec<Fixture> {
             .to_string(),
     });
 
+    out.push(Fixture {
+        stem: "navtex_518_48k".to_string(),
+        iq: at(
+            testgen::navtex::transmission(
+                "ZCZC DA07\r\nGALE WARNING\r\nGERMAN BIGHT\r\nNNNN",
+                AUDIO,
+            ),
+            3_000.0,
+            AUDIO,
+        ),
+        rate: AUDIO,
+        note: "navtex channel at +3 kHz -> DA07 navigational warning, \"GALE WARNING\"".to_string(),
+    });
+
+    out.push(Fixture {
+        stem: "acars_downlink_240k".to_string(),
+        iq: at(
+            testgen::acars::transmission(
+                &testgen::acars::Block {
+                    mode: '2',
+                    registration: ".D-AIBC",
+                    ack: '\x15',
+                    label: "H1",
+                    block_id: '3',
+                    seq_no: Some("M01A"),
+                    flight: Some("LH0400"),
+                    text: "SDR-- FIXTURE",
+                    more: false,
+                },
+                NARROW,
+            ),
+            -40_000.0,
+            NARROW,
+        ),
+        rate: NARROW,
+        note: "acars channel at -40 kHz -> D-AIBC / LH0400 [H1] \"SDR-- FIXTURE\"".to_string(),
+    });
+
+    const SUBGHZ_RATE: f64 = 500_000.0;
+    out.push(Fixture {
+        stem: "subghz_ev1527_500k".to_string(),
+        iq: at(
+            testgen::subghz::pwm(
+                &testgen::subghz::Pwm {
+                    bits: (0..24)
+                        .map(|i| 0x0A_1B_23u32 >> (23 - i) & 1 == 1)
+                        .collect(),
+                    short_us: 320,
+                    long_multiple: 3,
+                    sync_gap_multiple: 31,
+                    repeats: 6,
+                },
+                SUBGHZ_RATE,
+            ),
+            100_000.0,
+            SUBGHZ_RATE,
+        ),
+        rate: SUBGHZ_RATE,
+        note: "subghz channel at +100 kHz -> 24-bit PWM 0A1B23, address 0A1B2 button 3".to_string(),
+    });
+
     out
 }
 

@@ -13,13 +13,16 @@
 //! want impairments add them with the helpers here, so every impairment is explicit in the
 //! test that depends on it.
 
+pub mod acars;
 pub mod adsb;
 pub mod ais;
 pub mod aprs;
 pub mod morse;
+pub mod navtex;
 pub mod pocsag;
 pub mod rds;
 pub mod rtty;
+pub mod subghz;
 
 use std::f64::consts::TAU;
 

@@ -441,6 +441,34 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
+         * @description One ACARS block (PLAN §13: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow
+         *     the standard's, so a message here reads the same as in every other ACARS tool.
+         */
+        AcarsMessage: {
+            /** @description Technical acknowledgement: the block being acknowledged, or `None` for a NAK. */
+            ack?: string | null;
+            /** @description Block identifier. `0`–`9` marks a downlink (aircraft to ground). */
+            block_id: string;
+            downlink: boolean;
+            /** @description Flight number, on downlinks only. */
+            flight?: string | null;
+            /** @description Two-character label identifying the message type (`5Z`, `H1`, `_d` …). */
+            label: string;
+            /** @description Mode character — `2` is VHF category A. */
+            mode: string;
+            /** @description The block ended with ETB rather than ETX: another block of the same message follows. */
+            more: boolean;
+            /** @description Aircraft registration with the standard `.` padding removed. */
+            registration: string;
+            /** @description Message sequence number, on downlinks only. */
+            seq_no?: string | null;
+            text: string;
+        };
+        AcarsParams: {
+            /** Format: double */
+            bandwidth_hz?: number;
+        };
+        /**
          * @description One decoded Mode S / ADS-B frame (PLAN §13: preamble correlation + Mode S CRC).
          *     Fields are `Option` because which ones a frame carries depends on its type code — a
          *     position frame has no callsign, an identification frame has no altitude.
@@ -714,6 +742,18 @@ export interface components {
             settings: components["schemas"]["MorseParams"];
             /** @enum {string} */
             type: "morse";
+        } | {
+            settings: components["schemas"]["NavtexParams"];
+            /** @enum {string} */
+            type: "navtex";
+        } | {
+            settings: components["schemas"]["AcarsParams"];
+            /** @enum {string} */
+            type: "acars";
+        } | {
+            settings: components["schemas"]["SubghzParams"];
+            /** @enum {string} */
+            type: "subghz";
         };
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
@@ -889,6 +929,18 @@ export interface components {
             data: components["schemas"]["MorseText"];
             /** @enum {string} */
             kind: "morse";
+        } | {
+            data: components["schemas"]["NavtexMessage"];
+            /** @enum {string} */
+            kind: "navtex";
+        } | {
+            data: components["schemas"]["AcarsMessage"];
+            /** @enum {string} */
+            kind: "acars";
+        } | {
+            data: components["schemas"]["SubghzFrame"];
+            /** @enum {string} */
+            kind: "subghz";
         };
         /**
          * @description One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not
@@ -1119,6 +1171,43 @@ export interface components {
              * @description Estimated sending speed in words per minute (PARIS standard).
              */
             wpm: number;
+        };
+        /**
+         * @description One NAVTEX broadcast (PLAN §13: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
+         *     parsed out because that is what a receiver filters on — station, subject and serial are how
+         *     a ship decides whether it has already seen this message.
+         */
+        NavtexMessage: {
+            /**
+             * @description True when the broadcast ended with `NNNN`; false when the carrier or the phasing was
+             *     lost and the partial text was flushed instead.
+             */
+            complete: boolean;
+            /**
+             * Format: int32
+             * @description Characters the mode-B time diversity repaired from the repeat copy.
+             */
+            errors_corrected: number;
+            /**
+             * Format: int32
+             * @description B3B4 — serial number, 00–99, which a receiver uses to suppress repeats.
+             */
+            serial?: number | null;
+            /** @description B1 — transmitting station within the NAVAREA. */
+            station?: string | null;
+            /** @description B2 — subject indicator. */
+            subject?: string | null;
+            /** @description Plain-language meaning of [`NavtexMessage::subject`] (ITU-R M.540 Annex 2). */
+            subject_name?: string | null;
+            text: string;
+        };
+        /**
+         * @description NAVTEX is a single-purpose broadcast: 100 baud, 170 Hz shift, CCIR 476 (ITU-R M.540), so
+         *     there is nothing to tune but the sideband the receiver happens to be on.
+         */
+        NavtexParams: {
+            /** @description Swap mark and space (equivalent to reversing the sideband). */
+            invert?: boolean;
         };
         NfmParams: {
             /** Format: double */
@@ -1637,6 +1726,82 @@ export interface components {
          * @enum {string}
          */
         StreamKind: "spectrum" | "audio";
+        /**
+         * @description What a decoded sub-GHz burst turned out to be (PLAN §8b).
+         * @enum {string}
+         */
+        SubghzEncoding: "pwm" | "manchester" | "raw";
+        /**
+         * @description One sub-GHz burst: a remote, a sensor, a TPMS. Repeats of the same payload inside a short
+         *     window collapse into one frame with a count, because every one of these devices sends its
+         *     payload several times and a log with eight identical rows is a worse log.
+         */
+        SubghzFrame: {
+            /**
+             * Format: int32
+             * @description EV1527 reading of a 24-bit payload: the 20-bit transmitter address.
+             */
+            address?: number | null;
+            /**
+             * Format: int32
+             * @description Decoded payload length in bits; 0 for a raw capture.
+             */
+            bits: number;
+            /**
+             * Format: int32
+             * @description EV1527 reading of a 24-bit payload: the 4 button bits.
+             */
+            button?: number | null;
+            /** @description Payload as hex, MSB first, left-padded to whole bytes. */
+            data: string;
+            encoding: components["schemas"]["SubghzEncoding"];
+            modulation: components["schemas"]["SubghzModulation"];
+            /**
+             * Format: int32
+             * @description How many times the identical payload arrived inside the collapse window.
+             */
+            repeats: number;
+            /**
+             * Format: int32
+             * @description The base pulse period the frame was measured against, in µs.
+             */
+            short_us: number;
+            /**
+             * @description Raw pulse/gap durations in µs, pulse first — what a Flipper shows for a signal it
+             *     cannot name. Truncated, so this is for inspection, not replay.
+             */
+            timings_us?: number[];
+            /** @description PT2262 reading: 12 tri-state symbols as `0`, `1` and `F`, when every bit pair is one. */
+            tri_state?: string | null;
+        };
+        /**
+         * @description How a sub-GHz device keys its carrier (PLAN §8b). The two need different front ends —
+         *     an envelope detector versus a discriminator — but produce the same pulse-width stream, so
+         *     everything above the detector is shared.
+         * @enum {string}
+         */
+        SubghzModulation: "ook" | "fsk";
+        SubghzParams: {
+            /**
+             * Format: double
+             * @description Detection bandwidth in Hz. Wide by radio standards on purpose: a SAW-controlled remote
+             *     may sit tens of kHz off its nominal 433.92 MHz, and a filter narrow enough to be
+             *     "correct" would simply miss it.
+             */
+            bandwidth_hz?: number;
+            /**
+             * Format: int32
+             * @description Silence that ends a frame, in µs. Must exceed the longest gap *inside* a frame — the
+             *     PT2262/EV1527 sync gap is ~31 short periods, around 10 ms at a 320 µs clock.
+             */
+            frame_gap_us?: number;
+            /**
+             * Format: int32
+             * @description Shortest keying edge accepted, in µs. Anything briefer is a noise spike, not a symbol.
+             */
+            min_pulse_us?: number;
+            modulation?: components["schemas"]["SubghzModulation"];
+        };
         /** @description One tab: a named panel layout. */
         TabSpec: {
             floating?: components["schemas"]["FloatingGroup"][];

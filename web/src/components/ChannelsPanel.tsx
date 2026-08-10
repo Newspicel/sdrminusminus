@@ -73,6 +73,10 @@ const RTTY_SHIFTS_HZ: Options<number> = [
   { value: 450, label: "450" },
   { value: 850, label: "850" },
 ];
+const SUBGHZ_MODULATIONS: Options<NonNullable<ChannelParamsOf<"subghz">["modulation"]>> = [
+  { value: "ook", label: "OOK/ASK" },
+  { value: "fsk", label: "FSK" },
+];
 
 export function ChannelsPanel({
   socket,
@@ -637,6 +641,84 @@ function ModeControls({
               step={1}
               onCommit={(wpm) => onParams({ type: "morse", settings: { ...params.settings, wpm } })}
             />
+          </label>
+        </>
+      );
+    case "navtex":
+      // 100 baud at a 170 Hz shift is the whole standard (ITU-R M.540); the sideband the
+      // receiver landed on is the only thing left to choose.
+      return (
+        <Toggle
+          label="Invert"
+          checked={params.settings.invert ?? false}
+          onChange={(invert) =>
+            onParams({ type: "navtex", settings: { ...params.settings, invert } })
+          }
+        />
+      );
+    case "acars":
+      return (
+        <label className={LABEL}>
+          BW
+          <BandwidthSelect
+            valueHz={params.settings.bandwidth_hz ?? 12_500}
+            optionsHz={[8_000, 12_500, 25_000]}
+            onCommit={(bandwidth_hz) =>
+              onParams({ type: "acars", settings: { ...params.settings, bandwidth_hz } })
+            }
+          />
+        </label>
+      );
+    case "subghz":
+      return (
+        <>
+          <Segmented
+            label="Modulation"
+            value={params.settings.modulation ?? "ook"}
+            options={SUBGHZ_MODULATIONS}
+            onChange={(modulation) =>
+              onParams({ type: "subghz", settings: { ...params.settings, modulation } })
+            }
+          />
+          <label className={LABEL}>
+            BW
+            <BandwidthSelect
+              valueHz={params.settings.bandwidth_hz ?? 150_000}
+              optionsHz={[50_000, 100_000, 150_000]}
+              onCommit={(bandwidth_hz) =>
+                onParams({ type: "subghz", settings: { ...params.settings, bandwidth_hz } })
+              }
+            />
+          </label>
+          <label className={LABEL}>
+            Min pulse
+            <NumberField
+              label="Shortest keying edge accepted (µs)"
+              value={params.settings.min_pulse_us ?? 80}
+              min={10}
+              max={2_000}
+              step={10}
+              onCommit={(min_pulse_us) =>
+                onParams({ type: "subghz", settings: { ...params.settings, min_pulse_us } })
+              }
+              className="w-20"
+            />
+            µs
+          </label>
+          <label className={LABEL}>
+            Frame gap
+            <NumberField
+              label="Silence that ends a frame (µs)"
+              value={params.settings.frame_gap_us ?? 5_000}
+              min={500}
+              max={100_000}
+              step={500}
+              onCommit={(frame_gap_us) =>
+                onParams({ type: "subghz", settings: { ...params.settings, frame_gap_us } })
+              }
+              className="w-24"
+            />
+            µs
           </label>
         </>
       );

@@ -26,6 +26,17 @@ pub fn resamplable_bandwidth_hz(output_rate: f64) -> f64 {
     2.0 * PROTECT_FRAC * output_rate
 }
 
+/// Widest signal, in Hz, a DDC delivers *flat* at `output_rate`.
+///
+/// Narrower than [`resamplable_bandwidth_hz`], which is only the point past which energy
+/// folds back in: between the two lies the filter transition, where a signal still arrives but
+/// tilted. A mode that cares about amplitude across its whole band — an envelope detector
+/// measuring pulse widths, say — must stay inside this.
+#[must_use]
+pub fn flat_bandwidth_hz(output_rate: f64) -> f64 {
+    2.0 * PASSBAND_FRAC * output_rate
+}
+
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum DdcError {
     #[error("rates must be positive and finite (input {input} Hz, output {output} Hz)")]

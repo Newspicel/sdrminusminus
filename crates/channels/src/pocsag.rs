@@ -10,7 +10,8 @@ use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_dsp::{
-    BitSync, Decimator, FmDemod, SyncDetector, design_lowpass, hamming_distance, pocsag_bch_decode,
+    BitSync, Decimator, FmDemod, SyncDetector, design_lowpass, hamming_distance, one_pole_coeff,
+    pocsag_bch_decode,
 };
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PocsagBaud, PocsagMessage,
@@ -114,12 +115,6 @@ pub(crate) fn channel_filter(p: &PocsagParams) -> Result<ChannelFilter, ChannelE
         &design_lowpass(CHANNEL_TAPS, half / DESCRIPTOR.input_rate_hz),
         1,
     )))
-}
-
-/// `dsp` exposes only the fixed-pole [`sdrmm_dsp::DcBlocker`], whose ~32 Hz corner would track
-/// the data at 512 bit/s; this is the same one-pole smoother at a decoder-chosen tau.
-fn one_pole_coeff(rate: f64, tau_s: f64) -> f32 {
-    (1.0 - (-1.0 / (rate * tau_s)).exp()) as f32
 }
 
 fn candidates(rate: f64, baud: PocsagBaud) -> Vec<Candidate> {

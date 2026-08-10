@@ -1,19 +1,22 @@
 //! `sdrmm-channels` — the `ChannelRx` plugin surface (PLAN §8). Depends only on `dsp` + `wire`.
-//! Phase-1 analog demodulators plus the wave-1 data decoders (PLAN §13): NFM, AM, SSB, WFM
-//! mono (+RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse. Each mode is one module whose
+//! Phase-1 analog demodulators plus the wave-1 and wave-2 data decoders (PLAN §13): NFM, AM,
+//! SSB, WFM mono (+RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse, NAVTEX, ACARS, sub-GHz. Each mode is one module whose
 //! descriptor and constructor sit in the same [`REGISTRY`] row, so the "add channel" UI and
 //! `create` dispatch cannot drift apart.
 
+mod acars;
 mod adsb;
 mod ais;
 mod am;
 mod aprs;
 mod morse;
+mod navtex;
 mod nfm;
 mod pocsag;
 mod rds;
 mod rtty;
 mod ssb;
+mod subghz;
 mod wfm;
 
 #[cfg(test)]
@@ -25,11 +28,13 @@ mod testutil;
 #[cfg(any(test, feature = "test-signals"))]
 pub mod testgen;
 
+pub use acars::AcarsChannel;
 pub use adsb::AdsbChannel;
 pub use ais::AisChannelRx;
 pub use am::AmChannel;
 pub use aprs::AprsChannel;
 pub use morse::MorseChannel;
+pub use navtex::NavtexChannel;
 pub use nfm::NfmChannel;
 use num_complex::Complex;
 pub use pocsag::PocsagChannel;
@@ -37,6 +42,7 @@ pub use rtty::RttyChannel;
 use sdrmm_dsp::{Agc, Decimator, FirC};
 use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, Sideband};
 pub use ssb::SsbChannel;
+pub use subghz::SubghzChannel;
 pub use wfm::WfmChannel;
 
 /// Every channel emits mono PCM at this rate; the engine's audio path is sized against it.
@@ -74,6 +80,9 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Aprs(p) => aprs::occupied_band(p),
         ChannelParams::Rtty(p) => rtty::occupied_band(p),
         ChannelParams::Morse(p) => morse::occupied_band(p),
+        ChannelParams::Navtex(_) => navtex::occupied_band(),
+        ChannelParams::Acars(p) => acars::occupied_band(p),
+        ChannelParams::Subghz(p) => subghz::occupied_band(p),
     }
 }
 
@@ -117,6 +126,9 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Aprs(p) => aprs::channel_filter(p),
         ChannelParams::Rtty(p) => rtty::channel_filter(p),
         ChannelParams::Morse(p) => morse::channel_filter(p),
+        ChannelParams::Navtex(_) => Ok(navtex::channel_filter()),
+        ChannelParams::Acars(p) => acars::channel_filter(p),
+        ChannelParams::Subghz(p) => subghz::channel_filter(p),
     }
 }
 
@@ -245,6 +257,18 @@ const REGISTRY: &[Registration] = &[
         descriptor: MorseChannel::descriptor,
         create: boxed::<MorseChannel>,
     },
+    Registration {
+        descriptor: NavtexChannel::descriptor,
+        create: boxed::<NavtexChannel>,
+    },
+    Registration {
+        descriptor: AcarsChannel::descriptor,
+        create: boxed::<AcarsChannel>,
+    },
+    Registration {
+        descriptor: SubghzChannel::descriptor,
+        create: boxed::<SubghzChannel>,
+    },
 ];
 
 /// Descriptors for every compiled-in channel type (PLAN §8: static registry).
@@ -291,8 +315,8 @@ mod tests {
     use std::collections::HashSet;
 
     use sdrmm_wire::{
-        AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, MorseParams, NfmParams,
-        PocsagParams, RttyParams, SsbParams, WfmParams,
+        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, MorseParams,
+        NavtexParams, NfmParams, PocsagParams, RttyParams, SsbParams, SubghzParams, WfmParams,
     };
 
     use super::*;
@@ -310,6 +334,9 @@ mod tests {
             "aprs" => ChannelParams::Aprs(AprsParams::default()),
             "rtty" => ChannelParams::Rtty(RttyParams::default()),
             "morse" => ChannelParams::Morse(MorseParams::default()),
+            "navtex" => ChannelParams::Navtex(NavtexParams::default()),
+            "acars" => ChannelParams::Acars(AcarsParams::default()),
+            "subghz" => ChannelParams::Subghz(SubghzParams::default()),
             other => panic!("unexpected type id {other}"),
         }
     }
@@ -317,12 +344,13 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 10);
+        assert_eq!(all.len(), 13);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
             HashSet::from([
                 "nfm", "am", "ssb", "wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse",
+                "navtex", "acars", "subghz",
             ])
         );
         for d in &all {
@@ -337,6 +365,9 @@ mod tests {
                 "aprs" => (12_500.0, 48_000.0),
                 "rtty" => (1_000.0, 8_000.0),
                 "morse" => (400.0, 8_000.0),
+                "navtex" => (600.0, 8_000.0),
+                "acars" => (12_500.0, 48_000.0),
+                "subghz" => (150_000.0, 250_000.0),
                 other => panic!("unexpected type id {other}"),
             };
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);

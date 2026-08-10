@@ -321,3 +321,92 @@ function groupThousands(n: number): string {
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
+
+// ── NAVTEX ────────────────────────────────────────────────────────────────────────────────
+
+/** The `B1B2B3B4` group as broadcast, or `null` when the header was missed — a receiver that
+ * joined mid-broadcast still has the text, and hiding it behind a missing header would be worse
+ * than showing a message with no serial. */
+export function navtexHeader(message: {
+  station?: string | null;
+  subject?: string | null;
+  serial?: number | null;
+}): string | null {
+  const { station, subject, serial } = message;
+  if (station == null || subject == null || serial == null) {
+    return null;
+  }
+  return `${station}${subject}${String(serial).padStart(2, "0")}`;
+}
+
+/** The provenance line under a broadcast: what the FEC repaired, and whether `NNNN` ever came. */
+export function navtexQuality(message: { errors_corrected: number; complete: boolean }): string {
+  const parts: string[] = [];
+  if (!message.complete) {
+    parts.push("truncated");
+  }
+  if (message.errors_corrected > 0) {
+    parts.push(`${message.errors_corrected} repaired`);
+  }
+  return parts.join(" · ");
+}
+
+// ── ACARS ─────────────────────────────────────────────────────────────────────────────────
+
+/** Who sent it: registration, and the flight number when the block carries one. */
+export function acarsHeadline(message: { registration: string; flight?: string | null }): string {
+  return joinFields(message.registration, message.flight?.trim() ?? "");
+}
+
+/** The block's routing fields as one compact tag — label, block id, direction, ack. */
+export function acarsTag(message: {
+  label: string;
+  block_id: string;
+  downlink: boolean;
+  ack?: string | null;
+  more: boolean;
+}): string {
+  return joinFields(
+    message.label,
+    message.downlink ? "DL" : "UL",
+    message.ack == null ? "NAK" : "",
+    message.more ? "more" : "",
+  );
+}
+
+// ── sub-GHz ───────────────────────────────────────────────────────────────────────────────
+
+/** What the burst turned out to be: the payload, or the size of the raw capture. */
+export function subghzPayload(frame: {
+  bits: number;
+  data: string;
+  timings_us?: number[];
+}): string {
+  return frame.bits === 0
+    ? `raw, ${(frame.timings_us ?? []).length} edges`
+    : `${frame.data} (${frame.bits} bit)`;
+}
+
+/** The device readings a 24-bit payload supports, when it supports them. Empty for anything the
+ * classifier could not name — which is honest, not a gap. */
+export function subghzReadings(frame: {
+  address?: number | null;
+  button?: number | null;
+  tri_state?: string | null;
+}): string {
+  return joinFields(
+    frame.address == null
+      ? ""
+      : `addr ${frame.address.toString(16).toUpperCase().padStart(5, "0")}`,
+    frame.button == null ? "" : `btn ${frame.button.toString(16).toUpperCase()}`,
+    frame.tri_state == null ? "" : `PT ${frame.tri_state}`,
+  );
+}
+
+/** Base period and repeat count — the two numbers that say whether a decode should be trusted. */
+export function subghzTiming(frame: { short_us: number; repeats: number }): string {
+  return joinFields(
+    frame.short_us > 0 ? `${frame.short_us} µs` : "",
+    frame.repeats > 1 ? `×${frame.repeats}` : "",
+  );
+}

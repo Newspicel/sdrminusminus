@@ -240,8 +240,8 @@ function evictOldest(stations: Map<string, Station>): void {
   }
 }
 
-/** `null` for decoders whose output is a character stream, not an emitter: RTTY and Morse have
- * no identity to key a row on. */
+/** `null` for decoders whose output is a stream of independent messages rather than a target
+ * being tracked. */
 function stationId(event: DecoderEvent): string | null {
   switch (event.kind) {
     case "adsb":
@@ -255,6 +255,13 @@ function stationId(event: DecoderEvent): string | null {
     // RDS accretes into one picture per transmitter, identified by its PI code once received.
     case "rds":
       return event.data.pi ?? null;
+    // Message-shaped decoders name an emitter in the log, but they do not *accumulate* into a
+    // picture of it the way a tracked target does — each NAVTEX broadcast, ACARS block and
+    // sub-GHz burst stands alone, and merging them forward would splice unrelated messages
+    // into one row. They render as lists of frames instead.
+    case "navtex":
+    case "acars":
+    case "subghz":
     case "rtty":
     case "morse":
       return null;

@@ -37,6 +37,9 @@ const EMPTY_PARAMS: { [K in ChannelTypeId]: () => Extract<ChannelParams, { type:
   aprs: () => ({ type: "aprs", settings: {} }),
   rtty: () => ({ type: "rtty", settings: {} }),
   morse: () => ({ type: "morse", settings: {} }),
+  navtex: () => ({ type: "navtex", settings: {} }),
+  acars: () => ({ type: "acars", settings: {} }),
+  subghz: () => ({ type: "subghz", settings: {} }),
 };
 
 export function isChannelTypeId(typeId: string): typeId is ChannelTypeId {

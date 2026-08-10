@@ -2,11 +2,12 @@
 
 IQ samples for decoder golden tests (PLAN §14): every decoder ships with short fixtures plus
 expected decoded output, and building this library *is* part of building each decoder. The
-library starts at M3 (record & replay); the wave-1 decoders landed at M4.
+library starts at M3 (record & replay); the wave-1 decoders landed at M4 and wave 2 (NAVTEX,
+ACARS, sub-GHz) after M6.
 
 ## What `cargo xtask fixtures` writes
 
-One pair per wave-1 decoder, rendered by the same `channels::testgen` modulators the decoder
+One pair per decoder, rendered by the same `channels::testgen` modulators the decoder
 unit tests and the engine end-to-end run use — a fixture can therefore never drift from what
 the decoders are tested against. Each is meant to be *played*: open it as a `virtual:file:`
 device, add the named channel at the stated offset, and the decoder log fills up.
@@ -21,6 +22,9 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `morse_20wpm_48k` | 48 k | `morse` @ −5 kHz | `CQ DE DL1ABC K` at 20 wpm |
 | `adsb_squitters_2m` | 2 M | `adsb` @ 0 Hz | `3C6444`/`DLH123`, FL380, a solved position |
 | `rds_station_960k` | 960 k | `wfm` @ +200 kHz, `rds` on | PI `D3C2`, PS `SDR-M4`, 1 kHz audio |
+| `navtex_518_48k` | 48 k | `navtex` @ +3 kHz | `DA07` navigational warning, `GALE WARNING` |
+| `acars_downlink_240k` | 240 k | `acars` @ −40 kHz | `D-AIBC` / `LH0400` `[H1]`, `SDR-- FIXTURE` |
+| `subghz_ev1527_500k` | 500 k | `subghz` @ +100 kHz | 24-bit PWM `0A1B23`, address `0A1B2`, button 3 |
 
 ADS-B is the one fixture whose device rate is not negotiable: it fills its whole 2 MHz
 channel, so a resampling DDC cannot carry it and the engine refuses the channel at any other

@@ -325,9 +325,12 @@ big FFTs, logging, and maps. TX-only tricks are noted and deferred with the rest
 - ADS-B, AIS, POCSAG, ACARS, RDS, APRS, weather/TPMS/ISM sensors (rtl_433-style),
   radiosonde → all in §13.
 - **Sub-GHz OOK/ASK/FSK remotes** (315/433/868/915 MHz: garage doors, TPMS, weather stations,
-  doorbells, many key fobs) → a generic **OOK/FSK capture+decode channel** that recognizes
-  common encodings (PT2262/EV1527/Princeton, Manchester) and logs frames; unknown signals get
-  raw timing capture for inspection. This is the Flipper "read Sub-GHz" experience.
+  doorbells, many key fobs) → a generic **OOK/FSK capture+decode channel** (**shipped**, wave 2)
+  that recognizes common encodings (pulse-width — the PT2262/EV1527/Princeton family — and
+  Manchester) and logs frames; unknown signals get raw timing capture for inspection. This is
+  the Flipper "read Sub-GHz" experience. The chip is deliberately *not* named: an EV1527's 24
+  data bits and a PT2262's 12 tri-state symbols are the same pulse train, so a frame that fits
+  carries both readings and the operator decides.
 - **RF replay-capture (RX half):** record the exact IQ of a burst (garage remote, sensor) to
   the IQ time machine / SigMF, annotate and analyze it. (Re-transmitting it is TX — deferred.)
 - Morse, RTTY, SSTV(RX), radio clock, VOR/ILS — already planned.
@@ -522,14 +525,12 @@ record/playback, presets and bookmarks. Remaining:
 
 ### Phase 2 — data decoders wave 1
 Shipped at M4–M5: RDS (stereo still open, §18), ADS-B + map, AIS + map, POCSAG, AX.25/APRS
-(Mic-E still open), RTTY, Morse, frequency scanner. Remaining:
+(Mic-E still open), RTTY, Morse, frequency scanner. Shipped in wave 2 (post-M6): NAVTEX
+(SITOR-B), ACARS, and the sub-GHz OOK/FSK capture-and-decode channel (§8b). Remaining:
 
 | Feature | Notes |
 |---|---|
-| **Navtex** (SITOR-B) | self; shares the RTTY machinery |
-| **ACARS** (VHF, MSK 2400 over AM) | self; aircraft messages into log DB + map |
-| **HF WEFAX** (weather fax) | self — easy and satisfying |
-| **Sub-GHz OOK/ASK/FSK capture+decode** (PT2262/EV1527/Manchester; garage/TPMS/sensors) | self; Flipper-replacement §8b |
+| **HF WEFAX** (weather fax) | self — blocked on transport, not on DSP: a fax page is an image, and §5 has no frame kind for one. Needs an `IMAGE` binary frame plus a canvas panel before the demod is worth writing |
 | **Signal-strength hunt mode** (fox-hunting / find-the-transmitter) | app; uses RSSI + audio/visual feedback |
 | Channel analyzer (scope, constellation) | IQ taps §9 |
 | Demod analyzer (scope/spectrum on demodulated audio) | self |
@@ -649,6 +650,9 @@ it was verified.**
 - **M6 — the UI shell ✅ shipped.** Workspaces → tabs → dockview panel layouts, server-persisted
   (§10); templates gained layouts. `PROGRESS.md` records what it built, how it was verified and
   the gaps it left.
+- **Decoders wave 2 ✅ shipped** (post-M6): NAVTEX (SITOR-B), ACARS and the sub-GHz OOK/FSK
+  channel, each with a reference modulator, unit tests, an engine end-to-end run and a playable
+  fixture. `PROGRESS.md` records what it built and the gaps it left.
 - **M7+ — Phase 3/4 waves** per §13, prioritized by demand, plus the open Phase 1/2 items.
 
 The milestone rule that outlives the list: a milestone is done when its tests are green
@@ -711,6 +715,8 @@ What follows is the rest — the choices with a rejected alternative or a reason
 | MCP server (M5 implementation) | `rmcp` streamable-HTTP at `/mcp`, **stateless** (`legacy_session_mode = false`, `json_response = true`): no session to garbage-collect, nothing lost across a restart, and the tools need no server-initiated notifications. rmcp's DNS-rebinding host guard is disabled because it defaults to localhost-only and would 403 every LAN client — the shared token is what gates the endpoint, matching §12's posture for REST |
 | Frequency scanner (M5) | App-level and control-plane only: the unit of work is a *device tuning*, not a target, so one dwell measures every target inside the passband off the existing spectrum tap — no extra DSP, which is what makes it affordable on a Pi 4. A running scan owns its set's centre frequency and client retunes are refused while it does, rather than the two fighting |
 | Token auth (M5) | One `route_layer` middleware over the routed API + WS + MCP, deliberately *not* the SPA fallback (the login UI must load unauthenticated, and an unmatched `/api/*` stays a typed 404 instead of a 401). Accepted as `Authorization: Bearer` **or** `?token=`, because the browser WebSocket API cannot set headers and the decoder-log export is a plain navigation. `/api/auth`, `/api/openapi.json` and `/api/docs` stay public: they describe the API's shape, never its data |
+| Decoders wave 2 (post-M6) | Three channels, one rule each. **NAVTEX** emits only what sits between `ZCZC` and `NNNN`: a broadcast station idles for minutes, and a decoder that logged everything it sliced would bury the messages in phasing signal — the CCIR 476 chart is stored as a *code → ITA2* map so the alphabet stays defined once, in `rtty`. **ACARS** repairs nothing: parity and the ARINC 618 CRC both have to pass or the block is dropped, because the payload is free text and a plausible-but-wrong message is worse than a missing one (`acarsdec`'s syndrome-table repair is a deliberate non-goal, noted in PROGRESS). **Sub-GHz** names no chip — an EV1527's 24 data bits and a PT2262's 12 tri-state symbols are the same pulse train, so `encoding` says `pwm` and both readings ride along; repeats inside 500 ms collapse into one event with a count, and a better-classified frame supersedes a held one only while that one is still a single sighting, which is what keeps a capture that started mid-burst from logging its fragment |
+| WEFAX deferred (wave 2) | Not a DSP problem: a fax page is an image, and §5's frame kinds are spectrum, audio and IQ. Shipping it means adding an `IMAGE` binary frame, a server-side page store and a canvas panel — a transport decision, not a decoder, so it waits for one rather than being smuggled in as base64 in a decoder-log row |
 | Templates (M5) | A static Rust table, not seeded SQLite rows: templates ship with the binary, so rows would need a migration per edit and a user could delete an entry the next release restores. Presets remain the writable, device-bound half of the same idea |
 
 ---
@@ -726,7 +732,9 @@ discrete plugin for us). **Shipped plugins are listed once, in prose, and detail
 ### Channel RX (44 plugins)
 
 Shipped: `demodam` · `demodnfm` · `demodssb` · `demodwfm` (mono) · `demodadsb` · `demodais` ·
-`demodpager` · `demodrtty` · `freqscanner` · `sigmffilesink` at device level. Shipped in part,
+`demodpager` · `demodrtty` · `demodnavtex` · `freqscanner` · `sigmffilesink` at device level.
+Beyond SDRangel's channel list, wave 2 also shipped **ACARS** and the **sub-GHz OOK/FSK**
+channel (§8b), neither of which is an SDRangel plugin. Shipped in part,
 so still in the table: `demodbfm` (RDS landed as a `wfm` param; stereo open), `demodpacket`
 (AX.25/APRS landed; Mic-E open), `filesink` (per-channel sinks open).
 
@@ -750,7 +758,6 @@ so still in the table: `demodbfm` (RDS landed as a `wfm` param; stereo open), `d
 | demodm17 | ✅ M17 | P3 |
 | demodmeshcore | ✅ MeshCore | P3 |
 | demodmeshtastic | ✅ Meshtastic | P3 |
-| demodnavtex | ✅ Navtex | P2 |
 | demodpacket | ✅ Mic-E position encoding, the one AX.25 form left undecoded | P2 |
 | demodradiosonde | ✅ Radiosonde | P3 |
 | demodvor / demodvormc | ✅ VOR | P3 |
