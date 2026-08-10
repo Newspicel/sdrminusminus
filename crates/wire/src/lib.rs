@@ -35,9 +35,9 @@ pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame};
 pub use patch::{
     ChannelNode, DeviceNode, DeviceRef, MAX_EDGES, MAX_NODES, NodeBody, NodeCategory, NodeTypeInfo,
-    PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortCondition, PortDirection,
-    PortRef, PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout, RackSlot,
-    Size,
+    PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking, PortCondition,
+    PortDirection, PortRef, PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RackCell,
+    RackLayout, RackSlot, Size,
 };
 pub use rest::{
     ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse,

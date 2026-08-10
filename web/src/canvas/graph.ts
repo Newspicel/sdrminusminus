@@ -26,7 +26,9 @@ import type {
 export interface GraphContext {
   catalog: PatchCatalog;
   channelTypes: readonly ChannelDescriptor[];
-  /** Device sets by node id, from `bindDevices` — only needed for the live rate rule. */
+  /** Device sets by node id, from `bindDevices`. The rules that read what a radio *is* rather
+   * than what the patch says — the live rate warning, and whether a node has a transmit input —
+   * are answered from here; absent means the radio is not attached. */
   bound?: ReadonlyMap<string, DeviceSet>;
 }
 
@@ -50,8 +52,16 @@ export function descriptorOf(
     : undefined;
 }
 
-/** The ports this node actually has: the catalog's table for its kind, with a channel's
- * conditional outputs resolved against its type. */
+/**
+ * The ports this node actually has: the catalog's table for its kind, with the conditional ones
+ * resolved against what is behind the node — a channel's type, a device's radio (mirrors
+ * `PortSpec::applies_to`).
+ *
+ * A device's transmit input is the one port that depends on live state rather than on the stored
+ * patch: which radio a node names is stored, what that radio can do is only known while it is
+ * attached. So an unbound node has no transmit input, and gains one when its transceiver appears
+ * — the same way its dial only reads a frequency once there is a radio behind it.
+ */
 export function portsOf(context: GraphContext, node: PatchNode): PortSpec[] {
   const entry = context.catalog.nodes.find((type) => type.kind === node.kind);
   if (entry === undefined) {
@@ -64,6 +74,8 @@ export function portsOf(context: GraphContext, node: PatchNode): PortSpec[] {
         return descriptor?.has_audio === true;
       case "channel_is_decoder":
         return descriptor?.decoder_kind != null;
+      case "device_is_tx_capable":
+        return context.bound?.get(node.id)?.capabilities.tx_capable === true;
       default:
         return true;
     }

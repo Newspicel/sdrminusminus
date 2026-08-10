@@ -21,7 +21,7 @@ use utoipa::ToSchema;
 
 use crate::{
     channel::{ChannelDescriptor, ChannelParams},
-    device::DeviceInfo,
+    device::{Capabilities, DeviceInfo},
     workspace::MAX_NAME_LEN,
 };
 
@@ -71,6 +71,9 @@ pub enum PortType {
     /// **Reserved, and inert by construction.** No node kind in this build emits it, so no edge
     /// into a transmit input can validate — the port is the shape transmit will arrive in, not a
     /// path to it. PLAN §12a owns what has to exist first: the authorized-use gate.
+    ///
+    /// The input it sits on is [`PortCondition::DeviceIsTxCapable`], so it is drawn on the radios
+    /// that have a send side and nowhere else — an RTL-SDR node has no transmit input at all.
     Tx,
 }
 
@@ -95,9 +98,10 @@ pub enum PortDirection {
     Out,
 }
 
-/// When a port exists. A channel's outputs depend on what its type produces, and that answer
-/// lives once in [`ChannelDescriptor`] — the catalog states the dependency instead of the client
-/// inventing port names for it.
+/// When a port exists. A conditional port depends on what is *behind* the node — the channel type
+/// it names, or the radio it is bound to — and those answers live once in [`ChannelDescriptor`]
+/// and [`Capabilities`]. The catalog states the dependency instead of the client inventing port
+/// names for it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PortCondition {
@@ -107,6 +111,23 @@ pub enum PortCondition {
     ChannelHasAudio,
     /// Only when the channel type emits decoder events.
     ChannelIsDecoder,
+    /// Only on a radio that can transmit ([`Capabilities::tx_capable`]). Unlike the channel
+    /// conditions this one is answered by the *binding* rather than by the stored node: which
+    /// radio a device node names is stored, but what that radio can do is only known while it is
+    /// attached. A node naming no radio, or one that is not plugged in, has nothing to ask — and
+    /// hides the port rather than guessing at it.
+    DeviceIsTxCapable,
+}
+
+/// What a node's conditional ports are resolved against: whatever is behind the node. Never
+/// stored and never on the wire — it is the argument to [`PortSpec::applies_to`], assembled by
+/// each caller from the tables it already holds.
+#[derive(Clone, Copy, Debug)]
+pub enum PortBacking<'a> {
+    /// The descriptor of the type a channel node names.
+    Channel(&'a ChannelDescriptor),
+    /// The capabilities of the radio a device node is bound to.
+    Device(&'a Capabilities),
 }
 
 /// One port of a node type.
@@ -157,13 +178,24 @@ impl PortSpec {
         self
     }
 
-    /// Whether this port exists on a channel node of the given type.
+    /// Whether this port exists on a node with `backing` behind it. `None` is a node with nothing
+    /// behind it yet — a device naming no radio, or naming one that is not attached — which keeps
+    /// every conditional port off it: a port drawn on a guess is one the operator can be told to
+    /// use and then refused.
     #[must_use]
-    pub fn applies_to(&self, descriptor: &ChannelDescriptor) -> bool {
-        match self.condition {
-            PortCondition::Always => true,
-            PortCondition::ChannelHasAudio => descriptor.has_audio,
-            PortCondition::ChannelIsDecoder => descriptor.decoder_kind.is_some(),
+    pub fn applies_to(&self, backing: Option<PortBacking<'_>>) -> bool {
+        match (self.condition, backing) {
+            (PortCondition::Always, _) => true,
+            (PortCondition::ChannelHasAudio, Some(PortBacking::Channel(channel))) => {
+                channel.has_audio
+            }
+            (PortCondition::ChannelIsDecoder, Some(PortBacking::Channel(channel))) => {
+                channel.decoder_kind.is_some()
+            }
+            (PortCondition::DeviceIsTxCapable, Some(PortBacking::Device(device))) => {
+                device.tx_capable
+            }
+            _ => false,
         }
     }
 }
@@ -306,8 +338,9 @@ impl NodeBody {
         }
     }
 
-    /// Every port this kind can have, conditions included. A channel node's real port list is
-    /// this filtered by [`PortSpec::applies_to`] against its descriptor.
+    /// Every port this kind can have, conditions included. A node's real port list is this
+    /// filtered by [`PortSpec::applies_to`] against what backs it — a channel's descriptor, a
+    /// device's capabilities.
     #[must_use]
     pub fn ports(&self) -> Vec<PortSpec> {
         ports_for(self.kind())
@@ -317,15 +350,19 @@ impl NodeBody {
 /// The port table, keyed by node-kind slug so the catalog and a stored node answer from the same
 /// place.
 fn ports_for(kind: &str) -> Vec<PortSpec> {
-    use PortCondition::{Always, ChannelHasAudio, ChannelIsDecoder};
+    use PortCondition::{Always, ChannelHasAudio, ChannelIsDecoder, DeviceIsTxCapable};
     use PortDirection::{In, Out};
     use PortType::{Audio, Control, Events, Iq, Tx};
     match kind {
         // A radio's left side is what is done *to* it, and its right side is what comes off it.
         // Both inputs take one wire: one sweep owns the tuning, one baseband keys the transmitter.
+        //
+        // The transmit input is drawn only on a radio that has a send side: a receiver has no
+        // socket to key, and a port that could never do anything on the commonest SDR there is
+        // reads as a broken node rather than as a reservation.
         "device" => vec![
             PortSpec::new("control", Control, In, false, Always),
-            PortSpec::new("tx", Tx, In, false, Always).noted(
+            PortSpec::new("tx", Tx, In, false, DeviceIsTxCapable).noted(
                 "reserved: transmit is not built (PLAN §12a), so nothing in this build emits \
                  a signal to key a radio with",
             ),
@@ -711,12 +748,19 @@ impl PatchGraph {
         }
         // A conditional port is only real on a type that produces it: wiring an ADS-B channel's
         // audio out would otherwise be a wire the engine has no stream for.
+        //
+        // A device node's one conditional port is not checked here and cannot be: whether the
+        // radio it names can transmit is known only while that radio is attached, and validation
+        // is pure over the stored graph. Nothing is let through by the gap — no port emits
+        // [`PortType::Tx`], so an edge into a transmit input dies on the type mismatch first
+        // (`the_reserved_transmit_input_can_take_no_wire`). The day something does emit it, the
+        // check moves to where the capabilities are: `apply_station`.
         if let (NodeBody::Channel(channel), Some(descriptors)) = (&node.body, channels) {
             let descriptor = descriptors
                 .iter()
                 .find(|d| d.type_id == channel.channel_type)
                 .ok_or_else(|| PatchError::ChannelType(channel.channel_type.clone()))?;
-            if !spec.applies_to(descriptor) {
+            if !spec.applies_to(Some(PortBacking::Channel(descriptor))) {
                 return Err(PatchError::UnknownPort(reference.clone()));
             }
         }
@@ -824,6 +868,20 @@ mod tests {
                 node: to.0.to_owned(),
                 port: to.1.to_owned(),
             },
+        }
+    }
+
+    /// Only the transmit flag matters to the port table; the rest of a radio's report does not.
+    fn capabilities(tx_capable: bool) -> Capabilities {
+        Capabilities {
+            freq_ranges: Vec::new(),
+            sample_rates: Vec::new(),
+            sample_rate_range: None,
+            gains: Vec::new(),
+            antennas: Vec::new(),
+            bandwidths: Vec::new(),
+            extra: Vec::new(),
+            tx_capable,
         }
     }
 
@@ -1086,6 +1144,33 @@ mod tests {
         );
     }
 
+    /// A receiver has no send side to draw. The reservation is per *radio*, not per node kind: an
+    /// RTL-SDR reports `tx_capable: false`, so the node standing for one has two ports, and the
+    /// operator is never shown a socket their hardware does not have.
+    #[test]
+    fn only_a_radio_that_can_transmit_shows_a_transmit_input() {
+        let transmit = ports_for("device")
+            .into_iter()
+            .find(|port| port.port_type == PortType::Tx)
+            .expect("the device kind can have a transmit input");
+
+        let named =
+            |port: &PortSpec, caps: &Capabilities| port.applies_to(Some(PortBacking::Device(caps)));
+        assert!(!named(&transmit, &capabilities(false)), "a receiver");
+        assert!(named(&transmit, &capabilities(true)), "a transceiver");
+        // Which radio is behind the node is stored; what it can do is not — so an unattached one
+        // is a receiver until it says otherwise.
+        assert!(!transmit.applies_to(None), "no radio bound");
+
+        // Its neighbours are unconditional, or a radio out of reach would lose its IQ with it.
+        for port in ports_for("device")
+            .into_iter()
+            .filter(|port| port.port_type != PortType::Tx)
+        {
+            assert!(port.applies_to(None), "{} is not conditional", port.name);
+        }
+    }
+
     /// The scanner wire runs *into* the radio it drives, and ownership is exclusive at both ends:
     /// the engine runs one sweep per device set, and a set answers to one sweep.
     #[test]
@@ -1319,6 +1404,7 @@ mod tests {
         assert_eq!(ports[0]["port_type"], "control");
         assert_eq!(ports[0]["direction"], "in");
         assert_eq!(ports[1]["port_type"], "tx");
+        assert_eq!(ports[1]["condition"], "device_is_tx_capable");
         assert!(ports[1]["note"].is_string(), "the reserved port says why");
         assert_eq!(ports[2]["port_type"], "iq");
         assert_eq!(ports[2]["direction"], "out");
