@@ -1,6 +1,6 @@
 // Pure view logic for the live decoder panes (PLAN §13). Everything a test can pin down —
 // row projection, ageing, sorting, the transcript trim rule, filters — lives here so the
-// components in `DecoderViews.tsx` stay render-only.
+// components in `DecoderPanels.tsx` stay render-only.
 import type { StationOf } from "../lib/decoded";
 import type {
   AdsbMessage,

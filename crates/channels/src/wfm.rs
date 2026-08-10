@@ -30,6 +30,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     has_audio: true,
     // WFM is the only channel that is both: audio out, and RDS frames when `rds` is set.
     decoder_kind: Some("rds".to_owned()),
+    ..ChannelDescriptor::default()
 });
 
 pub struct WfmChannel {

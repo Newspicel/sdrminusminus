@@ -1,21 +1,35 @@
-// App shell (PLAN §10, DESIGN.md §5). Owns the WebSocket, turns `StateChanged` events into
+// App shell (PLAN §10, CANVAS §1). Owns the WebSocket, turns `StateChanged` events into
 // TanStack Query invalidations (the only invalidation path — no polling), and frames the
-// workspace in two rows of chrome: the radio on top, the view under it, the dock below.
+// station in one row of chrome above the patch or the rack.
+//
+// There is no device bar and no tab bar any more: identity is spatial (PLAN §18). Which radio
+// you are operating is the node you are looking at, and the wires leaving it.
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { ReactFlowProvider } from "@xyflow/react";
+import { useEffect, useMemo, useState } from "react";
+import { bindChannels, bindDevices } from "./canvas/binding";
+import { Canvas } from "./canvas/Canvas";
+import { StationProvider } from "./canvas/context";
+import { isPinned, pin, unpin } from "./canvas/graph";
+import { deviceDialId } from "./canvas/nodes/DeviceFace";
+import { Rack } from "./canvas/Rack";
+import { StationBar, type View } from "./canvas/StationBar";
+import { useHotkeys } from "./canvas/useHotkeys";
+import { useStation } from "./canvas/useStation";
+import { BTN_PRIMARY } from "./components/controls";
 import { TUNE_STEPS_HZ } from "./components/dial";
-import { DIAL_ID } from "./components/FrequencyDial";
 import { Shortcuts } from "./components/Shortcuts";
 import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
-import { TopBar, tuningRange } from "./components/TopBar";
 import {
   BOOKMARKS_KEY,
   CLIENTS_KEY,
+  channelTypesQuery,
   clientsQuery,
   DECODER_LOG_KEY,
   DEVICES_KEY,
   PRESETS_KEY,
+  patchCatalogQuery,
   RECORDINGS_KEY,
   STATE_KEY,
   stateQuery,
@@ -24,17 +38,12 @@ import {
 import { audioEngine } from "./lib/audio/useChannelAudio";
 import { useDecodedStore } from "./lib/decoded";
 import { useScannerStore } from "./lib/scanner";
+import { spectrumHub } from "./lib/spectrum";
 import { pushToast } from "./lib/toasts";
-import type { ServerEvent, StateScope } from "./lib/types";
+import type { PatchGraph, ServerEvent, StateScope } from "./lib/types";
 import { useChannelPatch } from "./lib/useChannelPatch";
 import { useDevicePatch } from "./lib/useDevicePatch";
 import { SdrSocket } from "./lib/ws";
-import { ShellProvider } from "./shell/context";
-import { TabBar } from "./shell/TabBar";
-import { useHotkeys } from "./shell/useHotkeys";
-import { useNarrow } from "./shell/useNarrow";
-import { useWorkspace } from "./shell/useWorkspace";
-import { WorkspaceDock } from "./shell/WorkspaceDock";
 
 /** Modes the `m` shortcut walks, in the order an operator sweeps them. Decoders are not in the
  * ring: swapping a channel to ADS-B mid-listen is a different intent, not the next mode. */
@@ -44,36 +53,44 @@ export function App() {
   const queryClient = useQueryClient();
   const [socket, setSocket] = useState<SdrSocket | null>(null);
   const [connected, setConnected] = useState(false);
-  const [activeDs, setActiveDs] = useState<number | null>(null);
-  const [selectedChannel, setSelectedChannel] = useState<number | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [view, setView] = useState<View>("patch");
   const [stepHz, setStepHz] = useState(100_000);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   const state = useQuery(stateQuery());
   const clients = useQuery(clientsQuery());
-  const workspace = useWorkspace();
-  const narrow = useNarrow();
+  const channelTypes = useQuery(channelTypesQuery());
+  const catalog = useQuery(patchCatalogQuery());
+  const station = useStation();
   const { applyPatch, cachedSettings } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
-  const deviceSets = state.data?.device_sets ?? [];
+  // A fresh `[]` every render would defeat every downstream memo, and the binding passes below
+  // are the hot ones — they run over the whole patch.
+  const deviceSets = useMemo(() => state.data?.device_sets ?? [], [state.data?.device_sets]);
 
   useEffect(() => {
     const s = new SdrSocket();
     s.onStatus = setConnected;
-    // Decoder frames bypass TanStack Query entirely (PLAN §5): under ADS-B traffic they
-    // arrive hundreds a second, so they go straight into the batched store. The action
-    // identity is stable, so this listener never needs re-registering.
+    // Decoder frames bypass TanStack Query entirely (PLAN §5): under ADS-B traffic they arrive
+    // hundreds a second, so they go straight into the batched store. The action identity is
+    // stable, so this listener never needs re-registering.
     s.addEventListener(useDecodedStore.getState().observe);
-    // Scanner progress is its own high-rate event for the same reason (PLAN §13): a sweep
-    // steps several times a second and must not invalidate server state per step.
+    // Scanner progress is its own high-rate event for the same reason (PLAN §13).
     s.addEventListener(useScannerStore.getState().observe);
+    // Spectrum is refcounted per device set so several scope faces share one stream.
+    spectrumHub.attach(s);
+    audioEngine.attach(s);
     setSocket(s);
     s.connect();
-    return () => s.close();
+    return () => {
+      spectrumHub.detach();
+      s.close();
+    };
   }, []);
 
   useEffect(() => {
-    if (!socket) {
+    if (socket === null) {
       return;
     }
     socket.onEvent = (event: ServerEvent) => {
@@ -86,7 +103,7 @@ export function App() {
           break;
         case "Error":
           // The wire carries no coordinates: the audio engine claims errors answering its
-          // in-flight subscribes (surfaced on the channel row); the rest land in the toast stack.
+          // in-flight subscribes; the rest land in the toast stack.
           if (!audioEngine.claimServerError(event.data.message)) {
             pushToast(event.data.message);
           }
@@ -98,46 +115,57 @@ export function App() {
   }, [socket, queryClient]);
 
   useEffect(() => {
-    if (workspace.error !== null) {
-      pushToast(`Workspace: ${workspace.error}`);
+    if (station.error !== null) {
+      pushToast(`Station: ${station.error}`);
     }
-  }, [workspace.error]);
+  }, [station.error]);
 
-  // Derive the active device set: the user's selection if it still exists, else the first one.
-  // No effect needed — this recomputes whenever the WS-invalidated state query refetches.
-  const active = deviceSets.find((d) => d.id === activeDs) ?? deviceSets[0] ?? null;
-  // Channel ids are allocated per device set, so a selection made on one set would silently
-  // match a different channel on another.
-  const [selectionSet, setSelectionSet] = useState<number | null>(null);
-  if (selectionSet !== (active?.id ?? null)) {
-    setSelectionSet(active?.id ?? null);
-    setSelectedChannel(null);
-  }
-
-  const snapshot = workspace.active?.snapshot ?? null;
-  const tabs = snapshot?.tabs ?? [];
-  const tab = tabs.find((t) => t.id === snapshot?.active_tab) ?? tabs[0] ?? null;
-
-  const channels = active?.channels ?? [];
-  const selected = channels.find((c) => c.id === selectedChannel) ?? null;
-
-  const tuneCenter = (hz: number): void => {
-    if (active === null) {
-      return;
+  // A patch that names radios which are not attached is normal (CANVAS §3) — but a patch whose
+  // channels the engine refused is a station that is not doing what it draws, so it is said out
+  // loud rather than left to be noticed.
+  useEffect(() => {
+    for (const refusal of station.applied?.refused ?? []) {
+      pushToast(`${refusal.node}: ${refusal.reason}`);
     }
-    const range = tuningRange(active.capabilities);
-    applyPatch(active.id, { center_hz: Math.min(range.max, Math.max(range.min, hz)) });
-  };
-  const tuneChannel = (ch: number, offsetHz: number): void => {
-    if (active !== null) {
-      applyEdit(active.id, ch, { offset_hz: offsetHz });
-    }
-  };
+  }, [station.applied]);
+
+  const snapshot = station.active?.snapshot ?? null;
+  const graph: PatchGraph = useMemo(
+    () => snapshot?.graph ?? { nodes: [], edges: [] },
+    [snapshot?.graph],
+  );
+  const devices = useMemo(() => bindDevices(graph, deviceSets), [graph, deviceSets]);
+  const channels = useMemo(() => bindChannels(graph, devices), [graph, devices]);
+
+  const context = useMemo(
+    () => ({
+      catalog: catalog.data ?? { nodes: [] },
+      channelTypes: channelTypes.data?.types ?? [],
+      bound: devices,
+    }),
+    [catalog.data, channelTypes.data, devices],
+  );
+
+  const selectedNode = graph.nodes.find((node) => node.id === selected) ?? null;
+  const selectedChannel = selected === null ? null : (channels.get(selected) ?? null);
+  const selectedSet =
+    selected === null
+      ? null
+      : (devices.get(selected) ??
+        (() => {
+          const owner = (graph.edges ?? []).find(
+            (edge) => edge.to.node === selected && edge.to.port === "iq",
+          );
+          return owner === undefined ? null : (devices.get(owner.from.node) ?? null);
+        })());
+
+  const channelNodes = graph.nodes.filter((node) => node.kind === "channel");
 
   useHotkeys({
     tune: (steps) => {
-      if (active !== null) {
-        tuneCenter((cachedSettings(active.id)?.center_hz ?? 0) + steps * stepHz);
+      if (selectedSet !== null) {
+        const current = cachedSettings(selectedSet.id)?.center_hz ?? 0;
+        applyPatch(selectedSet.id, { center_hz: current + steps * stepHz });
       }
     },
     stepBy: (direction) => {
@@ -145,115 +173,133 @@ export function App() {
       const next = Math.min(TUNE_STEPS_HZ.length - 1, Math.max(0, at + direction));
       setStepHz(TUNE_STEPS_HZ[next] ?? stepHz);
     },
-    focusDial: () => document.getElementById(DIAL_ID)?.focus(),
+    // One dial per receiver node, so the binding reaches the *selected* node's dial; with a
+    // channel selected it reaches the receiver that channel is wired to.
+    focusDial: () => {
+      const owner =
+        selected !== null && devices.has(selected)
+          ? selected
+          : (graph.edges ?? []).find((edge) => edge.to.node === selected && edge.to.port === "iq")
+              ?.from.node;
+      if (owner !== undefined) {
+        document.getElementById(deviceDialId(owner))?.focus();
+      }
+    },
     cycleMode: (direction) => {
-      if (active === null || selected === null) {
+      if (selectedSet === null || selectedChannel === null) {
         return;
       }
-      const at = MODE_RING.indexOf(selected.settings.params.type as (typeof MODE_RING)[number]);
+      const at = MODE_RING.indexOf(
+        selectedChannel.settings.params.type as (typeof MODE_RING)[number],
+      );
       // A decoder channel is not on the ring; entering it at the first mode is the only sane
       // answer, and the settings for the new mode start at the server's defaults.
       const next = MODE_RING[(Math.max(0, at) + direction + MODE_RING.length) % MODE_RING.length];
       if (next !== undefined) {
-        applyEdit(active.id, selected.id, { params: { type: next, settings: {} } });
+        applyEdit(selectedSet.id, selectedChannel.id, { params: { type: next, settings: {} } });
       }
     },
     adjustSquelch: (deltaDb) => {
-      if (active === null || selected === null) {
+      if (selectedSet === null || selectedChannel === null) {
         return;
       }
-      applyEdit(active.id, selected.id, (current) => ({
+      applyEdit(selectedSet.id, selectedChannel.id, (current) => ({
         squelch_db: Math.min(0, Math.max(-120, (current.squelch_db ?? -60) + deltaDb)),
       }));
     },
     toggleSquelch: () => {
-      if (active === null || selected === null) {
+      if (selectedSet === null || selectedChannel === null) {
         return;
       }
-      applyEdit(active.id, selected.id, (current) => ({
-        squelch_db: current.squelch_db === null || current.squelch_db === undefined ? -60 : null,
+      applyEdit(selectedSet.id, selectedChannel.id, (current) => ({
+        squelch_db: current.squelch_db == null ? -60 : null,
       }));
     },
     toggleAudio: () => {
-      if (active === null || selected === null || socket === null) {
+      if (selectedSet === null || selectedChannel === null || socket === null) {
         return;
       }
-      if (audioEngine.isPlaying(active.id, selected.id)) {
-        audioEngine.stop(active.id, selected.id);
+      if (audioEngine.isPlaying(selectedSet.id, selectedChannel.id)) {
+        audioEngine.stop(selectedSet.id, selectedChannel.id);
       } else {
         audioEngine.attach(socket);
-        audioEngine.start(active.id, selected.id);
+        audioEngine.start(selectedSet.id, selectedChannel.id);
       }
     },
     selectChannel: (direction) => {
-      if (channels.length === 0) {
+      if (channelNodes.length === 0) {
         return;
       }
-      const at = channels.findIndex((c) => c.id === selectedChannel);
-      const next = channels[(at + direction + channels.length) % channels.length];
-      setSelectedChannel(next?.id ?? null);
+      const at = channelNodes.findIndex((node) => node.id === selected);
+      const next = channelNodes[(at + direction + channelNodes.length) % channelNodes.length];
+      setSelected(next?.id ?? null);
     },
-    selectTab: (index) => {
-      const target = tabs[index];
-      if (target !== undefined) {
-        workspace.saveSnapshot((current) => ({ ...current, active_tab: target.id }));
+    selectNode: (index) => setSelected(graph.nodes[index]?.id ?? null),
+    togglePin: () => {
+      if (selectedNode === null) {
+        return;
       }
+      station.save((current) => ({
+        ...current,
+        rack: isPinned(current.rack ?? {}, selectedNode.id)
+          ? unpin(current.rack ?? {}, selectedNode.id)
+          : pin(current.rack ?? {}, selectedNode.id),
+      }));
     },
+    toggleView: () => setView((current) => (current === "patch" ? "rack" : "patch")),
     showShortcuts: () => setShowShortcuts(true),
   });
 
   return (
     <TokenGate onToken={() => socket?.retryNow()}>
       <div className="flex h-full flex-col bg-bg text-ink">
-        <TopBar
-          active={active}
-          deviceSets={deviceSets}
-          onSelect={setActiveDs}
-          connected={connected}
-          clients={clients.data?.clients ?? 1}
-          stepHz={stepHz}
-          onStepHz={setStepHz}
-        />
-
-        <TabBar
-          workspaces={workspace.workspaces}
-          activeId={workspace.active?.id ?? null}
-          snapshot={snapshot}
-          onSnapshot={workspace.saveSnapshot}
-          onActivate={workspace.activate}
-          onCreate={workspace.create}
-          onRemove={workspace.remove}
-          onShowShortcuts={() => setShowShortcuts(true)}
-        />
-
-        {socket && tab !== null && snapshot !== null && (
-          <ShellProvider
+        {socket !== null && snapshot !== null && (
+          <StationProvider
             value={{
               socket,
               connected,
+              graph,
+              rack: snapshot.rack ?? {},
+              context,
               deviceSets,
-              active,
-              setActiveDs,
-              selectedChannel,
-              setSelectedChannel,
-              tuneCenter,
-              tuneChannel,
+              devices,
+              channels,
+              selected,
+              select: setSelected,
+              edit: station.save,
+              apply: station.apply,
             }}
           >
-            <WorkspaceDock
-              // A tab switch must rebuild the dock, not diff into it: panel ids repeat across
-              // tabs, and dockview would move the live panel instead of creating a second one.
-              key={`${workspace.active?.id ?? 0}:${tab.id}`}
-              tab={tab}
-              readOnly={narrow}
-              onChange={(next) =>
-                workspace.saveSnapshot((current) => ({
-                  ...current,
-                  tabs: current.tabs.map((existing) => (existing.id === next.id ? next : existing)),
-                }))
-              }
+            <StationBar
+              view={view}
+              onView={setView}
+              workspaces={station.workspaces}
+              activeWorkspace={station.active?.id ?? null}
+              onActivate={station.activate}
+              onCreate={station.create}
+              onRemove={station.remove}
+              connected={connected}
+              clients={clients.data?.clients ?? 1}
+              onShowShortcuts={() => setShowShortcuts(true)}
             />
-          </ShellProvider>
+            {view === "patch" ? (
+              <ReactFlowProvider>
+                <Canvas />
+              </ReactFlowProvider>
+            ) : (
+              <Rack />
+            )}
+          </StationProvider>
+        )}
+
+        {/* Deleting the last workspace leaves the station with none, honestly (the server says
+            so rather than inventing one); the only thing to offer is a new one. */}
+        {station.active === null && !station.pending && (
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            <button type="button" className={BTN_PRIMARY} onClick={() => station.create("Station")}>
+              Create a station
+            </button>
+          </div>
         )}
 
         <Shortcuts open={showShortcuts} onOpenChange={setShowShortcuts} />
@@ -289,7 +335,7 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
       break;
     case "workspaces":
-      // Covers the list and every open layout: the layout queries are keyed under this prefix.
+      // Covers the list and every open station: the station queries are keyed under this prefix.
       void queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
       break;
     case "decoder_log":

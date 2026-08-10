@@ -10,8 +10,9 @@
 use std::sync::LazyLock;
 
 use sdrmm_wire::{
-    AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, ChannelSettings, LayoutNode,
-    NfmParams, PanelKind, PocsagParams, SplitDirection, TemplateInfo, WfmParams,
+    AdsbParams, AisParams, AmParams, AprsParams, ChannelNode, ChannelParams, ChannelSettings,
+    DeviceNode, NfmParams, NodeBody, PatchEdge, PatchGraph, PatchNode, PocsagParams, PortRef,
+    Position, TemplateInfo, WfmParams,
 };
 
 /// One channel in a template: its absolute frequency and a constructor for its params.
@@ -29,54 +30,91 @@ struct Entry {
     sample_rate: f64,
     /// `(absolute frequency, params)` — absolute so the table reads like a band plan.
     channels: &'static [Channel],
-    /// Panels the template opens as its own workspace tab (M6, PLAN §16). Two shapes cover
-    /// every entry: what you *listen* to, and what you *plot*.
-    layout: fn() -> LayoutNode,
+    /// What the template's channels feed (CANVAS §8 phase ④). A decoder's own output is its
+    /// node face, so an `events` wire is only drawn for the things that *aggregate* several
+    /// decoders — the map and the stored log.
+    shape: Shape,
 }
 
-/// Spectrum over the channel controls and whatever the channel decodes — the shape for a
-/// template you tune and listen to.
-fn listening_layout() -> LayoutNode {
-    LayoutNode::split(
-        SplitDirection::Column,
-        vec![
-            (600, LayoutNode::group(&[PanelKind::Spectrum])),
-            (
-                400,
-                LayoutNode::split(
-                    SplitDirection::Row,
-                    vec![
-                        (500, LayoutNode::group(&[PanelKind::Channels])),
-                        (500, LayoutNode::group(&[PanelKind::Decoders])),
-                    ],
-                ),
-            ),
-        ],
-    )
+/// The two-and-a-half shapes every template falls into.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    /// Audio into a speaker: what you tune and listen to.
+    Listen,
+    /// Positions onto the map, with the stored log beside it.
+    Map,
+    /// Messages into the stored log.
+    Log,
 }
 
-/// Spectrum over the decoder views beside the map — the shape for a template whose output has
-/// positions (ADS-B, AIS, APRS).
-fn mapping_layout() -> LayoutNode {
-    LayoutNode::split(
-        SplitDirection::Row,
-        vec![
-            (
-                550,
-                LayoutNode::split(
-                    SplitDirection::Column,
-                    vec![
-                        (450, LayoutNode::group(&[PanelKind::Spectrum])),
-                        (
-                            550,
-                            LayoutNode::group(&[PanelKind::Decoders, PanelKind::Channels]),
-                        ),
-                    ],
-                ),
-            ),
-            (450, LayoutNode::group(&[PanelKind::Map])),
-        ],
-    )
+/// Horizontal step between the columns of an authored patch, in canvas units.
+const COLUMN: f32 = 400.0;
+/// Vertical step between stacked channel nodes.
+const ROW: f32 = 240.0;
+
+/// Draw the template's station: one receiver, a scope, its channels, and the faces its shape
+/// implies. Positions are authored so a merged template reads as a column of channels hanging
+/// off one radio (`WorkspaceSnapshot::merge_patch` offsets the whole block downward).
+fn patch(shape: Shape, channels: &[Channel]) -> PatchGraph {
+    let node = |id: &str, body: NodeBody, x: f32, y: f32| PatchNode {
+        id: id.to_string(),
+        body,
+        position: Position { x, y },
+        size: None,
+        label: None,
+    };
+    let wire = |from: (&str, &str), to: (&str, &str)| PatchEdge {
+        from: PortRef {
+            node: from.0.to_string(),
+            port: from.1.to_string(),
+        },
+        to: PortRef {
+            node: to.0.to_string(),
+            port: to.1.to_string(),
+        },
+    };
+
+    let mut nodes = vec![
+        node("dev", NodeBody::Device(DeviceNode::default()), 0.0, 0.0),
+        node("scope", NodeBody::Scope, COLUMN, -40.0),
+    ];
+    let mut edges = vec![wire(("dev", "iq"), ("scope", "iq"))];
+
+    for (index, (_, params)) in channels.iter().enumerate() {
+        let id = format!("ch{index}");
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a template has a handful of channels; the row index is exact in f32"
+        )]
+        let y = 260.0 + index as f32 * ROW;
+        nodes.push(node(
+            &id,
+            NodeBody::Channel(ChannelNode {
+                channel_type: params().type_id().to_string(),
+            }),
+            COLUMN,
+            y,
+        ));
+        edges.push(wire(("dev", "iq"), (&id, "iq")));
+        match shape {
+            Shape::Listen => edges.push(wire((&id, "audio"), ("speaker", "audio"))),
+            Shape::Map => {
+                edges.push(wire((&id, "events"), ("map", "events")));
+                edges.push(wire((&id, "events"), ("log", "events")));
+            }
+            Shape::Log => edges.push(wire((&id, "events"), ("log", "events"))),
+        }
+    }
+
+    match shape {
+        Shape::Listen => nodes.push(node("speaker", NodeBody::Speaker, COLUMN * 2.0, 260.0)),
+        Shape::Map => {
+            nodes.push(node("map", NodeBody::Map, COLUMN * 2.0, -40.0));
+            nodes.push(node("log", NodeBody::DecoderLog, COLUMN * 2.0, 380.0));
+        }
+        Shape::Log => nodes.push(node("log", NodeBody::DecoderLog, COLUMN * 2.0, 260.0)),
+    }
+    PatchGraph { nodes, edges }
 }
 
 /// Every template. Keep the sample rates conservative: the Pi 4 is the performance floor
@@ -98,7 +136,7 @@ static TEMPLATES: &[Entry] = &[
                 ..WfmParams::default()
             })
         })],
-        layout: listening_layout,
+        shape: Shape::Listen,
     },
     Entry {
         id: "airband",
@@ -112,7 +150,7 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 118_100_000.0,
         sample_rate: 2_400_000.0,
         channels: &[(118_100_000.0, || ChannelParams::Am(AmParams::default()))],
-        layout: listening_layout,
+        shape: Shape::Listen,
     },
     Entry {
         id: "adsb",
@@ -129,7 +167,7 @@ static TEMPLATES: &[Entry] = &[
         channels: &[(1_090_000_000.0, || {
             ChannelParams::Adsb(AdsbParams::default())
         })],
-        layout: mapping_layout,
+        shape: Shape::Map,
     },
     Entry {
         id: "ais",
@@ -148,7 +186,7 @@ static TEMPLATES: &[Entry] = &[
                 })
             }),
         ],
-        layout: mapping_layout,
+        shape: Shape::Map,
     },
     Entry {
         id: "aprs",
@@ -160,7 +198,7 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 144_800_000.0,
         sample_rate: 1_024_000.0,
         channels: &[(144_800_000.0, || ChannelParams::Aprs(AprsParams::default()))],
-        layout: mapping_layout,
+        shape: Shape::Map,
     },
     Entry {
         id: "pagers",
@@ -175,7 +213,7 @@ static TEMPLATES: &[Entry] = &[
         channels: &[(466_075_000.0, || {
             ChannelParams::Pocsag(PocsagParams::default())
         })],
-        layout: listening_layout,
+        shape: Shape::Log,
     },
     Entry {
         id: "ham-2m",
@@ -187,7 +225,7 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 145_700_000.0,
         sample_rate: 1_024_000.0,
         channels: &[(145_700_000.0, || ChannelParams::Nfm(NfmParams::default()))],
-        layout: listening_layout,
+        shape: Shape::Listen,
     },
     Entry {
         id: "marine-vhf",
@@ -199,7 +237,7 @@ static TEMPLATES: &[Entry] = &[
         center_hz: 156_800_000.0,
         sample_rate: 1_024_000.0,
         channels: &[(156_800_000.0, || ChannelParams::Nfm(NfmParams::default()))],
-        layout: listening_layout,
+        shape: Shape::Listen,
     },
 ];
 
@@ -233,7 +271,7 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                     channels,
                     min_freq_hz: min.min(entry.center_hz),
                     max_freq_hz: max.max(entry.center_hz),
-                    layout: Some((entry.layout)()),
+                    patch: Some(patch(entry.shape, entry.channels)),
                 }
             })
             .collect()
@@ -248,6 +286,8 @@ pub(crate) fn get(id: &str) -> Option<&'static TemplateInfo> {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_wire::WorkspaceSnapshot;
+
     use super::*;
 
     /// The id is the apply path segment and the gallery's React key; a duplicate would make
@@ -302,26 +342,47 @@ mod tests {
         assert_eq!(adsb.channels[0].offset_hz, 0.0);
     }
 
-    /// A template's tab is upserted into the live workspace, so a layout that fails validation
-    /// would be discovered only when someone clicks Apply.
+    /// A template's patch is merged into the live station, so one that fails validation would be
+    /// discovered only when someone clicks Apply. Validating against the *registry* is what
+    /// catches the authoring mistake that matters: wiring an `audio` port on a decoder that has
+    /// none, or a channel type this build does not ship.
     #[test]
-    fn every_template_layout_is_a_valid_tab() {
-        use sdrmm_wire::{TabSpec, WORKSPACE_SNAPSHOT_VERSION, WorkspaceSnapshot};
+    fn every_template_patch_is_a_valid_station() {
+        let descriptors = sdrmm_engine::Engine::new(None).channel_types();
         for template in all() {
-            let layout = template.layout.clone().expect("templates carry a layout");
-            let snapshot = WorkspaceSnapshot {
-                version: WORKSPACE_SNAPSHOT_VERSION,
-                tabs: vec![TabSpec {
-                    id: format!("template:{}", template.id),
-                    name: template.name.clone(),
-                    layout,
-                    floating: Vec::new(),
-                }],
-                active_tab: None,
-            };
-            snapshot
-                .validate()
+            let patch = template.patch.clone().expect("templates carry a patch");
+            patch
+                .validate_against(&descriptors)
                 .unwrap_or_else(|e| panic!("{}: {e}", template.id));
+
+            let mut station = WorkspaceSnapshot::station_default();
+            station.merge_patch(&patch, &format!("template:{}:", template.id), None);
+            station
+                .validate()
+                .unwrap_or_else(|e| panic!("{} merged: {e}", template.id));
+        }
+    }
+
+    /// Apply creates the `channels` list and the patch draws a node per entry; binding is by
+    /// type in order (CANVAS §3), so the two lists must agree or a node would bind to the wrong
+    /// channel — or to none.
+    #[test]
+    fn every_patch_draws_the_channels_the_template_creates() {
+        for template in all() {
+            let patch = template.patch.clone().expect("templates carry a patch");
+            let drawn: Vec<&str> = patch
+                .channels_of("dev")
+                .filter_map(|node| match &node.body {
+                    NodeBody::Channel(channel) => Some(channel.channel_type.as_str()),
+                    _ => None,
+                })
+                .collect();
+            let created: Vec<&str> = template
+                .channels
+                .iter()
+                .map(|c| c.params.type_id())
+                .collect();
+            assert_eq!(drawn, created, "{}", template.id);
         }
     }
 

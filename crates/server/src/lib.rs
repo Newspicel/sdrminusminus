@@ -398,6 +398,8 @@ mod tests {
             "/api/recordings/{id}",
             "/api/decoderlog",
             "/api/decoderlog/export/{format}",
+            "/api/workspaces/{id}/apply",
+            "/api/patch/catalog",
         ] {
             assert!(spec.contains(path), "missing path {path}");
         }
@@ -418,6 +420,11 @@ mod tests {
             "DecoderLogResponse",
             "DecoderEvent",
             "DeletedCount",
+            "PatchGraph",
+            "RackLayout",
+            "DeviceRef",
+            "PatchCatalog",
+            "PatchApplyReport",
         ] {
             assert!(
                 spec.contains(&format!("\"{schema}\"")),
@@ -1387,15 +1394,15 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    /// A template also opens its panels as a tab in the active workspace (M6): the layout is
-    /// the other half of "apply", and re-applying must replace that tab, never stack copies.
+    /// A template also draws its patch into the active station (CANVAS §8 phase ④): the station
+    /// is the other half of "apply", and re-applying must replace that block, never stack copies.
     #[tokio::test]
-    async fn applying_a_template_upserts_its_tab_in_the_active_workspace() {
+    async fn applying_a_template_merges_its_patch_into_the_active_station() {
         let app = test_router();
         let ds = create_virtual_set(&app).await;
         let before = workspaces(&app).await;
         let active = before.active.expect("seeded workspace");
-        let tabs_before = before.workspaces[0].tabs;
+        let nodes_before = before.workspaces[0].nodes;
 
         for _ in 0..2 {
             let (status, body) = request(
@@ -1422,21 +1429,6 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         let detail: sdrmm_wire::WorkspaceDetail = serde_json::from_slice(&body).expect("json");
-        assert_eq!(
-            u32::try_from(detail.snapshot.tabs.len()).unwrap(),
-            tabs_before + 1
-        );
-        let tab = detail
-            .snapshot
-            .tabs
-            .iter()
-            .find(|t| t.id == "template:fm-radio")
-            .expect("template tab");
-        assert_eq!(tab.name, "FM radio");
-        assert_eq!(
-            detail.snapshot.active_tab.as_deref(),
-            Some("template:fm-radio")
-        );
         let (_, body) = request(app.clone(), "GET", "/api/templates", None).await;
         let listed: sdrmm_wire::TemplatesResponse = serde_json::from_slice(&body).expect("json");
         let template = listed
@@ -1444,7 +1436,184 @@ mod tests {
             .iter()
             .find(|t| t.id == "fm-radio")
             .expect("template");
-        assert_eq!(Some(&tab.layout), template.layout.as_ref());
+        let patch = template.patch.as_ref().expect("templates carry a patch");
+
+        // The station's own receiver is unbound, so the template drew its own — bound to the set
+        // the apply configured, and added exactly once for two applies.
+        let added = u32::try_from(patch.nodes.len()).unwrap();
+        assert_eq!(
+            u32::try_from(detail.snapshot.graph.nodes.len()).unwrap(),
+            nodes_before + added
+        );
+        let device = detail
+            .snapshot
+            .graph
+            .node("template:fm-radio:dev")
+            .expect("the template's receiver");
+        let sdrmm_wire::NodeBody::Device(bound) = &device.body else {
+            panic!("a receiver node")
+        };
+        assert_eq!(
+            bound.device.as_ref().map(|d| d.backend.as_str()),
+            Some("virtual"),
+            "the patch names the radio the template was applied to"
+        );
+        assert_eq!(
+            detail
+                .snapshot
+                .graph
+                .channels_of("template:fm-radio:dev")
+                .count(),
+            1
+        );
+        detail.snapshot.validate().expect("a valid station");
+    }
+
+    /// Apply brings the engine up to what the station draws. It is additive and idempotent, so
+    /// the second call must change nothing — that is what makes it safe on every load.
+    #[tokio::test]
+    async fn applying_a_station_opens_its_radio_and_adds_its_channels_once() {
+        let app = test_router();
+        let workspace = workspaces(&app).await.active.expect("seeded workspace");
+
+        // A station naming the virtual radio, with two channels and a speaker.
+        let device = sdrmm_wire::DeviceRef {
+            backend: "virtual".to_string(),
+            serial: None,
+            key: Some("siggen".to_string()),
+        };
+        let mut snapshot = sdrmm_wire::WorkspaceSnapshot::station_default();
+        let sdrmm_wire::NodeBody::Device(node) = &mut snapshot.graph.nodes[0].body else {
+            panic!("the default station opens with a receiver")
+        };
+        node.device = Some(device);
+        for (id, kind) in [("nfm", "nfm"), ("am", "am")] {
+            snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
+                id: id.to_string(),
+                body: sdrmm_wire::NodeBody::Channel(sdrmm_wire::ChannelNode {
+                    channel_type: kind.to_string(),
+                }),
+                position: sdrmm_wire::Position { x: 400.0, y: 300.0 },
+                size: None,
+                label: None,
+            });
+            snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
+                from: sdrmm_wire::PortRef {
+                    node: "device".to_string(),
+                    port: "iq".to_string(),
+                },
+                to: sdrmm_wire::PortRef {
+                    node: id.to_string(),
+                    port: "iq".to_string(),
+                },
+            });
+        }
+        let (status, body) = request(
+            app.clone(),
+            "PUT",
+            &format!("/api/workspaces/{workspace}"),
+            Some(&format!(
+                r#"{{"revision":1,"snapshot":{}}}"#,
+                serde_json::to_string(&snapshot).unwrap()
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+
+        let apply = async || -> sdrmm_wire::PatchApplyReport {
+            let (status, body) = request(
+                app.clone(),
+                "POST",
+                &format!("/api/workspaces/{workspace}/apply"),
+                Some("{}"),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+            serde_json::from_slice(&body).expect("json")
+        };
+
+        let first = apply().await;
+        assert_eq!(first.opened, 1);
+        assert_eq!(first.created, 2);
+        assert_eq!(first.bound.len(), 1);
+        assert_eq!(first.bound[0].node, "device");
+        assert!(first.absent.is_empty());
+        assert!(first.refused.is_empty(), "{:?}", first.refused);
+
+        let second = apply().await;
+        assert_eq!(second.opened, 0, "apply is idempotent");
+        assert_eq!(second.created, 0);
+        assert_eq!(second.bound, first.bound);
+
+        let state = get_state(&app).await;
+        assert_eq!(state.device_sets.len(), 1);
+        let types: Vec<&str> = state.device_sets[0]
+            .channels
+            .iter()
+            .map(|c| c.settings.params.type_id())
+            .collect();
+        assert_eq!(types, vec!["nfm", "am"]);
+    }
+
+    /// A radio the station names but nobody plugged in is a disconnected node, not an error:
+    /// apply reports it and carries on with the rest of the patch.
+    #[tokio::test]
+    async fn applying_a_station_reports_an_absent_radio() {
+        let app = test_router();
+        let workspace = workspaces(&app).await.active.expect("seeded workspace");
+        let mut snapshot = sdrmm_wire::WorkspaceSnapshot::station_default();
+        let sdrmm_wire::NodeBody::Device(node) = &mut snapshot.graph.nodes[0].body else {
+            panic!("the default station opens with a receiver")
+        };
+        node.device = Some(sdrmm_wire::DeviceRef {
+            backend: "hackrf".to_string(),
+            serial: Some("deadbeef".to_string()),
+            key: None,
+        });
+        let (status, _) = request(
+            app.clone(),
+            "PUT",
+            &format!("/api/workspaces/{workspace}"),
+            Some(&format!(
+                r#"{{"revision":1,"snapshot":{}}}"#,
+                serde_json::to_string(&snapshot).unwrap()
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/workspaces/{workspace}/apply"),
+            Some("{}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let report: sdrmm_wire::PatchApplyReport = serde_json::from_slice(&body).expect("json");
+        assert_eq!(report.absent, vec!["device".to_string()]);
+        assert_eq!(report.opened, 0);
+        assert!(report.bound.is_empty());
+        assert!(get_state(&app).await.device_sets.is_empty());
+    }
+
+    /// The palette is backend-driven (PLAN §2): the canvas builds its "add node" menu and its
+    /// drag-time rules from this, so its shape is a contract.
+    #[tokio::test]
+    async fn the_patch_catalog_describes_the_node_palette() {
+        let app = test_router();
+        let (status, body) = request(app, "GET", "/api/patch/catalog", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let catalog: sdrmm_wire::PatchCatalog = serde_json::from_slice(&body).expect("json");
+        assert_eq!(catalog, sdrmm_wire::PatchCatalog::build());
+        let device = catalog
+            .nodes
+            .iter()
+            .find(|n| n.kind == "device")
+            .expect("a receiver in the palette");
+        assert_eq!(device.category, sdrmm_wire::NodeCategory::Source);
+        assert_eq!(device.ports.len(), 1);
+        assert!(device.ports[0].multi, "one radio feeds many nodes");
     }
 
     #[tokio::test]
@@ -1485,12 +1654,27 @@ mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT);
         assert_eq!(workspaces(&app).await.active, Some(created.id));
 
-        // A layout the client could not render back is refused at the edge.
+        // A station this build did not write is refused at the edge rather than half-read: the
+        // shape version is what an M6 row still on disk would carry.
         let (status, body) = request(
             app.clone(),
             "PUT",
             &format!("/api/workspaces/{}", created.id),
-            Some(r#"{"revision":1,"snapshot":{"version":1,"tabs":[]}}"#),
+            Some(r#"{"revision":1,"snapshot":{"version":1,"graph":{"nodes":[]}}}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
+
+        // And so is a wire into a node that is not there.
+        let (status, body) = request(
+            app.clone(),
+            "PUT",
+            &format!("/api/workspaces/{}", created.id),
+            Some(
+                r#"{"revision":1,"snapshot":{"version":2,"graph":{"nodes":[],"edges":[
+                   {"from":{"node":"a","port":"iq"},"to":{"node":"b","port":"iq"}}]}}}"#,
+            ),
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);

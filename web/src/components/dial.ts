@@ -2,6 +2,7 @@
 // tuned frequency, kept out of the component so the component only routes events.
 //
 // A "place" is a power of ten in Hz: place 6 is the megahertz digit, place 0 the hertz digit.
+import type { Capabilities } from "../lib/types";
 
 /** Below this the dial would show fewer than four MHz digits and jump width as the radio is
  * retuned; the readout must never reflow while it is being read. */
@@ -11,6 +12,20 @@ const MAX_TOP_PLACE = 11;
 export interface Range {
   min: number;
   max: number;
+}
+
+/** The dial's limits for a receiver. Discontiguous tuners report several ranges; the dial spans
+ * their envelope and the server rejects a frequency that falls in a gap — which is the honest
+ * report, since only the driver knows where its holes are. */
+export function tuningRange(caps: Capabilities): Range {
+  const ranges = caps.freq_ranges;
+  if (ranges.length === 0) {
+    return { min: 0, max: 6e9 };
+  }
+  return {
+    min: Math.min(...ranges.map((r) => r.min)),
+    max: Math.max(...ranges.map((r) => r.max)),
+  };
 }
 
 /** Places to render, highest first, sized to the widest frequency the device can reach. */

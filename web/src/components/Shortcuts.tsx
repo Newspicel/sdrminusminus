@@ -1,7 +1,7 @@
 // The `?` overlay (DESIGN.md §8). Its only job is to make the keyboard layer discoverable, so
 // it is one table read straight from the binding list the handler uses.
 import { Dialog } from "@base-ui/react/dialog";
-import { BINDINGS } from "../shell/useHotkeys";
+import { BINDINGS } from "../canvas/useHotkeys";
 import { BTN, SURFACE } from "./controls";
 
 export function Shortcuts({

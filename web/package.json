@@ -9,13 +9,14 @@
     "preview": "vite preview",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
+    "e2e": "playwright test",
     "lint": "oxlint --type-aware",
     "format": "biome check --write ."
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@tanstack/react-query": "5.101.4",
-    "dockview-react": "7.0.4",
+    "@xyflow/react": "^12.11.2",
     "maplibre-gl": "6.2.0",
     "openapi-fetch": "0.17.0",
     "opus-decoder": "0.7.11",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.7",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",

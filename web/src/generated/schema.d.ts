@@ -260,6 +260,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/patch/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_patch_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/presets": {
         parameters: {
             query?: never;
@@ -430,6 +446,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["activate_workspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["apply_workspace"];
         delete?: never;
         options?: never;
         head?: never;
@@ -676,6 +708,14 @@ export interface components {
              */
             decoder_kind?: string | null;
             /**
+             * @description The type occupies its whole channel rate, so it runs only with the device tuned to
+             *     exactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18;
+             *     ADS-B is the one such mode). Reported so the canvas can refuse the wire where the
+             *     operator draws it, naming the rate that works, instead of letting the engine reject it
+             *     after the fact. Defaults to `false`, which is every other type.
+             */
+            exact_rate_only?: boolean;
+            /**
              * @description Whether the channel produces listenable audio. Data decoders (PLAN §13 wave 1) do
              *     not, so the client hides their audio controls instead of offering a silent stream.
              *     Defaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour.
@@ -696,6 +736,14 @@ export interface components {
             /** Format: int32 */
             id: number;
             settings: components["schemas"]["ChannelSettings"];
+        };
+        /**
+         * @description A channel node's payload. The *type* is topology — it decides the node's ports — while the
+         *     settings behind it stay on the engine's channel (module docs).
+         */
+        ChannelNode: {
+            /** @description [`ChannelDescriptor::type_id`]: `"nfm"`, `"adsb"`, `"subghz"`, … */
+            channel_type: string;
         };
         /**
          * @description Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
@@ -996,6 +1044,34 @@ export interface components {
             /** @description Serial number when the driver exposes one (used to collapse probe duplicates, PLAN §6). */
             serial?: string | null;
         };
+        /**
+         * @description A device node's payload: the radio it names, or nothing yet.
+         *
+         *     Unbound is a first-class state, not an error — it is the empty node a fresh station starts on,
+         *     and it renders the receiver picker. Bound-but-absent is the other one: controls disabled,
+         *     wires kept, never silently rebound (CANVAS §3).
+         */
+        DeviceNode: {
+            device?: null | components["schemas"]["DeviceRef"];
+        };
+        /**
+         * @description A device named by durable identity (CANVAS §3), never by an engine or probe id: those are
+         *     allocated per run and reused, so a stored engine id would silently bind a node to whichever
+         *     radio opened first — the kind of failure that looks like a working panel.
+         *
+         *     `key` is the tie-break CANVAS §3 does not name, added because a backend can have several
+         *     devices and no serials: the virtual backend's key is `siggen` or the stem of a recording, both
+         *     durable, and without it a patch could not say *which* capture it plays. It is consulted only
+         *     when there is no serial, which is what keeps it away from the case it would be wrong for — an
+         *     RTL-SDR clone whose key is a bus index.
+         */
+        DeviceRef: {
+            /** @description Driver id, matching [`DeviceInfo::driver`]: `"rtlsdr"`, `"hackrf"`, `"soapy"`, `"virtual"`. */
+            backend: string;
+            /** @description Per-driver key, used only when the driver exposes no serial. */
+            key?: string | null;
+            serial?: string | null;
+        };
         /** @description One opened device and everything hosted on it (PLAN §2: "one device set per opened device"). */
         DeviceSet: {
             capabilities: components["schemas"]["Capabilities"];
@@ -1096,22 +1172,6 @@ export interface components {
             name: string;
             value: unknown;
         };
-        /**
-         * @description A group floating above the grid (PLAN §10). Geometry is a fraction of the dock, never
-         *     pixels: the same workspace opens on a phone and on a 4K desktop, and stored pixels would put
-         *     a floating panel off-screen on the smaller one.
-         */
-        FloatingGroup: {
-            group: components["schemas"]["PanelGroup"];
-            /** Format: float */
-            h_frac: number;
-            /** Format: float */
-            w_frac: number;
-            /** Format: float */
-            x_frac: number;
-            /** Format: float */
-            y_frac: number;
-        };
         /** @description A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA). */
         GainStage: {
             name: string;
@@ -1122,34 +1182,6 @@ export interface components {
             stage: string;
             /** Format: double */
             value_db: number;
-        };
-        /** @description One child of a split, with its share of the parent's extent. */
-        LayoutChild: {
-            /**
-             * @description The subtree. `no_recursion` breaks the schema cycle — utoipa would otherwise recurse
-             *     forever collecting `LayoutNode` → `LayoutChild` → `LayoutNode`.
-             */
-            node: components["schemas"]["LayoutNode"];
-            /**
-             * Format: int32
-             * @description Share of the parent along its axis, in permille. Integers, not fractions: the layout is
-             *     re-persisted on every gesture, and a float would drift across load→save cycles (and can
-             *     serialize as `null` for NaN, which fails the *whole* snapshot on the way back in).
-             */
-            weight_permille: number;
-        };
-        /**
-         * @description The panel-layout tree of one tab. Adjacently tagged like [`crate::ChannelParams`], so the
-         *     generated TypeScript is a union the client can exhaustively switch on.
-         */
-        LayoutNode: {
-            data: components["schemas"]["SplitNode"];
-            /** @enum {string} */
-            node: "split";
-        } | {
-            data: components["schemas"]["PanelGroup"];
-            /** @enum {string} */
-            node: "group";
         };
         MorseParams: {
             /**
@@ -1213,32 +1245,136 @@ export interface components {
             /** Format: double */
             bandwidth_hz?: number;
         };
-        /** @description A tab-stack of panels sharing one rectangle. */
-        PanelGroup: {
-            /**
-             * @description Which panel is on top. An id, never an index: an index goes stale the moment a panel is
-             *     closed. `None` means "the first one".
-             */
-            active?: string | null;
-            panels: components["schemas"]["PanelSpec"][];
+        /**
+         * @description What a node is. Adjacently tagged like [`crate::ChannelParams`], so the generated TypeScript
+         *     is a union the client can exhaustively switch on.
+         *
+         *     The catalog is deliberately shorter than CANVAS §1's table: the GPS source, the UDP sink and
+         *     the WAV audio-file sink need server features that do not exist (PLAN §13 Phase 2/4), and a
+         *     node whose backend is unbuilt is a face that can only apologise.
+         */
+        NodeBody: {
+            data: components["schemas"]["DeviceNode"];
+            /** @enum {string} */
+            kind: "device";
+        } | {
+            data: components["schemas"]["ChannelNode"];
+            /** @enum {string} */
+            kind: "channel";
+        } | {
+            /** @enum {string} */
+            kind: "scope";
+        } | {
+            /** @enum {string} */
+            kind: "speaker";
+        } | {
+            /** @enum {string} */
+            kind: "map";
+        } | {
+            /** @enum {string} */
+            kind: "decoder_log";
+        } | {
+            /** @enum {string} */
+            kind: "recorder";
+        } | {
+            /** @enum {string} */
+            kind: "export";
+        } | {
+            /** @enum {string} */
+            kind: "scanner";
         };
         /**
-         * @description What a panel shows. A closed enum on purpose: the web UI ships inside the same binary as
-         *     this crate, so client and server can never disagree about the set — and a stored workspace
-         *     naming a kind this build does not have must fail loudly (the row is refused) rather than be
-         *     silently rewritten without the panels it could not read.
+         * @description The band a node's header strip carries (CANVAS §6): what the operator is looking at before
+         *     they read the label.
          * @enum {string}
          */
-        PanelKind: "spectrum" | "channels" | "scanner" | "decoders" | "map" | "decoder_log" | "presets" | "bookmarks" | "templates" | "recordings";
+        NodeCategory: "source" | "channel" | "display" | "feature" | "sink";
         /**
-         * @description One panel in a group. `id` is stored rather than derived from `kind`: two spectrum panels in
-         *     one tab is a legitimate layout, and the dock needs unique panel ids.
+         * @description One entry of the node palette the client renders its "add node" menu from (PLAN §2: the client
+         *     renders what the server describes).
          */
-        PanelSpec: {
+        NodeTypeInfo: {
+            category: components["schemas"]["NodeCategory"];
+            /** @description Slug matching [`NodeBody::kind`]. */
+            kind: string;
+            name: string;
+            /**
+             * @description Channel nodes need a type from `GET /api/channeltypes`; the menu offers one entry per
+             *     descriptor rather than one entry for "channel".
+             */
+            needs_channel_type?: boolean;
+            ports: components["schemas"]["PortSpec"][];
+        };
+        /**
+         * @description `POST /api/workspaces/{id}/apply` — what applying the station did.
+         *
+         *     Apply is additive and idempotent: it opens the radios the graph names and adds the channels it
+         *     draws, and never closes or deletes anything. Removing a node is a gesture with its own
+         *     endpoint; a reconciler that also deleted would turn "this workspace has fewer nodes" into
+         *     "close that operator's radio".
+         */
+        PatchApplyReport: {
+            /** @description Device nodes whose radio is not attached; they render disconnected (CANVAS §3). */
+            absent?: string[];
+            /** @description Every device node that now has a running device set. */
+            bound: components["schemas"]["PatchBinding"][];
+            /**
+             * Format: int32
+             * @description Channels created by this call.
+             */
+            created: number;
+            /**
+             * Format: int32
+             * @description Device sets opened by this call.
+             */
+            opened: number;
+            /**
+             * @description Nodes apply could not satisfy, with the reason — a wideband channel on a device running
+             *     at the wrong rate is the common one (PLAN §18). Reported, never silently skipped.
+             */
+            refused?: components["schemas"]["PatchRefusal"][];
+        };
+        /**
+         * @description One device node now driving an engine device set (CANVAS §3). Bindings are recomputed per run
+         *     and never stored.
+         */
+        PatchBinding: {
+            /** Format: int32 */
+            device_set: number;
+            node: string;
+        };
+        /** @description `GET /api/patch/catalog` — the node palette and its ports. */
+        PatchCatalog: {
+            nodes: components["schemas"]["NodeTypeInfo"][];
+        };
+        /** @description A wire: which stream a node consumes, and from whom. */
+        PatchEdge: {
+            from: components["schemas"]["PortRef"];
+            to: components["schemas"]["PortRef"];
+        };
+        /** @description The station as a graph (CANVAS §1). */
+        PatchGraph: {
+            edges?: components["schemas"]["PatchEdge"][];
+            nodes: components["schemas"]["PatchNode"][];
+        };
+        /**
+         * @description One node: what it is, where it sits, and what the operator called it.
+         *
+         *     There is no `pinned` flag: rack membership is the single truth for "this face is being
+         *     operated", and two representations of one fact drift.
+         */
+        PatchNode: components["schemas"]["NodeBody"] & {
+            /** @description Client-generated, unique within the graph, stable for the node's life. */
             id: string;
-            kind: components["schemas"]["PanelKind"];
-            /** @description User-renamed caption; `None` renders the client's default name for the kind. */
-            title?: string | null;
+            /** @description User-renamed caption; `None` renders the kind's default name. */
+            label?: string | null;
+            position: components["schemas"]["Position"];
+            size?: null | components["schemas"]["Size"];
+        };
+        /** @description One node apply could not satisfy. */
+        PatchRefusal: {
+            node: string;
+            reason: string;
         };
         /**
          * @description Bit rate of a POCSAG transmission. Pagers on one frequency may use several, so `Auto`
@@ -1286,6 +1422,54 @@ export interface components {
          * @enum {string}
          */
         PocsagPayload: "tone" | "numeric" | "alpha";
+        /**
+         * @description When a port exists. A channel's outputs depend on what its type produces, and that answer
+         *     lives once in [`ChannelDescriptor`] — the catalog states the dependency instead of the client
+         *     inventing port names for it.
+         * @enum {string}
+         */
+        PortCondition: "always" | "channel_has_audio" | "channel_is_decoder";
+        /**
+         * @description Which side of a node a port sits on.
+         * @enum {string}
+         */
+        PortDirection: "in" | "out";
+        /** @description One end of an edge. */
+        PortRef: {
+            node: string;
+            /** @description [`PortSpec::name`] on that node. */
+            port: string;
+        };
+        /** @description One port of a node type. */
+        PortSpec: {
+            condition?: components["schemas"]["PortCondition"];
+            direction: components["schemas"]["PortDirection"];
+            /**
+             * @description Whether more than one edge may land here. Outputs always fan out (one device feeds N
+             *     channels, scopes and a recorder — that *is* today's device set, drawn); inputs say so.
+             */
+            multi: boolean;
+            /** @description Stable slug, unique within its node and direction; this is what an edge names. */
+            name: string;
+            port_type: components["schemas"]["PortType"];
+        };
+        /**
+         * @description What a wire carries. Hue encodes this and only this (CANVAS §6), so the set stays small and
+         *     every member is a stream the engine actually produces today.
+         *
+         *     `iq-tap` (decimated channel IQ) and `position` (GPS) are named by CANVAS §1 and deliberately
+         *     absent: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4, so neither has a
+         *     stream to carry. A port whose type nothing can emit is a wire that can only dangle.
+         * @enum {string}
+         */
+        PortType: "iq" | "audio" | "events";
+        /** @description Canvas position of a node, in React Flow's coordinate space. */
+        Position: {
+            /** Format: float */
+            x: number;
+            /** Format: float */
+            y: number;
+        };
         /** @description `GET /api/presets` list entry. */
         PresetInfo: {
             /** @description RFC3339 UTC. */
@@ -1308,6 +1492,28 @@ export interface components {
              *     stored presets can be migrated or rejected explicitly.
              */
             version: number;
+        };
+        /** @description One pinned face on the rack grid. */
+        RackCell: {
+            /** Format: int32 */
+            h: number;
+            /** Format: int32 */
+            w: number;
+            /**
+             * Format: int32
+             * @description Whole grid cells from the left / top.
+             */
+            x: number;
+            /** Format: int32 */
+            y: number;
+        };
+        /** @description The operate view: faces on a snapping grid, no pan, no zoom, no wires (CANVAS §5). */
+        RackLayout: {
+            slots?: components["schemas"]["RackSlot"][];
+        };
+        /** @description One pinned node and the cells it occupies. */
+        RackSlot: components["schemas"]["RackCell"] & {
+            node: string;
         };
         /** @description An inclusive numeric range with an optional step, in the setting's native unit. */
         Range: {
@@ -1656,15 +1862,12 @@ export interface components {
         };
         /** @enum {string} */
         Sideband: "usb" | "lsb";
-        /**
-         * @description How a split arranges its children.
-         * @enum {string}
-         */
-        SplitDirection: "row" | "column";
-        /** @description A split and its children. */
-        SplitNode: {
-            children: components["schemas"]["LayoutChild"][];
-            direction: components["schemas"]["SplitDirection"];
+        /** @description Face size in canvas units. Absent means the node's natural size. */
+        Size: {
+            /** Format: float */
+            h: number;
+            /** Format: float */
+            w: number;
         };
         SsbParams: {
             agc?: boolean;
@@ -1802,13 +2005,6 @@ export interface components {
             min_pulse_us?: number;
             modulation?: components["schemas"]["SubghzModulation"];
         };
-        /** @description One tab: a named panel layout. */
-        TabSpec: {
-            floating?: components["schemas"]["FloatingGroup"][];
-            id: string;
-            layout: components["schemas"]["LayoutNode"];
-            name: string;
-        };
         /**
          * @description One built-in station template (PLAN §10: the template gallery). Read-only and
          *     device-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry
@@ -1825,7 +2021,6 @@ export interface components {
             explainer: string;
             /** @description Stable slug used in `POST /api/templates/{id}/apply`. */
             id: string;
-            layout?: null | components["schemas"]["LayoutNode"];
             /** Format: double */
             max_freq_hz: number;
             /**
@@ -1835,6 +2030,7 @@ export interface components {
              */
             min_freq_hz: number;
             name: string;
+            patch?: null | components["schemas"]["PatchGraph"];
             /** Format: double */
             sample_rate: number;
         };
@@ -1842,7 +2038,7 @@ export interface components {
         TemplatesResponse: {
             templates: components["schemas"]["TemplateInfo"][];
         };
-        /** @description `PUT /api/workspaces/{id}` — rename, re-layout, or both. */
+        /** @description `PUT /api/workspaces/{id}` — rename, re-patch, or both. */
         UpdateWorkspaceRequest: {
             name?: string | null;
             /**
@@ -1864,11 +2060,11 @@ export interface components {
              */
             rds?: boolean;
         };
-        /** @description `GET /api/workspaces/{id}` — the row plus its layout. */
+        /** @description `GET /api/workspaces/{id}` — the row plus its station. */
         WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {
             snapshot: components["schemas"]["WorkspaceSnapshot"];
         };
-        /** @description `GET /api/workspaces` list entry — the projection a switcher needs, without the layout. */
+        /** @description `GET /api/workspaces` list entry — the projection a switcher needs, without the station. */
         WorkspaceInfo: {
             /** @description RFC3339 UTC. */
             created_at: string;
@@ -1876,27 +2072,31 @@ export interface components {
             id: number;
             name: string;
             /**
+             * Format: int32
+             * @description Node count, denormalized so the switcher can describe a workspace without parsing its
+             *     graph.
+             */
+            nodes: number;
+            /**
              * Format: int64
-             * @description Bumped on every stored change. An update carrying a stale revision is refused rather
-             *     than silently overwriting another client's layout.
+             * @description Bumped on every stored change. An update carrying a stale revision is refused rather than
+             *     silently overwriting another client's arrangement.
              */
             revision: number;
-            /**
-             * Format: int32
-             * @description Tab count, so the switcher can describe a workspace without fetching its layout.
-             */
-            tabs: number;
             /** @description RFC3339 UTC. */
             updated_at: string;
         };
         /**
-         * @description The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — it is
-         *     written atomically, read whole, and never queried by inner field).
+         * @description The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written
+         *     atomically, read whole, never queried by inner field).
          */
         WorkspaceSnapshot: {
-            /** @description Id of the tab on top; `None` means the first one. */
-            active_tab?: string | null;
-            tabs: components["schemas"]["TabSpec"][];
+            graph: components["schemas"]["PatchGraph"];
+            /**
+             * @description Faces pinned to the operate view. May be empty — the canvas alone is a complete UI
+             *     (CANVAS §5).
+             */
+            rack?: components["schemas"]["RackLayout"];
             /**
              * Format: int32
              * @description [`WORKSPACE_SNAPSHOT_VERSION`] at the time of writing.
@@ -2642,6 +2842,26 @@ export interface operations {
             };
         };
     };
+    get_patch_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node palette: every node kind this build offers, its category and its ports. The canvas renders its "add node" menu and enforces its drag-time connection rules from this, so a new node type needs no frontend table */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatchCatalog"];
+                };
+            };
+        };
+    };
     list_presets: {
         parameters: {
             query?: never;
@@ -3178,6 +3398,47 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Workspace not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    apply_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Workspace id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The station was brought up: radios opened, channels added, and what could not be satisfied. Additive and idempotent — nothing is closed or deleted, so calling it twice changes nothing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PatchApplyReport"];
+                };
             };
             /** @description Invalid path parameter */
             400: {

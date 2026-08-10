@@ -52,14 +52,23 @@ export type WorkspaceInfo = components["schemas"]["WorkspaceInfo"];
 export type WorkspacesResponse = components["schemas"]["WorkspacesResponse"];
 export type WorkspaceDetail = components["schemas"]["WorkspaceDetail"];
 export type WorkspaceSnapshot = components["schemas"]["WorkspaceSnapshot"];
-export type TabSpec = components["schemas"]["TabSpec"];
-export type LayoutNode = components["schemas"]["LayoutNode"];
-export type SplitNode = components["schemas"]["SplitNode"];
-export type SplitDirection = components["schemas"]["SplitDirection"];
-export type PanelGroup = components["schemas"]["PanelGroup"];
-export type PanelSpec = components["schemas"]["PanelSpec"];
-export type PanelKind = components["schemas"]["PanelKind"];
-export type FloatingGroup = components["schemas"]["FloatingGroup"];
+export type PatchGraph = components["schemas"]["PatchGraph"];
+export type PatchNode = components["schemas"]["PatchNode"];
+export type NodeBody = components["schemas"]["NodeBody"];
+export type NodeKind = NodeBody["kind"];
+export type NodeCategory = components["schemas"]["NodeCategory"];
+export type PatchEdge = components["schemas"]["PatchEdge"];
+export type PortRef = components["schemas"]["PortRef"];
+export type PortSpec = components["schemas"]["PortSpec"];
+export type PortType = components["schemas"]["PortType"];
+export type PortCondition = components["schemas"]["PortCondition"];
+export type PatchCatalog = components["schemas"]["PatchCatalog"];
+export type NodeTypeInfo = components["schemas"]["NodeTypeInfo"];
+export type DeviceRef = components["schemas"]["DeviceRef"];
+export type RackLayout = components["schemas"]["RackLayout"];
+export type RackSlot = components["schemas"]["RackSlot"];
+export type PatchApplyReport = components["schemas"]["PatchApplyReport"];
+export type PatchBinding = components["schemas"]["PatchBinding"];
 export type DoctorReport = components["schemas"]["DoctorReport"];
 export type DoctorCheck = components["schemas"]["DoctorCheck"];
 export type CheckStatus = components["schemas"]["CheckStatus"];
@@ -75,3 +84,8 @@ export type DecoderEventOf<K extends DecoderKind> = Extract<DecoderEvent, { kind
 export type DecodedRecordOf<K extends DecoderKind> = Omit<DecodedRecord, "event"> & {
   event: DecoderEventOf<K>;
 };
+
+// The node body narrowed to one kind, so a face is typed on the payload it renders without
+// re-declaring it.
+export type NodeBodyOf<K extends NodeKind> = Extract<NodeBody, { kind: K }>;
+export type PatchNodeOf<K extends NodeKind> = Omit<PatchNode, keyof NodeBody> & NodeBodyOf<K>;

@@ -16,11 +16,11 @@ use sdrmm_wire::{
     ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
     CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
     CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, PresetInfo, PresetSnapshot,
+    DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, NodeBody,
+    PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal, PresetInfo, PresetSnapshot,
     RecordAction, RecordRequest, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest,
-    ScannerStatus, ServerEvent, StateScope, StateSnapshot, TabSpec, TemplateInfo,
-    TemplatesResponse, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot,
-    WorkspacesResponse,
+    ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse,
+    UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -1019,37 +1019,44 @@ async fn apply_template(
     let channels = template.channels.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
         apply_configuration(&engine, req.device_set, settings, channels, "template")?;
-        apply_template_tab(&engine, &store, template)
+        apply_template_patch(&engine, &store, template, req.device_set)
     })
     .await??;
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Open the template's panel layout as a tab in the active workspace (M6, PLAN §16). The tab id
-/// is derived from the template, so applying one twice replaces its tab instead of stacking
-/// copies of it.
+/// Draw the template's patch into the active station (CANVAS §8 phase ④). Node ids are
+/// namespaced by the template, so applying one twice replaces its own block instead of stacking
+/// copies of it, and the receiver it names is the set the channels were just created on — the
+/// patch wires into an existing node for that radio rather than drawing a second box for it.
 ///
 /// The device configuration has already been applied when this runs, and it is the part the
-/// user asked for: a workspace that cannot take the tab (none active, or another client just
-/// rewrote it) must not turn a successful apply into an error. The failure is swallowed here
-/// and only here.
-fn apply_template_tab(
+/// user asked for: a station that cannot take the patch (no workspace active, or another client
+/// just rewrote it) must not turn a successful apply into an error. The failure is swallowed
+/// here and only here.
+fn apply_template_patch(
     engine: &sdrmm_engine::Engine,
     store: &Store,
     template: &TemplateInfo,
+    device_set: u32,
 ) -> Result<(), AppError> {
-    let Some(layout) = template.layout.clone() else {
+    let Some(patch) = &template.patch else {
         return Ok(());
     };
     let Some(mut active) = store.active_workspace()? else {
         return Ok(());
     };
-    active.snapshot.upsert_tab(TabSpec {
-        id: format!("template:{}", template.id),
-        name: template.name.clone(),
-        layout,
-        floating: Vec::new(),
-    });
+    let device = engine
+        .snapshot()
+        .device_sets
+        .iter()
+        .find(|set| set.id == device_set)
+        .map(|set| sdrmm_wire::DeviceRef::from_info(&set.device));
+    active.snapshot.merge_patch(
+        patch,
+        &format!("template:{}:", template.id),
+        device.as_ref(),
+    );
     let update = UpdateWorkspaceRequest {
         revision: active.info.revision,
         name: None,
@@ -1063,6 +1070,134 @@ fn apply_template_tab(
         Err(StoreError::WorkspaceConflict { .. }) => Ok(()),
         Err(err) => Err(err.into()),
     }
+}
+
+/// Bring the engine up to what a station draws (CANVAS §2): open the radios its device nodes
+/// name, and add the channels hanging off them.
+///
+/// **Additive and idempotent, on purpose.** It never closes a device set and never deletes a
+/// channel: removing a node is its own gesture with its own endpoint, and a reconciler that also
+/// deleted would turn "this workspace has fewer nodes than the engine has channels" — which is
+/// the normal state when a second client adds one — into "close that operator's radio". Applying
+/// the same station twice is therefore a no-op, which is what makes it safe to call on load.
+///
+/// Bindings are computed here and never stored (CANVAS §3): a device node claims the first
+/// unclaimed set or attached radio its [`sdrmm_wire::DeviceRef`] matches, in stored node order,
+/// so serial-less clones bind at most one node each and the assignment is stable across runs.
+fn apply_station(
+    engine: &sdrmm_engine::Engine,
+    snapshot: &WorkspaceSnapshot,
+) -> Result<PatchApplyReport, AppError> {
+    let mut report = PatchApplyReport::default();
+    let mut state = engine.snapshot();
+    let mut claimed: Vec<u32> = Vec::new();
+    // Probed only when the graph names a radio that is not already open: enumerating USB is slow
+    // and was what crashed libusb in the M2 field sessions when it overlapped itself.
+    let mut attached: Option<Vec<DeviceInfo>> = None;
+
+    for node in snapshot.graph.device_nodes() {
+        let NodeBody::Device(device) = &node.body else {
+            continue;
+        };
+        let Some(reference) = &device.device else {
+            continue;
+        };
+        if let Some(set) = state
+            .device_sets
+            .iter()
+            .find(|set| !claimed.contains(&set.id) && reference.matches(&set.device))
+        {
+            claimed.push(set.id);
+            report.bound.push(PatchBinding {
+                node: node.id.clone(),
+                device_set: set.id,
+            });
+            continue;
+        }
+        let devices = attached.get_or_insert_with(|| engine.probe_devices());
+        let open = devices
+            .iter()
+            .filter(|info| reference.matches(info))
+            .find(|info| {
+                !state
+                    .device_sets
+                    .iter()
+                    .any(|set| set.device.id() == info.id())
+            })
+            .map(DeviceInfo::id);
+        match open {
+            Some(device_id) => match engine.create_device_set(&device_id) {
+                Ok(id) => {
+                    report.opened += 1;
+                    claimed.push(id);
+                    report.bound.push(PatchBinding {
+                        node: node.id.clone(),
+                        device_set: id,
+                    });
+                    state = engine.snapshot();
+                }
+                Err(err) => report.refused.push(PatchRefusal {
+                    node: node.id.clone(),
+                    reason: err.to_string(),
+                }),
+            },
+            None => report.absent.push(node.id.clone()),
+        }
+    }
+
+    for binding in &report.bound {
+        let Some(set) = state
+            .device_sets
+            .iter()
+            .find(|set| set.id == binding.device_set)
+        else {
+            continue;
+        };
+        // Channel nodes bind by type in stored order, so "how many of this type are missing" is
+        // the whole diff — and a channel someone else added over MCP already satisfies a node
+        // instead of being duplicated.
+        let mut live: Vec<&str> = set
+            .channels
+            .iter()
+            .map(|channel| channel.settings.params.type_id())
+            .collect();
+        for node in snapshot.graph.channels_of(&binding.node) {
+            let NodeBody::Channel(channel) = &node.body else {
+                continue;
+            };
+            if let Some(at) = live
+                .iter()
+                .position(|type_id| *type_id == channel.channel_type)
+            {
+                live.remove(at);
+                continue;
+            }
+            let Some(params) = sdrmm_wire::ChannelParams::default_for(&channel.channel_type) else {
+                report.refused.push(PatchRefusal {
+                    node: node.id.clone(),
+                    reason: format!("this build has no channel type {:?}", channel.channel_type),
+                });
+                continue;
+            };
+            let settings = ChannelSettings {
+                offset_hz: 0.0,
+                squelch_db: None,
+                params,
+            };
+            // A refusal here is normally the wideband rule (PLAN §18: ADS-B needs the device at
+            // exactly 2 Msps), which is a true statement about the station and belongs in front
+            // of the operator — not a reason to abandon the rest of the patch.
+            if let Err(err) = engine.add_channel(set.id, settings) {
+                report.refused.push(PatchRefusal {
+                    node: node.id.clone(),
+                    reason: err.to_string(),
+                });
+            } else {
+                report.created += 1;
+            }
+        }
+    }
+    Ok(report)
 }
 
 #[utoipa::path(
@@ -1215,6 +1350,50 @@ async fn activate_workspace(
 }
 
 #[utoipa::path(
+    post, path = "/api/workspaces/{id}/apply",
+    params(("id" = i64, Path, description = "Workspace id")),
+    responses(
+        (
+            status = 200,
+            description = "The station was brought up: radios opened, channels added, and what \
+                           could not be satisfied. Additive and idempotent — nothing is closed \
+                           or deleted, so calling it twice changes nothing",
+            body = PatchApplyReport,
+        ),
+        (status = 400, description = "Invalid path parameter", body = ApiError),
+        (status = 404, description = "Workspace not found", body = ApiError),
+    ),
+)]
+async fn apply_workspace(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<PatchApplyReport>, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let report = tokio::task::spawn_blocking(move || -> Result<PatchApplyReport, AppError> {
+        let workspace = store.workspace(id)?;
+        apply_station(&engine, &workspace.snapshot)
+    })
+    .await??;
+    Ok(Json(report))
+}
+
+#[utoipa::path(
+    get, path = "/api/patch/catalog",
+    responses((
+        status = 200,
+        description = "The node palette: every node kind this build offers, its category and \
+                       its ports. The canvas renders its \"add node\" menu and enforces its \
+                       drag-time connection rules from this, so a new node type needs no \
+                       frontend table",
+        body = PatchCatalog,
+    )),
+)]
+async fn get_patch_catalog() -> Json<PatchCatalog> {
+    Json(PatchCatalog::build())
+}
+
+#[utoipa::path(
     get, path = "/api/clients",
     responses((
         status = 200,
@@ -1317,6 +1496,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_workspaces, create_workspace))
         .routes(routes!(get_workspace, update_workspace, delete_workspace))
         .routes(routes!(activate_workspace))
+        .routes(routes!(apply_workspace))
+        .routes(routes!(get_patch_catalog))
         .routes(routes!(get_auth))
         .routes(routes!(get_clients))
         .routes(routes!(get_doctor))

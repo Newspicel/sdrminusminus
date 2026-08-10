@@ -6,9 +6,12 @@ import {
   type ChannelTypeId,
   channelDecoderKind,
   channelHasAudio,
+  clampOffsetHz,
   defaultChannelSettings,
+  exactRateMismatch,
   isChannelTypeId,
   mergeChannelSettings,
+  offsetLimitHz,
 } from "./channelSettings";
 
 const base: ChannelSettings = {
@@ -28,6 +31,9 @@ const TYPE_IDS: ChannelTypeId[] = [
   "aprs",
   "rtty",
   "morse",
+  "navtex",
+  "acars",
+  "subghz",
 ];
 
 function descriptor(over: Partial<ChannelDescriptor>): ChannelDescriptor {
@@ -146,5 +152,59 @@ describe("channelDecoderKind", () => {
     expect(channelDecoderKind(descriptor({ decoder_kind: "pocsag" }))).toBe("pocsag");
     expect(channelDecoderKind(descriptor({}))).toBeNull();
     expect(channelDecoderKind(undefined)).toBeNull();
+  });
+});
+
+describe("offsetLimitHz", () => {
+  it("keeps the whole passband inside the span", () => {
+    expect(offsetLimitHz(2_400_000, descriptor({ bandwidth_hz: 12_500 }))).toBe(1_193_750);
+  });
+
+  it("collapses to zero rather than negative when the channel fills the span", () => {
+    expect(offsetLimitHz(100_000, descriptor({ bandwidth_hz: 150_000 }))).toBe(0);
+  });
+
+  it("leaves the field unbounded when the rate is unknown", () => {
+    expect(offsetLimitHz(null, descriptor({}))).toBeNull();
+    expect(offsetLimitHz(0, descriptor({}))).toBeNull();
+  });
+
+  it("falls back to a point channel when the type is unknown", () => {
+    expect(offsetLimitHz(2_000_000, undefined)).toBe(1_000_000);
+  });
+});
+
+describe("clampOffsetHz", () => {
+  it("stops a step at the edge of the span, either way", () => {
+    expect(clampOffsetHz(1_200_000, 1_193_750)).toBe(1_193_750);
+    expect(clampOffsetHz(-1_200_000, 1_193_750)).toBe(-1_193_750);
+    expect(clampOffsetHz(-25_000, 1_193_750)).toBe(-25_000);
+  });
+
+  it("leaves the offset alone while the span is unknown", () => {
+    expect(clampOffsetHz(9_000_000, null)).toBe(9_000_000);
+  });
+});
+
+describe("exactRateMismatch", () => {
+  const adsb = descriptor({
+    type_id: "adsb",
+    name: "ADS-B",
+    input_rate_hz: 2_000_000,
+    exact_rate_only: true,
+  });
+
+  it("names the rate a fixed-rate mode needs when the radio runs another", () => {
+    expect(exactRateMismatch(adsb, 2_400_000)).toBe(2_000_000);
+  });
+
+  it("is silent once the radio is on that rate", () => {
+    expect(exactRateMismatch(adsb, 2_000_000)).toBeNull();
+  });
+
+  it("is silent for a resampling mode, and while the rate is unreported", () => {
+    expect(exactRateMismatch(descriptor({ input_rate_hz: 48_000 }), 2_400_000)).toBeNull();
+    expect(exactRateMismatch(adsb, null)).toBeNull();
+    expect(exactRateMismatch(undefined, 2_400_000)).toBeNull();
   });
 });

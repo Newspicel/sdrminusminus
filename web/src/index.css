@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "dockview-react/dist/styles/dockview.css";
+@import "@xyflow/react/dist/base.css";
 
 /* The instrument palette (DESIGN.md §2). Authored in OKLCH so the light theme is the same role
    table re-anchored rather than a second set of hand-picked values, and so elevation is a
@@ -33,6 +33,22 @@
   --color-plot-hold: oklch(0.62 0.015 85);
   --color-plot-ink: oklch(0.97 0.01 85);
   --color-plot-ink-dim: oklch(0.72 0.01 85);
+
+  /* Hue encodes the data type a port and its wire carry, and nothing else (CANVAS §6). Each is
+     paired with a marker shape in `NodeShell`, so the graph reads by shape alone; these three
+     are the only streams the engine produces today, and the set stays that small on purpose.
+     Chroma is held below the accent's so a lit wire never outshouts a tuned control. */
+  --color-port-iq: oklch(0.72 0.11 235);
+  --color-port-audio: oklch(0.74 0.12 158);
+  --color-port-events: oklch(0.78 0.11 85);
+
+  /* The category strip on a node header: what the box *is*, before its label is read. Low
+     chroma — this is a silkscreen mark, not a status light. */
+  --color-cat-source: oklch(0.62 0.07 235);
+  --color-cat-channel: oklch(0.62 0.07 300);
+  --color-cat-display: oklch(0.62 0.05 200);
+  --color-cat-feature: oklch(0.62 0.07 60);
+  --color-cat-sink: oklch(0.58 0.03 80);
 
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
 
@@ -129,55 +145,67 @@
   }
 }
 
-/* The dock's skin: dockview reads these `--dv-*` variables off the class its theme object
-   names, so the palette above stays the single source of colour and its stylesheet is never
-   forked. */
-.dv-theme-sdrmm {
-  --dv-group-view-background-color: var(--color-bg);
-  --dv-tabs-and-actions-container-background-color: var(--color-panel);
-  --dv-tabs-and-actions-container-height: 30px;
-  --dv-tabs-and-actions-container-font-size: 11px;
-  --dv-tab-font-size: 11px;
-  --dv-tab-margin: 0;
-  --dv-tab-border-radius: 0px;
-  --dv-border-radius: 0px;
-  --dv-sash-border-radius: 0px;
-  --dv-spacing-padding: 0px;
+/* The canvas ground and its wires (CANVAS §6). React Flow's base stylesheet carries layout
+   only; every colour here is a role token, so the graph follows the theme like everything else.
 
-  --dv-activegroup-visiblepanel-tab-background-color: var(--color-bg);
-  --dv-activegroup-hiddenpanel-tab-background-color: var(--color-panel);
-  --dv-inactivegroup-visiblepanel-tab-background-color: var(--color-bg);
-  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--color-panel);
-  --dv-activegroup-visiblepanel-tab-color: var(--color-ink);
-  --dv-activegroup-hiddenpanel-tab-color: var(--color-ink-faint);
-  --dv-inactivegroup-visiblepanel-tab-color: var(--color-ink-dim);
-  --dv-inactivegroup-hiddenpanel-tab-color: var(--color-ink-faint);
-
-  --dv-separator-border: var(--color-line);
-  --dv-tab-divider-color: var(--color-line);
-  --dv-sash-color: transparent;
-  --dv-active-sash-color: var(--color-accent);
-  --dv-drag-over-background-color: color-mix(in oklab, var(--color-accent) 16%, transparent);
-  --dv-drag-over-border-color: var(--color-accent);
-  --dv-floating-border: 1px solid var(--color-line-strong);
-  --dv-floating-box-shadow: var(--shadow-pop);
-  --dv-floating-titlebar-background-color: var(--color-panel-3);
-  --dv-icon-hover-background-color: var(--color-panel-2);
-  --dv-context-menu-background-color: var(--color-panel-3);
-  --dv-context-menu-color: var(--color-ink);
-  --dv-scrollbar-background-color: var(--color-line-strong);
+   A wire is drawn in the hue of what it carries and nothing else, and it is the *only* place
+   these three hues appear besides their ports — the marker shape is what a colourblind operator
+   reads (DESIGN.md §3). */
+.react-flow__pane {
+  background: var(--color-bg);
 }
 
-/* The active panel's tab is the only one that reads as selected; dockview has no variable for
-   the marker, so it is drawn here rather than by forking the stylesheet. */
-.dv-theme-sdrmm .dv-active-group .dv-tab.dv-active-tab {
-  box-shadow: inset 0 -2px 0 var(--color-accent);
+.react-flow__background pattern circle {
+  fill: var(--color-line);
 }
 
-/* The dock measures its own host; without a definite height it collapses inside a flex column. */
-.dv-theme-sdrmm .dv-dockview,
-.dv-dockview {
-  height: 100%;
+.react-flow__edge-path {
+  stroke: var(--color-line-strong);
+  stroke-width: 1.5;
+}
+
+.wire-iq .react-flow__edge-path {
+  stroke: var(--color-port-iq);
+}
+
+.wire-audio .react-flow__edge-path {
+  stroke: var(--color-port-audio);
+}
+
+.wire-events .react-flow__edge-path {
+  stroke: var(--color-port-events);
+}
+
+/* Hover and selection brighten the wire rather than recolouring it: the hue is already saying
+   what it carries. */
+.react-flow__edge:hover .react-flow__edge-path,
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 2.5;
+  filter: brightness(1.35);
+}
+
+/* A node is our own chrome end to end; the library's box would draw a second border under it. */
+.react-flow__node {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: inherit;
+  color: inherit;
+  width: 320px;
+  height: 220px;
+}
+
+.react-flow__handle {
+  border-radius: 0;
+}
+
+/* The connection line follows the same rule as a drawn wire, in the accent because it is not
+   carrying anything yet. */
+.react-flow__connectionline path {
+  stroke: var(--color-accent);
+  stroke-width: 2;
 }
 
 /* Reduced motion is a contract: the only motion in the UI is ≤120ms colour and opacity, and

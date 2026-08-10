@@ -25,6 +25,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     input_rate_hz: 48_000.0,
     has_audio: true,
     decoder_kind: None,
+    ..ChannelDescriptor::default()
 });
 
 pub struct NfmChannel {

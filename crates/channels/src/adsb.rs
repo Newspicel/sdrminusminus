@@ -59,6 +59,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,
     decoder_kind: Some("adsb".to_owned()),
+    ..ChannelDescriptor::default()
 });
 
 #[derive(Clone, Copy)]
