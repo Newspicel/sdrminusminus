@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceSet, ScannerStatus, TemplateInfo } from "../lib/types";
-import { rankDevices } from "./FirstRun";
+import { rankDevices } from "./OpenRadio";
 import { formatDb, liveStatus, parseRanges, targetCount } from "./scanner";
 import { reachable } from "./TemplatesPanel";
 

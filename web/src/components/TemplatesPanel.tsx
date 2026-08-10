@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { applyTemplate, STATE_KEY, templatesQuery } from "../lib/api";
+import { pushToast } from "../lib/toasts";
 import type { DeviceSet, TemplateInfo } from "../lib/types";
 import { BTN } from "./controls";
 
@@ -26,34 +27,20 @@ export function TemplatesPanel({
 }) {
   const queryClient = useQueryClient();
   const templates = useQuery(templatesQuery());
-  const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<TemplateInfo | null>(null);
 
   const applyMut = useMutation({
     mutationFn: (v: { template: TemplateInfo; ds: number }) => applyTemplate(v.template.id, v.ds),
     onSuccess: (_void, v) => {
-      setError(null);
       setApplied(v.template);
       onApplied?.(v.template);
     },
-    onError: (e) => setError(e.message),
+    onError: (e) => pushToast(e.message),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-3">
-      {error !== null && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
-          <span>Rejected: {error}</span>
-          <button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
-            dismiss
-          </button>
-        </div>
-      )}
-
+    <div className="flex flex-col gap-2 p-3">
       {applied !== null && (
         <div className="rounded border border-accent bg-accent/10 px-3 py-2 text-sm text-ink">
           <div className="font-semibold text-accent">{applied.name}</div>

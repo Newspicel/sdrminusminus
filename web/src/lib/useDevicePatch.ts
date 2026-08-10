@@ -4,8 +4,8 @@
 // matches the optimistic value, no flicker. Once a mutation settles the authoritative snapshot
 // is refetched, so the cache always converges to the server's state.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { create } from "zustand";
 import { patchDevice, STATE_KEY } from "./api";
+import { pushToast } from "./toasts";
 import type { DeviceSettings, StateSnapshot } from "./types";
 
 // Mirrors `DeviceSettings::merge_from` (crates/wire): present scalars overwrite; gains/extra
@@ -58,31 +58,16 @@ function mergeByKey<T>(current: T[] | undefined, delta: T[], key: (item: T) => s
   return merged;
 }
 
-// Shared across hook instances so a patch rejected from any panel reaches the one banner in
-// `DeviceBar` — per-instance mutation state would hide errors from sibling components.
-const usePatchErrorStore = create<{
-  patchError: string | null;
-  setPatchError: (error: string | null) => void;
-}>((set) => ({
-  patchError: null,
-  setPatchError: (patchError) => set({ patchError }),
-}));
-
 export function useDevicePatch(): {
   applyPatch: (ds: number, delta: DeviceSettings) => void;
   cachedSettings: (ds: number) => DeviceSettings | undefined;
-  patchError: string | null;
-  dismissPatchError: () => void;
 } {
   const queryClient = useQueryClient();
-  const patchError = usePatchErrorStore((s) => s.patchError);
-  const setPatchError = usePatchErrorStore((s) => s.setPatchError);
   const patchMut = useMutation({
     mutationFn: (v: { ds: number; settings: DeviceSettings }) => patchDevice(v.ds, v.settings),
-    onSuccess: () => setPatchError(null),
     // A rejected PATCH must be visible, not just snap the control back (CLAUDE.md: no silent
-    // failure).
-    onError: (error) => setPatchError(error.message),
+    // failure). The toast stack is shared, so a rejection from any panel is reported once.
+    onError: (error) => pushToast(error.message),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
@@ -108,5 +93,5 @@ export function useDevicePatch(): {
     queryClient.getQueryData<StateSnapshot>(STATE_KEY)?.device_sets.find((d) => d.id === ds)
       ?.settings;
 
-  return { applyPatch, cachedSettings, patchError, dismissPatchError: () => setPatchError(null) };
+  return { applyPatch, cachedSettings };
 }

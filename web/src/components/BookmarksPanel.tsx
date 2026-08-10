@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { BOOKMARKS_KEY, bookmarksQuery, createBookmark, deleteBookmark } from "../lib/api";
+import { pushToast } from "../lib/toasts";
 import type { CreateBookmarkRequest, DeviceSet } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
 import { BTN, FIELD } from "./controls";
@@ -14,7 +15,6 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
   const { applyPatch } = useDevicePatch();
   const [label, setLabel] = useState("");
   const [mode, setMode] = useState("");
-  const [error, setError] = useState<string | null>(null);
 
   const invalidate = (): void => {
     void queryClient.invalidateQueries({ queryKey: BOOKMARKS_KEY });
@@ -24,14 +24,13 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
     onSuccess: () => {
       setLabel("");
       setMode("");
-      setError(null);
     },
-    onError: (e) => setError(e.message),
+    onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
   const deleteMut = useMutation({
     mutationFn: deleteBookmark,
-    onError: (e) => setError(e.message),
+    onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
 
@@ -42,7 +41,7 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
   const sorted = [...(bookmarks.data ?? [])].sort((a, b) => a.freq_hz - b.freq_hz);
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-3">
+    <div className="flex flex-col gap-2 p-3">
       <form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -78,18 +77,6 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
           Save
         </button>
       </form>
-
-      {error !== null && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
-          <span>Rejected: {error}</span>
-          <button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
-            dismiss
-          </button>
-        </div>
-      )}
 
       {sorted.map((b) => (
         <div key={b.id} className="flex items-center gap-2">

@@ -10,6 +10,7 @@ import {
   presetsQuery,
   STATE_KEY,
 } from "../lib/api";
+import { pushToast } from "../lib/toasts";
 import type { DeviceSet } from "../lib/types";
 import { BTN, FIELD } from "./controls";
 
@@ -17,7 +18,6 @@ export function PresetsPanel({ active }: { active: DeviceSet | null }) {
   const queryClient = useQueryClient();
   const presets = useQuery(presetsQuery());
   const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
 
   const invalidate = (): void => {
     void queryClient.invalidateQueries({ queryKey: PRESETS_KEY });
@@ -26,25 +26,23 @@ export function PresetsPanel({ active }: { active: DeviceSet | null }) {
     mutationFn: (v: { name: string; ds: number }) => createPreset(v.name, v.ds),
     onSuccess: () => {
       setName("");
-      setError(null);
     },
-    onError: (e) => setError(e.message),
+    onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
   const applyMut = useMutation({
     mutationFn: (v: { id: number; ds: number }) => applyPreset(v.id, v.ds),
-    onSuccess: () => setError(null),
-    onError: (e) => setError(e.message),
+    onError: (e) => pushToast(e.message),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
   const deleteMut = useMutation({
     mutationFn: deletePreset,
-    onError: (e) => setError(e.message),
+    onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-3">
+    <div className="flex flex-col gap-2 p-3">
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -69,18 +67,6 @@ export function PresetsPanel({ active }: { active: DeviceSet | null }) {
           Save
         </button>
       </form>
-
-      {error !== null && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
-          <span>Rejected: {error}</span>
-          <button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
-            dismiss
-          </button>
-        </div>
-      )}
 
       {(presets.data ?? []).map((p) => (
         <div key={p.id} className="flex items-center gap-2">

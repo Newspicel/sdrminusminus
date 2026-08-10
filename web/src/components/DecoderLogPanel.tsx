@@ -96,10 +96,10 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
   const total = log.data?.total ?? 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 px-4 py-3">
+    <div className="flex h-full min-h-0 flex-col gap-2 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <select
-          className={`${FIELD} text-sm`}
+          className={FIELD}
           value={filter.kind}
           onChange={(e) => patch({ kind: e.target.value })}
           aria-label="Decoder"
@@ -113,7 +113,7 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
         </select>
 
         <select
-          className={`${FIELD} text-sm`}
+          className={FIELD}
           value={filter.deviceSet}
           onChange={(e) => patch({ deviceSet: e.target.value })}
           aria-label="Device set"
@@ -135,7 +135,7 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
         />
 
         <select
-          className={`${FIELD} text-sm`}
+          className={FIELD}
           value={String(filter.limit)}
           onChange={(e) => patch({ limit: Number(e.target.value) })}
           aria-label="Row limit"
