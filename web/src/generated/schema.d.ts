@@ -1059,7 +1059,7 @@ export interface components {
          * @description A device node's payload: the radio it names, or nothing yet.
          *
          *     Unbound is a first-class state, not an error — it is the empty node a fresh station starts on,
-         *     and it renders the receiver picker. Bound-but-absent is the other one: controls disabled,
+         *     and it renders the device picker. Bound-but-absent is the other one: controls disabled,
          *     wires kept, never silently rebound (CANVAS §3).
          */
         DeviceNode: {
@@ -1456,24 +1456,32 @@ export interface components {
             condition?: components["schemas"]["PortCondition"];
             direction: components["schemas"]["PortDirection"];
             /**
-             * @description Whether more than one edge may land here. Outputs always fan out (one device feeds N
-             *     channels, scopes and a recorder — that *is* today's device set, drawn); inputs say so.
+             * @description Whether more than one edge may touch this port. A *stream* output fans out — one device
+             *     feeds N channels, scopes and a recorder, which is today's device set drawn — but an
+             *     ownership output does not: a scanner drives one radio, because one sweep is what the
+             *     engine runs. So arity is stated on both sides and checked on both sides.
              */
             multi: boolean;
             /** @description Stable slug, unique within its node and direction; this is what an edge names. */
             name: string;
+            /**
+             * @description Why this port refuses everything, for the ports that do. The client renders what the
+             *     server describes (PLAN §2), and a port with no wire and no explanation reads as broken.
+             */
+            note?: string | null;
             port_type: components["schemas"]["PortType"];
         };
         /**
-         * @description What a wire carries. Hue encodes this and only this (CANVAS §6), so the set stays small and
-         *     every member is a stream the engine actually produces today.
+         * @description What a wire carries. Hue encodes this and only this (`DESIGN.md` §2), so the set stays small
+         *     and every member is something the engine actually moves today — with one named exception,
+         *     [`PortType::Tx`], which is reserved and unwireable until transmit exists (PLAN §12a).
          *
-         *     `iq-tap` (decimated channel IQ) and `position` (GPS) are named by CANVAS §1 and deliberately
-         *     absent: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4, so neither has a
-         *     stream to carry. A port whose type nothing can emit is a wire that can only dangle.
+         *     `iq-tap` (decimated channel IQ) and `position` (GPS) stay absent for the reason that exception
+         *     does *not* apply to them: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4,
+         *     so a port for either would be a wire that dangles with nothing reserving it.
          * @enum {string}
          */
-        PortType: "iq" | "audio" | "events";
+        PortType: "iq" | "audio" | "events" | "control" | "tx";
         /** @description Canvas position of a node, in React Flow's coordinate space. */
         Position: {
             /** Format: float */

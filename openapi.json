@@ -3229,7 +3229,7 @@
       },
       "DeviceNode": {
         "type": "object",
-        "description": "A device node's payload: the radio it names, or nothing yet.\n\nUnbound is a first-class state, not an error — it is the empty node a fresh station starts on,\nand it renders the receiver picker. Bound-but-absent is the other one: controls disabled,\nwires kept, never silently rebound (CANVAS §3).",
+        "description": "A device node's payload: the radio it names, or nothing yet.\n\nUnbound is a first-class state, not an error — it is the empty node a fresh station starts on,\nand it renders the device picker. Bound-but-absent is the other one: controls disabled,\nwires kept, never silently rebound (CANVAS §3).",
         "properties": {
           "device": {
             "oneOf": [
@@ -3852,7 +3852,7 @@
           },
           {
             "type": "object",
-            "description": "Frequency scanner. Its edge to a device is *ownership*, not consumption: a running scan\nowns that set's centre frequency and client retunes are refused while it does (PLAN §18).",
+            "description": "Frequency scanner. Its edge runs *into* the device it drives, because it is ownership and\nnot consumption: a running scan owns that set's centre frequency and client retunes are\nrefused while it does (PLAN §18).",
             "required": [
               "kind"
             ],
@@ -4213,11 +4213,18 @@
           },
           "multi": {
             "type": "boolean",
-            "description": "Whether more than one edge may land here. Outputs always fan out (one device feeds N\nchannels, scopes and a recorder — that *is* today's device set, drawn); inputs say so."
+            "description": "Whether more than one edge may touch this port. A *stream* output fans out — one device\nfeeds N channels, scopes and a recorder, which is today's device set drawn — but an\nownership output does not: a scanner drives one radio, because one sweep is what the\nengine runs. So arity is stated on both sides and checked on both sides."
           },
           "name": {
             "type": "string",
             "description": "Stable slug, unique within its node and direction; this is what an edge names."
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why this port refuses everything, for the ports that do. The client renders what the\nserver describes (PLAN §2), and a port with no wire and no explanation reads as broken."
           },
           "port_type": {
             "$ref": "#/components/schemas/PortType"
@@ -4226,11 +4233,13 @@
       },
       "PortType": {
         "type": "string",
-        "description": "What a wire carries. Hue encodes this and only this (CANVAS §6), so the set stays small and\nevery member is a stream the engine actually produces today.\n\n`iq-tap` (decimated channel IQ) and `position` (GPS) are named by CANVAS §1 and deliberately\nabsent: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4, so neither has a\nstream to carry. A port whose type nothing can emit is a wire that can only dangle.",
+        "description": "What a wire carries. Hue encodes this and only this (`DESIGN.md` §2), so the set stays small\nand every member is something the engine actually moves today — with one named exception,\n[`PortType::Tx`], which is reserved and unwireable until transmit exists (PLAN §12a).\n\n`iq-tap` (decimated channel IQ) and `position` (GPS) stay absent for the reason that exception\ndoes *not* apply to them: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4,\nso a port for either would be a wire that dangles with nothing reserving it.",
         "enum": [
           "iq",
           "audio",
-          "events"
+          "events",
+          "control",
+          "tx"
         ]
       },
       "Position": {

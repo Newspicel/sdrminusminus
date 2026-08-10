@@ -2,7 +2,7 @@
 // library of things that are not nodes (presets, bookmarks, templates, recordings).
 //
 // Everything that *is* a node lives on the canvas — this bar deliberately holds no radio
-// controls, because the receiver node is where a radio is operated now (CANVAS §1).
+// controls, because the device node is where a radio is operated now (CANVAS §1).
 import { useState } from "react";
 import { BookmarksPanel } from "../components/BookmarksPanel";
 import { BTN_QUIET, ICON_BTN, LABEL, segment } from "../components/controls";
@@ -190,7 +190,7 @@ function Library() {
   const station = useStationContext();
   const [tab, setTab] = useState<"presets" | "bookmarks" | "templates" | "recordings">("templates");
   // These panels act on one radio, and applying a template or a preset to the wrong one is not
-  // recoverable by undo. The target is the selected receiver node; with nothing selected it
+  // recoverable by undo. The target is the selected device node; with nothing selected it
   // falls back only when there is exactly one radio to mean, and otherwise the drawer says so
   // instead of silently picking the first.
   //
@@ -223,8 +223,8 @@ function Library() {
       <span className={LABEL}>
         {active === null
           ? drawn.length > 1
-            ? "select a receiver node to choose the target"
-            : "no receiver on this patch"
+            ? "select a device node to choose the target"
+            : "no device on this patch"
           : `on ${active.device.label}`}
       </span>
       {tab === "templates" && <TemplatesPanel active={active} onApplied={() => station.apply()} />}

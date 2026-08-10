@@ -1027,7 +1027,7 @@ async fn apply_template(
 
 /// Draw the template's patch into the active station (CANVAS §8 phase ④). Node ids are
 /// namespaced by the template, so applying one twice replaces its own block instead of stacking
-/// copies of it, and the receiver it names is the set the channels were just created on — the
+/// copies of it, and the device it names is the set the channels were just created on — the
 /// patch wires into an existing node for that radio rather than drawing a second box for it.
 ///
 /// The device configuration has already been applied when this runs, and it is the part the

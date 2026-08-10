@@ -1,4 +1,4 @@
-// Opening a receiver (PLAN §10, M5). One surface asks: an unbound device node, which *is* the
+// Opening a device (PLAN §10, M5). One surface asks: an unbound device node, which *is* the
 // invitation rather than a panel with an empty state (CANVAS §3). The discovery list, its
 // ranking and the diagnostics behind it live here because what a choice *means* is the node's
 // business, not the list's.
@@ -26,9 +26,9 @@ export function deviceId(device: DeviceInfo): string {
   return `${device.driver}:${device.key}`;
 }
 
-/** The discovered receivers, one button each, with the states discovery itself can be in. The
+/** The discovered devices, one button each, with the states discovery itself can be in. The
  * caller decides what choosing one does. */
-export function ReceiverChoices({
+export function DeviceChoices({
   onChoose,
   busy = false,
   error = null,
@@ -48,7 +48,7 @@ export function ReceiverChoices({
           <button
             key={deviceId(device)}
             type="button"
-            // The first receiver is the intended next action; the rest are alternatives.
+            // The first device is the intended next action; the rest are alternatives.
             className={`${index === 0 ? BTN_PRIMARY : BTN} justify-center`}
             disabled={busy}
             onClick={() => onChoose(device)}
@@ -58,10 +58,10 @@ export function ReceiverChoices({
         ))}
       </div>
 
-      {devices.isPending && <p className="text-sm text-ink-dim">Looking for receivers…</p>}
+      {devices.isPending && <p className="text-sm text-ink-dim">Looking for devices…</p>}
       {!devices.isPending && found.length === 0 && (
         <p className="text-sm text-ink-dim">
-          No receivers found. Plug one in, or check the diagnostics below.
+          No devices found. Plug one in, or check the diagnostics below.
         </p>
       )}
 

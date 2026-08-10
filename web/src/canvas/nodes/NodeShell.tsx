@@ -60,12 +60,22 @@ const PORT_SHAPE: Record<PortType, string> = {
   iq: "rounded-full",
   audio: "rotate-45",
   events: "rounded-[1px]",
+  // An arrowhead, because control is the one wire that carries an instruction rather than a
+  // stream: it points at the radio it drives.
+  control: "[clip-path:polygon(0_0,100%_50%,0_100%)]",
+  // The same substance as `iq` going the other way, so the same circle — left hollow, because
+  // nothing fills it yet (PLAN §12a).
+  tx: "rounded-full",
 };
 
-const PORT_COLOR: Record<PortType, string> = {
-  iq: "bg-port-iq",
-  audio: "bg-port-audio",
-  events: "bg-port-events",
+/** Fill and edge per type. React Flow's base stylesheet sets the handle's border and size, which
+ * is why those two are forced and the fill is not. */
+const PORT_PAINT: Record<PortType, string> = {
+  iq: "!border !border-line-strong bg-port-iq",
+  audio: "!border !border-line-strong bg-port-audio",
+  events: "!border !border-line-strong bg-port-events",
+  control: "!border !border-line-strong bg-port-control",
+  tx: "!border-2 !border-port-tx bg-transparent",
 };
 
 export interface NodeShellProps {
@@ -208,11 +218,10 @@ function PortHandle({ port, offset }: { port: PortSpec; offset: number }) {
       position={out ? Position.Right : Position.Left}
       style={{ top: offset }}
       // The label is the accessible name and the hover title: hue alone never says what a wire
-      // carries (DESIGN.md §2).
-      title={`${port.name} (${port.port_type})`}
-      className={`!size-2.5 !border !border-line-strong ${PORT_COLOR[port.port_type]} ${
-        PORT_SHAPE[port.port_type]
-      }`}
+      // carries (DESIGN.md §2). A port that refuses everything carries the server's reason for it
+      // — the operator finds out by pointing at it, not by dragging a wire at it.
+      title={port.note == null ? `${port.name} (${port.port_type})` : `${port.name} — ${port.note}`}
+      className={`!size-2.5 ${PORT_PAINT[port.port_type]} ${PORT_SHAPE[port.port_type]}`}
     />
   );
 }

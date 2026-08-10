@@ -36,6 +36,7 @@ import {
   nodeOf,
   patchNode,
   pin,
+  portOf,
   pruneRack,
   removeEdge,
   removeNode,
@@ -72,7 +73,7 @@ export function Canvas() {
   const context = station.context;
   useEffect(() => {
     if (sameGraph(held.current, station.graph)) {
-      // The graph is unchanged, but a wire's *fault* is live state — a receiver retuned to the
+      // The graph is unchanged, but a wire's *fault* is live state — a radio retuned to the
       // wrong rate under a wideband channel has to light its wire without a patch write.
       setEdges(toFlowEdges(station.graph, context));
       return;
@@ -166,7 +167,7 @@ export function Canvas() {
 
   // Backspace deletes what is selected, and a node's deletion has to close the radio or channel
   // it was driving first — the same rule the face's own ✕ follows. A refusal here cancels the
-  // whole deletion, so the patch never draws a receiver as gone while it is still streaming.
+  // whole deletion, so the patch never draws a radio as gone while it is still streaming.
   const onBeforeDelete: OnBeforeDelete<Node<FlowData>, Edge> = useCallback(
     async ({ nodes: doomed, edges: cut }) => {
       try {
@@ -205,7 +206,7 @@ export function Canvas() {
         to: { node: connection.target, port: connection.targetHandle ?? "" },
       };
       station.edit((snapshot) => ({ ...snapshot, graph: addEdge(snapshot.graph, edge) }));
-      // A new wire can mean a new channel to create (a channel node just given a receiver), and
+      // A new wire can mean a new channel to create (a channel node just given a radio), and
       // apply is idempotent, so asking every time costs nothing.
       station.apply();
     },
@@ -428,16 +429,19 @@ function toFlowNodes(graph: PatchGraph): Node<FlowData>[] {
 function toFlowEdges(graph: PatchGraph, context: GraphContext): Edge[] {
   return (graph.edges ?? []).map((edge) => {
     // A wire that exists but cannot carry what it says it carries is drawn as a fault on the
-    // wire itself (CANVAS §1) — the face at its end says what to do about it.
+    // wire itself — the face at its end says what to do about it.
     const warning = edgeWarning(context, graph, edge.from, edge.to);
+    // Hue is the data type and nothing else (DESIGN.md §2), so the class comes off the port's
+    // *type* — a port whose name differs from what it carries would otherwise draw an uncoloured
+    // wire, which is the one failure this rule cannot afford.
+    const carried = portOf(context, graph, edge.from)?.port_type;
     return {
       id: edgeKey(edge),
       source: edge.from.node,
       sourceHandle: edge.from.port,
       target: edge.to.node,
       targetHandle: edge.to.port,
-      // Hue is the data type and nothing else (CANVAS §6); the class is per type in CSS.
-      className: warning === null ? `wire-${edge.from.port}` : "wire-fault",
+      className: warning === null ? `wire-${carried}` : "wire-fault",
       ...(warning === null ? {} : { label: warning, labelShowBg: false }),
     };
   });

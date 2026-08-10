@@ -115,6 +115,33 @@ export function channelNodesOf(graph: PatchGraph, deviceNode: string) {
   );
 }
 
+/**
+ * The device node behind a node: itself when it is one, the radio feeding its IQ input when it
+ * consumes one, and the radio it drives when it is a scanner — ownership runs the other way down
+ * the wire, so the scanner's control *output* is what names its radio.
+ *
+ * One resolver, because every caller means the same question: which radio is this face about.
+ */
+export function deviceNodeOf(graph: PatchGraph, node: string): string | null {
+  if (graph.nodes.find((candidate) => candidate.id === node)?.kind === "device") {
+    return node;
+  }
+  const edges = graph.edges ?? [];
+  const devices = new Set(
+    graph.nodes.filter((candidate) => candidate.kind === "device").map((candidate) => candidate.id),
+  );
+  const upstream = edges.find(
+    (edge) => edge.to.node === node && edge.to.port === "iq" && devices.has(edge.from.node),
+  );
+  if (upstream !== undefined) {
+    return upstream.from.node;
+  }
+  const driven = edges.find(
+    (edge) => edge.from.node === node && edge.from.port === "control" && devices.has(edge.to.node),
+  );
+  return driven?.to.node ?? null;
+}
+
 /** Node ids wired into `node`'s named input, in stored order. */
 export function sourcesOf(graph: PatchGraph, node: string, port: string): string[] {
   return (graph.edges ?? [])

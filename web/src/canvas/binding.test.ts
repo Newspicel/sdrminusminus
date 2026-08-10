@@ -4,6 +4,7 @@ import {
   bindChannels,
   bindDevices,
   channelNodesOf,
+  deviceNodeOf,
   deviceRefOf,
   inputsOf,
   refMatches,
@@ -140,6 +141,29 @@ describe("binding", () => {
     const channels = bindChannels(graph(), devices);
     expect(channels.has("nfm")).toBe(false);
     expect(channels.get("am")?.id).toBe(3);
+  });
+
+  // One resolver answers "which radio is this face about" for every kind of node, and the two
+  // directions are not symmetric: a channel or a scope *takes* IQ from a radio, while a scanner
+  // *drives* one — its wire leaves it.
+  it("finds the radio behind a node in either direction", () => {
+    const g: PatchGraph = {
+      nodes: [
+        ...graph().nodes,
+        node("scan", { kind: "scanner" }),
+        node("lost", { kind: "scanner" }),
+      ],
+      edges: [
+        ...(graph().edges ?? []),
+        { from: { node: "scan", port: "control" }, to: { node: "dev", port: "control" } },
+      ],
+    };
+    expect(deviceNodeOf(g, "dev")).toBe("dev");
+    expect(deviceNodeOf(g, "nfm")).toBe("dev");
+    expect(deviceNodeOf(g, "scan")).toBe("dev");
+    expect(deviceNodeOf(g, "lost")).toBeNull();
+    // A sink hangs off a channel, not off a radio: only the wire from a device answers.
+    expect(deviceNodeOf(g, "spk")).toBeNull();
   });
 
   it("walks the wires a sink consumes", () => {

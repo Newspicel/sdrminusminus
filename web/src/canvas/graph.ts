@@ -19,6 +19,7 @@ import type {
   PortRef,
   PortSpec,
   RackLayout,
+  WorkspaceSnapshot,
 } from "../lib/types";
 
 /** Everything the rules need that is not the graph itself. */
@@ -107,18 +108,25 @@ export function connectionRefusal(
     return "wires run from an output to an input";
   }
   if (out.port_type !== input.port_type) {
-    return `${out.port_type} cannot feed a ${input.port_type} input`;
+    return input.note ?? `${out.port_type} cannot feed a ${input.port_type} input`;
   }
-  const landing = (graph.edges ?? []).filter(
-    (edge) => edge.to.node === to.node && edge.to.port === to.port,
-  );
+  const edges = graph.edges ?? [];
+  const landing = edges.filter((edge) => edge.to.node === to.node && edge.to.port === to.port);
   if (landing.some((edge) => edge.from.node === from.node && edge.from.port === from.port)) {
     return "already wired";
   }
   if (!input.multi && landing.length > 0) {
     return nodeOf(graph, to.node)?.kind === "channel"
-      ? "a channel takes one receiver; two would need a coherent array"
+      ? "a channel takes one device; two would need a coherent array"
       : "that input takes one wire";
+  }
+  // A stream output fans out; an ownership output does not, and the server refuses the second
+  // wire either way — one sweep is what the engine runs.
+  if (
+    !out.multi &&
+    edges.some((edge) => edge.from.node === from.node && edge.from.port === from.port)
+  ) {
+    return "that output drives one node at a time";
   }
   return null;
 }
@@ -233,6 +241,64 @@ export function patchNode(
  * enough because every producer builds these objects in field order from the same code. */
 export function sameGraph(a: PatchGraph, b: PatchGraph): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * A stored station brought up to today's port table, returned unchanged when it already is.
+ *
+ * One shape needs it so far. A scanner used to *consume* a radio's IQ; it now drives the radio
+ * through a control wire running the other way, because a device's left side is what is done to
+ * it and the wire is the ownership. An edge naming `scanner.iq` names a port that no longer
+ * exists — and the server validates the *whole* snapshot on every write, so one stale wire would
+ * refuse every later write, including a node drag that has nothing to do with it.
+ *
+ * It runs where a workspace enters the client, not at render: an edit that read the old shape out
+ * of the cache would write it straight back, and cutting the migrated wire would not stick.
+ */
+export function migrateSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  const graph = migrateGraph(snapshot.graph);
+  return graph === snapshot.graph ? snapshot : { ...snapshot, graph };
+}
+
+function migrateGraph(graph: PatchGraph): PatchGraph {
+  const scanners = new Set(
+    graph.nodes.filter((node) => node.kind === "scanner").map((node) => node.id),
+  );
+  const edges = graph.edges ?? [];
+  const consumed = (edge: PatchEdge): boolean =>
+    scanners.has(edge.to.node) && edge.to.port === "iq";
+  if (!edges.some(consumed)) {
+    return graph;
+  }
+  const port = (reference: PortRef): string => `${reference.node}.${reference.port}`;
+  const owned = new Set(
+    edges
+      .filter((edge) => edge.from.port === "control")
+      .flatMap((edge) => [port(edge.from), port(edge.to)]),
+  );
+  const migrated: PatchEdge[] = [];
+  for (const edge of edges) {
+    if (!consumed(edge)) {
+      migrated.push(edge);
+      continue;
+    }
+    const flipped: PatchEdge = {
+      from: { node: edge.to.node, port: "control" },
+      to: { node: edge.from.node, port: "control" },
+    };
+    const ends = [port(flipped.from), port(flipped.to)];
+    // Ownership is exclusive at both ends. A patch that fanned one scanner across two radios —
+    // legal while the wire was a stream — keeps the first and loses the rest, which is the only
+    // outcome the server would accept anyway.
+    if (ends.some((end) => owned.has(end))) {
+      continue;
+    }
+    for (const end of ends) {
+      owned.add(end);
+    }
+    migrated.push(flipped);
+  }
+  return { ...graph, edges: migrated };
 }
 
 // ── the rack ──────────────────────────────────────────────────────────────────────────────
