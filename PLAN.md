@@ -6,14 +6,14 @@ server for browser access. Runs as a single local app on a laptop, or split with
 on a Raspberry Pi and the client anywhere on the network.
 
 Working name: **sdr--** ("sdrminusminus"), crate/binary prefix `sdrmm`.
-Personal project (not planned for public release). License: **MIT**.
+Personal project (not planned for public release).
 
 ---
 
 ## 1. Goals & non-goals
 
 ### Goals
-- Feature target: SDRangel's, Mayhem Firmware, Flipper Zero Momentum feature set of SDR
+- Feature target: SDR++, SDRangel's, Mayhem Firmware, Flipper Zero Momentum feature set of SDR
 - Backend-driven: the server is the single source of truth for state, settings, and type
   definitions. The client renders what the server describes. Adding a device setting or a new
   channel type requires zero hand-written frontend DTOs.
@@ -39,11 +39,9 @@ Personal project (not planned for public release). License: **MIT**.
 ```
 ┌─────────────────────────── client (React, one codebase) ───────────────────────────┐
 │  Tauri desktop app (spawns embedded local server OR connects to remote)            │
-│  Browser on any LAN device (UI served by the server itself)                        │
 │                                                                                    │
 │  TanStack Query ◄── generated typed client ◄── openapi.json                        │
 │  WebSocket: state events (JSON) + binary streams (spectrum, audio, IQ taps)        │
-│  WebGL2 waterfall/spectrum · AudioWorklet playback · MapLibre for geo decoders     │
 └──────────────────────────────────────┬─────────────────────────────────────────────┘
                           REST (control) + one WebSocket (push/streams)
 ┌──────────────────────────────────────┴─────────────────────────────────────────────┐
@@ -117,7 +115,6 @@ common timestamps (§5). Populated by:
 
 Everything downstream (DoA via MUSIC/ESPRIT, passive radar, beamforming, diversity combine)
 targets `CoherentArray`, so adding new coherent hardware later is a backend, not a rewrite.
-Phase 4+.
 
 ---
 
@@ -184,7 +181,7 @@ or click any frequency and see who it's allocated to, the service name, and a su
   2. **Germany** — Bundesnetzagentur **Frequenzplan** as the authoritative national layer
      (source: data.bundesnetzagentur.de Frequenzplan PDF/dataset — parsed into our schema by
      an `xtask` importer; we ship the derived table, not the document).
-  3. **Future national layers** — US (FCC allocation table / ULS), UK (Ofcom), and more,
+  3. US (FCC allocation table / ULS), UK (Ofcom), and more,
      each a pluggable importer producing the same schema. Region chosen in settings (or auto
      from GPS §GPS-heatmap).
 - **UI:** band ruler under the spectrum (colored allocation blocks), click-to-identify
@@ -222,7 +219,7 @@ big FFTs, logging, and maps. TX-only tricks are noted and deferred with the rest
 **Nature/analysis features (PortaPack parity):** waterfall, audio RX (AM/NFM/WFM/SSB), signal
 recording, frequency manager/bookmarks, band-plan awareness → all core sdr-- already.
 
-**TX / deferred**: sub-GHz *replay/brute/jam*, BLE/OOK *spam*, RF *transmit* of any kind, "spoof" tools. 
+**TX**: sub-GHz *replay/brute/jam*, BLE/OOK *spam*, RF *transmit* of any kind, "spoof" tools. 
 
 A **"Sub-GHz workbench" template** (§10) bundles the OOK/FSK channel + capture + a decoder log
 into a one-click Flipper-replacement layout.
@@ -251,8 +248,6 @@ into a one-click Flipper-replacement layout.
 - CORS locked to same-origin by default (dev mode relaxes it).
 - Explicit docs note: exposing an SDR server to the internet is your VPN's job (Tailscale
   et al.), not ours. No TLS termination in v1 (reverse-proxy if needed).
-- Multi-user accounts and roles are a non-goal (§1); if that ever changes it is a new section,
-  not a widening of this one.
 
 ---
 
