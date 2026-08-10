@@ -119,7 +119,17 @@ export class WaterfallRenderer {
     // may hold (~16). A dock creates and destroys panels for the life of the session, so
     // without this the oldest context is dropped by the browser and some other canvas — not
     // this one — goes black.
-    this.gl.getExtension("WEBGL_lose_context")?.loseContext();
+    //
+    // Deferred and conditional, because losing a context poisons the *canvas*: `getContext`
+    // hands back the same dead object forever, and every later shader compile fails with an
+    // empty log. StrictMode runs mount→unmount→mount on the very same canvas, so releasing
+    // eagerly would kill the renderer it is about to rebuild. By the next macrotask a genuinely
+    // removed panel has been detached from the document; a remount has not.
+    window.setTimeout(() => {
+      if (!this.canvas.isConnected) {
+        this.gl.getExtension("WEBGL_lose_context")?.loseContext();
+      }
+    }, 0);
   }
 
   private allocate(width: number): void {
@@ -144,8 +154,10 @@ export class WaterfallRenderer {
     const gl = this.gl;
     this.resizeToDisplay();
     // A panel in a background tab, or one dragged to zero width, measures 0×0. Drawing into it
-    // is wasted GPU work every frame, and the rows keep accumulating either way.
-    if (this.canvas.width === 0 || this.canvas.height === 0) {
+    // is wasted GPU work every frame, and the rows keep accumulating either way. The *display*
+    // size is what goes to zero — `resizeToDisplay` deliberately leaves the backing store at its
+    // last non-zero size, so testing `canvas.width` would never fire.
+    if (this.canvas.clientWidth === 0 || this.canvas.clientHeight === 0) {
       return;
     }
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);

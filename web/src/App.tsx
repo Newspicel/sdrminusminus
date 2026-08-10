@@ -179,12 +179,10 @@ export function App() {
               tab={tab}
               readOnly={narrow}
               onChange={(next) =>
-                workspace.saveSnapshot({
-                  ...snapshot,
-                  tabs: snapshot.tabs.map((existing) =>
-                    existing.id === next.id ? next : existing,
-                  ),
-                })
+                workspace.saveSnapshot((current) => ({
+                  ...current,
+                  tabs: current.tabs.map((existing) => (existing.id === next.id ? next : existing)),
+                }))
               }
             />
           </ShellProvider>

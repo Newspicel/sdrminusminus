@@ -106,7 +106,10 @@ export function fromSerializedDockview(serialized: SerializedDockview, tab: TabS
       h_frac: Math.max(0.02, Math.min(1, height / size.height)),
     });
   }
-  return { id: tab.id, name: tab.name, layout, floating };
+  // The empty list is *omitted*, not written: `TabSpec.floating` is `skip_serializing_if` on the
+  // wire, so a tab that came back from the server without the key would never compare equal to
+  // one this mapper produced — and every echo of a save would rebuild the whole dock.
+  return { id: tab.id, name: tab.name, layout, ...(floating.length > 0 ? { floating } : {}) };
 }
 
 /** Structural equality of two tabs. The save path compares before writing: dockview re-emits its

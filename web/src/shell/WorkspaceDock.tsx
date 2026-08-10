@@ -65,6 +65,28 @@ export function WorkspaceDock({
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
 
+  // The mapped-but-not-yet-written layout. The mapping happens when the gesture lands, not when
+  // the debounce fires, so a dock that is unmounted in between (a tab or workspace switch) can
+  // still hand the arrangement up: by unmount time React has already disposed the dock, and its
+  // `toJSON` no longer describes anything.
+  const pendingRef = useRef<TabSpec | null>(null);
+
+  const flush = useCallback(() => {
+    if (saveTimer.current !== null) {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    // The mode is re-checked here, not only where the gesture was recorded: crossing the narrow
+    // breakpoint mid-debounce would otherwise persist the phone-flattened layout.
+    if (pending === null || readOnlyRef.current) {
+      return;
+    }
+    currentRef.current = pending;
+    onChangeRef.current(pending);
+  }, []);
+
   const apply = useCallback((next: TabSpec, narrow: boolean) => {
     const api = apiRef.current;
     if (api === null) {
@@ -76,6 +98,13 @@ export function WorkspaceDock({
       height: host?.clientHeight || 800,
     };
     applyingRef.current = true;
+    // A write still pending belongs to the layout being replaced; letting it land would put the
+    // old arrangement back over the new one.
+    if (saveTimer.current !== null) {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    pendingRef.current = null;
     try {
       api.fromJSON(toSerializedDockview(narrow ? flatten(next) : next, size));
       currentRef.current = next;
@@ -102,25 +131,18 @@ export function WorkspaceDock({
         if (applyingRef.current || readOnlyRef.current) {
           return;
         }
+        const mapped = fromSerializedDockview(event.api.toJSON(), tabRef.current);
+        if (currentRef.current !== null && sameTab(mapped, currentRef.current)) {
+          return;
+        }
+        pendingRef.current = mapped;
         if (saveTimer.current !== null) {
           window.clearTimeout(saveTimer.current);
         }
-        saveTimer.current = window.setTimeout(() => {
-          saveTimer.current = null;
-          const api = apiRef.current;
-          if (api === null) {
-            return;
-          }
-          const mapped = fromSerializedDockview(api.toJSON(), tabRef.current);
-          if (currentRef.current !== null && sameTab(mapped, currentRef.current)) {
-            return;
-          }
-          currentRef.current = mapped;
-          onChangeRef.current(mapped);
-        }, SAVE_DEBOUNCE_MS);
+        saveTimer.current = window.setTimeout(flush, SAVE_DEBOUNCE_MS);
       });
     },
-    [apply],
+    [apply, flush],
   );
 
   // Re-apply when the tab identity changes (a different tab was selected) or when the stored
@@ -139,14 +161,9 @@ export function WorkspaceDock({
     apply(tab, readOnly);
   }, [tab, readOnly, apply]);
 
-  useEffect(
-    () => () => {
-      if (saveTimer.current !== null) {
-        window.clearTimeout(saveTimer.current);
-      }
-    },
-    [],
-  );
+  // A tab or workspace switch unmounts this dock, and a rearrangement made in the last 400 ms
+  // would go with it. The pending write is flushed, not dropped.
+  useEffect(() => flush, [flush]);
 
   return (
     <div ref={hostRef} className="min-h-0 flex-1">
@@ -188,10 +205,5 @@ function flatten(tab: TabSpec): TabSpec {
   for (const group of tab.floating ?? []) {
     panels.push(...group.group.panels);
   }
-  return {
-    id: tab.id,
-    name: tab.name,
-    layout: { node: "group", data: { panels } },
-    floating: [],
-  };
+  return { id: tab.id, name: tab.name, layout: { node: "group", data: { panels } } };
 }

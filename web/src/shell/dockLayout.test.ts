@@ -18,8 +18,11 @@ function group(...kinds: PanelKind[]): LayoutNode {
   };
 }
 
-function tab(layout: LayoutNode, floating: TabSpec["floating"] = []): TabSpec {
-  return { id: "station", name: "Station", layout, floating };
+/** A tab in the shape the *server* stores: `floating` is `skip_serializing_if` on the wire, so a
+ * tab with none carries no key at all — and the mapper's output has to match that exactly or the
+ * echo-suppression comparison can never succeed. */
+function tab(layout: LayoutNode, floating?: TabSpec["floating"]): TabSpec {
+  return { id: "station", name: "Station", layout, ...(floating ? { floating } : {}) };
 }
 
 /** The layout `WorkspaceSnapshot::station_default()` seeds, written by hand so a change on the
@@ -203,6 +206,17 @@ describe("dock layout mapping", () => {
     const serialized = toSerializedDockview(start, SIZE);
     expect(serialized.grid.root.type).toBe("branch");
     expect(fromSerializedDockview(serialized, start)).toEqual(start);
+  });
+
+  /// The stored tab has no `floating` key when there are no floating groups. A mapper that
+  /// emitted `floating: []` would never compare equal to the server's echo of the same tab, and
+  /// the dock would be rebuilt from scratch after every gesture.
+  it("omits an empty floating list, matching what the server stores", () => {
+    const start = tab(STATION);
+    expect("floating" in start).toBe(false);
+    const back = fromSerializedDockview(toSerializedDockview(start, SIZE), start);
+    expect("floating" in back).toBe(false);
+    expect(sameTab(back, start)).toBe(true);
   });
 
   it("survives an empty dock without inventing a layout", () => {

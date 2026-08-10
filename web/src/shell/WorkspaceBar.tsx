@@ -18,7 +18,7 @@ export function WorkspaceBar({
   workspaces: readonly WorkspaceInfo[];
   activeId: number | null;
   snapshot: WorkspaceSnapshot | null;
-  onSnapshot: (snapshot: WorkspaceSnapshot) => void;
+  onSnapshot: (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => void;
   onActivate: (id: number) => void;
   onCreate: (name: string) => void;
   onRemove: (id: number) => void;
@@ -28,14 +28,14 @@ export function WorkspaceBar({
   const tabs = snapshot?.tabs ?? [];
   const activeTab = tabs.find((tab) => tab.id === snapshot?.active_tab) ?? tabs[0] ?? null;
 
-  const write = (next: Partial<WorkspaceSnapshot>) => {
-    if (snapshot !== null) {
-      onSnapshot({ ...snapshot, ...next });
-    }
+  const write = (edit: (current: WorkspaceSnapshot) => Partial<WorkspaceSnapshot>) => {
+    onSnapshot((current) => ({ ...current, ...edit(current) }));
   };
 
   const replaceTab = (tab: TabSpec) => {
-    write({ tabs: tabs.map((existing) => (existing.id === tab.id ? tab : existing)) });
+    write((current) => ({
+      tabs: current.tabs.map((existing) => (existing.id === tab.id ? tab : existing)),
+    }));
   };
 
   const addTab = () => {
@@ -46,19 +46,20 @@ export function WorkspaceBar({
       id,
       name: `Tab ${tabs.length + 1}`,
       layout: { node: "group", data: { panels: [{ id: panelId("spectrum"), kind: "spectrum" }] } },
-      floating: [],
     };
-    write({ tabs: [...tabs, tab], active_tab: id });
+    write((current) => ({ tabs: [...current.tabs, tab], active_tab: id }));
   };
 
   const closeTab = (id: string) => {
-    const remaining = tabs.filter((tab) => tab.id !== id);
-    if (remaining.length === 0) {
+    if (tabs.length < 2) {
       return;
     }
-    write({
-      tabs: remaining,
-      active_tab: snapshot?.active_tab === id ? remaining[0]?.id : snapshot?.active_tab,
+    write((current) => {
+      const remaining = current.tabs.filter((tab) => tab.id !== id);
+      return {
+        tabs: remaining.length > 0 ? remaining : current.tabs,
+        active_tab: current.active_tab === id ? remaining[0]?.id : current.active_tab,
+      };
     });
   };
 
@@ -160,7 +161,9 @@ export function WorkspaceBar({
                 className={`min-h-8 rounded-l border border-line px-2 font-mono text-xs max-md:min-h-10 ${
                   active ? "border-accent bg-panel-2 text-accent" : "text-ink-dim"
                 }`}
-                onClick={() => (active ? setRenaming(tab.id) : write({ active_tab: tab.id }))}
+                onClick={() =>
+                  active ? setRenaming(tab.id) : write(() => ({ active_tab: tab.id }))
+                }
                 title={active ? "Click again to rename" : undefined}
               >
                 {tab.name}
