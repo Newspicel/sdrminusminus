@@ -251,7 +251,8 @@ export function SpectrumDisplay({
     if (grabbed !== null) {
       onSelectChannel(grabbed.id);
     }
-    event.currentTarget.setPointerCapture(event.pointerId);
+    // Recorded before the capture is requested: the gesture must survive a pointer the browser
+    // refuses to capture, or the release would find nothing to act on.
     gestureRef.current = {
       pointerX: event.clientX,
       at,
@@ -259,6 +260,7 @@ export function SpectrumDisplay({
       channel: grabbed?.id ?? null,
       moved: false,
     };
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
@@ -306,15 +308,16 @@ export function SpectrumDisplay({
       }
       return;
     }
-    if (meta === null) {
+    // A click *on* a marker only selects it — `onPointerDown` already did that, and tuning it
+    // to the pointer would move the channel by up to the grab tolerance every time it is picked.
+    if (meta === null || gesture.channel !== null) {
       return;
     }
-    // A click tunes what the operator is listening to; with nothing selected there is only the
-    // radio itself to move.
+    // Elsewhere, a click tunes what the operator is listening to; with nothing selected there
+    // is only the radio itself to move.
     const offsetHz = Math.round(spanToOffset(viewToSpan(gesture.view, gesture.at), meta.spanHz));
-    const target = gesture.channel ?? selectedChannel;
-    if (target !== null) {
-      onTuneChannel(target, offsetHz);
+    if (selectedChannel !== null) {
+      onTuneChannel(selectedChannel, offsetHz);
     } else {
       onTuneCenter(meta.centerHz + offsetHz);
     }
@@ -364,7 +367,14 @@ export function SpectrumDisplay({
       {deviceSet !== null && (
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
           <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
-            {meta === null ? "" : formatReadout(meta, view)}
+            {meta !== null && (
+              <>
+                {formatCentre(meta, view)}
+                {/* The dB range is the first thing to go when the bar is narrower than the
+                    numbers: the frequency is what the operator is reading. */}
+                <span className="max-md:hidden">{formatRange(meta)}</span>
+              </>
+            )}
           </span>
           {/* Bottom-left: the only corner of the plot no data occupies, so the toolbar costs
               the trace nothing. */}
@@ -399,6 +409,25 @@ export function SpectrumDisplay({
             >
               max hold
             </button>
+            {/* A touch pointer has no wheel, so the zoom gesture needs buttons of its own. */}
+            <span className="hidden items-center gap-1 pointer-coarse:flex">
+              <button
+                type="button"
+                className={plotButton(false)}
+                aria-label="Zoom out"
+                onClick={() => setView((current) => zoomView(current, 0.5, 1 / 1.6))}
+              >
+                −
+              </button>
+              <button
+                type="button"
+                className={plotButton(false)}
+                aria-label="Zoom in"
+                onClick={() => setView((current) => zoomView(current, 0.5, 1.6))}
+              >
+                +
+              </button>
+            </span>
             {!isFullView(view) && (
               <button
                 type="button"
@@ -609,12 +638,16 @@ function readColormap(): Colormap {
   }
 }
 
-function formatReadout(meta: FrameMeta, view: SpectrumView): string {
+function formatCentre(meta: FrameMeta, view: SpectrumView): string {
   const visible = meta.spanHz * viewWidth(view);
-  const center = meta.centerHz + spanToOffset((view.start + view.end) / 2, meta.spanHz);
+  const centre = meta.centerHz + spanToOffset((view.start + view.end) / 2, meta.spanHz);
   const span =
     visible >= 1e6 ? `${(visible / 1e6).toFixed(3)} MHz` : `${(visible / 1e3).toFixed(1)} kHz`;
-  return `${(center / 1e6).toFixed(4)} MHz   ${span}   ${meta.dbMin.toFixed(0)}…${meta.dbMax.toFixed(0)} dB`;
+  return `${(centre / 1e6).toFixed(4)} MHz   ${span}`;
+}
+
+function formatRange(meta: FrameMeta): string {
+  return `   ${meta.dbMin.toFixed(0)}…${meta.dbMax.toFixed(0)} dB`;
 }
 
 /** The trace, its grid and both axes. Drawn from the frame's own metadata, so the numbers on

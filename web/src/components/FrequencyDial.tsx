@@ -152,7 +152,7 @@ function Digit({
         tabIndex={-1}
         data-place={digit.place}
         aria-label={`${10 ** digit.place} hertz digit`}
-        className={`rounded-[2px] px-[2px] text-[26px] tabular-nums transition-colors duration-100 md:text-[34px] ${
+        className={`min-h-7 rounded-[2px] px-[2px] text-[20px] tabular-nums transition-colors duration-100 pointer-coarse:min-h-10 md:text-[34px] ${
           digit.leading ? "text-ink-faint" : "text-ink"
         } ${
           active ? "bg-accent/12 shadow-[inset_0_-2px_0_var(--color-accent)]" : "hover:bg-ink/8"
@@ -171,7 +171,7 @@ function Digit({
         {digit.digit}
       </button>
       {separator !== "" && (
-        <span aria-hidden className="text-[26px] text-ink-dim md:text-[34px]">
+        <span aria-hidden className="text-[20px] text-ink-dim md:text-[34px]">
           {separator}
         </span>
       )}
@@ -195,7 +195,7 @@ function DirectEntry({
       autoFocus
       aria-label="Tune to frequency"
       placeholder="145.5 · 433800k · 2.4g"
-      className={`h-10 w-[13ch] rounded-[3px] border bg-panel-2 px-2 font-mono text-[26px] leading-none tabular-nums text-ink placeholder:text-[13px] placeholder:text-ink-faint md:h-12 md:w-[15ch] md:text-[34px] ${
+      className={`h-10 w-[13ch] rounded-[3px] border bg-panel-2 px-2 font-mono text-[20px] leading-none tabular-nums text-ink placeholder:text-[13px] placeholder:text-ink-faint md:h-12 md:w-[15ch] md:text-[34px] ${
         empty || parsed !== null ? "border-accent" : "border-danger"
       }`}
       value={draft}

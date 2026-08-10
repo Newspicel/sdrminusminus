@@ -25,9 +25,3 @@ export function token(name: string): string {
   cache.set(name, value);
   return value;
 }
-
-/** The same token at a fraction of its opacity — for gridlines and fills, which must stay
- * lighter-weight than the data they sit behind. */
-export function tokenAlpha(name: string, alpha: number): string {
-  return `color-mix(in oklab, ${token(name)} ${Math.round(alpha * 100)}%, transparent)`;
-}

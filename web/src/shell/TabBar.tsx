@@ -168,11 +168,13 @@ export function TabBar({
         </button>
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
+        {/* Below the phone breakpoint the dock is one stack and its layout is never persisted
+            (`WorkspaceDock` readOnly), so a panel added here would silently not stick. */}
         <Popover
           align="end"
           width="w-44"
-          triggerClass={`${BTN_QUIET} my-0.5`}
+          triggerClass={`${BTN_QUIET} my-0.5 max-md:hidden`}
           label={<span className="legend">Add panel</span>}
         >
           {(close) =>

@@ -37,7 +37,7 @@ export const BINDINGS: readonly Binding[] = [
   { keys: "Space", what: "Start / stop audio on the selected channel" },
   { keys: "1 – 9", what: "Switch tab" },
   { keys: "?", what: "This list" },
-  { keys: "Esc", what: "Close an overlay, or reset the spectrum view" },
+  { keys: "Esc", what: "Close an overlay or a menu" },
 ];
 
 export function useHotkeys(actions: HotkeyActions): void {
@@ -50,6 +50,11 @@ export function useHotkeys(actions: HotkeyActions): void {
       // Browser and OS shortcuts keep their meaning, and a field being typed into owns every
       // key it receives.
       if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) {
+        return;
+      }
+      // A focused button owns its own activation keys. Tuning stays available from anywhere,
+      // but Space must press the button under focus rather than start audio.
+      if ((event.key === " " || event.key === "Enter") && isActivatable(event.target)) {
         return;
       }
       const act = latest.current;
@@ -110,6 +115,10 @@ export function useHotkeys(actions: HotkeyActions): void {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
+}
+
+function isActivatable(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.closest("button, a[href], summary") !== null;
 }
 
 /** A field being typed into owns every key it receives, and so does a control that has already
