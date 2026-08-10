@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { AdsbMessage, AisMessage, AprsPacket } from "../types";
+import type { AdsbMessage, AisMessage, AprsPacket, ChannelParams } from "../types";
 import {
   isStale,
   layerId,
   MAP_KINDS,
   mapKindsOf,
+  referenceCollection,
+  referencePositions,
   sourceId,
   TARGET_MAX_AGE_MS,
   type Target,
@@ -166,6 +168,41 @@ describe("targetCollection", () => {
 
   it("is empty, not absent, with nothing to draw", () => {
     expect(targetCollection([], NOW)).toEqual({ type: "FeatureCollection", features: [] });
+  });
+});
+
+describe("referencePositions", () => {
+  const ref = (ref_lat?: number | null, ref_lon?: number | null): ChannelParams => ({
+    type: "adsb",
+    settings: { ref_lat, ref_lon },
+  });
+
+  it("reads only ADS-B references, in [lon, lat] order", () => {
+    expect(referencePositions([ref(50.7, 6.1), { type: "nfm", settings: {} }])).toEqual([
+      [6.1, 50.7],
+    ]);
+  });
+
+  it("merges channels sharing one antenna into one mark", () => {
+    expect(referencePositions([ref(50.7, 6.1), ref(50.7, 6.1), ref(-33.9, 18.4)])).toEqual([
+      [6.1, 50.7],
+      [18.4, -33.9],
+    ]);
+  });
+
+  it("skips a half-set or out-of-range reference", () => {
+    expect(referencePositions([ref(50.7, null), ref(50.7), ref(91, 181)])).toEqual([]);
+  });
+});
+
+describe("referenceCollection", () => {
+  it("wraps fixes as identity-less points", () => {
+    expect(referenceCollection([[6.1, 50.7]])).toEqual({
+      type: "FeatureCollection",
+      features: [
+        { type: "Feature", geometry: { type: "Point", coordinates: [6.1, 50.7] }, properties: {} },
+      ],
+    });
   });
 });
 

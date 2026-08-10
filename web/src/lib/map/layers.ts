@@ -3,7 +3,7 @@
 // what a label falls back to, when a target is too old to draw) are the part worth testing, and
 // MapPanel.tsx keeps everything that needs a canvas.
 import type { StationOf } from "../decoded";
-import type { DecoderKind } from "../types";
+import type { ChannelParams, DecoderKind } from "../types";
 
 /** The decoder kinds that report a position; the rest of `DecoderKind` never reaches the map. */
 export const MAP_KINDS = ["adsb", "ais", "aprs"] as const satisfies readonly DecoderKind[];
@@ -119,17 +119,71 @@ export function targetFeature(station: Target): TargetFeature | null {
   return { type: "Feature", geometry: { type: "Point", coordinates }, properties };
 }
 
-/** `[lon, lat]` — GeoJSON order, not the order every decoder reports it in. */
-export function targetPosition(station: Target): [number, number] | null {
-  const { lat, lon } = station.event.data;
+/** `[lon, lat]` — GeoJSON order, not the order every decoder reports it in — when the pair is
+ * a real fix. AIS and APRS pad an unknown position with out-of-range sentinels (lat 91,
+ * lon 181). */
+export function geoPosition(
+  lat: number | null | undefined,
+  lon: number | null | undefined,
+): [number, number] | null {
   if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) {
     return null;
   }
-  // AIS and APRS pad an unknown position with out-of-range sentinels (lat 91, lon 181).
   if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
     return null;
   }
   return [lon, lat];
+}
+
+export function targetPosition(station: Target): [number, number] | null {
+  const { lat, lon } = station.event.data;
+  return geoPosition(lat, lon);
+}
+
+/**
+ * `[lon, lat]` station fixes from the wired channels' settings. Only ADS-B carries one — its
+ * CPR reference is where the antenna stands — and two channels sharing an antenna produce one
+ * mark, not two.
+ */
+export function referencePositions(params: readonly ChannelParams[]): [number, number][] {
+  const seen = new Set<string>();
+  const positions: [number, number][] = [];
+  for (const param of params) {
+    if (param.type !== "adsb") {
+      continue;
+    }
+    const position = geoPosition(param.settings.ref_lat, param.settings.ref_lon);
+    if (position === null || seen.has(position.join("/"))) {
+      continue;
+    }
+    seen.add(position.join("/"));
+    positions.push(position);
+  }
+  return positions;
+}
+
+// The same structural-GeoJSON trick as `TargetCollection`, for landmark points that carry no
+// target identity.
+export interface ReferenceCollection {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    geometry: { type: "Point"; coordinates: [number, number] };
+    properties: Record<string, never>;
+  }[];
+}
+
+export function referenceCollection(
+  positions: readonly (readonly [number, number])[],
+): ReferenceCollection {
+  return {
+    type: "FeatureCollection",
+    features: positions.map(([lon, lat]) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [lon, lat] },
+      properties: {},
+    })),
+  };
 }
 
 export function targetLabel(station: Target): string {

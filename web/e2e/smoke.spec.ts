@@ -29,6 +29,22 @@ async function slots(page: Page): Promise<{ node: string; x: number; w: number }
   return detail.snapshot.rack.slots;
 }
 
+/** Bring every node into view. New nodes drop to the right of everything already drawn, which
+ * after a few adds is outside the framed viewport — and a wire cannot be dragged to a handle
+ * the pointer cannot reach. */
+async function fitPatch(page: Page): Promise<void> {
+  const pane = page.locator(".react-flow__pane");
+  const box = await pane.boundingBox();
+  if (box === null) {
+    throw new Error("a pane to right-click");
+  }
+  await page.mouse.click(box.x + 40, box.y + box.height - 40, { button: "right" });
+  await page
+    .getByRole("menu")
+    .getByRole("button", { name: /fit the patch/i })
+    .click();
+}
+
 /** Drag a rack grip by whole cells. The grid is `RACK_COLS` wide, so a cell is the container's
  * width over twelve — the same arithmetic the rack itself does. */
 async function dragBy(page: Page, grip: Locator, cells: number): Promise<void> {
@@ -46,6 +62,17 @@ async function dragBy(page: Page, grip: Locator, cells: number): Promise<void> {
 
 test.describe("the station", () => {
   test("binds a radio, adds a channel and pins a face", async ({ page }) => {
+    // The tile CDN is cut off, not awaited: CI must not lean on a third party, and the offline
+    // fallback the map leg below lands in is itself behaviour the map owes a field station.
+    await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
+    // MapLibre rejects a paint colour it cannot parse by dropping the whole layer with one
+    // console error — the map then looks whole minus its targets, which no locator below sees.
+    const styleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error" && message.text().includes("color expected")) {
+        styleErrors.push(message.text());
+      }
+    });
     await page.goto("/");
 
     // The default station: a receiver node with nothing in it, a scope and a speaker. Nodes are
@@ -133,5 +160,47 @@ test.describe("the station", () => {
     ).toHaveCount(0);
     await rack.click();
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
+
+    // The map leg: what a map node plots is decided by its wires (CANVAS §1), so it needs a
+    // position-reporting decoder wired in — ADS-B, which decodes only at exactly 2 Msps
+    // (PROGRESS.md), a rate the virtual radio offers.
+    await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Patch" }).click();
+    // A face is a picture until it is clicked (NodeShell): the first click selects the node and
+    // only then does the face answer its own pointer, so the select needs the header click first.
+    await node("device").locator("header").click();
+    await node("device").getByRole("combobox", { name: "Sample rate" }).click();
+    await page.getByRole("option", { name: "2.000 MS/s" }).click();
+
+    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "ADS-B (1090ES)" }).click();
+    const adsb = page.locator('.react-flow__node[data-id^="channel:"]', { hasText: "ADS-B" });
+    await fitPatch(page);
+    await dragWire(
+      page,
+      receiver.locator('.react-flow__handle[data-handleid="iq"]'),
+      adsb.locator('.react-flow__handle[data-handleid="iq"]'),
+    );
+
+    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "Map", exact: true }).click();
+    const map = page.locator('.react-flow__node[data-id^="map:"]');
+    await fitPatch(page);
+    await dragWire(
+      page,
+      adsb.locator('.react-flow__handle[data-handleid="events"]'),
+      map.locator('.react-flow__handle[data-handleid="events"]'),
+    );
+
+    // The face proves the composition: the wire chose the aircraft layer (the legend), the
+    // aborted CDN landed the offline fallback, and the canvas has real height — the break this
+    // guards collapsed the container to zero and left MapLibre painting into a box nobody saw.
+    await expect(map.getByText("Aircraft")).toBeVisible();
+    await expect(map.getByText(/basemap unavailable/i)).toBeVisible();
+    await expect
+      .poll(async () => (await map.locator(".maplibregl-canvas").boundingBox())?.height ?? 0)
+      .toBeGreaterThan(0);
+    // Last: by the time the canvas above measured, `style.load` had installed the target
+    // layers, which is where a rejected paint colour would have said so.
+    expect(styleErrors).toEqual([]);
   });
 });

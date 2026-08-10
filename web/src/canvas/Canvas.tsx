@@ -308,13 +308,25 @@ interface Menu {
 function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   const station = useStationContext();
   const { fitView } = useReactFlow();
+  const menuRef = useRef<HTMLDivElement>(null);
   const node = menu.target.kind === "node" ? nodeOf(station.graph, menu.target.id) : undefined;
   const pinned = node !== undefined && isPinned(station.rack, node.id);
 
   // A menu that outlives its context is a menu that acts on the wrong thing.
   useEffect(() => {
     const dismiss = (event: Event) => {
-      if (event instanceof KeyboardEvent && event.key !== "Escape") {
+      if (event instanceof KeyboardEvent) {
+        // Escape closes from anywhere — including a focused item, whose keydown target is
+        // inside the menu and must not fall through to the pointer guard below.
+        if (event.key === "Escape") {
+          onClose();
+        }
+        return;
+      }
+      // A pointerdown *inside* the menu is an item click arriving. This runs window-capture,
+      // before any handler on the menu itself, so dismissing here would unmount the item
+      // between pointerdown and click and the action would never fire.
+      if (event.target instanceof Node && menuRef.current?.contains(event.target) === true) {
         return;
       }
       onClose();
@@ -379,10 +391,10 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   return (
     // Fixed, not absolute: the coordinates are the pointer's, and the canvas is transformed.
     <div
+      ref={menuRef}
       role="menu"
       className={`${SURFACE} fixed z-40 flex w-52 flex-col p-1`}
       style={{ left: menu.x, top: menu.y }}
-      onPointerDown={(event) => event.stopPropagation()}
     >
       {items}
       {node !== undefined && (

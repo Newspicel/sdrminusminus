@@ -28,6 +28,7 @@ import {
   MAP_KINDS,
   type MapKind,
   mapKindsOf,
+  referenceCollection,
   sourceId,
   TARGET_MAX_AGE_MS,
   type Target,
@@ -63,10 +64,14 @@ const ZERO_COUNTS: Counts = { adsb: 0, ais: 0, aprs: 0 };
 
 export function MapPanel({
   kinds,
+  references = [],
   active = true,
   className,
 }: {
   kinds: readonly MapKind[];
+  /** `[lon, lat]` station fixes — an ADS-B channel's CPR reference — drawn as landmarks under
+   * the targets they anchor. */
+  references?: readonly (readonly [number, number])[];
   /** Whether the map owns the pointer and the wheel. On the canvas it does so only while its node
    * is the active face — MapLibre's own handlers would otherwise pan the map *and* the patch with
    * one gesture, since the two cannot share a wheel. */
@@ -82,10 +87,14 @@ export function MapPanel({
   const selectedRef = useRef<{ kind: MapKind; id: string } | null>(null);
   const framedRef = useRef(false);
   // The map is built once and outlives any number of wire changes, so the listeners and the draw
-  // tick read the wired kinds and the theme edge from here rather than closing over them.
+  // tick read the wired kinds, the references and the theme colours from here rather than
+  // closing over them.
   const kindsRef = useRef(kinds);
   kindsRef.current = kinds;
+  const referencesRef = useRef(references);
+  referencesRef.current = references;
   const edgeRef = useRef("");
+  const accentRef = useRef("");
 
   const countsRef = useRef<Counts>(ZERO_COUNTS);
 
@@ -110,6 +119,9 @@ export function MapPanel({
     // readable against whichever basemap is under it.
     const edge = themeColor(container, "--color-bg", "#0b0e14");
     edgeRef.current = edge;
+    // The station mark is *ours* — the one place the map spends the app accent rather than a
+    // kind colour, so it can never be mistaken for a target.
+    accentRef.current = themeColor(container, "--color-accent", "#e0a458");
 
     void (async () => {
       const style = await fetchStyle();
@@ -129,6 +141,9 @@ export function MapPanel({
       map.addControl(new NavigationControl({ showCompass: false }), "top-right");
 
       map.on("style.load", () => {
+        // The landmark first: target layers appended after it draw above it, which is the
+        // stacking a landmark owes the targets it anchors.
+        installReferenceLayer(map, accentRef.current, edge, referencesRef.current);
         installLayers(map, edge, kindsRef.current);
         readyRef.current = true;
         drawnRef.current = {};
@@ -272,9 +287,25 @@ export function MapPanel({
     highlight(map, wired, selectedRef.current);
   }, [kindsKey]);
 
+  // The station mark follows the settings edit live: type a new reference into the decoder's
+  // face and the mark moves with it. Keyed like `kinds` — the array is rebuilt every render,
+  // and its JSON is the identity that actually changes.
+  const referencesKey = JSON.stringify(references);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || !readyRef.current) {
+      return;
+    }
+    const positions = JSON.parse(referencesKey) as [number, number][];
+    installReferenceLayer(map, accentRef.current, edgeRef.current, positions);
+  }, [referencesKey]);
+
   return (
     <div className={`relative ${className ?? "h-[min(60dvh,28rem)] min-h-64 w-full"}`}>
-      <div ref={containerRef} className="absolute inset-0 bg-bg" />
+      {/* Sized in flow, not `absolute inset-0`: MapLibre stamps `maplibregl-map` onto this
+          element, and its stylesheet's unlayered `position: relative` beats Tailwind's layered
+          utilities — `inset-0` then anchors to nothing and the box collapses to zero height. */}
+      <div ref={containerRef} className="h-full w-full bg-bg" />
 
       <div className="pointer-events-none absolute top-2 left-2 flex flex-col items-start gap-1">
         <div className="flex flex-col gap-1 rounded border border-line bg-bg/85 px-2 py-1.5">
@@ -427,16 +458,16 @@ function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]
       },
     });
 
-    // A course indicator only exists if we could rasterise one; without it the map keeps its
+    // The heading symbol only exists if we could rasterise one; without it the map keeps its
     // dots rather than asking MapLibre for an image that is not there. Images outlive the layer
     // stack, so a rewire reuses the one already registered.
-    const arrow = `${sourceId(kind)}-arrow`;
-    if (!map.hasImage(arrow)) {
-      const image = arrowImage(color, edge);
+    const icon = `${sourceId(kind)}-icon`;
+    if (!map.hasImage(icon)) {
+      const image = KIND_ICON[kind](color, edge);
       if (image === null) {
         continue;
       }
-      map.addImage(arrow, image, { pixelRatio: ARROW_SCALE });
+      map.addImage(icon, image, { pixelRatio: ICON_SCALE });
     }
     map.addLayer({
       id: layerId(kind, "heading"),
@@ -444,7 +475,7 @@ function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]
       source: sourceId(kind),
       filter: ["has", "heading"],
       layout: {
-        "icon-image": arrow,
+        "icon-image": icon,
         "icon-rotate": ["get", "heading"],
         "icon-rotation-alignment": "map",
         "icon-allow-overlap": true,
@@ -464,7 +495,7 @@ function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]
         "text-font": ["Noto Sans Regular"],
         "text-size": 11,
         "text-anchor": "top",
-        "text-offset": [0, 0.7],
+        "text-offset": [0, LABEL_OFFSET_EM[kind]],
         // Dropping a colliding label beats hiding the target it belongs to.
         "text-optional": true,
       },
@@ -526,34 +557,166 @@ function frame(map: MapLibreMap, collection: TargetCollection): void {
   );
 }
 
-const ARROW_SCALE = 2;
+const ICON_SCALE = 2;
+/** Box sizes per symbol. The APRS arrow is a course *indicator* riding beside the dot; the
+ * plane and the hull replace the dot as the target symbol itself, so they get the room a
+ * glanceable silhouette needs. */
 const ARROW_PX = 18;
+const PLANE_PX = 26;
+const SHIP_PX = 22;
 
-/** A course indicator pointing north at rotation 0, drawn clear of the 4 px dot so the two read
- * as one symbol. `null` when the browser gives us no 2D context — the map then draws dots only. */
-function arrowImage(color: string, edge: string): ImageData | null {
+/** The raster a heading-bearing target draws: kind read off the shape before the colour
+ * (DESIGN.md §2 — every colour paired with a marker). */
+const KIND_ICON: Record<MapKind, (color: string, edge: string) => ImageData | null> = {
+  adsb: planeImage,
+  ais: shipImage,
+  aprs: arrowImage,
+};
+
+/** Ems the label sits below the position — past each kind's symbol, not through it. */
+const LABEL_OFFSET_EM: Record<MapKind, number> = { adsb: 1.3, ais: 1.1, aprs: 0.7 };
+
+/** `null` when the browser gives us no 2D context — the map then draws dots only. */
+function rasterize(px: number, draw: (ctx: CanvasRenderingContext2D) => void): ImageData | null {
   const canvas = document.createElement("canvas");
-  canvas.width = ARROW_PX * ARROW_SCALE;
-  canvas.height = ARROW_PX * ARROW_SCALE;
+  canvas.width = px * ICON_SCALE;
+  canvas.height = px * ICON_SCALE;
   const ctx = canvas.getContext("2d");
   if (ctx === null) {
     return null;
   }
-  ctx.scale(ARROW_SCALE, ARROW_SCALE);
-  const mid = ARROW_PX / 2;
+  ctx.scale(ICON_SCALE, ICON_SCALE);
+  draw(ctx);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/** Traces the starboard half of a north-facing outline and its port mirror, so symmetry is
+ * stated once instead of maintained twice. */
+function silhouette(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  starboard: readonly (readonly [number, number])[],
+): void {
+  const outline = [...starboard, ...[...starboard].reverse().map(([x, y]) => [px - x, y] as const)];
   ctx.beginPath();
-  ctx.moveTo(mid, 1.5);
-  ctx.lineTo(mid + 3.5, 8);
-  ctx.lineTo(mid, 6.5);
-  ctx.lineTo(mid - 3.5, 8);
+  outline.forEach(([x, y], index) => (index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
   ctx.closePath();
+}
+
+/** The edge stroke goes under the fill: half the line survives as a halo against the basemap
+ * without thinning the silhouette. */
+function paint(ctx: CanvasRenderingContext2D, color: string, edge: string): void {
   ctx.strokeStyle = edge;
   ctx.lineWidth = 1;
   ctx.lineJoin = "round";
   ctx.stroke();
   ctx.fillStyle = color;
   ctx.fill();
-  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/** A course indicator pointing north at rotation 0, drawn clear of the 4 px dot so the two read
+ * as one symbol. */
+function arrowImage(color: string, edge: string): ImageData | null {
+  return rasterize(ARROW_PX, (ctx) => {
+    const mid = ARROW_PX / 2;
+    ctx.beginPath();
+    ctx.moveTo(mid, 1.5);
+    ctx.lineTo(mid + 3.5, 8);
+    ctx.lineTo(mid, 6.5);
+    ctx.lineTo(mid - 3.5, 8);
+    ctx.closePath();
+    paint(ctx, color, edge);
+  });
+}
+
+/** An airliner — nose, swept wings, tailplane — centred on the position it marks, so it rotates
+ * in place with the track. The dot beneath shows only as the selection ring. */
+function planeImage(color: string, edge: string): ImageData | null {
+  return rasterize(PLANE_PX, (ctx) => {
+    silhouette(ctx, PLANE_PX, [
+      [13, 1.6],
+      [14.4, 4.2],
+      [14.4, 9.4],
+      [24.4, 14.2],
+      [24.4, 16.2],
+      [14.4, 13.6],
+      [14.4, 19.2],
+      [18.6, 21.8],
+      [18.6, 23.4],
+      [13.6, 22.4],
+      [13, 23.6],
+    ]);
+    paint(ctx, color, edge);
+  });
+}
+
+/** A hull seen from above, bow north — the AIS symbol every chartplotter taught. */
+function shipImage(color: string, edge: string): ImageData | null {
+  return rasterize(SHIP_PX, (ctx) => {
+    silhouette(ctx, SHIP_PX, [
+      [11, 1.8],
+      [15.6, 7.4],
+      [15.6, 17.2],
+      [14.2, 19.8],
+      [11, 19.8],
+    ]);
+    paint(ctx, color, edge);
+  });
+}
+
+const REFERENCE_ID = "station-reference";
+
+/** A ring and a centre dot: a fix, not a mover — no heading, no dot layer, no selection. */
+function stationImage(color: string, edge: string): ImageData | null {
+  const PX = 20;
+  return rasterize(PX, (ctx) => {
+    const mid = PX / 2;
+    ctx.beginPath();
+    ctx.arc(mid, mid, 6, 0, Math.PI * 2);
+    ctx.strokeStyle = edge;
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(mid, mid, 1.7, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  });
+}
+
+/** Where the wired decoders decode *from*: an ADS-B channel's CPR reference is the antenna's
+ * own fix, worth seeing among the targets it anchors. A landmark, not a target — kept out of
+ * the hit test and installed once, before the target layers, so they stack above it. */
+function installReferenceLayer(
+  map: MapLibreMap,
+  accent: string,
+  edge: string,
+  positions: readonly (readonly [number, number])[],
+): void {
+  if (map.getSource(REFERENCE_ID) === undefined) {
+    if (!map.hasImage(REFERENCE_ID)) {
+      const image = stationImage(accent, edge);
+      if (image === null) {
+        return;
+      }
+      map.addImage(REFERENCE_ID, image, { pixelRatio: ICON_SCALE });
+    }
+    map.addSource(REFERENCE_ID, { type: "geojson", data: referenceCollection(positions) });
+    map.addLayer({
+      id: REFERENCE_ID,
+      type: "symbol",
+      source: REFERENCE_ID,
+      layout: {
+        "icon-image": REFERENCE_ID,
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+    });
+    return;
+  }
+  void map.getSource<GeoJSONSource>(REFERENCE_ID)?.setData(referenceCollection(positions));
 }
 
 function findDetail(kind: MapKind, id: string): TargetDetail | null {
@@ -566,10 +729,25 @@ function sameCounts(a: Counts, b: Counts): boolean {
 }
 
 /** Reads a theme token off the live element so the map follows the app's palette rather than
- * pinning a second copy of it. */
+ * pinning a second copy of it. Painted down to sRGB hex through a pixel because MapLibre's
+ * style spec takes CSS Color 3 only and *drops the whole layer* handed the tokens' `oklch(...)`
+ * — and canvas `fillStyle` reads back unconverted, so painting is the only conversion. */
 function themeColor(element: Element, token: string, fallback: string): string {
   const value = getComputedStyle(element).getPropertyValue(token).trim();
-  return value === "" ? fallback : value;
+  if (value === "") {
+    return fallback;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext("2d");
+  if (ctx === null) {
+    return fallback;
+  }
+  ctx.fillStyle = value;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r = 0, g = 0, b = 0] = ctx.getImageData(0, 0, 1, 1).data;
+  return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** Absolute UTC, not "12 s ago": a wall clock does not need a re-render to stay true. */
