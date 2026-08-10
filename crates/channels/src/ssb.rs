@@ -123,9 +123,22 @@ mod tests {
     use sdrmm_wire::NfmParams;
 
     use super::*;
-    use crate::testutil::{complex_tone, dominant_tone, rms, run_ragged, settings};
+    use crate::{
+        testgen::{ssb_modulate, tone_audio},
+        testutil::{complex_tone, dominant_tone, rms, run_ragged, settings, tone_power},
+    };
 
     const RATE: f64 = 48_000.0;
+
+    /// Two tones at half scale each, so the exciter's analytic signal stays inside full scale
+    /// and clipping cannot be what puts energy at a third frequency.
+    fn two_tone(len: usize) -> Vec<f32> {
+        tone_audio(700.0, 0.4, RATE, len)
+            .iter()
+            .zip(tone_audio(1_900.0, 0.4, RATE, len))
+            .map(|(low, high)| low + high)
+            .collect()
+    }
 
     fn channel(sideband: Sideband) -> SsbChannel {
         // AGC off: amplitude and rejection assertions need the raw filter output.
@@ -173,6 +186,29 @@ mod tests {
         assert!(
             lsb_rms < usb_rms / 10.0,
             "lsb rms {lsb_rms} vs usb rms {usb_rms}"
+        );
+    }
+
+    /// Audio in, audio out through the reference exciter — the one-sided tones above pin the
+    /// filter, this pins the round trip: both tones come back at their own frequencies with
+    /// nothing else between them, and the opposite sideband hears neither.
+    #[test]
+    fn usb_recovers_a_two_tone_exciter_that_lsb_rejects() {
+        let iq = ssb_modulate(&two_tone(48_000), Sideband::Usb);
+        let mut usb = channel(Sideband::Usb);
+        let audio = run_ragged(&mut usb, &iq);
+        let window = &audio[2_000..14_000];
+        let low = tone_power(window, 700.0, RATE);
+        let high = tone_power(window, 1_900.0, RATE);
+        assert!(low > 0.45, "700 Hz holds {low} of the audio power");
+        assert!(high > 0.45, "1900 Hz holds {high} of the audio power");
+
+        let mut lsb = channel(Sideband::Lsb);
+        let rejected = rms(&run_ragged(&mut lsb, &iq)[2_000..14_000]);
+        assert!(
+            rejected < rms(window) / 10.0,
+            "lsb rms {rejected} vs usb rms {}",
+            rms(window)
         );
     }
 

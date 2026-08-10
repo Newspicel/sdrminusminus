@@ -126,22 +126,18 @@ impl ChannelRx for AmChannel {
 
 #[cfg(test)]
 mod tests {
-    use std::f64::consts::TAU;
-
     use sdrmm_wire::WfmParams;
 
     use super::*;
-    use crate::testutil::{dominant_tone, rms, run_ragged, settings};
+    use crate::{
+        testgen::{am_modulate, tone_audio},
+        testutil::{dominant_tone, rms, run_ragged, settings},
+    };
 
     const RATE: f64 = 48_000.0;
 
     fn am_iq(depth: f32, f_mod: f64, len: usize) -> Vec<Complex<f32>> {
-        (0..len)
-            .map(|k| {
-                let env = 1.0 + depth * (TAU * f_mod * k as f64 / RATE).cos() as f32;
-                Complex::new(env, 0.0)
-            })
-            .collect()
+        am_modulate(&tone_audio(f_mod, 1.0, RATE, len), depth)
     }
 
     fn channel(p: AmParams) -> AmChannel {
