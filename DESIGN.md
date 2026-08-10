@@ -193,7 +193,8 @@ zeros are drawn in `ink-faint` so magnitude is readable before any digit is pars
 | gesture | effect |
 |---|---|
 | wheel over a digit | ± one unit of that digit's decade |
-| click a digit | focus it (the dial is one tab stop; ←/→ move between digits) |
+| click a digit's upper / lower half | ± one unit of that decade, and focus it (the dial is one tab stop; ←/→ move between digits) |
+| hover a digit | tints the half under the pointer in `accent/18` and takes an `n-resize` / `s-resize` cursor — the direction is shown before the press, never after |
 | ↑ / ↓ | ± one unit of the focused digit |
 | PageUp / PageDown | ± ten units |
 | 0–9 typed | write that digit and advance right |

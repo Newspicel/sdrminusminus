@@ -130,7 +130,11 @@ export function FrequencyDial({
 }
 
 /** Groups are drawn by the separators between digits, not by wrapper elements: a boundary that
- * is a margin cannot be clicked by mistake, and the digits stay one flat row for the arrows. */
+ * is a margin cannot be clicked by mistake, and the digits stay one flat row for the arrows.
+ *
+ * Each digit is split across its own height (DESIGN.md §6): the upper half steps that decade up,
+ * the lower half down. The armed half is tinted and takes a directional cursor *before* the
+ * press, because a control that retunes the radio has to say which way it is about to go. */
 function Digit({
   digit,
   active,
@@ -142,9 +146,10 @@ function Digit({
   onSelect: () => void;
   onStep: (direction: number) => void;
 }) {
+  const [armed, setArmed] = useState<number | null>(null);
   // Drawn after the digit: the point follows the megahertz place, the thin gap the
   // kilohertz group.
-  const separator = digit.place === 6 ? "." : digit.place === 3 ? " " : "";
+  const separator = digit.place === 6 ? "." : digit.place === 3 ? " " : "";
   return (
     <>
       <button
@@ -152,12 +157,30 @@ function Digit({
         tabIndex={-1}
         data-place={digit.place}
         aria-label={`${10 ** digit.place} hertz digit`}
-        className={`min-h-7 rounded-[2px] px-[2px] text-[20px] tabular-nums transition-colors duration-100 pointer-coarse:min-h-10 md:text-[34px] ${
-          digit.leading ? "text-ink-faint" : "text-ink"
+        className={`relative min-h-7 overflow-hidden rounded-[2px] px-[2px] text-[20px] tabular-nums transition-colors duration-100 pointer-coarse:min-h-10 md:text-[34px] ${
+          armed === null ? "" : armed > 0 ? "cursor-n-resize" : "cursor-s-resize"
         } ${
-          active ? "bg-accent/12 shadow-[inset_0_-2px_0_var(--color-accent)]" : "hover:bg-ink/8"
-        }`}
-        onPointerDown={onSelect}
+          armed !== null || active ? "text-accent" : digit.leading ? "text-ink-faint" : "text-ink"
+        } ${active ? "bg-accent/12 shadow-[inset_0_-2px_0_var(--color-accent)]" : ""}`}
+        // The press both selects the digit for the keyboard and steps it, so a pointer user
+        // never has to aim twice to move the radio one unit. The second press of a double-click
+        // is on its way to direct entry (`onDoubleClick` on the dial), which is not a step at
+        // all — one stray unit is recoverable, two would be the control fighting the gesture.
+        onPointerDown={(event) => {
+          onSelect();
+          if (event.detail <= 1) {
+            onStep(halfAt(event.currentTarget, event.clientY));
+          }
+        }}
+        // A touch pointer has no hover, so the tint only ever shows for a mouse; the press
+        // itself reads the same half either way.
+        onPointerMove={(event) => {
+          const half = halfAt(event.currentTarget, event.clientY);
+          if (half !== armed) {
+            setArmed(half);
+          }
+        }}
+        onPointerLeave={() => setArmed(null)}
         // Steps live on the digit rather than only on the group so a pointer user gets the
         // same decade-at-a-time control the keyboard has.
         onKeyDown={(event) => {
@@ -168,7 +191,15 @@ function Digit({
           }
         }}
       >
-        {digit.digit}
+        {armed !== null && (
+          <span
+            aria-hidden
+            className={`pointer-events-none absolute inset-x-0 h-1/2 bg-accent/18 ${
+              armed > 0 ? "top-0" : "bottom-0"
+            }`}
+          />
+        )}
+        <span className="relative">{digit.digit}</span>
       </button>
       {separator !== "" && (
         <span aria-hidden className="text-[20px] text-ink-dim md:text-[34px]">
@@ -177,6 +208,12 @@ function Digit({
       )}
     </>
   );
+}
+
+/** +1 in the upper half of the target, −1 in the lower. */
+function halfAt(target: HTMLElement, clientY: number): number {
+  const rect = target.getBoundingClientRect();
+  return clientY < rect.top + rect.height / 2 ? 1 : -1;
 }
 
 function DirectEntry({
@@ -195,7 +232,10 @@ function DirectEntry({
       autoFocus
       aria-label="Tune to frequency"
       placeholder="145.5 · 433800k · 2.4g"
-      className={`h-10 w-[13ch] rounded-[3px] border bg-panel-2 px-2 font-mono text-[20px] leading-none tabular-nums text-ink placeholder:text-[13px] placeholder:text-ink-faint md:h-12 md:w-[15ch] md:text-[34px] ${
+      // Deliberately not the dial's display size: this is a field being typed into for a
+      // second, not the readout being watched, and matching the 34px digits made the top bar
+      // read as if the whole instrument had been replaced by a text box.
+      className={`h-9 w-[15ch] rounded-[3px] border bg-panel-2 px-2 font-mono text-[17px] leading-none tabular-nums text-ink placeholder:text-[11px] placeholder:text-ink-faint md:text-[20px] ${
         empty || parsed !== null ? "border-accent" : "border-danger"
       }`}
       value={draft}
