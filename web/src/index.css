@@ -191,10 +191,14 @@
   stroke-dasharray: 5 4;
 }
 
+/* Lifted clear of the wire it belongs to: React Flow centres a label on the path, so the dashes
+   run through the middle of the words. The `<text>` carries no transform of its own, so this
+   only offsets it — the wrapper keeps the position React Flow measured. */
 .wire-fault .react-flow__edge-text {
   fill: var(--color-danger);
   font-family: var(--font-mono);
   font-size: 10px;
+  transform: translateY(-12px);
 }
 
 /* Hover and selection brighten the wire rather than recolouring it: the hue is already saying
