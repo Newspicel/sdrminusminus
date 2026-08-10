@@ -19,9 +19,9 @@ offsets, in different modes, with different listeners.
 | `rtty` | RTTY | 1 kHz | 8 kHz | no | text |
 | `morse` | Morse (CW) | 400 Hz | 8 kHz | no | text |
 
-The channel type list is served by the API, so the "add channel" UI is generated from the
-registry and cannot drift from what the server can actually build. The decoders are covered
-in [Decoders](decoders.md).
+The channel type list is served by the API, so the channel entries in the node palette are
+generated from the registry and cannot drift from what the server can actually build. The
+decoders are covered in [Decoders](decoders.md).
 
 ## The signal path
 

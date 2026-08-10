@@ -95,9 +95,10 @@ vec3 colormap(float t) {
 }
 
 void main() {
-  // Newest row at the top; older rows scroll downward, one history row per device pixel, so
-  // no arriving row is ever skipped and the scroll rate is the frame rate. uRows is clamped
-  // to the ring size by the caller, so the bottom edge can never wrap back onto the newest row.
+  // Newest row at the top; older rows scroll downward, one history row per *layout* pixel — the
+  // rule rowsForHeight computes, and where the reason it is not device pixels is written. uRows
+  // is clamped to the ring size by the caller, so the bottom edge can never wrap back onto the
+  // newest row.
   float rowsBack = (1.0 - vUv.y) * (uRows - 1.0);
   float row = mod(uWrite - 1.0 - rowsBack, uHeight);
   float ty = (row + 0.5) / uHeight;
@@ -113,7 +114,8 @@ void main() {
  */
 export interface WaterfallView {
   /** Append one spectrum row (bin bytes over the frame's [dbMin, dbMax]). Rows accumulate while
-   * the plot is off screen; only the drawing is skipped. */
+   * the plot is off screen; only the drawing is skipped. They are dropped only while the context
+   * is gone, when there is no history left for them to extend. */
   pushRow(bins: Uint8Array): void;
   /** The visible window over the device span, `start` and `width` as fractions of it. Applied
    * to the whole history at once, so zooming re-frames what has already been received rather
@@ -124,12 +126,34 @@ export interface WaterfallView {
   dispose(): void;
 }
 
+/** What the renderer cannot do right now, or `null` once it can again. */
+export type WaterfallStatus = (error: string | null) => void;
+
+/** The one failure that clears itself: the browser is expected to hand the context back. */
+const CONTEXT_LOST = "the graphics context was lost, waiting for the browser to restore it";
+
 /**
  * Draw a waterfall into `canvas`, a 2D canvas the caller owns and sizes with CSS. Throws when
  * the browser cannot give us WebGL2 at all — the scope face catches that and keeps its trace.
+ *
+ * Failures that arrive later come through `onStatus` instead: a GPU or driver reset takes the
+ * context out from under every plot at once, and there is no call in flight to throw out of.
  */
-export function attachWaterfall(canvas: HTMLCanvasElement): WaterfallView {
-  const plot = new Plot(canvas, acquire());
+export function attachWaterfall(
+  canvas: HTMLCanvasElement,
+  onStatus: WaterfallStatus = () => {},
+): WaterfallView {
+  // Acquired before the plot exists, so a browser with no WebGL2 at all throws before anything
+  // has been allocated to clean up. The exception is a lost context waiting to be restored: a
+  // second one would spend another of the browser's few and leave the first to come back to
+  // nothing, so the plot starts detached and the render loop attaches it once the first returns.
+  const context = recovering === null ? acquire() : null;
+  const plot = new Plot(canvas, onStatus);
+  if (context === null) {
+    onStatus(CONTEXT_LOST);
+  } else {
+    plot.attach(context);
+  }
   plots.add(plot);
   if (frame === 0) {
     frame = requestAnimationFrame(draw);
@@ -159,11 +183,24 @@ let shared: Shared | null = null;
 const plots = new Set<Plot>();
 let frame = 0;
 let teardown = 0;
+/**
+ * The context a reset took, held until the browser restores it. That restore revives *this*
+ * `WebGL2RenderingContext` object, so building a replacement meanwhile would both spend another
+ * of the browser's few and leave this one to come back to nothing.
+ */
+let recovering: Shared | null = null;
+
+/** One plot's texture and the context that owns it — nulled together, because a context loss
+ * takes both and neither is meaningful without the other. */
+interface Attachment {
+  context: Shared;
+  texture: WebGLTexture;
+}
 
 class Plot implements WaterfallView {
   private readonly ctx: CanvasRenderingContext2D | null;
-  private readonly texture: WebGLTexture;
   private readonly observer: IntersectionObserver;
+  private live: Attachment | null = null;
   private bins = 0;
   private writeRow = 0;
   private windowStart = 0;
@@ -176,18 +213,9 @@ class Plot implements WaterfallView {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly context: Shared,
+    private readonly onStatus: WaterfallStatus,
   ) {
     this.ctx = canvas.getContext("2d");
-    const gl = context.gl;
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    this.texture = texture;
-    this.allocate(1024);
     this.observer = new IntersectionObserver(
       (entries) => {
         this.onScreen = entries[entries.length - 1]?.isIntersecting ?? false;
@@ -197,15 +225,49 @@ class Plot implements WaterfallView {
     this.observer.observe(canvas);
   }
 
-  pushRow(bins: Uint8Array): void {
-    if (bins.length === 0) {
+  /** Take a history texture from `context`. Idempotent, so the render loop can offer the live
+   * context to every plot on every frame and only a plot that lost one pays for it. */
+  attach(context: Shared): void {
+    if (this.live?.context === context) {
       return;
     }
-    const gl = this.context.gl;
+    const gl = context.gl;
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    this.live = { context, texture };
+    this.allocate(1024);
+    this.onStatus(null);
+  }
+
+  /** The texture died with the context. The plot's own canvas is wiped with it: the history is
+   * gone either way, and a frozen last frame is a lie about a live radio. */
+  detach(): void {
+    this.live = null;
+    this.bins = 0;
+    this.writeRow = 0;
+    this.ctx?.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  report(error: string | null): void {
+    this.onStatus(error);
+  }
+
+  pushRow(bins: Uint8Array): void {
+    const live = this.live;
+    // Rows arriving while the context is gone are dropped, not queued: they would extend a
+    // history that no longer exists.
+    if (live === null || bins.length === 0) {
+      return;
+    }
+    const gl = live.context.gl;
     if (bins.length !== this.bins) {
       this.allocate(bins.length);
     }
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.bindTexture(gl.TEXTURE_2D, live.texture);
     gl.texSubImage2D(
       gl.TEXTURE_2D,
       0,
@@ -232,10 +294,16 @@ class Plot implements WaterfallView {
   dispose(): void {
     this.observer.disconnect();
     plots.delete(this);
-    this.context.gl.deleteTexture(this.texture);
+    const live = this.live;
+    if (live !== null) {
+      live.context.gl.deleteTexture(live.texture);
+      this.live = null;
+    }
     if (plots.size === 0) {
       cancelAnimationFrame(frame);
       frame = 0;
+      // A restore has nothing left to come back to; the canvas goes with the last plot.
+      recovering = null;
       release();
     }
   }
@@ -267,9 +335,13 @@ class Plot implements WaterfallView {
   }
 
   paint(w: number, h: number): void {
-    const { gl, canvas: buffer, uniforms } = this.context;
+    const live = this.live;
+    if (live === null) {
+      return;
+    }
+    const { gl, canvas: buffer, uniforms } = live.context;
     gl.viewport(0, 0, w, h);
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.bindTexture(gl.TEXTURE_2D, live.texture);
     gl.uniform1f(uniforms.write, this.writeRow);
     gl.uniform1f(uniforms.height, HISTORY_ROWS);
     gl.uniform1f(uniforms.rows, rowsForHeight(h, this.ratio, HISTORY_ROWS));
@@ -285,10 +357,14 @@ class Plot implements WaterfallView {
   }
 
   private allocate(bins: number): void {
-    const gl = this.context.gl;
+    const live = this.live;
+    if (live === null) {
+      return;
+    }
+    const gl = live.context.gl;
     this.bins = Math.max(1, bins);
     this.writeRow = 0;
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.bindTexture(gl.TEXTURE_2D, live.texture);
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
@@ -307,12 +383,16 @@ function draw(): void {
   frame = requestAnimationFrame(draw);
   const context = shared;
   if (context === null) {
+    // No context to draw into, which after a loss means one is being restored. The loop keeps
+    // running rather than being cancelled and restarted: an idle rAF costs nothing, and recovery
+    // is then a plot re-attaching on the next frame instead of a second lifecycle to get right.
     return;
   }
   const pending: { plot: Plot; w: number; h: number }[] = [];
   let width = 0;
   let height = 0;
   for (const plot of plots) {
+    plot.attach(context);
     const size = plot.measure();
     if (size === null) {
       continue;
@@ -386,33 +466,83 @@ function create(): Shared {
   if (!gl) {
     throw new Error("WebGL2 is required for the waterfall display");
   }
+  canvas.addEventListener("webglcontextlost", onContextLost);
+  canvas.addEventListener("webglcontextrestored", onContextRestored);
   try {
-    const program = createProgram(gl, VERT, FRAG);
-    const quad = createFullScreenQuad(gl, program);
-    // Rows are single-byte R8 and any bin count is legal, so the default four-byte row alignment
-    // would misread every frame whose width is not a multiple of four.
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    return {
-      canvas,
-      gl,
-      program,
-      vao: quad.vao,
-      quad: quad.buffer,
-      uniforms: {
-        write: gl.getUniformLocation(program, "uWrite"),
-        height: gl.getUniformLocation(program, "uHeight"),
-        rows: gl.getUniformLocation(program, "uRows"),
-        viewStart: gl.getUniformLocation(program, "uViewStart"),
-        viewWidth: gl.getUniformLocation(program, "uViewWidth"),
-        map: gl.getUniformLocation(program, "uMap"),
-      },
-    };
+    return build(canvas, gl);
   } catch (error) {
     // A context whose shader would not compile still counts against the browser's cap, and
     // `acquire` retries on the next face. Handing it back is what keeps a driver that refuses
     // the shader from costing one live context per attempt.
     gl.getExtension("WEBGL_lose_context")?.loseContext();
     throw error;
+  }
+}
+
+/** Everything a context owns, split out from `create` because a restored context is the same
+ * object with every resource it held deleted: only this half is ever built twice. */
+function build(canvas: HTMLCanvasElement, gl: WebGL2RenderingContext): Shared {
+  const program = createProgram(gl, VERT, FRAG);
+  const quad = createFullScreenQuad(gl, program);
+  // Rows are single-byte R8 and any bin count is legal, so the default four-byte row alignment
+  // would misread every frame whose width is not a multiple of four.
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  return {
+    canvas,
+    gl,
+    program,
+    vao: quad.vao,
+    quad: quad.buffer,
+    uniforms: {
+      write: gl.getUniformLocation(program, "uWrite"),
+      height: gl.getUniformLocation(program, "uHeight"),
+      rows: gl.getUniformLocation(program, "uRows"),
+      viewStart: gl.getUniformLocation(program, "uViewStart"),
+      viewWidth: gl.getUniformLocation(program, "uViewWidth"),
+      map: gl.getUniformLocation(program, "uMap"),
+    },
+  };
+}
+
+/**
+ * A GPU or driver reset took the context, and with it every plot's history. `preventDefault` is
+ * what asks the browser for it back: without a handler that calls it the browser never tries,
+ * and the canvas stays poisoned for good (see `release`) — one reset then blacks out every scope
+ * in the station until a reload, which is the very failure this module exists to prevent.
+ *
+ * A deliberate teardown fires this same event. `release` clears `shared` before it calls
+ * `loseContext`, so the test below tells the two apart and a teardown is never rebuilt.
+ */
+function onContextLost(event: Event): void {
+  const context = shared;
+  if (context === null || event.target !== context.canvas) {
+    return;
+  }
+  event.preventDefault();
+  shared = null;
+  recovering = context;
+  for (const plot of plots) {
+    plot.detach();
+    plot.report(CONTEXT_LOST);
+  }
+}
+
+function onContextRestored(event: Event): void {
+  const context = recovering;
+  if (context === null || event.target !== context.canvas) {
+    return;
+  }
+  recovering = null;
+  try {
+    shared = build(context.canvas, context.gl);
+  } catch (error) {
+    // Not retried here: a driver that refuses the shader now refuses it every frame too. The
+    // plots stay dark and say why until the next face mounts, whose `acquire` builds a fresh
+    // context that `draw` then re-attaches every one of them to.
+    const message = error instanceof Error ? error.message : String(error);
+    for (const plot of plots) {
+      plot.report(message);
+    }
   }
 }
 

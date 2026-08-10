@@ -189,11 +189,14 @@ function Palette({ onAdd }: { onAdd: (kind: NodeKind, channelType?: string) => v
 function Library() {
   const station = useStationContext();
   const [tab, setTab] = useState<"presets" | "bookmarks" | "templates" | "recordings">("templates");
-  // These panels act on one radio; the selected device node's set is the one the operator is
-  // looking at, falling back to the only open radio.
+  // These panels act on one radio, and applying a template or a preset to the wrong one is not
+  // recoverable by undo. The target is the selected receiver node; with nothing selected it
+  // falls back only when there is exactly one radio to mean, and otherwise the drawer says so
+  // instead of silently picking the first.
   const selected =
     station.selected === null ? null : (station.devices.get(station.selected) ?? null);
-  const active = selected ?? station.deviceSets[0] ?? null;
+  const only = station.deviceSets.length === 1 ? (station.deviceSets[0] ?? null) : null;
+  const active = selected ?? only;
 
   return (
     <div className="flex flex-col gap-2">
@@ -211,6 +214,13 @@ function Library() {
           </button>
         ))}
       </div>
+      <span className={LABEL}>
+        {active === null
+          ? station.deviceSets.length > 1
+            ? "select a receiver node to choose the target"
+            : "no receiver"
+          : `on ${active.device.label}`}
+      </span>
       {tab === "templates" && <TemplatesPanel active={active} onApplied={() => station.apply()} />}
       {tab === "presets" && <PresetsPanel active={active} />}
       {tab === "bookmarks" && <BookmarksPanel active={active} />}

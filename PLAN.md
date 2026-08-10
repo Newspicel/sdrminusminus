@@ -406,10 +406,11 @@ The stack is settled and lives in `web/package.json` + CLAUDE.md, not here. What
   gradients/glassmorphism/emoji. The numeric rulebook is `DESIGN.md`, rewritten to the canvas
   direction at M7. **A design pass is part of every UI milestone's definition of done.**
 - **Beginner-friendly, expert-deep:** the first-run wizard and template gallery ship; a
-  template is a patch — devices + channels + wiring + rack + a short "what am I looking at"
-  explainer, built from presets and `PatchGraph`, never from special engine code. Still open:
-  the band-plan explorer that suggests mode and settings when you click a band (§8a). Expert
-  mode hides none of the knobs.
+  template is a patch — devices + channels + wiring + a short "what am I looking at" explainer,
+  built from presets and `PatchGraph`, never from special engine code. A template authors no
+  rack: pinning is the operator's arrangement of what they are working now, and `CANVAS §8` ④
+  says why. Still open: the band-plan explorer that suggests mode and settings when you click a
+  band (§8a). Expert mode hides none of the knobs.
 - **Desktop-only.** Mobile support is removed (§18): no phone layouts, no touch-first paths —
   the client assumes a pointer, a keyboard and a laptop-class viewport.
 

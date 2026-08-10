@@ -44,10 +44,12 @@ colormap applied in the shader. The spectrum line is drawn from the same frame. 
 applied client-side, so changing one costs nothing on the server.
 
 Zoom is a client-side crop today. A true zoom FFT belongs to the channel analyzer and is not
-built yet.
+built yet, so the readout reports the *visible* span to say what the zoom is and is not.
 
-Channel markers are overlaid on the spectrum: each hosted channel draws at its offset, click
-selects it, and the hit area is at least 40 px on touch screens.
+The plot is a node face on the canvas — one scope component, patched wherever an `iq` wire
+reaches it. Channel markers are overlaid on it: each channel hosted on that radio draws a
+hairline at its offset, a click selects it, a drag moves its offset, and the grab area is
+wider than the 1px the marker draws.
 
 ## Reading it
 

@@ -46,16 +46,19 @@ The server is running correctly; `web/dist` was empty when the binary was compil
 
 In order of likelihood:
 
-1. **The browser has not been unlocked.** Audio needs a user gesture. Press play again.
-2. **Squelch is closed.** Turn it off, or drop the threshold until the channel opens.
-3. **Wrong offset.** The channel is where you put it, not where the signal is. Click the
-   signal in the spectrum, or check the marker.
-4. **Wrong mode.** NFM on an AM signal is a hiss.
-5. **The tab is muted** or the channel gain is at zero.
+1. **The channel's audio reaches no speaker.** Sound belongs to the speaker a channel's `audio`
+   wire runs to; a channel with that output unwired says so on its face. Draw the wire.
+2. **The browser has not been unlocked.** Audio needs a user gesture. Press Play on the speaker
+   face again.
+3. **Squelch is closed.** Turn it off, or drop the threshold until the channel opens.
+4. **Wrong offset.** The channel is where you put it, not where the signal is. Select the
+   channel and click the signal in the scope, or check the marker.
+5. **Wrong mode.** NFM on an AM signal is a hiss.
+6. **The browser tab is muted** or the volume slider on the speaker face is at zero.
 
-To prove the whole path without hardware: open the signal generator and put an NFM channel at
-+300 kHz. That is a modulated test carrier with a 1 kHz tone
-([First run](../first-run.md)).
+To prove the whole path without hardware: pick the signal generator in a receiver node, wire an
+NFM channel at +300 kHz to it, and wire that channel to a speaker. That is a modulated test
+carrier with a 1 kHz tone ([First run](../first-run.md)).
 
 ## Audio stutters, spectrum tears
 
@@ -72,8 +75,8 @@ To prove the whole path without hardware: open the signal generator and put an N
 The device faulted: unplugged, powered down, or a USB error. A live recording is finalized,
 and the reason is on the set.
 
-Recovery is manual today — close the set and open the device again. Auto-reconnect on replug
-is M5 work. If the device is plugged in and still fails to open, another process may hold it;
+Recovery is manual today — close the set (`DELETE /api/devicesets/{ds}`) and pick the radio
+again in its receiver node. Auto-reconnect on replug is M5 work. If the device is plugged in and still fails to open, another process may hold it;
 Soapy cannot open a device twice.
 
 Under-powered USB looks exactly like a driver bug. On a Pi, use a powered hub.
@@ -81,7 +84,8 @@ Under-powered USB looks exactly like a driver bug. On a Pi, use a powered hub.
 ## The spectrum stopped
 
 - The WebSocket dropped; the client resubscribes on reconnect. A brief pause is expected.
-- The device set was removed or faulted — a `StreamStopped` arrives and the panel says so.
+- The device set was removed or faulted — a `StreamStopped` arrives, and the receiver node
+  carries the fault while the scope watching it says the radio is not attached.
 - The device is at the end of a recording with looping off; playback parks at EOF by design.
 
 ## ADS-B decodes nothing

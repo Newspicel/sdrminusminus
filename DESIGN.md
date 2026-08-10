@@ -48,8 +48,10 @@ the coarse-pointer widening of spectrum marker hit areas. The floor that remains
 would cost density on the only viewport that exists.
 
 > Debt this edition names rather than fixes: `web/src/components/controls.ts` still carries
-> `pointer-coarse:min-h-10` / `pointer-coarse:size-10` variants. They are vestigial under the
-> rule above and come out the next time that file is touched.
+> `pointer-coarse:min-h-10` / `pointer-coarse:size-10` variants, and `Slider.tsx` a
+> `pointer-coarse:h-10` whose comment still justifies itself by the 40px floor deleted above.
+> Neither file was touched by the canvas rewrite; both are vestigial under the rule above and
+> come out the next time they are opened.
 
 ---
 
@@ -98,11 +100,11 @@ by hue alone** — every one pairs with a word, a glyph or a position.
 Every text role clears 4.5:1 in both themes; `line-strong` is a non-text boundary and clears
 3:1. Dark carries the extra margin the polarity-blindness of the WCAG formula demands.
 
-> The light `accent` above is `oklch(.545 .125 62)` = 4.51:1. **`web/src/index.css` still ships
-> `oklch(.56 .125 62)` = 4.23:1**, which fails the text floor wherever the accent is text —
-> `segment()` selected, `BTN` hover. The re-anchor is binding on the next change that touches
-> that file. The previous edition of this document printed 4.2 and claimed the floor was clear;
-> that claim was wrong and is not carried forward.
+> **Open defect, not a deferral.** The light `accent` above is `oklch(.545 .125 62)` = 4.51:1;
+> `web/src/index.css` ships `oklch(.56 .125 62)` = 4.23:1, which fails the text floor wherever
+> the accent is text — `segment()` selected, `BTN` hover. The row above is the fix, and §12
+> carries it until it lands. The previous edition of this document printed 4.2 and claimed the
+> floor was clear; that claim was wrong and is not carried forward.
 
 ### Hue = data type
 
@@ -131,10 +133,11 @@ on — the canvas `bg` for a wire, `panel` or `panel-2` for a marker. The dark c
 measured against `bg`; against `panel-2` (the tightest ground a marker sits on) the same three
 measure 6.3 / 7.0 / 7.6:1.
 
-> **`index.css` does not yet re-anchor these for light.** Shipped, the dark values measure
-> 2.1 / 1.9 / 1.8:1 against the light `bg` — below the 3:1 floor, and the light theme is
-> currently unusable for reading a patch. The light column above is the fix and is binding on
-> the next change that touches that file.
+> **Open defect.** `index.css` defines `--color-port-*` only inside `@theme`, so the light block
+> inherits the dark values: against the light `bg` they measure 2.1 / 1.9 / 1.8:1 — below the
+> 3:1 floor, and the light theme is currently unusable for reading a patch. The tokens were
+> introduced dark-only by the same change that wrote this table and were not re-anchored in it.
+> The light column above is the fix, and §12 carries it until it lands.
 
 Port chroma is held ≤ .12 and category chroma ≤ .07, both under `accent`'s .135, so a lit wire
 never outshouts a tuned control.
@@ -162,9 +165,9 @@ this is a silkscreen mark, not a status light. Measured against `panel-2`, the h
 | `feature` | `oklch(.62 .07 60)` | `oklch(.602 .07 60)` | 4.1:1 |
 | `sink` | `oklch(.58 .03 80)` | `oklch(.598 .03 80)` | 3.6:1 |
 
-All clear the 3:1 non-text floor. The light column carries the same defect and the same
-next-touch obligation as the port hues. The strip is never the only thing distinguishing two
-nodes: the title, the ports and the face say it too.
+All clear the 3:1 non-text floor. `--color-cat-*` is dark-only in `index.css` for the same
+reason as the port hues, so the light column is the same open defect. The strip is never the
+only thing distinguishing two nodes: the title, the ports and the face say it too.
 
 ### Plot ink — the rule that keeps the waterfall readable
 
@@ -177,7 +180,7 @@ set, identical in both themes:
 | token | value | job | vs `plot-bg` |
 |---|---|---|---|
 | `plot-bg` | `oklch(.16 .008 75)` | behind the trace and unwritten waterfall | — |
-| `plot-grid` | `oklch(.55 .006 80)` @ 14% | gridlines, always lighter-weight than data | — |
+| `plot-grid` | `oklch(.55 .006 80)` @ 16% | gridlines, always lighter-weight than data | — |
 | `plot-trace` | `oklch(.93 .020 85)` | the live spectrum line | 15.8:1 |
 | `plot-hold` | `oklch(.62 .015 85)` | max-hold trace | 5.3:1 |
 | `plot-ink` | `oklch(.97 .010 85)` | selected marker, axis text | 17.8:1 |
@@ -357,7 +360,7 @@ second canvas (`CANVAS §5`). Operating wants alignment, density and muscle memo
 | grid | 24 columns × 24 rows, whole cells only |
 | camera | none — no pan, no zoom |
 | wires | none — the patch view owns topology |
-| default slot | 12 × 8 cells (four fit) |
+| default slot | 12 × 8 cells — six fit the grid, two across by three down |
 | minimum slot | 1 × 1 cell |
 | drag / resize | snap to whole cells; a move that would overlap or leave the grid is refused in place, never pushed or reflowed |
 | pin placement | first free cell, scanning left-to-right then down |
@@ -399,8 +402,9 @@ arithmetic on integer Hz in `dial.ts`, unit-tested; the component only routes ev
 ### The scope — one component, patched anywhere
 
 On a device's `iq` it is the band view; on a channel's tap it is the channel analyzer
-(`CANVAS §1`). Trace on top, waterfall below, a draggable 1px divider between them (12px hit
-area). The split fraction is client state. Frequency axis on the divider, dB scale in the
+(`CANVAS §1`). Trace on top, waterfall below, a draggable 1px divider between them whose grab
+strip is ≥12px — §4's licence for a 1px-adjacent mark, and the required number, not the shipped
+one (§12). The split fraction is client state. Frequency axis on the divider, dB scale in the
 trace's left gutter, both drawn from the frame's own metadata.
 
 **View transform.** Pan and zoom are a client-side window `[start, end] ⊆ [0,1]` over the device
@@ -448,7 +452,9 @@ These are the bindings that exist:
 | `-` `=` | squelch down / up 2 dB |
 | `s` | squelch on / off |
 | `Space` | start / stop audio on the selected channel |
-| `1`–`9` | switch view |
+| `1`–`9` | select the nth node of the patch |
+| `p` | pin / unpin the selected face on the rack |
+| `v` | swap the patch and the rack |
 | `?` | this list |
 | `Esc` | close an overlay or a menu |
 
@@ -463,10 +469,11 @@ Ownership rules, in the order they are applied:
 4. Otherwise the table above applies, and a handled key calls `preventDefault` — `Space` would
    scroll and the arrows would move whatever the browser thinks is focused.
 
-`1`–`9` selects a tab while the dockview shell still ships alongside the canvas; it re-targets
-rack faces when the tabs are deleted in `CANVAS §8` phase ⑤. The selected node is what the
-channel and mode bindings act on, and it is the same selection the canvas draws with an `accent`
-border (§6).
+`1`–`9` counts the patch in stored order, so a number key is a fixed address for a node the
+operator can see. The selected node is what the channel and mode bindings act on, and it is the
+same selection the canvas draws with an `accent` border (§6). This table and `BINDINGS` in
+`useHotkeys.ts` are one list in two places — the `?` overlay renders `BINDINGS` verbatim — so a
+binding added there is added here in the same change.
 
 ---
 
@@ -500,17 +507,23 @@ stop) shows progress on the control that started it, in place.
 
 Named so they are not mistaken for oversights.
 
-- **The light theme's port, category and accent tokens** (§2). Measured, prescribed, not yet in
-  `index.css`; binding on the next change that touches it.
-- **The `pointer-coarse:` variants in `controls.ts`** (§1). Vestigial; out on next touch.
+- **The light theme's port, category and accent tokens** (§2). Measured and prescribed there,
+  absent from `index.css`: the port and category tokens are defined dark-only inside `@theme`,
+  and the light `accent` is two characters short of the floor. The canvas rewrite introduced
+  the first two and inherited the third without fixing either, so this is an open defect
+  carried forward, not an obligation waiting on a trigger. Until it lands the light theme fails
+  the 3:1 non-text floor on every wire and every category strip.
+- **The `pointer-coarse:` variants in `controls.ts` and `Slider.tsx`** (§1). Vestigial under
+  desktop-only; neither file has been touched since the rule was deleted, so they come out on
+  next touch.
 - **Three sub-floor targets in `NodeShell`.** Resize handles (drawn and hit at 8px by React
   Flow's `NodeResizer`), port handles (`!size-2.5` — the 10px mark *is* the hit box), and the
   header pin / remove buttons (`size-5`, 20px) all sit under §4's 24px floor. Every drawn mark
   is the right size; the hit areas are not. Fix them the way spectrum markers were fixed — an
   invisible ≥24px grab area around the mark — when `NodeShell` is next opened.
-- **No Playwright smoke flow.** `CANVAS §8` owes one for the canvas. The pure transforms — dial
-  arithmetic, the view transform, axis ticks, the graph and rack operations — carry unit tests;
-  composition is verified in a browser against `device-virtual`.
+- **The scope's trace/waterfall divider grabs at 9px** (`ScopeFace.tsx`, `h-[9px]`) where §4
+  licenses ≥12px around a 1px-adjacent mark and §9 states the rule. Same shape as the three
+  above: the ink is right, the grab strip is short.
 - **The band-plan explorer** (`PLAN` §8a) is a server feature; the dial and the scope are built
   so it can hang off them without rework.
 - **`CANVAS §9`'s open questions** each have a design consequence still unwritten: how a scanner

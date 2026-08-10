@@ -1,10 +1,10 @@
-// Opening a receiver (PLAN §10, M5). Two surfaces ask the same question — the spectrum's empty
-// state, and an unbound device node, which *is* the invitation rather than a panel with an empty
-// state (CANVAS §3) — so the discovery list, its ranking and the diagnostics behind it are one
-// component, and only what a choice *means* differs between them.
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+// Opening a receiver (PLAN §10, M5). One surface asks: an unbound device node, which *is* the
+// invitation rather than a panel with an empty state (CANVAS §3). The discovery list, its
+// ranking and the diagnostics behind it live here because what a choice *means* is the node's
+// business, not the list's.
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { createDeviceSet, devicesQuery, doctorQuery, STATE_KEY } from "../lib/api";
+import { devicesQuery, doctorQuery } from "../lib/api";
 import type { DeviceInfo } from "../lib/types";
 import { BTN, BTN_PRIMARY, BTN_QUIET } from "./controls";
 
@@ -79,33 +79,6 @@ export function ReceiverChoices({
         {showDoctor ? "Hide diagnostics" : "Hardware not showing up?"}
       </button>
       {showDoctor && <Doctor />}
-    </div>
-  );
-}
-
-/** The spectrum's empty state: this was a first-run banner that took a row of chrome from every
- * session, and it is now where someone with no radio open is already looking. */
-export function OpenRadio({ onOpened }: { onOpened: (ds: number) => void }) {
-  const queryClient = useQueryClient();
-  const openMut = useMutation({
-    mutationFn: createDeviceSet,
-    onSuccess: onOpened,
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
-  });
-
-  return (
-    <div className="flex w-full max-w-md flex-col items-center gap-4 text-center">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-base font-medium text-ink">Open a receiver</h2>
-        <p className="text-sm text-ink-dim">
-          No hardware? The signal generator and any recording play back exactly like a device.
-        </p>
-      </div>
-      <ReceiverChoices
-        onChoose={(device) => openMut.mutate(deviceId(device))}
-        busy={openMut.isPending}
-        error={openMut.error?.message ?? null}
-      />
     </div>
   );
 }

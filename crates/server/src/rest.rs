@@ -1370,7 +1370,11 @@ async fn apply_workspace(
 ) -> Result<Json<PatchApplyReport>, AppError> {
     let engine = state.engine.clone();
     let store = state.store.clone();
+    let gate = state.apply_gate.clone();
     let report = tokio::task::spawn_blocking(move || -> Result<PatchApplyReport, AppError> {
+        let _serialized = gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let workspace = store.workspace(id)?;
         apply_station(&engine, &workspace.snapshot)
     })

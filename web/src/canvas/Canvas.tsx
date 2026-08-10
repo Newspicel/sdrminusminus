@@ -10,6 +10,7 @@ import {
   type Connection,
   type Edge,
   type EdgeChange,
+  type FinalConnectionState,
   type IsValidConnection,
   type Node,
   type NodeChange,
@@ -19,13 +20,12 @@ import {
 } from "@xyflow/react";
 import { useCallback, useEffect, useRef } from "react";
 import { pushToast } from "../lib/toasts";
-import type { PatchEdge, PatchGraph, PatchNode } from "../lib/types";
+import type { PatchEdge, PatchGraph, PatchNode, PortRef } from "../lib/types";
 import { useStationContext } from "./context";
 import {
   addEdge,
   connectionRefusal,
   edgeKey,
-  type GraphContext,
   pruneRack,
   removeEdge,
   removeNode,
@@ -54,7 +54,16 @@ export function Canvas() {
       return;
     }
     held.current = station.graph;
-    setNodes(toFlowNodes(station.graph));
+    // Reconciled, not replaced: a fresh object per node would drop React Flow's own `selected`
+    // flag and its measured handle bounds, so after any write the library would consider
+    // nothing selected while the node still rendered as selected — and Backspace would stop
+    // deleting it.
+    setNodes((previous) =>
+      toFlowNodes(station.graph).map((node) => {
+        const mounted = previous.find((candidate) => candidate.id === node.id);
+        return mounted === undefined ? node : { ...mounted, ...node, selected: mounted.selected };
+      }),
+    );
     setEdges(toFlowEdges(station.graph));
   }, [station.graph, setNodes, setEdges]);
 
@@ -88,10 +97,14 @@ export function Canvas() {
   const handleNodesChange = useCallback(
     (changes: NodeChange<Node<FlowData>>[]) => {
       onNodesChange(changes);
+      // Selection arrives as a diff in node order, so clicking a node that sorts before the
+      // selected one yields [select B, deselect A] — applied one at a time, the deselect wins
+      // and the click reads as "nothing selected". Collapse the batch to its outcome.
+      const selects = changes.filter((change) => change.type === "select");
+      if (selects.length > 0) {
+        station.select(selects.find((change) => change.selected)?.id ?? null);
+      }
       for (const change of changes) {
-        if (change.type === "select") {
-          station.select(change.selected ? change.id : null);
-        }
         // A resize reports every frame; only its last one is a gesture that ended.
         if (change.type === "dimensions" && change.resizing === false) {
           queueMicrotask(commitGeometry);
@@ -123,28 +136,22 @@ export function Canvas() {
   );
 
   const refusal = useCallback(
-    (connection: Connection | Edge): string | null => {
-      const from = { node: connection.source, port: connection.sourceHandle ?? "" };
-      const to = { node: connection.target, port: connection.targetHandle ?? "" };
-      return connectionRefusal(station.context, station.graph, from, to);
-    },
+    (from: PortRef, to: PortRef): string | null =>
+      connectionRefusal(station.context, station.graph, from, to),
     [station],
   );
 
   const isValidConnection: IsValidConnection = useCallback(
-    (connection) => refusal(connection) === null,
+    (connection) =>
+      refusal(
+        { node: connection.source, port: connection.sourceHandle ?? "" },
+        { node: connection.target, port: connection.targetHandle ?? "" },
+      ) === null,
     [refusal],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      const reason = refusal(connection);
-      if (reason !== null) {
-        // Where the operator is looking: the drag is already refused visually, and this says
-        // why in words (CANVAS §1).
-        pushToast(reason);
-        return;
-      }
       const edge: PatchEdge = {
         from: { node: connection.source, port: connection.sourceHandle ?? "" },
         to: { node: connection.target, port: connection.targetHandle ?? "" },
@@ -154,7 +161,26 @@ export function Canvas() {
       // apply is idempotent, so asking every time costs nothing.
       station.apply();
     },
-    [refusal, station],
+    [station],
+  );
+
+  // The reason a wire was refused, said in words where the operator is looking (CANVAS §1).
+  // It has to come from here rather than from `onConnect`: React Flow only calls that one for
+  // connections `isValidConnection` already accepted, so a refusal never reaches it.
+  const onConnectEnd = useCallback(
+    (_event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      if (state.isValid !== false || state.fromHandle == null || state.toHandle == null) {
+        return;
+      }
+      const reason = refusal(
+        { node: state.fromHandle.nodeId, port: state.fromHandle.id ?? "" },
+        { node: state.toHandle.nodeId, port: state.toHandle.id ?? "" },
+      );
+      if (reason !== null) {
+        pushToast(reason);
+      }
+    },
+    [refusal],
   );
 
   return (
@@ -166,6 +192,7 @@ export function Canvas() {
       onEdgesChange={handleEdgesChange}
       onNodeDragStop={commitGeometry}
       onConnect={onConnect}
+      onConnectEnd={onConnectEnd}
       isValidConnection={isValidConnection}
       onPaneClick={() => station.select(null)}
       // Desktop-only (PLAN §18): a pointer and a keyboard are assumed.
@@ -202,9 +229,3 @@ function toFlowEdges(graph: PatchGraph): Edge[] {
     className: `wire-${edge.from.port === "iq" ? "iq" : edge.from.port}`,
   }));
 }
-
-/** Exported for the tests that pin the mapping — the canvas is the only place the library's
- * shapes exist, and that boundary is what keeps a React Flow major off the stored patch. */
-export const flowMapping = { toFlowNodes, toFlowEdges };
-
-export type { GraphContext };

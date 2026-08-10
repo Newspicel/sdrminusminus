@@ -150,7 +150,7 @@
 
    A wire is drawn in the hue of what it carries and nothing else, and it is the *only* place
    these three hues appear besides their ports — the marker shape is what a colourblind operator
-   reads (DESIGN.md §3). */
+   reads (DESIGN.md §2). */
 .react-flow__pane {
   background: var(--color-bg);
 }

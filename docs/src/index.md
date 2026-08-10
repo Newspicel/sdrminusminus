@@ -47,13 +47,17 @@ Scope is deliberately narrow (`PLAN.md` §1):
 
 ## Status
 
-Milestones M0–M4 are complete: walking skeleton, real hardware over SoapySDR, the listening
-chain (NFM/AM/SSB/WFM with Opus audio), SigMF record and replay, and the first wave of
-decoders (RDS, POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse) with a queryable decoder log.
+Milestones M0–M7 are complete: walking skeleton, real hardware over SoapySDR, the listening
+chain (NFM/AM/SSB/WFM with Opus audio), SigMF record and replay, decoders wave 1 (RDS, POCSAG,
+ADS-B, AIS, APRS/AX.25, RTTY, Morse) with a queryable decoder log, then the ops-and-polish
+wave — frequency scanner, token auth, MCP server, template gallery, native RTL-SDR and HackRF
+backends, `--doctor`, packaging and this documentation. Wave 2 added NAVTEX, ACARS and a
+sub-GHz OOK/FSK channel.
 
-M5 — frequency scanner, token auth, MCP server, template gallery, native RTL-SDR and HackRF
-backends, `--doctor`, packaging, and this documentation — is in progress. Anything not yet
-built, or built with limits worth knowing, is called out on the page that describes it.
+M7 rebuilt the client canvas-first: the station is a patch graph of nodes and wires with a
+pin-board rack for the faces being operated, which replaced the tabs-and-panels shell.
+[First run](first-run.md) walks it. Anything not yet built, or built with limits worth
+knowing, is called out on the page that describes it.
 
 `PROGRESS.md` in the repository is the authoritative record of what is built and tested;
 `PLAN.md` is the source of truth for architecture and scope.
@@ -61,7 +65,7 @@ built, or built with limits worth knowing, is called out on the page that descri
 ## Where to go next
 
 - [Install and run](install.md) — build it, or run the headless binary
-- [First run](first-run.md) — open a device, add a channel, listen (no hardware required)
+- [First run](first-run.md) — open a radio, patch a channel, listen (no hardware required)
 - [Decoders](features/decoders.md) — what the wave-1 decoders do and how they are configured
 - [API and automation](operating/api.md) — REST, the WebSocket protocol, MCP
 - [Architecture](dev/architecture.md) — the crate map and why the boundaries sit where they do

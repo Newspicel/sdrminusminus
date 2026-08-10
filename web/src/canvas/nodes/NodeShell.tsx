@@ -3,11 +3,15 @@
 // wiring and the pin.
 //
 // Hue carries the port's data type and only that, and every colour is paired with a shape, so
-// the graph reads for a colourblind operator by marker alone (DESIGN.md §3).
+// the graph reads for a colourblind operator by marker alone (DESIGN.md §2).
+import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
 import { createContext, type ReactNode, useContext } from "react";
 import { ICON_BTN } from "../../components/controls";
+import { deleteChannel, deleteDeviceSet } from "../../lib/api";
+import { pushToast } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
+import { sourcesOf } from "../binding";
 import { useStationContext } from "../context";
 import { isPinned, pin, portsOf, pruneRack, removeNode, unpin } from "../graph";
 
@@ -72,6 +76,7 @@ export function NodeShell({
 }: NodeShellProps) {
   const station = useStationContext();
   const surface = useContext(Surface);
+  const remove = useRemoveNode(node);
   const ports = surface === "canvas" ? portsOf(station.context, node) : [];
   const pinned = isPinned(station.rack, node.id);
   const selected = station.selected === node.id;
@@ -120,12 +125,7 @@ export function NodeShell({
             aria-label={`Remove ${node.label ?? title}`}
             title="Remove from the patch"
             className={`${ICON_BTN} size-5 text-ink-faint hover:text-danger`}
-            onClick={() =>
-              station.edit((snapshot) => {
-                const graph = removeNode(snapshot.graph, node.id);
-                return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
-              })
-            }
+            onClick={remove}
           >
             ✕
           </button>
@@ -151,6 +151,41 @@ export function NodeShell({
   );
 }
 
+/**
+ * Removing a node removes what it was driving. Apply is deliberately additive — it never closes
+ * a radio or deletes a channel (CANVAS §4) — so this gesture is the only thing that does, and
+ * without it a removed channel would keep running in the engine forever and a receiver could
+ * never be closed at all.
+ *
+ * The engine call goes first: if it fails the node stays, which is the honest outcome — the
+ * patch should not claim the radio is gone while it is still streaming.
+ */
+function useRemoveNode(node: PatchNode): () => void {
+  const station = useStationContext();
+  const set = station.devices.get(node.id);
+  const channel = station.channels.get(node.id);
+  const owner = sourcesOf(station.graph, node.id, "iq")[0];
+  const channelSet = owner === undefined ? undefined : station.devices.get(owner);
+
+  const drop = useMutation({
+    mutationFn: async () => {
+      if (node.kind === "device" && set !== undefined) {
+        await deleteDeviceSet(set.id);
+      } else if (node.kind === "channel" && channel !== undefined && channelSet !== undefined) {
+        await deleteChannel(channelSet.id, channel.id);
+      }
+    },
+    onSuccess: () =>
+      station.edit((snapshot) => {
+        const graph = removeNode(snapshot.graph, node.id);
+        return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
+      }),
+    onError: (error: Error) => pushToast(error.message),
+  });
+
+  return () => drop.mutate();
+}
+
 /** Position among the ports on the same side, so the two sides stack independently. */
 function indexOnSide(ports: readonly PortSpec[], index: number): number {
   const side = ports[index]?.direction;
@@ -166,7 +201,7 @@ function PortHandle({ port, offset }: { port: PortSpec; offset: number }) {
       position={out ? Position.Right : Position.Left}
       style={{ top: offset }}
       // The label is the accessible name and the hover title: hue alone never says what a wire
-      // carries (DESIGN.md §3).
+      // carries (DESIGN.md §2).
       title={`${port.name} (${port.port_type})`}
       className={`!size-2.5 !border !border-line-strong ${PORT_COLOR[port.port_type]} ${
         PORT_SHAPE[port.port_type]

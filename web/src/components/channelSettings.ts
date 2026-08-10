@@ -23,36 +23,6 @@ export function mergeChannelSettings(
   };
 }
 
-// An empty per-type settings object deserializes with every field at its server-side default
-// (the wire enum is built that way), so "add channel" needs only the tag. Keyed by the union's
-// tag, so a new variant in the generated schema fails to compile until it is listed here.
-const EMPTY_PARAMS: { [K in ChannelTypeId]: () => Extract<ChannelParams, { type: K }> } = {
-  nfm: () => ({ type: "nfm", settings: {} }),
-  am: () => ({ type: "am", settings: {} }),
-  ssb: () => ({ type: "ssb", settings: {} }),
-  wfm: () => ({ type: "wfm", settings: {} }),
-  pocsag: () => ({ type: "pocsag", settings: {} }),
-  adsb: () => ({ type: "adsb", settings: {} }),
-  ais: () => ({ type: "ais", settings: {} }),
-  aprs: () => ({ type: "aprs", settings: {} }),
-  rtty: () => ({ type: "rtty", settings: {} }),
-  morse: () => ({ type: "morse", settings: {} }),
-  navtex: () => ({ type: "navtex", settings: {} }),
-  acars: () => ({ type: "acars", settings: {} }),
-  subghz: () => ({ type: "subghz", settings: {} }),
-};
-
-export function isChannelTypeId(typeId: string): typeId is ChannelTypeId {
-  return Object.hasOwn(EMPTY_PARAMS, typeId);
-}
-
-export function defaultChannelSettings(typeId: string): ChannelSettings | null {
-  if (!isChannelTypeId(typeId)) {
-    return null;
-  }
-  return { offset_hz: 0, params: EMPTY_PARAMS[typeId]() };
-}
-
 // A decoder channel is not automatically silent — WFM decodes RDS while still producing audio —
 // so only the descriptor's flag decides. Absent (older server, or the type list not loaded yet)
 // keeps the pre-M4 behaviour of offering audio.
