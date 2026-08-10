@@ -25,12 +25,30 @@ pub struct ChannelDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decoder_kind: Option<String>,
     /// The type occupies its whole channel rate, so it runs only with the device tuned to
-    /// exactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18;
-    /// ADS-B is the one such mode). Reported so the canvas can refuse the wire where the
-    /// operator draws it, naming the rate that works, instead of letting the engine reject it
-    /// after the fact. Defaults to `false`, which is every other type.
+    /// exactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18).
+    /// Reported so the canvas can refuse the wire where the operator draws it, naming the rate
+    /// that works, instead of letting the engine reject it after the fact. Defaults to `false`,
+    /// which is every type that leaves a guard band.
     #[serde(default)]
     pub exact_rate_only: bool,
+    /// Set when the channel is handed the device's **own** samples — mixed to its offset, never
+    /// resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
+    /// highest, so a receiver is set anywhere in that range rather than to one exact number.
+    ///
+    /// ADS-B is the one such type (PLAN §18, amended): a 0.5 µs pulse is a single sample at
+    /// 2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
+    /// meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_rate_max_hz: Option<f64>,
+}
+
+impl ChannelDescriptor {
+    /// The device rates this type will run at, or `None` if it takes the one rate the DDC can
+    /// resample to. Both ends inclusive.
+    #[must_use]
+    pub fn native_rate_range(&self) -> Option<(f64, f64)> {
+        self.native_rate_max_hz.map(|max| (self.input_rate_hz, max))
+    }
 }
 
 fn default_has_audio() -> bool {
@@ -50,6 +68,7 @@ impl Default for ChannelDescriptor {
             has_audio: default_has_audio(),
             decoder_kind: None,
             exact_rate_only: false,
+            native_rate_max_hz: None,
         }
     }
 }

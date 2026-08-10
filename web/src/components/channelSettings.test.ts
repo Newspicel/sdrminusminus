@@ -6,9 +6,9 @@ import {
   channelDecoderKind,
   channelHasAudio,
   clampOffsetHz,
-  exactRateMismatch,
   mergeChannelSettings,
   offsetLimitHz,
+  rateMismatch,
 } from "./channelSettings";
 
 const base: ChannelSettings = {
@@ -143,25 +143,36 @@ describe("clampOffsetHz", () => {
   });
 });
 
-describe("exactRateMismatch", () => {
+describe("rateMismatch", () => {
+  // ADS-B reads the radio's own samples, so it names a range rather than one rate (PLAN §18).
   const adsb = descriptor({
     type_id: "adsb",
     name: "ADS-B",
     input_rate_hz: 2_000_000,
-    exact_rate_only: true,
+    native_rate_max_hz: 4_000_000,
+  });
+  // The rule ADS-B used to be under, kept because the descriptor can still express it.
+  const fixed = descriptor({ type_id: "x", input_rate_hz: 2_000_000, exact_rate_only: true });
+
+  it("names the range a native-rate mode runs over when the radio is outside it", () => {
+    expect(rateMismatch(adsb, 1_920_000)).toEqual({ min: 2_000_000, max: 4_000_000 });
+    expect(rateMismatch(adsb, 10_000_000)).toEqual({ min: 2_000_000, max: 4_000_000 });
   });
 
-  it("names the rate a fixed-rate mode needs when the radio runs another", () => {
-    expect(exactRateMismatch(adsb, 2_400_000)).toBe(2_000_000);
+  it("is silent anywhere inside the range — 2.048 is what an RTL-SDR offers", () => {
+    expect(rateMismatch(adsb, 2_048_000)).toBeNull();
+    expect(rateMismatch(adsb, 2_000_000)).toBeNull();
+    expect(rateMismatch(adsb, 4_000_000)).toBeNull();
   });
 
-  it("is silent once the radio is on that rate", () => {
-    expect(exactRateMismatch(adsb, 2_000_000)).toBeNull();
+  it("collapses to one rate for a mode that fills its channel", () => {
+    expect(rateMismatch(fixed, 2_400_000)).toEqual({ min: 2_000_000, max: 2_000_000 });
+    expect(rateMismatch(fixed, 2_000_000)).toBeNull();
   });
 
   it("is silent for a resampling mode, and while the rate is unreported", () => {
-    expect(exactRateMismatch(descriptor({ input_rate_hz: 48_000 }), 2_400_000)).toBeNull();
-    expect(exactRateMismatch(adsb, null)).toBeNull();
-    expect(exactRateMismatch(undefined, 2_400_000)).toBeNull();
+    expect(rateMismatch(descriptor({ input_rate_hz: 48_000 }), 2_400_000)).toBeNull();
+    expect(rateMismatch(adsb, null)).toBeNull();
+    expect(rateMismatch(undefined, 2_400_000)).toBeNull();
   });
 });

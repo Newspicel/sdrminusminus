@@ -70,11 +70,13 @@ and this enum is what the port table is validated against. They arrive with thei
   device set, drawn instead of implied. Outputs always fan out; only inputs constrain arity.
 - A channel has exactly **one** `iq` input. Two devices into one channel is refused until
   `CoherentArray` exists (`PLAN §6`).
-- Rate rules surface on the wire: ADS-B patched to a 2.4 Msps device shows the `PLAN §18`
-  refusal *on the edge*, naming the rate that would work — a visible wire error, not a
-  buried log line. The client does not re-derive the rule: `ChannelDescriptor.exact_rate_only`
-  is computed by `channels` from the same two functions the engine's admission check uses, so
-  the refusal the canvas predicts and the one the engine would give cannot disagree.
+- Rate rules surface on the wire: a decoder patched to a radio outside the rates it can run at
+  shows the `PLAN §18` fault *on the edge*, naming the range that would work — a visible wire
+  error, not a buried log line — and the face at its end offers the nearest rate that radio
+  actually has. The client does not re-derive the rule: `native_rate_max_hz` and
+  `exact_rate_only` come from `channels`, computed from the same functions the engine's
+  admission check uses, so what the canvas predicts and what the engine would answer cannot
+  disagree.
 - `events` and `position` fan in freely on features (map, log, export).
 - No cycle is expressible: only device nodes emit `iq`, only channels transform (`iq` in,
   reduced streams out), and everything else is terminal — edges can only flow

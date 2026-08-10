@@ -176,21 +176,23 @@ impl ChannelHost {
             .into_iter()
             .find(|d| d.type_id == type_id)
             .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))?;
-        let ddc = Ddc::new(device_rate, descriptor.input_rate_hz, settings.offset_hz)
+        // A native-rate channel is handed the device's own samples: the DDC then only mixes the
+        // channel down to baseband (input rate == output rate is an NCO and nothing else), which
+        // is the whole point — ADS-B's 0.5 µs pulses do not survive a rate conversion.
+        let input_rate = match descriptor.native_rate_range() {
+            Some(_) => device_rate,
+            None => descriptor.input_rate_hz,
+        };
+        let ddc = Ddc::new(device_rate, input_rate, settings.offset_hz)
             .map_err(|e| ChannelError::InvalidSettings(e.to_string()))?;
         let filter = sdrmm_channels::channel_filter(&settings.params)?;
-        let rx = sdrmm_channels::create(
-            ChannelCtx {
-                input_rate: descriptor.input_rate_hz,
-            },
-            settings,
-        )?;
+        let rx = sdrmm_channels::create(ChannelCtx { input_rate }, settings)?;
         Ok(Box::new(Self {
             ddc,
             filter,
             params: settings.params.clone(),
             squelch: Squelch::new(
-                descriptor.input_rate_hz,
+                input_rate,
                 settings.squelch_db.unwrap_or(0.0),
                 SQUELCH_HYSTERESIS_DB,
                 SQUELCH_HOLD_S,
@@ -200,7 +202,7 @@ impl ChannelHost {
             outputs: ChannelOutputs::default(),
             scratch: Vec::new(),
             filtered: Vec::new(),
-            pcm_per_input: f64::from(AUDIO_RATE) / descriptor.input_rate_hz,
+            pcm_per_input: f64::from(AUDIO_RATE) / input_rate,
             zero_carry: 0.0,
             pcm_pos,
             pcm_tx,

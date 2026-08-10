@@ -7,6 +7,7 @@
 // not written twice: the port table comes from `GET /api/patch/catalog` and the channel
 // specifics from `GET /api/channeltypes`, both generated from `crates/wire/src/patch.rs`.
 
+import { rateMismatch } from "../components/channelSettings";
 import type {
   ChannelDescriptor,
   DeviceSet,
@@ -128,9 +129,9 @@ export function connectionRefusal(
  * a reason to refuse the connection — the operator meant to put ADS-B on that radio, and the
  * answer is to change the rate, not to pretend the two cannot be joined.
  *
- * A mode that fills its whole channel leaves a resampler no guard band, so at any other rate it
- * decodes nothing at all (PLAN §18). The flag is the server's — derived from the same functions
- * the engine's admission check uses — not a number copied into the client.
+ * The rule itself is the server's (PLAN §18), read off the descriptor rather than re-derived:
+ * a decoder that reads the radio's own samples names the range it runs over, and a mode that
+ * fills its whole channel names the one rate a resampling DDC could deliver.
  */
 export function edgeWarning(
   context: GraphContext,
@@ -143,16 +144,16 @@ export function edgeWarning(
     return null;
   }
   const descriptor = descriptorOf(context, channel);
-  if (descriptor?.exact_rate_only !== true) {
-    return null;
-  }
   const rate = context.bound?.get(from.node)?.settings.sample_rate;
-  if (rate == null || rate === descriptor.input_rate_hz) {
+  const wanted = descriptor === undefined ? null : rateMismatch(descriptor, rate);
+  if (wanted === null) {
     return null;
   }
   // Short enough to sit on a wire without crossing the patch: the face at the end of it has the
   // room to say why, and does.
-  return `needs ${mhz(descriptor.input_rate_hz)} MHz`;
+  return wanted.min === wanted.max
+    ? `needs ${mhz(wanted.min)} MHz`
+    : `needs ${mhz(wanted.min)}–${mhz(wanted.max)} MHz`;
 }
 
 /** Rates read as MHz in this UI, and a refusal that says 2000000 makes the reader do the sum. */

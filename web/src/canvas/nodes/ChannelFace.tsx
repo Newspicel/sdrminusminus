@@ -6,7 +6,7 @@ import { ChannelControls } from "../../components/ChannelControls";
 import {
   channelDecoderKind,
   channelHasAudio,
-  exactRateMismatch,
+  rateMismatch,
 } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { DecoderView } from "../../components/DecoderPanels";
@@ -37,7 +37,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const centerHz = set?.settings.center_hz ?? null;
   const offsetHz = channel?.settings.offset_hz ?? 0;
   const readout = centerHz === null ? formatSignedKhz(offsetHz) : formatMhz(centerHz + offsetHz);
-  const needsRateHz = exactRateMismatch(descriptor, set?.settings.sample_rate);
+  const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
   const decoderKind = channelDecoderKind(descriptor);
   // The face has no play button — audio belongs to the speaker the wire reaches — so a channel
   // that demodulates sound into nothing has to say so somewhere, and this is where it is looked
@@ -60,8 +60,8 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       live={channel !== null}
     >
       <FaceBody>
-        {needsRateHz !== null && set !== null && (
-          <RateMismatch name={name} set={set} needsRateHz={needsRateHz} />
+        {wantedRate !== null && set !== null && (
+          <RateMismatch name={name} set={set} wanted={wantedRate} />
         )}
         {channel === null || set === null ? (
           <Unbound wired={wired} open={set !== null} onApply={station.apply} />
@@ -92,53 +92,69 @@ export function ChannelFace({ node }: { node: PatchNode }) {
 }
 
 /**
- * The one refusal an operator meets by accident, so it answers "why" and not just "no": a mode
- * that fills its whole channel leaves a resampler no guard band to filter in, and at any other
- * rate it decodes nothing at all rather than decoding badly (PLAN §18). The receiver is one
- * click away, because the fix is always the same single setting.
+ * The one refusal an operator meets by accident, so it answers "why" and not just "no", and
+ * offers a rate *this* radio actually has: a decoder that reads the device's own samples runs
+ * over a range of rates (PLAN §18), and the nearest one inside it is a click away. Naming a
+ * number the receiver cannot produce is how "set it to 2.000 MHz" became a dead end on every
+ * RTL-SDR, whose nearest rate is 2.048.
  */
 function RateMismatch({
   name,
   set,
-  needsRateHz,
+  wanted,
 }: {
   name: string;
   set: DeviceSet;
-  needsRateHz: number;
+  wanted: { min: number; max: number };
 }) {
   const { applyPatch } = useDevicePatch();
-  const supported =
-    set.capabilities.sample_rates.length === 0 ||
-    set.capabilities.sample_rates.includes(needsRateHz);
+  const offered = nearestRate(set, wanted);
+  const range =
+    wanted.min === wanted.max
+      ? `exactly ${mhz(wanted.min)} MHz`
+      : `between ${mhz(wanted.min)} and ${mhz(wanted.max)} MHz`;
   return (
     <div
       role="alert"
       className="flex flex-col items-start gap-1.5 border-b border-danger/40 bg-danger/10 px-2 py-1.5 text-xs text-danger"
     >
       <p>
-        {name} fills its whole{" "}
-        <span className="font-mono tabular-nums">{(needsRateHz / 1e6).toFixed(3)}</span> MHz
-        channel, so there is no guard band left for a resampler to filter in. At{" "}
-        <span className="font-mono tabular-nums">
-          {((set.settings.sample_rate ?? 0) / 1e6).toFixed(3)}
-        </span>{" "}
-        MHz it decodes nothing at all.
+        {name} reads the radio's own samples, so the receiver has to run {range}. At{" "}
+        <span className="font-mono tabular-nums">{mhz(set.settings.sample_rate ?? 0)}</span> MHz it
+        decodes nothing at all.
       </p>
-      {supported ? (
+      {offered === null ? (
+        <p>
+          This receiver offers no rate in that range, so it cannot carry {name}. Another radio has
+          to.
+        </p>
+      ) : (
         <button
           type="button"
           className={BTN}
-          onClick={() => applyPatch(set.id, { sample_rate: needsRateHz })}
+          onClick={() => applyPatch(set.id, { sample_rate: offered })}
         >
-          Set {set.device.label} to {(needsRateHz / 1e6).toFixed(3)} MHz
+          Set {set.device.label} to {mhz(offered)} MHz
         </button>
-      ) : (
-        <p>
-          This receiver does not offer that rate, so it cannot carry {name}. Another radio has to.
-        </p>
       )}
     </div>
   );
+}
+
+/** The rate this radio offers that is closest to the bottom of the range — lowest first, since
+ * every extra sample costs the DSP thread and buys the decoder nothing. `null` when the radio
+ * offers none. A receiver that reports no discrete rates takes any, so it takes the minimum. */
+function nearestRate(set: DeviceSet, wanted: { min: number; max: number }): number | null {
+  const rates = set.capabilities.sample_rates;
+  if (rates.length === 0) {
+    return wanted.min;
+  }
+  const inside = rates.filter((rate) => rate >= wanted.min && rate <= wanted.max);
+  return inside.length === 0 ? null : Math.min(...inside);
+}
+
+function mhz(hz: number): string {
+  return (hz / 1e6).toFixed(3);
 }
 
 /** The header's one-word account of why there is no channel behind the node. */

@@ -203,11 +203,29 @@ fn validate_channel(
         ))
         .into());
     }
+    // A native-rate channel takes the device's samples as they are, so there is no DDC
+    // conversion to refuse — only a ceiling, because the scan costs a magnitude per sample and
+    // the Pi 4 is the budget floor (PLAN §18, amended).
+    if let Some((low, high)) = descriptor.native_rate_range() {
+        if device_rate > high {
+            return Err(ChannelError::InvalidSettings(format!(
+                "{} reads the radio's own samples, so it runs with the receiver between \
+                 {:.3} and {:.3} MHz — above that there is nothing left for a slicer to gain \
+                 and the scan costs more than the smallest machine this has to run on can \
+                 spare. The receiver is at {:.3} MHz.",
+                descriptor.name,
+                low / 1e6,
+                high / 1e6,
+                device_rate / 1e6,
+            ))
+            .into());
+        }
+        return Ok(());
+    }
     // A rate conversion needs a guard band for its filter transition, so a channel that
-    // occupies its full output rate can only be served by a transparent DDC. ADS-B is the one
-    // such mode: at any other device rate its 0.5 µs pulses arrive smeared and it decodes
-    // nothing at all — a silent failure, which is worse than a rejection naming the rate that
-    // works (CLAUDE.md: no silent failure).
+    // occupies its full output rate can only be served by a transparent DDC — no mode is in
+    // that position today (ADS-B was, and reads the device rate directly instead), but the
+    // check stays: it is the thing that would otherwise fail silently.
     if device_rate != descriptor.input_rate_hz {
         let widest = sdrmm_dsp::resamplable_bandwidth_hz(descriptor.input_rate_hz);
         if high - low >= widest {

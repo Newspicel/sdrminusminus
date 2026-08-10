@@ -467,10 +467,10 @@ fn decoder_fixtures() -> Vec<Fixture> {
             ADSB_RATE,
         ),
         rate: ADSB_RATE,
-        // The device must run at exactly 2 Msps: ADS-B fills its channel, so a resampling
-        // DDC cannot carry it (PLAN §18).
-        note: "adsb channel at 0 Hz, device at exactly 2 Msps -> 3C6444/DLH123 at FL380"
-            .to_string(),
+        // 2 Msps is the *lowest* rate ADS-B runs at — one sample per half-chip. The decoder
+        // reads whatever the radio gives it up to 4 Msps (PLAN §18), so this fixture is the
+        // floor of that range rather than the only point in it.
+        note: "adsb channel at 0 Hz, device at 2 Msps -> 3C6444/DLH123 at FL380".to_string(),
     });
 
     const RDS_RATE: f64 = 960_000.0;

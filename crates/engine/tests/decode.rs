@@ -251,8 +251,7 @@ async fn ais_position_survives_the_ddc_and_reaches_the_decoded_stream() {
     );
 }
 
-/// ADS-B end to end at its exact channel rate, plus the rejection that keeps a mistuned
-/// device from decoding nothing in silence.
+/// ADS-B end to end at 2 Msps, the lowest rate that carries it — one sample per half-chip.
 #[tokio::test]
 async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
@@ -493,15 +492,64 @@ async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert!(frame.repeats > 1, "repeats collapsed to {}", frame.repeats);
 }
 
-/// A wideband channel on a device that would have to resample is refused with an actionable
-/// message. Before this check the DDC silently smeared the 0.5 µs pulses and the decoder
-/// produced nothing at all, which looks identical to "no aircraft overhead".
+/// The rate an RTL-SDR actually offers. ADS-B reads the device's own samples, so 2.048 Msps —
+/// which no receiver can round to 2.000 — is a working ADS-B receiver rather than a refusal
+/// (PLAN §18, amended). This is the whole feature, end to end: capture at the radio's rate,
+/// through the mixing-only DDC, into a decoder whose half-chips are 1.024 samples wide.
 #[tokio::test]
-async fn adsb_is_rejected_when_the_device_rate_would_force_a_resample() {
+async fn adsb_decodes_at_an_rtl_sdr_rate_the_ddc_could_not_have_resampled() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    // The rate every RTL-SDR ADS-B guide reaches for first — and the one that cannot work.
-    let device = plant(dir.path(), "wideband", testgen::silence(4_800), 2_400_000.0);
+    const RTL_RATE: f64 = 2_048_000.0;
+
+    let icao = 0x3C_6444;
+    let frames = vec![
+        testgen::adsb::squitter(icao, testgen::adsb::me_identification("DLH123")),
+        testgen::adsb::squitter(
+            icao,
+            testgen::adsb::me_airborne_position(38_000, 52.2572, 3.9190, false),
+        ),
+        testgen::adsb::squitter(
+            icao,
+            testgen::adsb::me_airborne_position(38_000, 52.2657, 3.9184, true),
+        ),
+    ];
+    let iq = testgen::adsb::transmission(&frames, 500.0, 0.8, RTL_RATE);
+
+    let device = plant(dir.path(), "adsb-rtl", iq, RTL_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Adsb(AdsbParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Adsb(a) if a.lat.is_some()),
+    )
+    .await;
+
+    let DecoderEvent::Adsb(message) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(message.icao, "3C6444");
+    assert_eq!(message.altitude_ft, Some(38_000));
+}
+
+/// Above its range ADS-B is refused with an actionable message rather than run: the scan costs
+/// a magnitude per sample, and a 20 Msps receiver would spend the DSP thread on samples no
+/// slicer can use. A refusal that names the range is the difference between a setting to change
+/// and a receiver that looks broken.
+#[tokio::test]
+async fn adsb_is_rejected_above_the_rate_its_slicer_can_use() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(
+        dir.path(),
+        "wideband",
+        testgen::silence(4_800),
+        10_000_000.0,
+    );
     let ds = engine.create_device_set(&device).unwrap();
 
     let err = engine
@@ -513,15 +561,11 @@ async fn adsb_is_rejected_when_the_device_rate_would_force_a_resample() {
                 params: ChannelParams::Adsb(AdsbParams::default()),
             },
         )
-        .expect_err("a resampled wideband channel must be refused, not silently deaf");
+        .expect_err("a rate past the slicer's range must be refused, not silently expensive");
     let message = err.to_string();
     assert!(
-        message.contains("2.000 MHz"),
-        "the rejection must name the rate that works: {message}"
-    );
-    assert!(
-        message.contains("guard band"),
-        "and why that rate, since the operator's next question is why: {message}"
+        message.contains("2.000") && message.contains("4.000"),
+        "the rejection must name the range that works: {message}"
     );
     engine.remove_device_set(ds).unwrap();
 }
