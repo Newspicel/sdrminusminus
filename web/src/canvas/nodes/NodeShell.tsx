@@ -8,12 +8,11 @@ import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
 import { createContext, type ReactNode, useContext } from "react";
 import { ICON_BTN } from "../../components/controls";
-import { deleteChannel, deleteDeviceSet } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
-import { sourcesOf } from "../binding";
 import { useStationContext } from "../context";
-import { isPinned, pin, portsOf, pruneRack, removeNode, unpin } from "../graph";
+import { isPinned, NODE_MIN_SIZE, pin, portsOf, pruneRack, removeNode, unpin } from "../graph";
+import { closeEngineObjects } from "../remove";
 
 /**
  * Where a face is being rendered. Ports and the resizer are React Flow parts and throw outside
@@ -24,6 +23,24 @@ const Surface = createContext<"canvas" | "rack">("rack");
 
 export function CanvasSurface({ children }: { children: ReactNode }) {
   return <Surface value="canvas">{children}</Surface>;
+}
+
+/**
+ * Whether this face owns the pointer and the wheel, or the camera does — a window has to be
+ * clicked before its controls answer, which is the rule the desktop already taught everyone.
+ *
+ * The camera keeps the wheel over every *other* face, so scrolling across the patch is never
+ * blocked by whatever the pointer happens to be over; a click makes a face the active one and
+ * hands it its own gestures (the dial's wheel, the plot's zoom, the map's pan). Instruments read
+ * this to stay inert until then: without it a wheel over an unselected scope would zoom the
+ * spectrum *and* pan the patch at once.
+ *
+ * The rack has no camera, so a face there is always active (CANVAS §5).
+ */
+const Active = createContext(true);
+
+export function useFaceActive(): boolean {
+  return useContext(Active);
 }
 
 /** Vertical space the header takes, so ports can be spread down the body only. */
@@ -80,6 +97,8 @@ export function NodeShell({
   const ports = surface === "canvas" ? portsOf(station.context, node) : [];
   const pinned = isPinned(station.rack, node.id);
   const selected = station.selected === node.id;
+  const active = surface === "rack" || selected;
+  const minimum = NODE_MIN_SIZE[node.kind];
 
   return (
     <div
@@ -89,8 +108,8 @@ export function NodeShell({
     >
       {surface === "canvas" && (
         <NodeResizer
-          minWidth={220}
-          minHeight={140}
+          minWidth={minimum.w}
+          minHeight={minimum.h}
           lineClassName="!border-accent/40"
           handleClassName="!size-2 !rounded-none !border-accent !bg-panel"
         />
@@ -135,9 +154,15 @@ export function NodeShell({
       {/* React Flow claims pointer drags and wheel gestures anywhere on a node unless a subtree
           opts out: without `nodrag nowheel`, dragging a gain slider drags the node and scrolling
           a digit zooms the canvas instead of tuning. The header keeps both, so the node is
-          dragged by its title bar — the patch-editor convention. */}
-      <div className="nodrag nopan nowheel flex min-h-0 flex-1 flex-col overflow-hidden">
-        {children}
+          dragged by its title bar — the patch-editor convention.
+          The opt-out is only claimed by the *active* face: over every other one the wheel and the
+          drag belong to the camera, so the patch stays navigable from wherever the pointer is. */}
+      <div
+        className={`flex min-h-0 flex-1 flex-col overflow-hidden ${
+          active ? "nodrag nopan nowheel" : ""
+        }`}
+      >
+        <Active value={active}>{children}</Active>
       </div>
 
       {ports.map((port, index) => (
@@ -151,30 +176,12 @@ export function NodeShell({
   );
 }
 
-/**
- * Removing a node removes what it was driving. Apply is deliberately additive — it never closes
- * a radio or deletes a channel (CANVAS §4) — so this gesture is the only thing that does, and
- * without it a removed channel would keep running in the engine forever and a receiver could
- * never be closed at all.
- *
- * The engine call goes first: if it fails the node stays, which is the honest outcome — the
- * patch should not claim the radio is gone while it is still streaming.
- */
+/** The face's own ✕. The engine call goes first (`closeEngineObjects`); only once it has landed
+ * does the node leave the patch. */
 function useRemoveNode(node: PatchNode): () => void {
   const station = useStationContext();
-  const set = station.devices.get(node.id);
-  const channel = station.channels.get(node.id);
-  const owner = sourcesOf(station.graph, node.id, "iq")[0];
-  const channelSet = owner === undefined ? undefined : station.devices.get(owner);
-
   const drop = useMutation({
-    mutationFn: async () => {
-      if (node.kind === "device" && set !== undefined) {
-        await deleteDeviceSet(set.id);
-      } else if (node.kind === "channel" && channel !== undefined && channelSet !== undefined) {
-        await deleteChannel(channelSet.id, channel.id);
-      }
-    },
+    mutationFn: () => closeEngineObjects(station, [node.id]),
     onSuccess: () =>
       station.edit((snapshot) => {
         const graph = removeNode(snapshot.graph, node.id);

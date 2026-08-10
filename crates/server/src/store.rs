@@ -598,7 +598,7 @@ impl Store {
                 return Ok(());
             }
         }
-        let id = self.create_workspace("Station", &WorkspaceSnapshot::station_default())?;
+        let id = self.create_workspace("Workspace", &WorkspaceSnapshot::station_default())?;
         self.activate_workspace(id)
     }
 
@@ -1305,7 +1305,7 @@ mod tests {
         let store = Store::open(None).expect("open");
         let listed = store.list_workspaces().expect("list");
         assert_eq!(listed.workspaces.len(), 1);
-        assert_eq!(listed.workspaces[0].name, "Station");
+        assert_eq!(listed.workspaces[0].name, "Workspace");
         assert_eq!(listed.workspaces[0].revision, 1);
         assert_eq!(listed.workspaces[0].nodes, 3);
         assert_eq!(listed.active, Some(listed.workspaces[0].id));
@@ -1314,7 +1314,7 @@ mod tests {
         assert_eq!(active.snapshot, WorkspaceSnapshot::station_default());
 
         // Seeding is an empty-table rule, not a first-open rule: reopening must not add a
-        // second "Station" (and the UNIQUE name would fail loudly if it tried).
+        // second "Workspace" (and the UNIQUE name would fail loudly if it tried).
         drop(store);
     }
 
@@ -1349,7 +1349,7 @@ mod tests {
         let store = Store::open(Some(file.path())).expect("reopen");
         let listed = store.list_workspaces().expect("list");
         assert_eq!(listed.workspaces.len(), 1, "the M6 row is gone");
-        assert_eq!(listed.workspaces[0].name, "Station");
+        assert_eq!(listed.workspaces[0].name, "Workspace");
         assert_eq!(listed.active, Some(listed.workspaces[0].id));
         assert_eq!(
             store
@@ -1478,7 +1478,7 @@ mod tests {
         assert_eq!(store.workspace(id).expect("read").info.revision, 1);
 
         assert!(matches!(
-            store.create_workspace("Station", &WorkspaceSnapshot::station_default()),
+            store.create_workspace("Workspace", &WorkspaceSnapshot::station_default()),
             Err(StoreError::WorkspaceNameTaken(_))
         ));
         // Create bounds the name exactly as update does; a blank one would be a row nobody can
@@ -1501,7 +1501,7 @@ mod tests {
                 other,
                 &UpdateWorkspaceRequest {
                     revision: 1,
-                    name: Some("Station".to_string()),
+                    name: Some("Workspace".to_string()),
                     snapshot: None,
                 }
             ),

@@ -160,6 +160,41 @@ function mhz(hz: number): string {
   return (hz / 1e6).toFixed(3);
 }
 
+// ── how big a face is ─────────────────────────────────────────────────────────────────────
+
+/**
+ * The size a face opens at, per kind. Width is always given; **height only for the kinds whose
+ * content is a viewport** (a plot, a map, a table) — everything else is left to measure itself,
+ * so a node is exactly as tall as what it draws and nothing inside it scrolls (CANVAS §1: the
+ * face is the whole control surface, and a control you have to scroll to find is hidden).
+ *
+ * A stored `size` always wins: it only exists once the operator has resized the node by hand.
+ */
+export const NODE_SIZE: Record<NodeKind, { w: number; h?: number }> = {
+  device: { w: 360 },
+  channel: { w: 380 },
+  scope: { w: 520, h: 340 },
+  speaker: { w: 300 },
+  map: { w: 520, h: 380 },
+  decoder_log: { w: 760, h: 380 },
+  recorder: { w: 300 },
+  export: { w: 300 },
+  scanner: { w: 400 },
+};
+
+/** How far the resizer may shrink a face before its instrument stops being readable. */
+export const NODE_MIN_SIZE: Record<NodeKind, { w: number; h: number }> = {
+  device: { w: 260, h: 120 },
+  channel: { w: 280, h: 120 },
+  scope: { w: 320, h: 200 },
+  speaker: { w: 220, h: 100 },
+  map: { w: 300, h: 220 },
+  decoder_log: { w: 360, h: 200 },
+  recorder: { w: 220, h: 100 },
+  export: { w: 220, h: 100 },
+  scanner: { w: 300, h: 160 },
+};
+
 /** Add a node. The caller supplies the id so the same call can be replayed optimistically. */
 export function addNode(graph: PatchGraph, node: PatchNode): PatchGraph {
   return { ...graph, nodes: [...graph.nodes, node] };
@@ -201,11 +236,27 @@ export function sameGraph(a: PatchGraph, b: PatchGraph): boolean {
 
 // ── the rack ──────────────────────────────────────────────────────────────────────────────
 
-/** Default cells a newly pinned face occupies. Wide enough for a scope, and six of them tile the
- * grid — two across, three down. */
-export const RACK_DEFAULT = { w: 12, h: 8 } as const;
-export const RACK_COLS = 24;
-export const RACK_ROWS = 24;
+/**
+ * The rack grid (CANVAS §5). Twelve by eight, not the twenty-four squared it shipped as: cells
+ * are the unit of every gesture, and a cell an operator cannot aim at is a drag that lands one
+ * short. §5 already named the remedy for a rack that feels cramped — bigger cells — and this is
+ * it. A face pinned at the default takes a quarter of the rack, so four tile it and nothing has
+ * to be resized before it can be read.
+ */
+export const RACK_COLS = 12;
+export const RACK_ROWS = 8;
+export const RACK_DEFAULT = { w: 6, h: 4 } as const;
+
+/** Cells a face occupies. The stored shape without the node it belongs to. */
+export interface RackCell {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Which side of a face a drag has hold of. */
+export type RackEdge = "n" | "e" | "s" | "w";
 
 export function isPinned(rack: RackLayout, node: string): boolean {
   return (rack.slots ?? []).some((slot) => slot.node === node);
@@ -234,40 +285,161 @@ export function unpin(rack: RackLayout, node: string): RackLayout {
   return { slots: (rack.slots ?? []).filter((slot) => slot.node !== node) };
 }
 
-/** Move or resize a pinned face. A move that would overlap or leave the grid is ignored, so a
- * drag can be tracked live and simply refuses to go where it cannot land. */
-export function placeSlot(
+/** Move or resize a pinned face outright. A placement that would overlap or leave the grid is
+ * ignored, so a drag can be tracked live and simply refuses to go where it cannot land. */
+export function placeSlot(rack: RackLayout, node: string, cell: RackCell): RackLayout {
+  const slots = rack.slots ?? [];
+  if (!inside(cell) || !slots.every((slot) => slot.node === node || !overlaps(slot, cell))) {
+    return rack;
+  }
+  return { slots: slots.map((slot) => (slot.node === node ? { node, ...cell } : slot)) };
+}
+
+/**
+ * Move a face to a cell. Dropping it on exactly one other face **trades their places** — the two
+ * exchange cells whole, size included, which is what dragging one instrument onto another means
+ * on a bench and is the only re-arrangement that cannot fail: the set of occupied cells does not
+ * change, so no third face has to move out of the way first.
+ *
+ * Anything else that would overlap, or leave the grid, is refused rather than clamped.
+ */
+export function moveSlot(rack: RackLayout, node: string, to: { x: number; y: number }): RackLayout {
+  const slots = rack.slots ?? [];
+  const from = slots.find((slot) => slot.node === node);
+  if (from === undefined) {
+    return rack;
+  }
+  const cell = { x: to.x, y: to.y, w: from.w, h: from.h };
+  if (!inside(cell)) {
+    return rack;
+  }
+  const hit = slots.filter((slot) => slot.node !== node && overlaps(slot, cell));
+  if (hit.length === 0) {
+    return { slots: slots.map((slot) => (slot.node === node ? { node, ...cell } : slot)) };
+  }
+  const other = hit.length === 1 ? hit[0] : undefined;
+  if (other === undefined) {
+    return rack;
+  }
+  return {
+    slots: slots.map((slot) => {
+      if (slot.node === node) {
+        return { node, x: other.x, y: other.y, w: other.w, h: other.h };
+      }
+      return slot.node === other.node
+        ? { node: other.node, x: from.x, y: from.y, w: from.w, h: from.h }
+        : slot;
+    }),
+  };
+}
+
+/**
+ * Drag one edge of a face by whole cells. The faces on the other side of that edge give up
+ * exactly what this one takes: **the boundary between two faces moves, one growing as the other
+ * shrinks**, which is the only way to re-balance a rack that is already full without first
+ * making a hole in it.
+ *
+ * An edge with nothing behind it just resizes this face. A drag that would leave any face
+ * smaller than a cell, push one off the grid, or open an overlap is refused whole — a live drag
+ * stops at the boundary it cannot pass instead of half-applying.
+ */
+export function resizeSlot(
   rack: RackLayout,
   node: string,
-  cell: { x: number; y: number; w: number; h: number },
+  edge: RackEdge,
+  cells: number,
 ): RackLayout {
   const slots = rack.slots ?? [];
-  const inside =
+  const slot = slots.find((candidate) => candidate.node === node);
+  if (slot === undefined || cells === 0) {
+    return rack;
+  }
+  const pushed = new Set(
+    slots.filter((other) => other.node !== node && abuts(slot, other, edge)).map((o) => o.node),
+  );
+  const next = slots.map((candidate) => {
+    if (candidate.node === node) {
+      return { node, ...moveEdge(candidate, edge, cells) };
+    }
+    return pushed.has(candidate.node)
+      ? { node: candidate.node, ...moveEdge(candidate, OPPOSITE[edge], cells) }
+      : candidate;
+  });
+  const legal = next.every(
+    (cell, index) =>
+      inside(cell) && next.every((other, at) => at === index || !overlaps(cell, other)),
+  );
+  return legal ? { slots: next } : rack;
+}
+
+/**
+ * Drop slots whose node is gone, and re-place any that no longer fit the grid.
+ *
+ * The re-placing is what lets the grid change shape: a rack stored against the old twenty-four
+ * square one holds cells this one has no room for, and the server validates the *whole* snapshot
+ * on every write — so one stale slot would refuse every later write, including a node drag on the
+ * canvas that has nothing to do with the rack.
+ */
+export function pruneRack(rack: RackLayout, graph: PatchGraph): RackLayout {
+  const known = new Set(graph.nodes.map((node) => node.id));
+  const kept = (rack.slots ?? []).filter((slot) => known.has(slot.node));
+  if (kept.length === (rack.slots ?? []).length && kept.every((slot) => inside(slot))) {
+    return rack;
+  }
+  let placed: RackLayout = { slots: kept.filter((slot) => inside(slot)) };
+  for (const slot of kept) {
+    if (!inside(slot)) {
+      placed = pin(placed, slot.node);
+    }
+  }
+  return placed;
+}
+
+function inside(cell: RackCell): boolean {
+  return (
     cell.w >= 1 &&
     cell.h >= 1 &&
     cell.x >= 0 &&
     cell.y >= 0 &&
     cell.x + cell.w <= RACK_COLS &&
-    cell.y + cell.h <= RACK_ROWS;
-  const clear = slots.every((slot) => slot.node === node || !overlaps(slot, cell));
-  if (!inside || !clear) {
-    return rack;
+    cell.y + cell.h <= RACK_ROWS
+  );
+}
+
+const OPPOSITE: Record<RackEdge, RackEdge> = { n: "s", e: "w", s: "n", w: "e" };
+
+/** The cell with one edge moved by `cells` — positive is rightwards / downwards, so the same
+ * delta moves a shared boundary the same way from either side of it. */
+function moveEdge(cell: RackCell, edge: RackEdge, cells: number): RackCell {
+  switch (edge) {
+    case "n":
+      return { ...cell, y: cell.y + cells, h: cell.h - cells };
+    case "s":
+      return { ...cell, h: cell.h + cells };
+    case "w":
+      return { ...cell, x: cell.x + cells, w: cell.w - cells };
+    case "e":
+      return { ...cell, w: cell.w + cells };
   }
-  return {
-    slots: slots.map((slot) => (slot.node === node ? { node, ...cell } : slot)),
-  };
 }
 
-/** Drop slots whose node is gone — a rack entry for a deleted node fails validation. */
-export function pruneRack(rack: RackLayout, graph: PatchGraph): RackLayout {
-  const known = new Set(graph.nodes.map((node) => node.id));
-  const slots = (rack.slots ?? []).filter((slot) => known.has(slot.node));
-  return slots.length === (rack.slots ?? []).length ? rack : { slots };
+/** Whether `other` sits against `cell`'s named edge, sharing some of it — the faces a drag on
+ * that edge takes with it. Touching only at a corner is not sharing a boundary. */
+function abuts(cell: RackCell, other: RackCell, edge: RackEdge): boolean {
+  const spansX = other.x < cell.x + cell.w && cell.x < other.x + other.w;
+  const spansY = other.y < cell.y + cell.h && cell.y < other.y + other.h;
+  switch (edge) {
+    case "n":
+      return spansX && other.y + other.h === cell.y;
+    case "s":
+      return spansX && other.y === cell.y + cell.h;
+    case "w":
+      return spansY && other.x + other.w === cell.x;
+    case "e":
+      return spansY && other.x === cell.x + cell.w;
+  }
 }
 
-function overlaps(
-  a: { x: number; y: number; w: number; h: number },
-  b: { x: number; y: number; w: number; h: number },
-): boolean {
+function overlaps(a: RackCell, b: RackCell): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }

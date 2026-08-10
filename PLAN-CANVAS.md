@@ -148,13 +148,34 @@ This also retires the M6 "panels name no device set" deferral for good.
 
 ## 5. The rack — the operate view
 
-**Decision: a snapping grid, not a second canvas.** Shipped as a 24×24 grid; a face is dragged
-by the grip over its header and resized from its bottom-right corner, both in whole cells, and a
-placement that would overlap or leave the grid is refused rather than clamped. Operating wants alignment, density and
+**Decision: a snapping grid, not a second canvas.** Operating wants alignment, density and
 muscle memory — zero pan/zoom, no wires, faces on a fixed grid, dragged and resized by whole
 cells. A second free canvas would just be the patch view with its wires hidden, and would
 drift back into being one; if the rack ever feels cramped, the answer is bigger cells, not a
 camera.
+
+**The grid is 12×8, and the remedy above is why.** It shipped as 24×24 with a default slot of
+12×8; a cell was then a sliver, the header grip was 24 px wide, and every gesture landed a cell
+off. The cell is the unit of every gesture, so it has to be a thing an operator can aim at: a
+face now pins at 6×4 — a quarter of the rack — and four of them tile it with nothing to resize
+first. A rack stored against the old grid is re-laid out on read (`pruneRack`), not migrated:
+slots are an arrangement, and the server validates the whole snapshot on every write, so one
+stale slot would otherwise refuse every later write — including a node drag on the canvas.
+
+**Three gestures, all in whole cells.**
+
+- The **header** drags a face. Dropped on another face, the two **trade places** — cells whole,
+  size included. That is the one re-arrangement that cannot fail (the set of occupied cells does
+  not change, so no third face has to move first), and it is what dragging one instrument onto
+  another means on a bench.
+- An **edge** drags the boundary it shares with its neighbours: one grows as the others shrink.
+  Without it a full rack cannot be re-balanced at all — every change needs a hole to be made
+  first. An edge with nothing behind it just resizes the face.
+- The **corner** resizes freely into whatever room there is.
+
+A gesture that would leave a face smaller than a cell, push one off the grid, or open an overlap
+is refused **whole** rather than half-applied, so a live drag stops at the boundary it cannot
+pass. The arithmetic is pure (`web/src/canvas/graph.ts`), which is where its tests are.
 
 - Pin a node's face from the canvas; unpin returns it. The rack may be empty — the canvas
   alone is a complete UI.
@@ -195,6 +216,22 @@ floors, plot-ink and colormap rules, tabular numerals, zero idle motion) still b
 - **React Flow** (`@xyflow/react` 12, MIT). Custom nodes are ordinary React components →
   **Base UI parts throughout**, styled with our tokens; `isValidConnection` implements §1's
   rules against the generated types.
+- **The camera and the face share one wheel, so a face has to be clicked before it takes it.**
+  A window is focused before its controls answer; the same rule here is what keeps the patch
+  navigable. Over an unselected face the wheel pans and a drag pans — the face is a picture.
+  Click it and it becomes the instrument: its own wheel (the dial's digits, the plot's zoom, the
+  map), its own drags, and only then is the node draggable at all. This is not a preference:
+  React Flow stamps `nopan` on every node it considers draggable, and `nopan` swallows the wheel
+  whenever `panOnScroll` is on — so "every face is always live" and "the patch scrolls from
+  anywhere" cannot both be true. A click on an inactive plot therefore only brings it forward,
+  which is also what stops a stray click from retuning a running radio.
+- **A face opens at the size its instrument needs, and nothing inside it scrolls.** There is no
+  fixed node box: `NODE_SIZE` gives each kind a width, and a height *only* where the content is
+  a viewport rather than a column of controls (plot, map, log table) — everything else is
+  measured, so the node is exactly as tall as what it draws. A stored `size` exists only once the
+  operator has dragged a corner, and the context menu's "reset size" removes it again. The patch
+  also opens framed (`fitView`): a station drawn over several screens otherwise comes back at
+  whatever corner the last camera left it.
 - **WebGL budget:** browsers cap live GL contexts (~8–16). One shared renderer draws every
   visible scope face (one context, many viewports), faces render only while on screen, and —
   because React Flow zooms with CSS transforms — plots re-render at zoom-adjusted device

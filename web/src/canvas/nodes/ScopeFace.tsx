@@ -3,10 +3,11 @@
 // straight to the canvases (PLAN §10: high-rate streams never touch TanStack Query); only the
 // readout's slow-moving metadata is state.
 //
-// The plot is the instrument, so it owns its gestures: wheel zooms about the cursor, a drag
-// pans, a click tunes, and a marker drag moves a channel. All three of React Flow's opt-out
-// classes are needed to keep the canvas's own camera off them — `nowheel` covers wheel events
-// only, and it is `nopan` that stops a double-click to tune from also zooming the whole patch.
+// The plot is the instrument, so it owns its gestures — but only once its node is the active one
+// (`useFaceActive`): wheel zooms about the cursor, a drag pans, a click tunes, and a marker drag
+// moves a channel. Until then the camera keeps both, and a click on the plot only brings the face
+// forward, which is also what stops a stray click on a scope nobody selected from retuning a
+// running radio.
 import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -41,7 +42,7 @@ import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { channelNodesOf, sourcesOf } from "../binding";
 import { deviceSetOf, useStationContext } from "../context";
-import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 /** Below this a pointer gesture is a click, not a pan (DESIGN.md §9). */
 const DRAG_SLOP_PX = 4;
@@ -106,6 +107,7 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
   const station = useStationContext();
   const { applyPatch } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
+  const active = useFaceActive();
 
   const plotRef = useRef<HTMLDivElement>(null);
   const waterfallRef = useRef<HTMLCanvasElement>(null);
@@ -237,10 +239,11 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
   }, []);
 
   // React marks its delegated wheel listener passive, so zoom has to be bound natively or the
-  // page scrolls underneath the gesture.
+  // page scrolls underneath the gesture. Bound only while this face is the active one: otherwise
+  // one wheel notch would zoom the spectrum and pan the patch at the same time.
   useEffect(() => {
     const plot = plotRef.current;
-    if (plot === null) {
+    if (plot === null || !active) {
       return;
     }
     const onWheel = (event: WheelEvent) => {
@@ -251,7 +254,7 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
     };
     plot.addEventListener("wheel", onWheel, { passive: false });
     return () => plot.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [active]);
 
   const chooseColormap = (next: Colormap): void => {
     setColormap(next);
@@ -269,7 +272,10 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
-    if (event.button !== 0 || plotRef.current === null || spanHz <= 0) {
+    // An inactive face is brought forward by the click and nothing else: the pointer belongs to
+    // the camera there, and a plot that tuned on first contact would retune a radio the operator
+    // was only reaching past.
+    if (!active || event.button !== 0 || plotRef.current === null || spanHz <= 0) {
       return;
     }
     const rect = plotRef.current.getBoundingClientRect();
@@ -352,15 +358,15 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
   return (
     <div
       ref={plotRef}
-      className={`nodrag nopan nowheel relative flex h-full min-h-0 flex-col overflow-hidden bg-plot-bg touch-none ${
-        panning ? "cursor-grabbing" : "cursor-crosshair"
-      }`}
+      className={`relative flex h-full min-h-0 flex-col overflow-hidden bg-plot-bg ${
+        active ? "nodrag nopan nowheel touch-none cursor-crosshair" : "cursor-default"
+      } ${panning ? "!cursor-grabbing" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onDoubleClick={(event) => {
-        if (meta === null) {
+        if (!active || meta === null) {
           return;
         }
         const at = pointerFraction(event.clientX);

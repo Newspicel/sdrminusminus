@@ -1234,9 +1234,7 @@ async fn create_workspace(
     let engine = state.engine.clone();
     let store = state.store.clone();
     let id = tokio::task::spawn_blocking(move || -> Result<i64, AppError> {
-        let snapshot = req
-            .snapshot
-            .unwrap_or_else(WorkspaceSnapshot::station_default);
+        let snapshot = req.snapshot.unwrap_or_else(WorkspaceSnapshot::empty);
         let id = store.create_workspace(&req.name, &snapshot)?;
         engine.emit_scope(StateScope::Workspaces);
         Ok(id)

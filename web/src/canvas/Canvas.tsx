@@ -14,11 +14,14 @@ import {
   type IsValidConnection,
   type Node,
   type NodeChange,
+  type OnBeforeDelete,
   ReactFlow,
   useEdgesState,
   useNodesState,
+  useReactFlow,
 } from "@xyflow/react";
-import { useCallback, useEffect, useRef } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BTN_QUIET, SURFACE } from "../components/controls";
 import { pushToast } from "../lib/toasts";
 import type { PatchEdge, PatchGraph, PatchNode, PortRef } from "../lib/types";
 import { useStationContext } from "./context";
@@ -28,17 +31,30 @@ import {
   edgeKey,
   edgeWarning,
   type GraphContext,
+  isPinned,
+  NODE_SIZE,
+  nodeOf,
+  patchNode,
+  pin,
   pruneRack,
   removeEdge,
   removeNode,
   sameGraph,
+  unpin,
 } from "./graph";
 import { NODE_TYPES } from "./nodes";
+import { closeEngineObjects } from "./remove";
 
 /** Node data React Flow carries. Only the stored node — everything live comes from context. */
 export interface FlowData extends Record<string, unknown> {
   node: PatchNode;
 }
+
+/** Framing on open. `maxZoom` keeps a one-node patch from opening magnified — a face drawn at
+ * twice its size is not more legible, it is just further from what the operator will see next. */
+const FIT_VIEW = { padding: 0.12, maxZoom: 1 } as const;
+
+const DELETE_KEYS = ["Backspace", "Delete"];
 
 export function Canvas() {
   const station = useStationContext();
@@ -87,9 +103,14 @@ export function Canvas() {
           if (flow === undefined) {
             return node;
           }
+          // A size is stored only once the face has been resized away from what its kind opens
+          // at: writing the natural size back would freeze this node at today's default and
+          // silently opt it out of every later one.
+          const natural = NODE_SIZE[node.kind];
+          const { width: w, height: h } = flow;
           const size =
-            flow.width != null && flow.height != null
-              ? { size: { w: flow.width, h: flow.height } }
+            w != null && h != null && (w !== natural.w || h !== natural.h)
+              ? { size: { w, h } }
               : {};
           return { ...node, position: { x: flow.position.x, y: flow.position.y }, ...size };
         }),
@@ -143,6 +164,25 @@ export function Canvas() {
     [onEdgesChange, station],
   );
 
+  // Backspace deletes what is selected, and a node's deletion has to close the radio or channel
+  // it was driving first — the same rule the face's own ✕ follows. A refusal here cancels the
+  // whole deletion, so the patch never draws a receiver as gone while it is still streaming.
+  const onBeforeDelete: OnBeforeDelete<Node<FlowData>, Edge> = useCallback(
+    async ({ nodes: doomed, edges: cut }) => {
+      try {
+        await closeEngineObjects(
+          station,
+          doomed.map((node) => node.id),
+        );
+      } catch (error) {
+        pushToast(error instanceof Error ? error.message : String(error));
+        return false;
+      }
+      return { nodes: doomed, edges: cut };
+    },
+    [station],
+  );
+
   const refusal = useCallback(
     (from: PortRef, to: PortRef): string | null =>
       connectionRefusal(station.context, station.graph, from, to),
@@ -191,39 +231,186 @@ export function Canvas() {
     [refusal],
   );
 
+  // Only the active face is dragged by the pointer; every other one leaves the drag and the
+  // wheel to the camera. React Flow stamps its own `nopan` on any node it considers draggable,
+  // which is what would otherwise make the patch unscrollable wherever a face is under the
+  // pointer — so "click a window before its controls answer" is also what keeps the camera free
+  // (`NodeShell`'s `Active` carries the other half of the rule).
+  const flowNodes = useMemo(
+    () =>
+      nodes.map((node) =>
+        node.draggable === node.selected ? node : { ...node, draggable: node.selected },
+      ),
+    [nodes],
+  );
+
+  // Right-click is where an operator looks for "delete this", and a wire has nowhere else to be
+  // asked: it has no chrome of its own, so without a menu the only way to cut one is to select
+  // it and reach for a key nobody was told about.
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const openMenu = useCallback((event: React.MouseEvent, target: Menu["target"]) => {
+    event.preventDefault();
+    setMenu({ x: event.clientX, y: event.clientY, target });
+  }, []);
+
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={NODE_TYPES}
-      onNodesChange={handleNodesChange}
-      onEdgesChange={handleEdgesChange}
-      onNodeDragStop={commitGeometry}
-      onConnect={onConnect}
-      onConnectEnd={onConnectEnd}
-      isValidConnection={isValidConnection}
-      onPaneClick={() => station.select(null)}
-      // Desktop-only (PLAN §18): a pointer and a keyboard are assumed.
-      panOnScroll
-      selectionOnDrag
-      minZoom={0.25}
-      maxZoom={2}
-      proOptions={{ hideAttribution: true }}
-      className="min-h-0 flex-1 bg-bg"
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <ReactFlow
+        nodes={flowNodes}
+        edges={edges}
+        nodeTypes={NODE_TYPES}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
+        onNodeDragStop={commitGeometry}
+        onConnect={onConnect}
+        onConnectEnd={onConnectEnd}
+        onBeforeDelete={onBeforeDelete}
+        isValidConnection={isValidConnection}
+        onPaneClick={() => {
+          station.select(null);
+          setMenu(null);
+        }}
+        onNodeClick={() => setMenu(null)}
+        onNodeContextMenu={(event, node) => openMenu(event, { kind: "node", id: node.id })}
+        onEdgeContextMenu={(event, edge) => openMenu(event, { kind: "edge", id: edge.id })}
+        onPaneContextMenu={(event) => openMenu(event as React.MouseEvent, { kind: "pane" })}
+        // Both keys, because both are what people press for "delete this".
+        deleteKeyCode={DELETE_KEYS}
+        // Desktop-only (PLAN §18): a pointer and a keyboard are assumed.
+        panOnScroll
+        panOnScrollSpeed={1}
+        selectionOnDrag
+        // The patch opens framed: a station drawn over several screens is otherwise restored at
+        // whatever corner the last camera left, and the operator's first gesture is always a hunt.
+        fitView
+        fitViewOptions={FIT_VIEW}
+        minZoom={0.15}
+        maxZoom={2}
+        proOptions={{ hideAttribution: true }}
+        className="min-h-0 flex-1 bg-bg"
+      >
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1} className="!bg-bg" />
+      </ReactFlow>
+      {menu !== null && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+    </div>
+  );
+}
+
+interface Menu {
+  x: number;
+  y: number;
+  target: { kind: "node"; id: string } | { kind: "edge"; id: string } | { kind: "pane" };
+}
+
+/** What right-clicking offers, per thing clicked. Deliberately short: everything here is also
+ * reachable from the node's own chrome or a key, and a menu that lists the whole application is
+ * one nobody reads. */
+function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
+  const station = useStationContext();
+  const { fitView } = useReactFlow();
+  const node = menu.target.kind === "node" ? nodeOf(station.graph, menu.target.id) : undefined;
+  const pinned = node !== undefined && isPinned(station.rack, node.id);
+
+  // A menu that outlives its context is a menu that acts on the wrong thing.
+  useEffect(() => {
+    const dismiss = (event: Event) => {
+      if (event instanceof KeyboardEvent && event.key !== "Escape") {
+        return;
+      }
+      onClose();
+    };
+    window.addEventListener("keydown", dismiss);
+    window.addEventListener("pointerdown", dismiss, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", dismiss);
+      window.removeEventListener("pointerdown", dismiss, { capture: true });
+    };
+  }, [onClose]);
+
+  const item = (label: string, act: () => void, danger = false) => (
+    <button
+      key={label}
+      type="button"
+      className={`${BTN_QUIET} w-full justify-start ${danger ? "hover:text-danger" : ""}`}
+      onClick={() => {
+        act();
+        onClose();
+      }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={24} size={1} className="!bg-bg" />
-    </ReactFlow>
+      {label}
+    </button>
+  );
+
+  const items: ReactNode[] = [];
+  if (node !== undefined) {
+    items.push(
+      item(pinned ? "Unpin from the rack" : "Pin to the rack", () =>
+        station.edit((snapshot) => ({
+          ...snapshot,
+          rack: pinned ? unpin(snapshot.rack ?? {}, node.id) : pin(snapshot.rack ?? {}, node.id),
+        })),
+      ),
+    );
+    if (node.size != null) {
+      items.push(
+        item("Reset size", () =>
+          station.edit((snapshot) => ({
+            ...snapshot,
+            graph: patchNode(snapshot.graph, node.id, ({ size: _size, ...rest }) => rest),
+          })),
+        ),
+      );
+    }
+  }
+  if (menu.target.kind === "edge") {
+    const key = menu.target.id;
+    items.push(
+      item(
+        "Delete wire",
+        () => station.edit((snapshot) => ({ ...snapshot, graph: removeEdge(snapshot.graph, key) })),
+        true,
+      ),
+    );
+  }
+  if (menu.target.kind === "pane") {
+    items.push(item("Fit the patch on screen", () => void fitView(FIT_VIEW)));
+  }
+
+  return (
+    // Fixed, not absolute: the coordinates are the pointer's, and the canvas is transformed.
+    <div
+      role="menu"
+      className={`${SURFACE} fixed z-40 flex w-52 flex-col p-1`}
+      style={{ left: menu.x, top: menu.y }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {items}
+      {node !== undefined && (
+        <span className="px-2 py-1 text-[10px] text-ink-faint">
+          Backspace deletes the selection — a node or a wire.
+        </span>
+      )}
+    </div>
   );
 }
 
 function toFlowNodes(graph: PatchGraph): Node<FlowData>[] {
-  return graph.nodes.map((node) => ({
-    id: node.id,
-    type: node.kind,
-    position: node.position,
-    data: { node },
-    ...(node.size ? { width: node.size.w, height: node.size.h } : {}),
-  }));
+  return graph.nodes.map((node) => {
+    // No stored size means the face has never been resized by hand, and it opens at the size its
+    // kind needs: a width, and a height only where the content is a viewport rather than a
+    // column of controls (`NODE_SIZE`). Leaving the height off is what lets React Flow measure
+    // the face and give it exactly the room its instrument asks for.
+    const natural = NODE_SIZE[node.kind];
+    const size = node.size ?? natural;
+    return {
+      id: node.id,
+      type: node.kind,
+      position: node.position,
+      data: { node },
+      width: size.w,
+      ...(size.h == null ? {} : { height: size.h }),
+    };
+  });
 }
 
 function toFlowEdges(graph: PatchGraph, context: GraphContext): Edge[] {

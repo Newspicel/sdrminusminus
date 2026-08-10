@@ -61,7 +61,18 @@ type Counts = Record<MapKind, number>;
 const EMPTY_COLLECTION: TargetCollection = { type: "FeatureCollection", features: [] };
 const ZERO_COUNTS: Counts = { adsb: 0, ais: 0, aprs: 0 };
 
-export function MapPanel({ kinds, className }: { kinds: readonly MapKind[]; className?: string }) {
+export function MapPanel({
+  kinds,
+  active = true,
+  className,
+}: {
+  kinds: readonly MapKind[];
+  /** Whether the map owns the pointer and the wheel. On the canvas it does so only while its node
+   * is the active face — MapLibre's own handlers would otherwise pan the map *and* the patch with
+   * one gesture, since the two cannot share a wheel. */
+  active?: boolean;
+  className?: string;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const readyRef = useRef(false);
@@ -211,6 +222,30 @@ export function MapPanel({ kinds, className }: { kinds: readonly MapKind[]; clas
       clearInterval(ageTimer);
     };
   }, []);
+
+  // The map's own gestures are handed over with the face: an inactive one is a picture, and the
+  // wheel across it belongs to the canvas camera. Re-run on every render of an active map too —
+  // the handlers only exist once the style has landed, which is later than the first effect.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null) {
+      return;
+    }
+    for (const handler of [
+      map.scrollZoom,
+      map.dragPan,
+      map.boxZoom,
+      map.doubleClickZoom,
+      map.touchZoomRotate,
+      map.keyboard,
+    ]) {
+      if (active) {
+        handler.enable();
+      } else {
+        handler.disable();
+      }
+    }
+  }, [active, basemap]);
 
   // Rewiring the node changes what it plots. The key, not the array, is the dependency: `kinds`
   // is rebuilt on every render, and a rebuilt layer stack twice a second is not what a wire

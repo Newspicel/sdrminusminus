@@ -37,8 +37,14 @@ pub const MAX_COORD: f32 = 100_000.0;
 pub const MAX_NODE_SIZE: f32 = 10_000.0;
 /// Rack grid. Cells are whole units of a fixed grid (CANVAS §5: alignment and muscle memory, no
 /// camera), so a rack that does not fit is a smaller rack, never a zoomed one.
-pub const RACK_COLS: u16 = 24;
-pub const RACK_ROWS: u16 = 24;
+///
+/// Twelve by eight, not the twenty-four squared it shipped as: the cell is the unit of every
+/// gesture, and a cell too small to aim at is a drag that lands one short. CANVAS §5 already
+/// named the remedy for a rack that feels cramped — bigger cells. A rack stored against the old
+/// grid is re-laid out client-side (`pruneRack`) rather than migrated: the slots are an
+/// arrangement, not data.
+pub const RACK_COLS: u16 = 12;
+pub const RACK_ROWS: u16 = 8;
 
 /// What a wire carries. Hue encodes this and only this (CANVAS §6), so the set stays small and
 /// every member is a stream the engine actually produces today.
@@ -1096,14 +1102,14 @@ mod tests {
         };
 
         RackLayout {
-            slots: vec![slot("scope", 0, 0, 12, 6), slot("ch", 12, 0, 6, 6)],
+            slots: vec![slot("scope", 0, 0, 6, 4), slot("ch", 6, 0, 6, 4)],
         }
         .validate(&graph)
         .expect("side by side");
 
         assert_eq!(
             RackLayout {
-                slots: vec![slot("scope", 0, 0, 12, 6), slot("ch", 6, 3, 6, 6)],
+                slots: vec![slot("scope", 0, 0, 6, 4), slot("ch", 3, 2, 6, 4)],
             }
             .validate(&graph),
             Err(PatchError::RackOverlap("ch".to_owned()))

@@ -21,6 +21,29 @@ async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
   await page.mouse.up();
 }
 
+/** The rack as the server has it — the arrangement is server state, not what the DOM happens to
+ * be showing mid-gesture. */
+async function slots(page: Page): Promise<{ node: string; x: number; w: number }[]> {
+  const list = await page.request.get("/api/workspaces").then((r) => r.json());
+  const detail = await page.request.get(`/api/workspaces/${list.active}`).then((r) => r.json());
+  return detail.snapshot.rack.slots;
+}
+
+/** Drag a rack grip by whole cells. The grid is `RACK_COLS` wide, so a cell is the container's
+ * width over twelve — the same arithmetic the rack itself does. */
+async function dragBy(page: Page, grip: Locator, cells: number): Promise<void> {
+  const box = await grip.boundingBox();
+  const grid = await page.locator(".grid").first().boundingBox();
+  if (box === null || grid === null) {
+    throw new Error("a grip to drag and a grid to drag it in");
+  }
+  const step = (grid.width / 12) * cells;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + step, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
+
 test.describe("the station", () => {
   test("binds a radio, adds a channel and pins a face", async ({ page }) => {
     await page.goto("/");
@@ -79,15 +102,26 @@ test.describe("the station", () => {
     await expect(channel.getByText(/nothing feeds this channel|not been created/i)).toHaveCount(0);
 
     // Pinning adds the face to the rack and leaves the canvas node where it was (CANVAS §5).
-    await node("scope")
-      .getByRole("button", { name: /pin to the rack/i })
-      .click();
-    await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
+    for (const id of ["scope", "speaker"]) {
+      await node(id)
+        .getByRole("button", { name: /pin to the rack/i })
+        .click();
+      await expect(node(id).getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
+    }
     await expect(node("scope").getByText(/pinned to the rack/i)).toHaveCount(0);
 
     const rack = page.getByRole("group", { name: "View" }).getByRole("button", { name: "Rack" });
     await rack.click();
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
+
+    // Dragging the boundary between two faces makes one larger and the other smaller (CANVAS §5).
+    // The whole point of the gesture is that it re-balances a full rack without a hole, so both
+    // halves are asserted — and against the *stored* rack, since that is what survives a reload.
+    const before = await slots(page);
+    await dragBy(page, page.locator('[title="Drag the boundary to the right"]').first(), 1);
+    await expect
+      .poll(async () => (await slots(page)).map((slot) => slot.w))
+      .toEqual([(before[0]?.w ?? 0) + 1, (before[1]?.w ?? 0) - 1]);
 
     // The arrangement is server state, not browser state (PLAN §10): a reload restores it — and
     // the station comes back bound, which is what applying on load buys.

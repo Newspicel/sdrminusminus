@@ -30,6 +30,7 @@ export function FrequencyDial({
   range,
   onTune,
   disabled = false,
+  wheelTunes = true,
   id = DIAL_ID,
 }: {
   hz: number;
@@ -38,6 +39,9 @@ export function FrequencyDial({
   /** Something else owns the tuning: a running scanner drives the radio and the server refuses a
    * client retune while it does (PLAN §18). The readout stays live; only the controls go. */
   disabled?: boolean;
+  /** Whether a wheel over a digit tunes it. False while the dial's node is not the active face:
+   * the camera owns the wheel there, and one notch must not tune the radio *and* pan the patch. */
+  wheelTunes?: boolean;
   /** An id has to be unique, and the canvas draws one dial per device node, so a face passes its
    * own (`deviceDialId`). */
   id?: string;
@@ -57,7 +61,7 @@ export function FrequencyDial({
   // natively or the page scrolls while the dial tunes.
   useEffect(() => {
     const dial = dialRef.current;
-    if (dial === null || draft !== null || disabled) {
+    if (dial === null || draft !== null || disabled || !wheelTunes) {
       return;
     }
     const onWheel = (event: WheelEvent) => {
@@ -72,7 +76,7 @@ export function FrequencyDial({
     };
     dial.addEventListener("wheel", onWheel, { passive: false });
     return () => dial.removeEventListener("wheel", onWheel);
-  }, [hz, places, range, onTune, draft, disabled]);
+  }, [hz, places, range, onTune, draft, disabled, wheelTunes]);
 
   if (draft !== null) {
     return (

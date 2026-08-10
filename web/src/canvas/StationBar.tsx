@@ -72,7 +72,7 @@ export function StationBar({
       <span className="font-mono text-sm tracking-tight text-accent">sdr--</span>
 
       <Popover
-        label={active?.name ?? "No station"}
+        label={active?.name ?? "No workspace"}
         triggerClass={`${BTN_QUIET} font-mono`}
         width="w-72"
       >
@@ -193,9 +193,15 @@ function Library() {
   // recoverable by undo. The target is the selected receiver node; with nothing selected it
   // falls back only when there is exactly one radio to mean, and otherwise the drawer says so
   // instead of silently picking the first.
+  //
+  // "One radio to mean" counts the radios *this patch names*, not every set the engine has open:
+  // applying a patch never closes anything (CANVAS §4), so a workspace with nothing drawn on it
+  // still sits beside whatever the last one left running — and the drawer offering to retune a
+  // radio the operator can no longer see on the canvas is how a preset lands on the wrong one.
   const selected =
     station.selected === null ? null : (station.devices.get(station.selected) ?? null);
-  const only = station.deviceSets.length === 1 ? (station.deviceSets[0] ?? null) : null;
+  const drawn = [...station.devices.values()];
+  const only = drawn.length === 1 ? (drawn[0] ?? null) : null;
   const active = selected ?? only;
 
   return (
@@ -216,9 +222,9 @@ function Library() {
       </div>
       <span className={LABEL}>
         {active === null
-          ? station.deviceSets.length > 1
+          ? drawn.length > 1
             ? "select a receiver node to choose the target"
-            : "no receiver"
+            : "no receiver on this patch"
           : `on ${active.device.label}`}
       </span>
       {tab === "templates" && <TemplatesPanel active={active} onApplied={() => station.apply()} />}
@@ -245,7 +251,7 @@ function WorkspaceMenu({
   const [name, setName] = useState("");
   return (
     <div className="flex flex-col gap-2">
-      <span className={LABEL}>Stations</span>
+      <span className={LABEL}>Workspaces</span>
       {workspaces.map((workspace) => (
         <div key={workspace.id} className="flex items-center gap-1">
           <button
@@ -280,7 +286,7 @@ function WorkspaceMenu({
       >
         <input
           className="h-7 min-w-0 flex-1 rounded-[3px] border border-line-strong bg-panel-2 px-2 font-mono text-xs text-ink placeholder:text-ink-faint"
-          placeholder="New station"
+          placeholder="New workspace"
           value={name}
           onChange={(event) => setName(event.target.value)}
         />

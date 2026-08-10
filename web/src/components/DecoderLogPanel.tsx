@@ -12,7 +12,6 @@ import {
   buildRows,
   collectLive,
   DEFAULT_LOG_FILTER,
-  deviceSetOptions,
   droppedNotice,
   formatLogTime,
   isFiltered,
@@ -20,6 +19,7 @@ import {
   kindOptions,
   LIMIT_OPTIONS,
   type LogFilter,
+  mergeDeviceSets,
   toQuery,
 } from "./decoderLog";
 import { formatMhz } from "./format";
@@ -70,6 +70,12 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
   const lost = useDecodedStore((s) => s.lost);
 
   const entries = useMemo(() => log.data?.entries ?? [], [log.data]);
+  // The device-set list only grows: derived from the filtered page it would drop every set but
+  // the one being filtered on, and there would be no way back to the others (`mergeDeviceSets`).
+  const [sets, setSets] = useState<readonly number[]>([]);
+  useEffect(() => {
+    setSets((current) => mergeDeviceSets(current, entries, deviceSets));
+  }, [entries, deviceSets]);
   const rows = useMemo(
     () => buildRows(entries, live ? collectLive(frames, filter) : []),
     [entries, frames, filter, live],
@@ -114,10 +120,7 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
           value={filter.deviceSet}
           options={[
             { value: "", label: "All devices" },
-            ...deviceSetOptions(entries, deviceSets).map((id) => ({
-              value: String(id),
-              label: `Set ${id}`,
-            })),
+            ...sets.map((id) => ({ value: String(id), label: `Set ${id}` })),
           ]}
           onChange={(deviceSet) => patch({ deviceSet })}
         />

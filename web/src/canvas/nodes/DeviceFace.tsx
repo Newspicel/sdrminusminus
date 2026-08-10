@@ -19,7 +19,7 @@ import { useDevicePatch } from "../../lib/useDevicePatch";
 import { deviceRefOf, refMatches, unboundChannels } from "../binding";
 import { useStationContext } from "../context";
 import { patchNode } from "../graph";
-import { FaceBody, NodeShell } from "./NodeShell";
+import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
 
 /** One dial per device node, and an id has to be unique in the document — this is the handle a
  * keyboard binding uses to reach the selected node's dial. */
@@ -34,6 +34,32 @@ export function refLabel(reference: DeviceRef): string {
   return identity == null ? reference.backend : `${reference.backend} · ${identity}`;
 }
 
+/** Its own component so it can read whether this face is the active one: the dial's wheel belongs
+ * to the camera until the node is clicked (`useFaceActive`), or one notch would tune the radio and
+ * pan the patch at once. It is also where the dial's `@container` sits — the digits size off the
+ * node, never off the viewport (see `DIGIT_SIZE`). */
+function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning: boolean }) {
+  const { applyPatch } = useDevicePatch();
+  const active = useFaceActive();
+  return (
+    <div className="@container flex flex-col gap-1 border-b border-line p-2">
+      <FrequencyDial
+        id={deviceDialId(node)}
+        hz={set.settings.center_hz ?? 0}
+        range={tuningRange(set.capabilities)}
+        disabled={scanning}
+        wheelTunes={active}
+        onTune={(hz) => applyPatch(set.id, { center_hz: hz })}
+      />
+      {scanning && (
+        <p className="text-xs text-ink-dim">
+          The scanner is driving this radio; tuning from here is refused until it stops.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** A running scan drives the tuning itself, and the server refuses ours while it does
  * (PLAN §18). A faulted scan has already stopped, so the dial comes back with it. */
 export function scannerOwnsTuning(set: DeviceSet): boolean {
@@ -42,7 +68,6 @@ export function scannerOwnsTuning(set: DeviceSet): boolean {
 
 export function DeviceFace({ node }: { node: PatchNode }) {
   const station = useStationContext();
-  const { applyPatch } = useDevicePatch();
   const queryClient = useQueryClient();
   // The kind test is what narrows `node.data` to a device node's payload.
   const reference = node.kind === "device" ? (node.data.device ?? null) : null;
@@ -139,22 +164,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         <div className="flex min-h-full flex-col">
-          {/* The dial sizes off the node, not the viewport: this is the container its digits
-              read (see `DIGIT_SIZE`). */}
-          <div className="@container flex flex-col gap-1 border-b border-line p-2">
-            <FrequencyDial
-              id={deviceDialId(node.id)}
-              hz={set.settings.center_hz ?? 0}
-              range={tuningRange(set.capabilities)}
-              disabled={scanning}
-              onTune={(hz) => applyPatch(set.id, { center_hz: hz })}
-            />
-            {scanning && (
-              <p className="text-xs text-ink-dim">
-                The scanner is driving this radio; tuning from here is refused until it stops.
-              </p>
-            )}
-          </div>
+          <Tuner node={node.id} set={set} scanning={scanning} />
 
           <div className="p-2">
             <RadioSettings active={set} />

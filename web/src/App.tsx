@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { bindChannels, bindDevices } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { StationProvider } from "./canvas/context";
-import { isPinned, patchNode, pin, unpin } from "./canvas/graph";
+import { isPinned, patchNode, pin, pruneRack, unpin } from "./canvas/graph";
 import { deviceDialId } from "./canvas/nodes/DeviceFace";
 import { Rack } from "./canvas/Rack";
 import { StationBar, type View } from "./canvas/StationBar";
@@ -137,6 +137,11 @@ export function App() {
       pushToast(`${what}: ${refusal.reason}`);
     }
   }, [station.applied, graph.nodes]);
+
+  // What the rack draws is the stored layout with anything that no longer fits the grid
+  // re-placed (`pruneRack`) — the same normalisation every write goes through, so the operate
+  // view and the next write cannot disagree about where a face is.
+  const rack = useMemo(() => pruneRack(snapshot?.rack ?? {}, graph), [snapshot?.rack, graph]);
 
   const devices = useMemo(() => bindDevices(graph, deviceSets), [graph, deviceSets]);
   const channels = useMemo(() => bindChannels(graph, devices), [graph, devices]);
@@ -280,7 +285,7 @@ export function App() {
               socket,
               connected,
               graph,
-              rack: snapshot.rack ?? {},
+              rack,
               context,
               deviceSets,
               devices,
@@ -317,8 +322,12 @@ export function App() {
             so rather than inventing one); the only thing to offer is a new one. */}
         {station.active === null && !station.pending && (
           <div className="flex min-h-0 flex-1 items-center justify-center">
-            <button type="button" className={BTN_PRIMARY} onClick={() => station.create("Station")}>
-              Create a station
+            <button
+              type="button"
+              className={BTN_PRIMARY}
+              onClick={() => station.create("Workspace")}
+            >
+              Create a workspace
             </button>
           </div>
         )}

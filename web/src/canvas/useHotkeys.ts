@@ -36,12 +36,15 @@ export const BINDINGS: readonly Binding[] = [
   { keys: "f", what: "Focus the dial — then Enter to type a frequency" },
   { keys: ", .", what: "Previous / next channel" },
   { keys: "m / M", what: "Cycle the selected channel's mode" },
-  { keys: "- =", what: "Squelch down / up 2 dB" },
+  // `=` is the unshifted `+` on a US layout and `+` is its own key elsewhere; both are bound, so
+  // the sheet names both rather than the one that happens to be right for one keyboard.
+  { keys: "- / + =", what: "Squelch down / up 2 dB" },
   { keys: "s", what: "Squelch on / off" },
   { keys: "Space", what: "Start / stop audio on the selected channel" },
   { keys: "1 – 9", what: "Select the nth node" },
   { keys: "p", what: "Pin / unpin the selected face on the rack" },
   { keys: "v", what: "Swap the patch and the rack" },
+  { keys: "Backspace", what: "Delete the selected node or wire (right-click offers it too)" },
   { keys: "?", what: "This list" },
   { keys: "Esc", what: "Close an overlay or a menu" },
 ];
