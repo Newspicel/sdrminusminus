@@ -451,6 +451,7 @@ impl Store {
         name: &str,
         snapshot: &WorkspaceSnapshot,
     ) -> Result<i64, StoreError> {
+        validate_name(name)?;
         snapshot.validate()?;
         let json = serde_json::to_string(snapshot)?;
         let now = now_rfc3339();
@@ -475,11 +476,8 @@ impl Store {
         if let Some(snapshot) = &req.snapshot {
             snapshot.validate()?;
         }
-        if let Some(name) = &req.name
-            && (name.trim().is_empty()
-                || name.chars().count() > sdrmm_wire::workspace::MAX_NAME_LEN)
-        {
-            return Err(StoreError::WorkspaceLayout(WorkspaceError::Name));
+        if let Some(name) = &req.name {
+            validate_name(name)?;
         }
         let mut conn = self.lock();
         let tx = conn.transaction()?;
@@ -600,6 +598,15 @@ impl Store {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// The same bound on both write paths: a workspace is picked by name in the switcher, so an
+/// empty or unprintably long one is a broken row, not a preference.
+fn validate_name(name: &str) -> Result<(), StoreError> {
+    if name.trim().is_empty() || name.chars().count() > sdrmm_wire::workspace::MAX_NAME_LEN {
+        return Err(StoreError::WorkspaceLayout(WorkspaceError::Name));
+    }
+    Ok(())
 }
 
 fn active_workspace(conn: &Connection) -> Result<Option<i64>, StoreError> {
@@ -1415,6 +1422,18 @@ mod tests {
             store.create_workspace("Station", &WorkspaceSnapshot::station_default()),
             Err(StoreError::WorkspaceNameTaken(_))
         ));
+        // Create bounds the name exactly as update does; a blank one would be a row nobody can
+        // pick out of the switcher.
+        for blank in [
+            "",
+            "   ",
+            &"x".repeat(sdrmm_wire::workspace::MAX_NAME_LEN + 1),
+        ] {
+            assert!(matches!(
+                store.create_workspace(blank, &WorkspaceSnapshot::station_default()),
+                Err(StoreError::WorkspaceLayout(WorkspaceError::Name))
+            ));
+        }
         let other = store
             .create_workspace("Bench", &WorkspaceSnapshot::station_default())
             .expect("create");

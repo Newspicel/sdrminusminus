@@ -1121,3 +1121,43 @@ under *Verified live* below).
   it unreachable rather than fixed.
 - **No Playwright smoke flow** still (PLAN §14): the live verification above was manual, and the
   mappers carry the automated coverage.
+
+### Post-review hardening (adversarial multi-agent review: 12 findings, 5 refuted, 7 confirmed & fixed)
+- [x] **The dock was rebuilt after every gesture** (high). `TabSpec.floating` is
+  `skip_serializing_if` on the wire, so a tab with no floating groups comes back *without* the
+  key — while the mapper always emitted `floating: []`. The echo-suppression comparison could
+  therefore never succeed: one round trip after every drag, the whole dock was torn down and
+  rebuilt, which is exactly what `renderer: "always"` exists to prevent. The mapper now emits the
+  canonical wire shape (as it already did for `active` and `title`), with a test that asserts the
+  key is absent on both sides
+- [x] **`dispose()` poisoned the canvas it was about to reuse** (high). Losing a WebGL context
+  poisons the *canvas*, not the context object: `getContext` keeps returning the dead one, and
+  every later shader compile fails with an empty log. React StrictMode runs mount→unmount→mount
+  on the same canvas, so the release meant the waterfall never came back — which is what the
+  live check had blamed on headless GL. The release is now deferred to the next macrotask and
+  skipped unless the canvas has actually left the document
+- [x] **The 0×0 render guard could never fire** (low). It tested `canvas.width`, which
+  `resizeToDisplay` deliberately leaves at its last non-zero value; the *display* size is what
+  goes to zero
+- [x] **A pending layout write was dropped when the dock unmounted** (medium). Switching tab or
+  workspace inside the 400 ms debounce lost the rearrangement. The layout is now mapped when the
+  gesture lands rather than when the timer fires, so the unmount can flush it — by unmount time
+  React has already disposed the dock and its `toJSON` describes nothing
+- [x] **Two writes inside one round trip fought over the revision** (medium). Both carried the
+  revision they were rendered with, so the server — correctly — refused the second as stale and
+  the change was lost. Writes are now serialized and expressed as *edits of the current
+  snapshot*: each reads the revision the previous produced (folded in from the write's own
+  response), and no caller can build on a snapshot it merely happened to be rendering
+- [x] **The debounced write did not re-check the mode** (medium). Crossing the narrow breakpoint
+  mid-debounce would have persisted the phone-flattened layout
+- [x] **`create_workspace` did not bound the name** while `update_workspace` did — one shared
+  `validate_name` now guards both, with the rejection tested
+- [x] Fixed while verifying live: the waterfall canvas needed `min-h-0`. A canvas has an
+  intrinsic size from its backing store and a flex item defaults to `min-height: auto`, so it
+  refused to shrink below the height it was last given and overflowed its dock panel
+- Refuted after verification (recorded so they are not re-found): the template-tab apply
+  swallowing non-conflict store errors (the doc comment scopes exactly the two cases it
+  handles), a cross-process seeding race (the two binaries cannot share a database, and a
+  restart re-reads a non-empty table), unbounded floating `x_frac`/`y_frac` (the only producer
+  clamps, and dockview re-clamps on restore so the row self-heals), and a redundant assertion in
+  a wire test
