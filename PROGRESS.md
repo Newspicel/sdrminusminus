@@ -987,7 +987,7 @@ Goal (PLAN §16): workspaces → tabs → dockview panel layouts, server-persist
 gain layouts. M0–M5 shipped a fixed arrangement, so this is a shell change: every panel it hosts
 already existed.
 
-**Status: complete.** `cargo xtask check` + `cargo xtask test` green (77 server tests, 181 web
+**Status: complete.** `cargo xtask check` + `cargo xtask test` green (76 server tests, 182 web
 tests); verified live in a browser against `device-virtual` — layout restore, tab switch, panel
 add, reload, and the phone breakpoint (screenshots in the session; the behaviours are listed
 under *Verified live* below).

@@ -95,7 +95,10 @@ export function useWorkspace(): WorkspaceState {
           // divergence the very next response settles.
           queryClient.setQueryData<WorkspaceDetail>(key, { ...current, snapshot });
           return update.mutateAsync({ id, revision: current.revision, snapshot });
-        });
+        })
+        // The failure is already on screen through `update.error`; this only keeps the last one
+        // in a chain from surfacing as an unhandled rejection.
+        .catch(() => undefined);
     },
     [queryClient, update],
   );
