@@ -176,6 +176,21 @@
   stroke: var(--color-port-events);
 }
 
+/* A wire that exists but cannot carry what it says it carries: dashed and in `danger`, with the
+   reason as its label. Refusing the connection outright would have been the wrong answer — a
+   sample rate is one setting away, and the face at the end of the wire offers that setting
+   (CANVAS §1). */
+.wire-fault .react-flow__edge-path {
+  stroke: var(--color-danger);
+  stroke-dasharray: 5 4;
+}
+
+.wire-fault .react-flow__edge-text {
+  fill: var(--color-danger);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
 /* Hover and selection brighten the wire rather than recolouring it: the hue is already saying
    what it carries. */
 .react-flow__edge:hover .react-flow__edge-path,

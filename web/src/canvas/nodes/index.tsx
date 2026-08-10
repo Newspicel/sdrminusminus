@@ -5,11 +5,9 @@ import type { Node, NodeProps } from "@xyflow/react";
 import type { ComponentType } from "react";
 import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
-import { useStationContext } from "../context";
-import { isPinned } from "../graph";
 import { ChannelFace } from "./ChannelFace";
 import { DeviceFace } from "./DeviceFace";
-import { CanvasSurface, NodeShell } from "./NodeShell";
+import { CanvasSurface } from "./NodeShell";
 import { ScopeFace } from "./ScopeFace";
 import {
   DecoderLogFace,
@@ -23,26 +21,23 @@ import {
 type Face = ComponentType<{ node: PatchNode }>;
 
 /**
- * One live surface per node (CANVAS §5): a pinned face renders in the rack, and its canvas node
- * collapses to a placeholder. Two mounts of one instrument would mean two WebGL contexts, two
- * map cameras and two audio subscriptions for one thing the operator sees once.
+ * A pinned face keeps its place on the canvas (CANVAS §5, amended): pinning adds a face to the
+ * operate view, it does not take it out of the patch — a node that turned into a "pinned →"
+ * placeholder left a hole where the operator had put an instrument, and made the patch a worse
+ * picture of the station for having operated it.
+ *
+ * The rule it replaces existed to avoid two live surfaces for one instrument. Two of the three
+ * costs are gone: the patch and the rack are alternate views, so only one is mounted at a time,
+ * and scope faces now share one WebGL context across every view of them (CANVAS §7). Audio is
+ * refcounted per (device set, channel) by the engine, so a second face is a second listener on
+ * one stream. What is left is MapLibre, which takes a context per map instance — the reason a
+ * split view showing both surfaces at once is not free, if one is ever built.
  */
 function mount(Face: Face) {
   return function FaceNode({ data }: NodeProps<Node<FlowData>>) {
-    const station = useStationContext();
-    const node = data.node;
-    if (isPinned(station.rack, node.id)) {
-      return (
-        <CanvasSurface>
-          <NodeShell node={node} title={node.kind} category="display" live={false}>
-            <p className="p-3 text-sm text-ink-dim">Pinned to the rack →</p>
-          </NodeShell>
-        </CanvasSurface>
-      );
-    }
     return (
       <CanvasSurface>
-        <Face node={node} />
+        <Face node={data.node} />
       </CanvasSurface>
     );
   };

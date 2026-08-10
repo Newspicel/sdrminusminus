@@ -212,12 +212,13 @@ fn validate_channel(
         let widest = sdrmm_dsp::resamplable_bandwidth_hz(descriptor.input_rate_hz);
         if high - low >= widest {
             return Err(ChannelError::InvalidSettings(format!(
-                "{} occupies {} Hz, which a resampling DDC cannot deliver at {} Hz; set the \
-                 device to exactly {} Hz",
-                descriptor.type_id,
-                high - low,
-                descriptor.input_rate_hz,
-                descriptor.input_rate_hz
+                "{} fills its whole {:.3} MHz channel, so there is no guard band left for a \
+                 resampler to filter in — at {:.3} MHz the signal would arrive smeared and \
+                 decode nothing. Set the receiver to exactly {:.3} MHz.",
+                descriptor.name,
+                (high - low) / 1e6,
+                device_rate / 1e6,
+                descriptor.input_rate_hz / 1e6,
             ))
             .into());
         }

@@ -33,7 +33,7 @@ export const BINDINGS: readonly Binding[] = [
   { keys: "← →", what: "Tune down / up one step" },
   { keys: "Shift ← →", what: "Tune ten steps" },
   { keys: "[ ]", what: "Smaller / larger tune step" },
-  { keys: "f", what: "Type a frequency into the dial" },
+  { keys: "f", what: "Focus the dial — then Enter to type a frequency" },
   { keys: ", .", what: "Previous / next channel" },
   { keys: "m / M", what: "Cycle the selected channel's mode" },
   { keys: "- =", what: "Squelch down / up 2 dB" },

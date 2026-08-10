@@ -8,10 +8,11 @@ import {
   channelHasAudio,
   exactRateMismatch,
 } from "../../components/channelSettings";
-import { BTN_PRIMARY } from "../../components/controls";
+import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { DecoderView } from "../../components/DecoderPanels";
 import { formatMhz, formatSignedKhz } from "../../components/format";
-import type { PatchNode } from "../../lib/types";
+import type { DeviceSet, PatchNode } from "../../lib/types";
+import { useDevicePatch } from "../../lib/useDevicePatch";
 import { sourcesOf, targetsOf } from "../binding";
 import { deviceSetOf, useStationContext } from "../context";
 import { FaceBody, NodeShell } from "./NodeShell";
@@ -59,19 +60,13 @@ export function ChannelFace({ node }: { node: PatchNode }) {
       live={channel !== null}
     >
       <FaceBody>
+        {needsRateHz !== null && set !== null && (
+          <RateMismatch name={name} set={set} needsRateHz={needsRateHz} />
+        )}
         {channel === null || set === null ? (
           <Unbound wired={wired} open={set !== null} onApply={station.apply} />
         ) : (
           <>
-            {needsRateHz !== null && (
-              <p
-                role="alert"
-                className="border-b border-danger/40 bg-danger/10 px-2 py-1.5 text-xs text-danger"
-              >
-                {name} needs the receiver at exactly{" "}
-                <span className="font-mono tabular-nums">{needsRateHz / 1e6}</span> Msps.
-              </p>
-            )}
             <ChannelControls
               deviceSet={set.id}
               channel={channel}
@@ -93,6 +88,56 @@ export function ChannelFace({ node }: { node: PatchNode }) {
         )}
       </FaceBody>
     </NodeShell>
+  );
+}
+
+/**
+ * The one refusal an operator meets by accident, so it answers "why" and not just "no": a mode
+ * that fills its whole channel leaves a resampler no guard band to filter in, and at any other
+ * rate it decodes nothing at all rather than decoding badly (PLAN §18). The receiver is one
+ * click away, because the fix is always the same single setting.
+ */
+function RateMismatch({
+  name,
+  set,
+  needsRateHz,
+}: {
+  name: string;
+  set: DeviceSet;
+  needsRateHz: number;
+}) {
+  const { applyPatch } = useDevicePatch();
+  const supported =
+    set.capabilities.sample_rates.length === 0 ||
+    set.capabilities.sample_rates.includes(needsRateHz);
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-start gap-1.5 border-b border-danger/40 bg-danger/10 px-2 py-1.5 text-xs text-danger"
+    >
+      <p>
+        {name} fills its whole{" "}
+        <span className="font-mono tabular-nums">{(needsRateHz / 1e6).toFixed(3)}</span> MHz
+        channel, so there is no guard band left for a resampler to filter in. At{" "}
+        <span className="font-mono tabular-nums">
+          {((set.settings.sample_rate ?? 0) / 1e6).toFixed(3)}
+        </span>{" "}
+        MHz it decodes nothing at all.
+      </p>
+      {supported ? (
+        <button
+          type="button"
+          className={BTN}
+          onClick={() => applyPatch(set.id, { sample_rate: needsRateHz })}
+        >
+          Set {set.device.label} to {(needsRateHz / 1e6).toFixed(3)} MHz
+        </button>
+      ) : (
+        <p>
+          This receiver does not offer that rate, so it cannot carry {name}. Another radio has to.
+        </p>
+      )}
+    </div>
   );
 }
 

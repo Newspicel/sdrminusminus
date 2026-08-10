@@ -119,16 +119,20 @@ export function connectionRefusal(
       ? "a channel takes one receiver; two would need a coherent array"
       : "that input takes one wire";
   }
-  return rateRefusal(context, graph, from, to);
+  return null;
 }
 
 /**
- * The rule that shows up on the wire rather than in a log (CANVAS §1): a mode that fills its
- * whole channel cannot be resampled, so patching ADS-B to a radio running at 2.4 Msps is
- * refused here, naming the rate that works (PLAN §18). The flag is the server's — computed from
- * the same functions the engine's admission check uses — not a number copied into the client.
+ * What is wrong with a wire that was allowed to exist (CANVAS §1: the rate rule "surfaces on the
+ * wire … a visible wire error, not a buried log line"). A rate is one setting away, so it is not
+ * a reason to refuse the connection — the operator meant to put ADS-B on that radio, and the
+ * answer is to change the rate, not to pretend the two cannot be joined.
+ *
+ * A mode that fills its whole channel leaves a resampler no guard band, so at any other rate it
+ * decodes nothing at all (PLAN §18). The flag is the server's — derived from the same functions
+ * the engine's admission check uses — not a number copied into the client.
  */
-function rateRefusal(
+export function edgeWarning(
   context: GraphContext,
   graph: PatchGraph,
   from: PortRef,
@@ -146,7 +150,14 @@ function rateRefusal(
   if (rate == null || rate === descriptor.input_rate_hz) {
     return null;
   }
-  return `${descriptor.name} needs the receiver at exactly ${descriptor.input_rate_hz / 1e6} Msps`;
+  // Short enough to sit on a wire without crossing the patch: the face at the end of it has the
+  // room to say why, and does.
+  return `needs ${mhz(descriptor.input_rate_hz)} MHz`;
+}
+
+/** Rates read as MHz in this UI, and a refusal that says 2000000 makes the reader do the sum. */
+function mhz(hz: number): string {
+  return (hz / 1e6).toFixed(3);
 }
 
 /** Add a node. The caller supplies the id so the same call can be replayed optimistically. */

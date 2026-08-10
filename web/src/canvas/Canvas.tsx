@@ -26,6 +26,8 @@ import {
   addEdge,
   connectionRefusal,
   edgeKey,
+  edgeWarning,
+  type GraphContext,
   pruneRack,
   removeEdge,
   removeNode,
@@ -43,14 +45,20 @@ export function Canvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData>>(
     toFlowNodes(station.graph),
   );
-  const [edges, setEdges, onEdgesChange] = useEdgesState(toFlowEdges(station.graph));
+  const [edges, setEdges, onEdgesChange] = useEdgesState(
+    toFlowEdges(station.graph, station.context),
+  );
 
   // What the canvas currently holds, as a stored patch. An incoming graph equal to this is our
   // own write echoing back through the query cache, and re-applying it would reset a drag in
   // progress; anything else is another client's patch (or the 409 recovery) and is taken.
   const held = useRef<PatchGraph>(station.graph);
+  const context = station.context;
   useEffect(() => {
     if (sameGraph(held.current, station.graph)) {
+      // The graph is unchanged, but a wire's *fault* is live state — a receiver retuned to the
+      // wrong rate under a wideband channel has to light its wire without a patch write.
+      setEdges(toFlowEdges(station.graph, context));
       return;
     }
     held.current = station.graph;
@@ -64,8 +72,8 @@ export function Canvas() {
         return mounted === undefined ? node : { ...mounted, ...node, selected: mounted.selected };
       }),
     );
-    setEdges(toFlowEdges(station.graph));
-  }, [station.graph, setNodes, setEdges]);
+    setEdges(toFlowEdges(station.graph, context));
+  }, [station.graph, context, setNodes, setEdges]);
 
   // Geometry is written at the end of a gesture, never per frame: one write per drag, not one
   // per pointer move (CANVAS §4).
@@ -218,14 +226,20 @@ function toFlowNodes(graph: PatchGraph): Node<FlowData>[] {
   }));
 }
 
-function toFlowEdges(graph: PatchGraph): Edge[] {
-  return (graph.edges ?? []).map((edge) => ({
-    id: edgeKey(edge),
-    source: edge.from.node,
-    sourceHandle: edge.from.port,
-    target: edge.to.node,
-    targetHandle: edge.to.port,
-    // Hue is the data type and nothing else (CANVAS §6); the class is defined per type in CSS.
-    className: `wire-${edge.from.port === "iq" ? "iq" : edge.from.port}`,
-  }));
+function toFlowEdges(graph: PatchGraph, context: GraphContext): Edge[] {
+  return (graph.edges ?? []).map((edge) => {
+    // A wire that exists but cannot carry what it says it carries is drawn as a fault on the
+    // wire itself (CANVAS §1) — the face at its end says what to do about it.
+    const warning = edgeWarning(context, graph, edge.from, edge.to);
+    return {
+      id: edgeKey(edge),
+      source: edge.from.node,
+      sourceHandle: edge.from.port,
+      target: edge.to.node,
+      targetHandle: edge.to.port,
+      // Hue is the data type and nothing else (CANVAS §6); the class is per type in CSS.
+      className: warning === null ? `wire-${edge.from.port}` : "wire-fault",
+      ...(warning === null ? {} : { label: warning, labelShowBg: false }),
+    };
+  });
 }

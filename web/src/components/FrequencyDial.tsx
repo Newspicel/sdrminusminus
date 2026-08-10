@@ -107,6 +107,9 @@ export function FrequencyDial({
       onTune(setDialDigit(hz, place, Number(key), range));
       setActive(Math.min(places.length - 1, index + 1));
     } else if (key === "Enter") {
+      // Direct entry is the keyboard's, and only the keyboard's: a pointer gesture that opened
+      // it swallowed the second press of a double-click on a digit, which is the fastest way to
+      // step one — the control fighting the gesture.
       event.preventDefault();
       setDraft("");
     }
@@ -131,7 +134,6 @@ export function FrequencyDial({
       aria-valuetext={`${(hz / 1e6).toFixed(6)} megahertz`}
       className="flex items-baseline rounded-[3px] font-mono leading-none select-none"
       onKeyDown={disabled ? undefined : onKeyDown}
-      onDoubleClick={disabled ? undefined : () => setDraft("")}
     >
       {digits.map((digit, i) => (
         <Digit
@@ -185,14 +187,10 @@ function Digit({
           armed !== null || active ? "text-accent" : digit.leading ? "text-ink-faint" : "text-ink"
         } ${active ? "bg-accent/12 shadow-[inset_0_-2px_0_var(--color-accent)]" : ""}`}
         // The press both selects the digit for the keyboard and steps it, so a pointer user
-        // never has to aim twice to move the radio one unit. The second press of a double-click
-        // is on its way to direct entry (`onDoubleClick` on the dial), which is not a step at
-        // all — one stray unit is recoverable, two would be the control fighting the gesture.
+        // never has to aim twice to move the radio one unit.
         onPointerDown={(event) => {
           onSelect();
-          if (event.detail <= 1) {
-            onStep(halfAt(event.currentTarget, event.clientY));
-          }
+          onStep(halfAt(event.currentTarget, event.clientY));
         }}
         // A touch pointer has no hover, so the tint only ever shows for a mouse; the press
         // itself reads the same half either way.

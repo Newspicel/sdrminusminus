@@ -516,8 +516,12 @@ async fn adsb_is_rejected_when_the_device_rate_would_force_a_resample() {
         .expect_err("a resampled wideband channel must be refused, not silently deaf");
     let message = err.to_string();
     assert!(
-        message.contains("2000000"),
+        message.contains("2.000 MHz"),
         "the rejection must name the rate that works: {message}"
+    );
+    assert!(
+        message.contains("guard band"),
+        "and why that rate, since the operator's next question is why: {message}"
     );
     engine.remove_device_set(ds).unwrap();
 }
