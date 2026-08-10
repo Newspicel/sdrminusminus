@@ -1445,7 +1445,7 @@ mod tests {
             .expect("template");
         let patch = template.patch.as_ref().expect("templates carry a patch");
 
-        // The station's own receiver is unbound, so the template drew its own — bound to the set
+        // The station's own device node is unbound, so the template drew its own — bound to the set
         // the apply configured, and added exactly once for two applies.
         let added = u32::try_from(patch.nodes.len()).unwrap();
         assert_eq!(
@@ -1617,10 +1617,18 @@ mod tests {
             .nodes
             .iter()
             .find(|n| n.kind == "device")
-            .expect("a receiver in the palette");
+            .expect("a device in the palette");
         assert_eq!(device.category, sdrmm_wire::NodeCategory::Source);
-        assert_eq!(device.ports.len(), 1);
-        assert!(device.ports[0].multi, "one radio feeds many nodes");
+        let port = |name: &str| {
+            device
+                .ports
+                .iter()
+                .find(|port| port.name == name)
+                .unwrap_or_else(|| panic!("the device node has a {name} port"))
+        };
+        assert!(port("iq").multi, "one radio feeds many nodes");
+        assert!(!port("control").multi, "one sweep owns a radio");
+        assert!(port("tx").note.is_some(), "the reserved port says why");
     }
 
     #[tokio::test]

@@ -5,6 +5,7 @@ import type {
   PatchCatalog,
   PatchGraph,
   PatchNode,
+  WorkspaceSnapshot,
 } from "../lib/types";
 import {
   addEdge,
@@ -13,6 +14,7 @@ import {
   edgeWarning,
   type GraphContext,
   isPinned,
+  migrateSnapshot,
   moveSlot,
   newNodeId,
   pin,
@@ -32,9 +34,19 @@ const CATALOG: PatchCatalog = {
   nodes: [
     {
       kind: "device",
-      name: "Receiver",
+      name: "Device",
       category: "source",
-      ports: [{ name: "iq", port_type: "iq", direction: "out", multi: true }],
+      ports: [
+        { name: "control", port_type: "control", direction: "in", multi: false },
+        {
+          name: "tx",
+          port_type: "tx",
+          direction: "in",
+          multi: false,
+          note: "reserved: transmit is not built (PLAN §12a)",
+        },
+        { name: "iq", port_type: "iq", direction: "out", multi: true },
+      ],
     },
     {
       kind: "channel",
@@ -70,6 +82,12 @@ const CATALOG: PatchCatalog = {
       name: "Speaker",
       category: "sink",
       ports: [{ name: "audio", port_type: "audio", direction: "in", multi: true }],
+    },
+    {
+      kind: "scanner",
+      name: "Scanner",
+      category: "feature",
+      ports: [{ name: "control", port_type: "control", direction: "out", multi: false }],
     },
   ],
 };
@@ -118,7 +136,7 @@ function station(): PatchGraph {
 
 const port = (n: string, p: string) => ({ node: n, port: p });
 
-/** The receiver node bound to a set running at this rate — all the live rate rule reads. */
+/** The device node bound to a set running at this rate — all the live rate rule reads. */
 const boundAt = (rate: number) =>
   new Map([["dev", { settings: { sample_rate: rate } } as DeviceSet]]);
 
@@ -169,14 +187,51 @@ describe("connectionRefusal", () => {
     );
   });
 
-  // CANVAS §1: two devices into one channel is refused until `CoherentArray` exists.
-  it("refuses a second receiver on a channel and names why", () => {
+  // Two devices into one channel is refused until `CoherentArray` exists (PLAN §6).
+  it("refuses a second device on a channel and names why", () => {
     const graph = {
       ...station(),
       nodes: [...station().nodes, node("dev2", { kind: "device", data: {} })],
     };
     expect(connectionRefusal(context, graph, port("dev2", "iq"), port("nfm", "iq"))).toMatch(
       /coherent array/,
+    );
+  });
+
+  it("wires a scanner into the radio it drives, and only one", () => {
+    const graph = {
+      ...station(),
+      nodes: [
+        ...station().nodes,
+        node("scan", { kind: "scanner" }),
+        node("dev2", { kind: "device", data: {} }),
+      ],
+    };
+    expect(connectionRefusal(context, graph, port("scan", "control"), port("dev", "control"))) //
+      .toBeNull();
+    // Ownership does not fan out: the engine runs one sweep per radio, either way round.
+    const driving = addEdge(graph, {
+      from: { node: "scan", port: "control" },
+      to: { node: "dev", port: "control" },
+    });
+    expect(
+      connectionRefusal(context, driving, port("scan", "control"), port("dev2", "control")),
+    ).toMatch(/one node at a time/);
+    const second = { ...driving, nodes: [...driving.nodes, node("scan2", { kind: "scanner" })] };
+    expect(
+      connectionRefusal(context, second, port("scan2", "control"), port("dev", "control")),
+    ).toMatch(/takes one wire/);
+  });
+
+  /** The transmit input is reserved (PLAN §12a): nothing emits its type, and what the operator
+   * gets for trying is the server's own reason rather than a type-mismatch line. */
+  it("refuses everything at the reserved transmit input, with the reason", () => {
+    const graph = {
+      ...station(),
+      nodes: [...station().nodes, node("dev2", { kind: "device", data: {} })],
+    };
+    expect(connectionRefusal(context, graph, port("dev", "iq"), port("dev2", "tx"))).toMatch(
+      /transmit is not built/,
     );
   });
 
@@ -202,7 +257,7 @@ describe("connectionRefusal", () => {
 
     const right = { ...context, bound: boundAt(2_048_000) };
     expect(edgeWarning(right, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
-    // An unbound receiver has no rate to be wrong about yet.
+    // An unbound device has no rate to be wrong about yet.
     expect(edgeWarning(context, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
     // A mode that leaves a guard band is never a fault, whatever the radio is doing.
     expect(edgeWarning(wrong, graph, port("dev", "iq"), port("nfm", "iq"))).toBeNull();
@@ -219,6 +274,42 @@ describe("editing", () => {
   it("ids are unique per node", () => {
     expect(newNodeId("scope")).not.toEqual(newNodeId("scope"));
     expect(newNodeId("scope").startsWith("scope:")).toBe(true);
+  });
+
+  it("turns a stored scanner's IQ wire into the control wire that drives the radio", () => {
+    const scanning = (edges: PatchGraph["edges"]): WorkspaceSnapshot => ({
+      version: 1,
+      graph: {
+        nodes: [
+          ...station().nodes,
+          node("scan", { kind: "scanner" }),
+          node("dev2", { kind: "device", data: {} }),
+        ],
+        edges,
+      },
+    });
+    const stored = scanning([
+      { from: { node: "dev", port: "iq" }, to: { node: "scope", port: "iq" } },
+      { from: { node: "dev", port: "iq" }, to: { node: "scan", port: "iq" } },
+    ]);
+    expect(migrateSnapshot(stored).graph.edges?.map(edgeKey)).toEqual([
+      "dev.iq->scope.iq",
+      "scan.control->dev.control",
+    ]);
+    // Idempotent, and a station already in today's shape is returned untouched — the identity is
+    // what keeps a read from invalidating every memo downstream of it.
+    const migrated = migrateSnapshot(stored);
+    expect(migrateSnapshot(migrated)).toBe(migrated);
+
+    // Ownership is exclusive at both ends, so a sweep that fanned across two radios keeps the
+    // first: the alternative is a snapshot the server refuses on the next write.
+    const fanned = scanning([
+      { from: { node: "dev", port: "iq" }, to: { node: "scan", port: "iq" } },
+      { from: { node: "dev2", port: "iq" }, to: { node: "scan", port: "iq" } },
+    ]);
+    expect(migrateSnapshot(fanned).graph.edges?.map(edgeKey)).toEqual([
+      "scan.control->dev.control",
+    ]);
   });
 
   it("compares graphs structurally so an echo of our own write is not re-applied", () => {

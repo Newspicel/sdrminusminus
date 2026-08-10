@@ -1,4 +1,4 @@
-// The channel node's face (CANVAS §1): where the channel sits in its receiver's passband, the
+// The channel node's face (CANVAS §1): where the channel sits in its radio's passband, the
 // settings its mode owns, and — when the type decodes — the live output that used to be a
 // separate decoder panel (CANVAS §8 phase ③). The face is the whole control surface; there is no
 // dialog behind it.
@@ -32,7 +32,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   // Wired and bound are different states: a wire to a radio that is unplugged is kept, and the
   // face says which of the two is missing rather than offering a fix that cannot work (CANVAS §3).
   const wired = sourcesOf(station.graph, node.id, "iq").length > 0;
-  // Where the channel actually is: the receiver's centre plus the offset, falling back to the
+  // Where the channel actually is: the radio's centre plus the offset, falling back to the
   // offset alone while the radio reports no centre.
   const centerHz = set?.settings.center_hz ?? null;
   const offsetHz = channel?.settings.offset_hz ?? 0;
@@ -119,14 +119,13 @@ function RateMismatch({
       className="flex flex-col items-start gap-1.5 border-b border-danger/40 bg-danger/10 px-2 py-1.5 text-xs text-danger"
     >
       <p>
-        {name} reads the radio's own samples, so the receiver has to run {range}. At{" "}
+        {name} reads the radio's own samples, so the radio has to run {range}. At{" "}
         <span className="font-mono tabular-nums">{mhz(set.settings.sample_rate ?? 0)}</span> MHz it
         decodes nothing at all.
       </p>
       {offered === null ? (
         <p>
-          This receiver offers no rate in that range, so it cannot carry {name}. Another radio has
-          to.
+          This radio offers no rate in that range, so it cannot carry {name}. Another radio has to.
         </p>
       ) : (
         <button
@@ -143,7 +142,7 @@ function RateMismatch({
 
 /** The rate this radio offers that is closest to the bottom of the range — lowest first, since
  * every extra sample costs the DSP thread and buys the decoder nothing. `null` when the radio
- * offers none. A receiver that reports no discrete rates takes any, so it takes the minimum. */
+ * offers none. A radio that reports no discrete rates takes any, so it takes the minimum. */
 function nearestRate(set: DeviceSet, wanted: { min: number; max: number }): number | null {
   const rates = set.capabilities.sample_rates;
   if (rates.length === 0) {
@@ -160,13 +159,13 @@ function mhz(hz: number): string {
 /** The header's one-word account of why there is no channel behind the node. */
 function bindingLabel(wired: boolean, open: boolean): string {
   if (!wired) {
-    return "no receiver";
+    return "no device";
   }
-  return open ? "not created" : "receiver absent";
+  return open ? "not created" : "radio absent";
 }
 
 /** No engine channel behind the node — which of three things is missing. Apply is offered
- * whenever a receiver is wired: it opens an attached radio and creates the channel, and for a
+ * whenever a radio is wired: it opens an attached radio and creates the channel, and for a
  * radio that is not there it changes nothing, since the patch keeps the wire either way
  * (CANVAS §3). */
 function Unbound({ wired, open, onApply }: { wired: boolean; open: boolean; onApply: () => void }) {
@@ -174,10 +173,10 @@ function Unbound({ wired, open, onApply }: { wired: boolean; open: boolean; onAp
     <div className="flex flex-col items-start gap-2 p-3">
       <p className="text-sm text-ink-dim">
         {!wired
-          ? "Nothing feeds this channel — wire a receiver's IQ output into it."
+          ? "Nothing feeds this channel — wire a device's IQ output into it."
           : open
-            ? "The receiver is open, but this channel has not been created on it yet."
-            : "Its receiver is not open. Applying opens an attached radio; while none is, the wire is kept and the settings wait."}
+            ? "The radio is open, but this channel has not been created on it yet."
+            : "Its radio is not open. Applying opens an attached radio; while none is, the wire is kept and the settings wait."}
       </p>
       {wired && (
         <button type="button" className={BTN_PRIMARY} onClick={onApply}>

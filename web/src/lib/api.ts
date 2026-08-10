@@ -3,6 +3,7 @@
 // (PLAN §4 step 4, §10). No polling — invalidation is WS-driven.
 import { queryOptions } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
+import { migrateSnapshot } from "../canvas/graph";
 import type { paths } from "../generated/schema";
 import { getToken, rejectToken, withToken } from "./auth";
 import type {
@@ -275,16 +276,21 @@ export function workspacesQuery() {
 }
 
 /** One workspace with its layout. Keyed under `WORKSPACES_KEY` so a `workspaces` scope
- * invalidates the list and every open layout together. */
+ * invalidates the list and every open layout together.
+ *
+ * A station stored against an older port table is brought up to today's here, on the way into the
+ * cache: every read and every edit then sees one shape, and the first write persists it. */
 export function workspaceQuery(id: number | null) {
   return queryOptions({
     queryKey: [...WORKSPACES_KEY, id] as const,
-    queryFn: async (): Promise<WorkspaceDetail> =>
-      unwrap(
+    queryFn: async (): Promise<WorkspaceDetail> => {
+      const detail = unwrap(
         await client.GET("/api/workspaces/{id}", {
           params: { path: { id: id ?? 0 } },
         }),
-      ),
+      );
+      return { ...detail, snapshot: migrateSnapshot(detail.snapshot) };
+    },
     enabled: id !== null,
   });
 }

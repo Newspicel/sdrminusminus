@@ -109,15 +109,15 @@ impl WorkspaceSnapshot {
     }
 
     /// A workspace with nothing on it. What `POST /api/workspaces` creates unless the caller
-    /// sends a snapshot: a new workspace is a clean bench, and an operator who wanted a receiver
+    /// sends a snapshot: a new workspace is a clean bench, and an operator who wanted a device
     /// and a scope on it would rather draw them than delete someone else's guess.
     #[must_use]
     pub fn empty() -> Self {
         Self::new(PatchGraph::default(), RackLayout::default())
     }
 
-    /// The station a fresh install opens on: one empty receiver node feeding a scope, with a
-    /// speaker waiting for a channel. Empty rather than pre-populated because the receiver node
+    /// The station a fresh install opens on: one empty device node feeding a scope, with a
+    /// speaker waiting for a channel. Empty rather than pre-populated because the device node
     /// *is* the "open a radio" invitation — picking a device in it is the first gesture. Only the
     /// seeded first workspace starts here; every later one starts [`empty`](Self::empty).
     #[must_use]
@@ -160,7 +160,7 @@ impl WorkspaceSnapshot {
     /// applying a template twice replaces its own block instead of stacking copies — the same
     /// contract M6's `upsert_tab` had. A device node in the patch binds to `device`: if the
     /// station already has a node for that radio the patch wires into *it* rather than drawing a
-    /// second box for one receiver.
+    /// second box for one device.
     pub fn merge_patch(&mut self, patch: &PatchGraph, prefix: &str, device: Option<&DeviceRef>) {
         // Where the prefix's nodes were, so a re-apply puts them back in the same place. Node
         // order is binding order (CANVAS §3), so appending them instead would renumber which
@@ -190,7 +190,7 @@ impl WorkspaceSnapshot {
             let id = format!("{prefix}{}", node.id);
             mapped.push((node.id.clone(), id.clone()));
             let body = match (&node.body, device) {
-                // An authored patch leaves its receiver unbound; applying it to a radio is what
+                // An authored patch leaves its device unbound; applying it to a radio is what
                 // names one.
                 (NodeBody::Device(d), Some(want)) if d.device.is_none() => {
                     NodeBody::Device(crate::patch::DeviceNode {
@@ -417,7 +417,7 @@ mod tests {
         }
     }
 
-    /// An airband-style template: a receiver, two channels and a speaker.
+    /// An airband-style template: a device, two channels and a speaker.
     fn template() -> PatchGraph {
         PatchGraph {
             nodes: vec![
@@ -459,7 +459,7 @@ mod tests {
         assert_eq!(json["graph"]["nodes"][0]["kind"], "device");
         assert!(
             json["graph"]["nodes"][0]["data"].get("device").is_none(),
-            "an unbound receiver names no radio"
+            "an unbound device names no radio"
         );
         assert_eq!(json["rack"]["slots"].as_array().map(Vec::len), Some(0));
         let back: WorkspaceSnapshot = serde_json::from_value(json).unwrap();
@@ -515,7 +515,7 @@ mod tests {
         snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
         snap.validate().expect("still valid after a merge");
 
-        // The station's own receiver was unbound, so the template drew its own — bound.
+        // The station's own device was unbound, so the template drew its own — bound.
         let ids: Vec<&str> = snap.graph.nodes.iter().map(|n| n.id.as_str()).collect();
         assert!(ids.contains(&"template:airband:ch"));
         assert!(ids.contains(&"template:airband:dev"));
@@ -539,14 +539,14 @@ mod tests {
         );
     }
 
-    /// A second template wires into the receiver the first one drew. Re-applying the first must
-    /// not take that receiver — and the channels hanging off it — away with its own block.
+    /// A second template wires into the device the first one drew. Re-applying the first must
+    /// not take that device — and the channels hanging off it — away with its own block.
     #[test]
     fn re_applying_a_template_keeps_a_receiver_another_template_is_using() {
         let mut snap = WorkspaceSnapshot::station_default();
         snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
         snap.merge_patch(&template(), "template:marine:", Some(&rtlsdr()));
-        // The second template reused the first's receiver rather than drawing its own.
+        // The second template reused the first's device rather than drawing its own.
         assert!(snap.graph.node("template:marine:dev").is_none());
         assert_eq!(
             snap.graph
@@ -560,7 +560,7 @@ mod tests {
         snap.validate().expect("valid after the re-apply");
         assert!(
             snap.graph.node("template:airband:dev").is_some(),
-            "the shared receiver survives its own template's re-apply"
+            "the shared device survives its own template's re-apply"
         );
         assert_eq!(
             snap.graph
@@ -609,13 +609,13 @@ mod tests {
         snap.validate().expect("valid after a re-apply");
     }
 
-    /// One radio, one box: a template applied to a receiver the station already draws wires into
+    /// One radio, one box: a template applied to a device the station already draws wires into
     /// that node instead of adding a second one for the same hardware.
     #[test]
     fn merging_reuses_a_device_node_that_already_names_the_radio() {
         let mut snap = WorkspaceSnapshot::station_default();
         let NodeBody::Device(device) = &mut snap.graph.nodes[0].body else {
-            unreachable!("the default station opens with a receiver node")
+            unreachable!("the default station opens with a device node")
         };
         device.device = Some(rtlsdr());
 

@@ -118,26 +118,30 @@ Every port therefore ships **hue + a marker shape + a text label**. The shape is
 colourblind operator reads; the label is the accessible name and the hover title. With colour
 removed entirely the graph must still be unambiguous — that is the acceptance test.
 
-| type | carries | token (dark) | light (required) | marker | dark vs `bg` | light vs `bg` |
+| type | carries | token (dark) | token (light) | marker | dark vs `bg` | light vs `bg` |
 |---|---|---|---|---|---|---|
 | `iq` | wideband complex baseband at the device rate | `oklch(.72 .11 235)` | `oklch(.592 .11 235)` | filled circle | 7.7:1 | 3.5:1 |
 | `audio` | 48 kHz demodulated audio (Opus on the wire) | `oklch(.74 .12 158)` | `oklch(.583 .12 158)` | diamond (square rotated 45°) | 8.5:1 | 3.5:1 |
 | `events` | typed decoder frames (`DecodedRecord`) | `oklch(.78 .11 85)` | `oklch(.599 .11 85)` | square | 9.3:1 | 3.5:1 |
+| `control` | tuning ownership — a scanner driving a radio | `oklch(.76 .1 300)` | `oklch(.606 .1 300)` | arrowhead (triangle, pointing right) | 8.4:1 | 3.5:1 |
+| `tx` | baseband to be transmitted, **reserved** (`PLAN §12a`) | `oklch(.76 .12 345)` | `oklch(.613 .12 345)` | hollow circle | 8.2:1 | 3.5:1 |
 
-Three types is the whole set the engine produces today and the set stays that small on purpose.
-`CANVAS §1` reserves `iq-tap` and `position`; each arrives with a token, a distinct marker shape
-and a measured row in this table, in the same change that adds it.
+Four of the five are things that move today. `tx` is the one reservation, and it is drawn as what
+it is: `iq`'s own circle, going the other way, **left unfilled because nothing fills it** — no node
+kind emits that type, so the port refuses every wire and says so in its hover title. It earns a row
+here rather than waiting, because the device node's shape is what tells an operator a radio has a
+send side at all. `iq-tap` (decimated channel IQ) and `position` (GPS) get no such reservation and
+stay out until their features land: nothing is holding a place for them.
 
 A wire and a marker are non-text graphics, so the floor is 3:1 against the ground they are drawn
-on — the canvas `bg` for a wire, `panel` or `panel-2` for a marker. The dark column above is
-measured against `bg`; against `panel-2` (the tightest ground a marker sits on) the same three
-measure 6.3 / 7.0 / 7.6:1.
+on — the canvas `bg` for a wire, `panel` or `panel-2` for a marker. The columns above are measured
+against each theme's `bg`; against `panel-2` (the tightest ground a marker sits on) the five
+measure 6.3 / 7.0 / 7.6 / 6.9 / 6.8:1 dark, and 3.2:1 each in light.
 
-> **Open defect.** `index.css` defines `--color-port-*` only inside `@theme`, so the light block
-> inherits the dark values: against the light `bg` they measure 2.1 / 1.9 / 1.8:1 — below the
-> 3:1 floor, and the light theme is currently unusable for reading a patch. The tokens were
-> introduced dark-only by the same change that wrote this table and were not re-anchored in it.
-> The light column above is the fix, and §12 carries it until it lands.
+Both themes are now written out in `index.css`. They were not: the tokens lived only in `@theme`,
+so the light block inherited the dark values and measured 1.8–2.1:1 on a light ground — a patch
+that could not be read in that theme at all. The category strip below had the same defect and is
+re-anchored with them.
 
 Port chroma is held ≤ .12 and category chroma ≤ .07, both under `accent`'s .135, so a lit wire
 never outshouts a tuned control.
@@ -165,17 +169,17 @@ never outshouts a tuned control.
 A 4px strip on the node header says what the box *is* before its label is read. Low chroma:
 this is a silkscreen mark, not a status light. Measured against `panel-2`, the header ground:
 
-| category | dark | light (required) | vs `panel-2`, dark |
-|---|---|---|---|
-| `source` | `oklch(.62 .07 235)` | `oklch(.594 .07 235)` | 4.3:1 |
-| `channel` | `oklch(.62 .07 300)` | `oklch(.603 .07 300)` | 4.1:1 |
-| `display` | `oklch(.62 .05 200)` | `oklch(.592 .05 200)` | 4.3:1 |
-| `feature` | `oklch(.62 .07 60)` | `oklch(.602 .07 60)` | 4.1:1 |
-| `sink` | `oklch(.58 .03 80)` | `oklch(.598 .03 80)` | 3.6:1 |
+| category | dark | light | vs `panel-2`, dark | vs `panel-2`, light |
+|---|---|---|---|---|
+| `source` | `oklch(.62 .07 235)` | `oklch(.594 .07 235)` | 4.3:1 | 3.2:1 |
+| `channel` | `oklch(.62 .07 300)` | `oklch(.603 .07 300)` | 4.1:1 | 3.2:1 |
+| `display` | `oklch(.62 .05 200)` | `oklch(.592 .05 200)` | 4.3:1 | 3.2:1 |
+| `feature` | `oklch(.62 .07 60)` | `oklch(.602 .07 60)` | 4.1:1 | 3.2:1 |
+| `sink` | `oklch(.58 .03 80)` | `oklch(.598 .03 80)` | 3.6:1 | 3.2:1 |
 
-All clear the 3:1 non-text floor. `--color-cat-*` is dark-only in `index.css` for the same
-reason as the port hues, so the light column is the same open defect. The strip is never the
-only thing distinguishing two nodes: the title, the ports and the face say it too.
+All clear the 3:1 non-text floor, in both themes now that `--color-cat-*` is written out in the
+light block as well. The strip is never the only thing distinguishing two nodes: the title, the
+ports and the face say it too.
 
 ### Plot ink — the rule that keeps the waterfall readable
 
@@ -522,12 +526,12 @@ stop) shows progress on the control that started it, in place.
 
 Named so they are not mistaken for oversights.
 
-- **The light theme's port, category and accent tokens** (§2). Measured and prescribed there,
-  absent from `index.css`: the port and category tokens are defined dark-only inside `@theme`,
-  and the light `accent` is two characters short of the floor. The canvas rewrite introduced
-  the first two and inherited the third without fixing either, so this is an open defect
-  carried forward, not an obligation waiting on a trigger. Until it lands the light theme fails
-  the 3:1 non-text floor on every wire and every category strip.
+- **The light theme's `accent`** (§2). Measured and prescribed there at `oklch(.545 .125 62)`,
+  two characters short in `index.css` at `.56` = 4.23:1 — under the 4.5:1 text floor wherever the
+  accent *is* text (`segment()` selected, `BTN` hover). The port and category halves of this
+  defect are fixed: both token families are written out in the light block, so the 3:1 non-text
+  floor is clear on every wire and strip. This third one was inherited, not introduced here, and
+  is still open.
 - **The `pointer-coarse:` variants in `controls.ts` and `Slider.tsx`** (§1). Vestigial under
   desktop-only; neither file has been touched since the rule was deleted, so they come out on
   next touch.
@@ -541,7 +545,13 @@ Named so they are not mistaken for oversights.
   above: the ink is right, the grab strip is short.
 - **The band-plan explorer** (`PLAN` §8a) is a server feature; the dial and the scope are built
   so it can hang off them without rework.
-- **`CANVAS §9`'s open questions** each have a design consequence still unwritten: how a scanner
-  node shows that it owns a device's tuning, what a subgraph macro's face looks like, and
-  whether a new channel node spawns docked to its device or floats free. Decide them in the
-  phase that builds them, and add the numbers here in the same change.
+- **A subgraph macro's face** — a saved patch fragment placed as one node — is undesigned. Decide
+  it in the phase that builds it, and add the numbers here in the same change. (The other two
+  questions this entry used to carry are answered: a scanner shows its ownership as the control
+  wire running into the radio it drives, and a new node lands to the right of everything already
+  drawn rather than docked to anything.)
+- **What a device node looks like once it can transmit** (`PLAN §12a`). The reserved `tx` input is
+  drawn; the send half of the face behind it — power, keying, the on-air indicator, the
+  authorized-use gate — is not designed, and neither is per-radio gating of the port itself. A
+  static catalog cannot say `tx_capable`, which is live per binding, so today every device node
+  shows the same reserved input whatever radio it names.

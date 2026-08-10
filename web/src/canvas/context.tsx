@@ -10,6 +10,7 @@ import type {
   WorkspaceSnapshot,
 } from "../lib/types";
 import type { SdrSocket } from "../lib/ws";
+import { deviceNodeOf } from "./binding";
 import type { GraphContext } from "./graph";
 
 export interface Station {
@@ -49,15 +50,10 @@ export function useStationContext(): Station {
   return station;
 }
 
-/** The device set behind a node, following the wire when the node is a channel or a sink.
- * Returns `null` while the radio is absent — the face renders disconnected rather than empty. */
+/** The device set behind a node, following the wire when the node is a channel, a sink or a
+ * scanner (`deviceNodeOf`). Returns `null` while the radio is absent — the face renders
+ * disconnected rather than empty. */
 export function deviceSetOf(station: Station, node: string): DeviceSet | null {
-  const direct = station.devices.get(node);
-  if (direct !== undefined) {
-    return direct;
-  }
-  const upstream = (station.graph.edges ?? []).find(
-    (edge) => edge.to.node === node && edge.to.port === "iq",
-  );
-  return upstream === undefined ? null : (station.devices.get(upstream.from.node) ?? null);
+  const owner = deviceNodeOf(station.graph, node);
+  return owner === null ? null : (station.devices.get(owner) ?? null);
 }

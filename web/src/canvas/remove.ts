@@ -1,7 +1,7 @@
 // Taking a node off the patch has to take what it was driving with it. Applying a patch is
 // deliberately additive — it never closes a radio or deletes a channel (CANVAS §4) — so removal
 // is the only gesture that does, and without it a removed channel would keep running in the
-// engine forever and a receiver could never be closed at all.
+// engine forever and a radio could never be closed at all.
 import { deleteChannel, deleteDeviceSet } from "../lib/api";
 import { sourcesOf } from "./binding";
 import type { Station } from "./context";

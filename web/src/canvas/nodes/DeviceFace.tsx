@@ -1,16 +1,19 @@
-// The receiver node (CANVAS §1). The tuning dial is the signature element of the whole UI and it
-// is the face of every device node; everything else the radio has is drawn from `Capabilities`
-// alone, so a new device setting still needs zero frontend work (PLAN §6).
+// The device node. The tuning dial is the signature element of the whole UI and it is the face of
+// every device node; everything else the radio has is drawn from `Capabilities` alone, so a new
+// device setting still needs zero frontend work (PLAN §6).
 //
 // Three states, each first-class (CANVAS §3): no radio named yet, and the node *is* the "open a
 // radio" invitation; named and attached, and it is the instrument; named and absent, and it is
 // the same node with dead controls and its wires kept — never silently rebound to whatever else
 // is plugged in.
+//
+// Its left side is what is done *to* the radio — a scanner's control wire, and the transmit input
+// PLAN §12a reserves — while everything it produces leaves on the right.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BTN, BTN_QUIET, CHIP, LABEL } from "../../components/controls";
 import { tuningRange } from "../../components/dial";
 import { DIAL_ID, FrequencyDial } from "../../components/FrequencyDial";
-import { deviceId, ReceiverChoices } from "../../components/OpenRadio";
+import { DeviceChoices, deviceId } from "../../components/OpenRadio";
 import { RadioSettings } from "../../components/RadioSettings";
 import { createDeviceSet, STATE_KEY } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
@@ -106,11 +109,11 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   if (reference === null) {
     return (
-      <NodeShell node={node} title="Receiver" category="source" subtitle="no radio" live={false}>
+      <NodeShell node={node} title="Device" category="source" subtitle="no radio" live={false}>
         <FaceBody>
           <div className="flex flex-col gap-2 p-2">
-            <span className={LABEL}>Open a receiver</span>
-            <ReceiverChoices
+            <span className={LABEL}>Open a device</span>
+            <DeviceChoices
               onChoose={bind}
               busy={open.isPending}
               error={open.error?.message ?? null}
@@ -123,13 +126,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   if (set === null) {
     return (
-      <NodeShell
-        node={node}
-        title="Receiver"
-        category="source"
-        subtitle="not attached"
-        live={false}
-      >
+      <NodeShell node={node} title="Device" category="source" subtitle="not attached" live={false}>
         <FaceBody>
           <div className="flex flex-col gap-2 p-2">
             <p className="text-sm text-ink-dim">

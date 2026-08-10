@@ -8,31 +8,18 @@ on a Raspberry Pi and the client anywhere on the network.
 Working name: **sdr--** ("sdrminusminus"), crate/binary prefix `sdrmm`.
 Personal project (not planned for public release). License: **MIT**.
 
-> **Scope of this document (slimmed post-M5).** M0–M5 shipped; the workspace and the running
-> code now document their own structure, and `PROGRESS.md` records what was built and how it
-> was verified. This plan keeps what code cannot say: the idea (§1–§2), the binding rules and
-> invariants, everything not yet built (§8a, §8b, §12a, §13, §19, §20), and the decision log
-> (§18). Section numbers are stable — code comments cite them as `PLAN §N`.
->
-> **The canvas-first client rebuild (M7) lives in its own document, `PLAN-CANVAS.md`** — it
-> governs the client the way this file governs the whole, and is cited as `CANVAS §N`.
-
 ---
 
 ## 1. Goals & non-goals
 
 ### Goals
-- **RX first.** Full receive chain: device → channelizer → demodulators/decoders → audio + data.
-- **Feature target: SDRangel's RX feature set**, reached incrementally via a stable plugin API
-  (see §13 roadmap). SDRangel is ~a decade of plugins — parity is a roadmap, not a milestone.
-  The architecture is judged by how cheaply a new decoder can be added.
-- **Backend-driven:** the server is the single source of truth for state, settings, and type
+- Feature target: SDRangel's, Mayhem Firmware, Flipper Zero Momentum feature set of SDR
+- Backend-driven: the server is the single source of truth for state, settings, and type
   definitions. The client renders what the server describes. Adding a device setting or a new
   channel type requires zero hand-written frontend DTOs.
-- **Default hardware:** RTL-SDR and HackRF. Everything else via SoapySDR for free.
 - **Many radios at once:** unlimited simultaneous device sets (SDRangel-style), and
   cross-device features on top (scanner spanning devices, multi-VOR fix, diversity,
-  DoA/TDoA later).
+  DoA/TDoA).
 - **Coherent arrays as a first-class, hardware-agnostic concept:** N synchronized
   receivers grouped into a *coherent device set*. KrakenSDR is just one way to populate
   it (5× RTL-SDR on a shared clock); the same abstraction accepts any clock-synced set —
@@ -43,14 +30,7 @@ Personal project (not planned for public release). License: **MIT**.
   performance floor** — every DSP budget decision is measured against it. Windows explicitly ignored.
 - **Decoders in Rust** — self-written where reasonable; where a proven library just works
   (digital voice codecs, DAB+ audio), use it via FFI without ceremony (each dependency
-  vetted for Linux-arm64 + macOS support, see §13 table).
-
-### Non-goals (for now)
-- TX (architecture leaves room: the device trait has a TX half from day one — see §12a for
-  exactly where it stops today).
-- Windows support.
-- Browser-side DSP / WebUSB driving hardware from the client. The server does the work — that's the point.
-- Multi-user accounts (LAN-trust + optional token instead, see §12).
+  vetted for Linux-arm64 + macOS support, see §13 table). For small libaries shoose to copy the code into the Project and bring it into our style.
 
 ---
 
@@ -93,89 +73,6 @@ Key properties:
 
 ---
 
-## 3. Repository layout
-
-Cargo workspace + pnpm workspace in one repo; the workspace manifests and each crate's
-`lib.rs` header are the layout documentation now. In one line:
-`crates/` — `wire` · `dsp` · `usb-stream` · `device` · `device-soapy` · `device-rtlsdr` ·
-`device-hackrf` · `device-virtual` · `engine` · `channels` · `recorder` · `server` —
-plus `apps/` (`sdrmm` headless, `desktop` Tauri), `web/` (React; `src/generated/` is
-OpenAPI output, checked in, CI-verified), `xtask/`, and `fixtures/`.
-
-Modularity rules (binding):
-- `dsp` depends on nothing internal; `channels` depends on `dsp` + `wire` only.
-- `wire` depends on nothing internal (serde/utoipa only) so anything can use it.
-- A new decoder touches: one module in `channels`, its settings struct in `wire`,
-  optionally one React panel. Nothing else.
-- Device backends are feature flags; `--no-default-features --features rtl-native` must
-  build a Soapy-free binary (matters for minimal Pi images).
-- `server` is a library (`start(cfg) -> ServerHandle`); the binaries are thin wrappers.
-- Anything a second radio backend would have to write again lives in `crates/device` (§18),
-  which stays I/O-free by default (USB transport behind its `usb` feature).
-
----
-
-## 4. Shared types & codegen (the "no two DTOs" pipeline)
-
-Everything on the wire is defined **once, in Rust**, in `crates/wire` — REST bodies, WS
-message enums, channel settings, capability descriptors — with serde + utoipa derives. WS
-messages are tagged enums → discriminated unions in TypeScript, exhaustively `switch`-able.
-`cargo xtask codegen` regenerates `web/src/generated/` from the OpenAPI; CI re-runs codegen
-and fails on diff, so generated code can never drift.
-
-Rules:
-- Hand-writing a TS interface that mirrors a Rust struct is a review-blocking offense.
-- Binary frame layouts (§5) live in `wire` as documented consts with a Rust encoder +
-  one small TS decoder — the one deliberate exception to "generated only".
-- `openapi.json` + Swagger UI served at `/api/docs` = free scripting API (Python/curl),
-  same story as SDRangel's REST API but typed end-to-end.
-
----
-
-## 5. Transport & protocols
-
-### REST (control plane)
-`axum` + `utoipa`, resource-oriented, mirroring the state model: state snapshot, device
-probe, device sets with nested device/channels/record/scanner actions, recordings, decoder
-log (+ CSV/JSON export), presets, bookmarks, templates, auth, clients, doctor. The
-authoritative, always-current surface is the OpenAPI at `/api/docs` — this document no
-longer mirrors the route list. Two recorded route decisions: the record endpoint carries no
-format field until a second format exists (M3, YAGNI — SigMF cf32 is fixed), and the
-decoder-log export format is a path segment, not a query field, because
-`serde_urlencoded` cannot flatten the filter struct shared by all three log endpoints (M4).
-
-### WebSocket (push + data plane) — one socket per client, `/api/ws`
-Text frames = JSON `ServerEvent` / `ClientCommand` (from `wire`):
-- `StateChanged { scope }` → client invalidates matching TanStack Query keys.
-  This is the *only* cache-invalidation mechanism; no polling.
-- Decoder output events travel as typed JSON (`Decoded { DecodedRecord }`) on their **own
-  broadcast**, not the `StateChanged` control stream: ADS-B alone can emit hundreds of
-  frames a second, and a lagging control receiver resyncs with a full-state refetch — a
-  cost that must never be triggered by decode traffic. Clients append them to a local ring;
-  `StateChanged { DecoderLog }` fires only when the *stored* log changes structurally. The
-  DSP plane hands frames over a bounded queue and the drops are reported as
-  `DecodedLost { count }` (M4 decision).
-- Scanner progress (`ScannerUpdate`) is its own event for the same reason: a running sweep
-  retunes several times a second. `DeviceSet.scanner` in the snapshot stays authoritative;
-  a `StateChanged` fires when a scan starts or stops (M5).
-- Stream subscriptions are per-connection — a lightweight client can ask for 10 fps/1024
-  bins while a desktop gets 30 fps/4096.
-
-Binary frames (kinds: SPECTRUM, AUDIO_OPUS, IQ_F32; layout documented in `wire/frame.rs`,
-§4) carry **sample-count timestamps from day one** — cheap now, required later for scanner
-accuracy, recordings alignment, and (far future) multi-device coherence.
-
-Backpressure: UI streams are drop-oldest per connection (a slow client never stalls the DSP);
-recording and decoder paths are lossless (bounded queue → hard error, never silent loss).
-
-### MCP server
-The server also speaks **MCP** (`rmcp`, streamable-HTTP at `/mcp`, same token auth):
-list/tune devices, create and configure channels, drive the scanner, query decoder logs,
-grab spectrum snapshots, start/stop recordings. It reuses the same typed service layer as
-REST — LLM agents get the same contract as every other client, no parallel implementation.
-(Shipped at M5; implementation decisions in §18.)
-
----
 
 ## 6. Device layer
 
@@ -202,22 +99,6 @@ named gain stages with ranges, antennas, bandwidths, plus **typed extra settings
 (bool/enum/range with labels). The client auto-renders controls from this — a new
 device setting needs zero frontend work. Well-known settings (frequency, gain, rate)
 get first-class custom UI; the rest render generically.
-
-### Backends
-- **`device-soapy`** (default in dev/server builds): instantly covers Airspy, SDRplay,
-  LimeSDR, PlutoSDR, BladeRF, USRP… wherever a Soapy module exists. A documented C
-  dependency — never a launch dependency of release artifacts (§15 packaging rule).
-  Binding decided at M1 (§18: `soapysdr` 0.5, seify rejected).
-- **`device-rtlsdr` / `device-hackrf`** (native, features `rtl-native`/`hackrf-native`):
-  each owns its radio driver in-tree under `src/driver/`, on the shared `usb-stream`
-  transport (§18). They exist to expose what Soapy hides or half-hides — per-stage gain
-  tables, exact PPM, bias-T, direct sampling (HF!), sweep mode — and to make release
-  binaries self-contained.
-- **`device-virtual`** (always on): signal generator + SigMF/IQ file playback. This is how
-  CI, the demo mode, and decoder golden tests run without hardware.
-- **Later network/audio backends** (Phase 4, each small): `device-audio` (sound-card/rig
-  audio via `cpal`), KiwiSDR network client, rtl_tcp/SpyServer client (§13). Everything
-  else rides Soapy.
 
 Same physical device visible via both Soapy and native: native driver claims priority in
 the probe merge; duplicates are collapsed by serial.
@@ -334,92 +215,17 @@ big FFTs, logging, and maps. TX-only tricks are noted and deferred with the rest
   the Flipper "read Sub-GHz" experience. The chip is deliberately *not* named: an EV1527's 24
   data bits and a PT2262's 12 tri-state symbols are the same pulse train, so a frame that fits
   carries both readings and the operator decides.
-- **RF replay-capture (RX half):** record the exact IQ of a burst (garage remote, sensor) to
-  the IQ time machine / SigMF, annotate and analyze it. (Re-transmitting it is TX — deferred.)
+- **RF replay-capture:** record the exact IQ of a burst (garage remote, sensor) to
+  the IQ time machine / SigMF, annotate, analyze it and Re-transmitting.
 - Morse, RTTY, SSTV(RX), radio clock, VOR/ILS — already planned.
 
 **Nature/analysis features (PortaPack parity):** waterfall, audio RX (AM/NFM/WFM/SSB), signal
 recording, frequency manager/bookmarks, band-plan awareness → all core sdr-- already.
 
-**Explicitly TX / deferred** (documented so scope is honest): sub-GHz *replay/brute/jam*,
-BLE/OOK *spam*, RF *transmit* of any kind, "spoof" tools. These need TX — which exists at the
-device layer and is gated shut above it (§12a) — and several are legally restricted.
+**TX / deferred**: sub-GHz *replay/brute/jam*, BLE/OOK *spam*, RF *transmit* of any kind, "spoof" tools. 
 
 A **"Sub-GHz workbench" template** (§10) bundles the OOK/FSK channel + capture + a decoder log
 into a one-click Flipper-replacement layout.
-
----
-
-## 9. Streaming specifics
-
-The pipelines are built (spectrum, Opus audio, IQ taps); what binds is the shape of what goes
-over the wire:
-
-- **Spectrum:** server-side averaged FFT, reduced to ≤4096 display bins by max-decimation and
-  quantized to u8 over an adaptive dB window carried in the frame header. Rate and bin count
-  are per-connection, never global — two clients watching the same device set can ask for
-  different things. Zoom is a client-side crop; a true zoom-FFT belongs to the channel
-  analyzer, not the device spectrum.
-- **Audio:** demods emit 48 kHz PCM → Opus (20 ms frames) → WS binary. Mixing is client-side:
-  the server ships streams, not a mix, so N listeners on one channel cost one encode. Browser
-  autoplay policy means playback unlocks on a user gesture.
-- **Channel analyzer taps:** hard-decimated IQ/scope frames only. **Full-rate IQ never goes to
-  the browser** — that is what recordings are for.
-
----
-
-## 10. Client
-
-One React codebase, loaded identically by the Tauri window and by any browser on the LAN; the
-desktop app's only extra job is spawning a local server and remembering remote connections.
-The stack is settled and lives in `web/package.json` + CLAUDE.md, not here. What binds:
-
-- **Server state discipline:** TanStack Query is the *only* holder of REST data; WS
-  `StateChanged` events invalidate keys — no polling, no manual refetch. High-rate binary
-  streams bypass Query entirely → Zustand/refs → canvas.
-- **The station is a patch graph (M7 ✅, `PLAN-CANVAS.md`):** the client is a canvas — every
-  device, channel, feature and sink is a typed node, wiring is the UI, and a pin-board
-  **rack** holds the faces being operated. Server-persisted **workspaces** remain: exactly
-  one active at a time, each now a canvas graph + rack layout in SQLite next to presets —
-  the station is part of the station config, not browser state. What binds:
-  - **The graph document is ours, in `wire`** (§4) — `PatchGraph` + `RackLayout`, never the
-    canvas library's serialization: templates author stations in Rust, and a library major
-    must not invalidate stored workspaces (the same rule the M6 layout tree followed, §18).
-  - **Nodes name devices by durable identity** (backend + serial), never by per-run engine
-    ids; an absent device renders as a disconnected node and is never silently rebound.
-  - **The graph is control plane only.** The server validates it and applies it through the
-    existing command queue — additively and idempotently, so applying a station opens what it
-    names and never closes what it does not (`CANVAS §4`); the DSP plane (§7) is untouched —
-    no runtime graph scheduler.
-  - Graph writes happen at the end of a gesture and carry the revision they were read at; a
-    stale one is refused rather than overwriting another client's arrangement. Settings are not
-    in the graph, so turning a knob is not a workspace write at all. The optimistic half of the
-    write is applied to the cache *synchronously*, in the same task as the gesture that ended:
-    a drag drops its own preview on pointer-up, and anything that renders the stored arrangement
-    in between — one microtask, or one whole round trip when a previous write is in flight — is
-    a frame of the face back where it started, which reads as flicker.
-  - **A new workspace is empty.** `POST /api/workspaces` creates nothing unless the caller sends
-    a snapshot; only the workspace a fresh install seeds opens on a starter station. A patch is
-    the operator's drawing, and deleting someone else's guess is worse than drawing two nodes.
-- **Maps:** MapLibre GL on OpenFreeMap tiles (free, no key). Offline/self-contained mode is
-  still open: drop a region **`.pmtiles`** file next to the server and it serves the tiles
-  itself — a Pi in a field needs no internet. Globe projection for satellite views, openAIP
-  aviation overlays and optional satellite imagery via a user key, later.
-- **Design language (explicitly: no AI slop):** a bench of instruments at night — dark,
-  dense, keyboard-first, a mono face with tabular numerals wherever a number can change, a
-  large digit-scrollable frequency dial as the signature element. Colour is spent on meaning:
-  **hue encodes data type** on ports and wires (`CANVAS §6`), never decoration, and no state
-  is carried by hue alone. Colorblind-safe waterfall colormaps; zero decorative
-  gradients/glassmorphism/emoji. The numeric rulebook is `DESIGN.md`, rewritten to the canvas
-  direction at M7. **A design pass is part of every UI milestone's definition of done.**
-- **Beginner-friendly, expert-deep:** the first-run wizard and template gallery ship; a
-  template is a patch — devices + channels + wiring + a short "what am I looking at" explainer,
-  built from presets and `PatchGraph`, never from special engine code. A template authors no
-  rack: pinning is the operator's arrangement of what they are working now, and `CANVAS §8` ④
-  says why. Still open: the band-plan explorer that suggests mode and settings when you click a
-  band (§8a). Expert mode hides none of the knobs.
-- **Desktop-only.** Mobile support is removed (§18): no phone layouts, no touch-first paths —
-  the client assumes a pointer, a keyboard and a laptop-class viewport.
 
 ---
 
@@ -450,12 +256,9 @@ The stack is settled and lives in `web/package.json` + CLAUDE.md, not here. What
 
 ---
 
-## 12a. TX & RF security research (future phase — RX ships first)
+## 12a. TX & RF security research
 
-The device trait carries a TX half from day one. When TX is built, it's a **general-purpose,
-legitimate** transmit + RF-research toolkit — the same class of capability SDRangel already
-ships (modulators) and every licensed SDR operator uses. It is *not* a catalog of attack
-presets.
+It's a **general-purpose, legitimate** transmit + RF-research toolkit.
 
 **In scope — the RF security-testing platform (all behind the gate below):**
 - **Signal generator / arbitrary waveform + IQ playback-to-air** — generated tones, modulated
@@ -494,17 +297,7 @@ key a transmitter. The transmit VGA is written to 0 dB when the device is opened
 change alone cannot make the radio radiate at drive, and it has no wire setting either. What is
 unbuilt is everything above: the authorized-use gate below, and every feature behind it.
 
-**Controlled-environment gate (real safety UX, not a checkbox):**
-All TX — including every security-testing tool above — is **hard-disabled by default**.
-Enabling it requires an explicit **"controlled RF environment / authorized test"**
-acknowledgment in settings, where the operator affirms a contained setup (direct connection,
-dummy load, or shielded/Faraday enclosure), an authorized engagement, and responsibility for
-legal compliance (region, band, power). While off, no code path can key the transmitter. Sane
-defaults reinforce it: minimum TX power on enable, an on-air indicator, and a session
-time-box. Treated honestly — the acknowledgment is a deliberate speed-bump and a record of
-intent, not proof of containment; keeping the RF actually contained is the operator's job.
-
-**Operating principle (written into the repo):** these are test instruments for *contained,
+**Operating principle (written into the docs):** these are test instruments for *contained,
 authorized* assessment — direct-connect, dummy load, or shielded, against devices you're
 authorized to test. The project ships them framed and gated that way; it does not ship
 presets whose purpose is uncontrolled over-the-air disruption of third-party systems. With the
@@ -513,35 +306,13 @@ nothing but the DUT — which is the whole point of the test.
 
 ---
 
-## 13. Feature roadmap — SDRangel RX parity, phased
-
-Policy: **self-written pure Rust first** (portable by construction), but pragmatic — where a
-proven library just works (mbelib/DSDcc for digital voice, fdk-aac for DAB+ audio), use it
-via FFI without ceremony, verified on Linux-arm64 + macOS. Licensing stance (MIT, personal
-project): GPL projects (SDRangel, SDR++, DSDcc…) are fair game **as reference** for
-algorithms, parameters, and behavior — **no direct code copying**.
-
-Each decoder lands with: settings struct in `wire`, a golden IQ fixture test (§14), and a UI
-panel or the generic fallback. Definition of done includes running on a Pi. The tables below
-are the *remaining* work — what shipped is in `PROGRESS.md`, and §19 measures the rest against
-SDRangel plugin by plugin.
-
-### Phase 1 — analog core
-Shipped at M0–M3: spectrum/waterfall, NFM/WFM/AM/SSB, squelch/AGC, Opus audio, SigMF
-record/playback, presets and bookmarks. Remaining:
+## 13. Features
 
 | Feature | Implementation |
 |---|---|
 | Notch / audio filters per channel | self |
 | Frequency tracker / AFC | self |
-
-### Phase 2 — data decoders wave 1
-Shipped at M4–M5: RDS (stereo still open, §18), ADS-B + map, AIS + map, POCSAG, AX.25/APRS
-(Mic-E still open), RTTY, Morse, frequency scanner. Shipped in wave 2 (post-M6): NAVTEX
-(SITOR-B), ACARS, and the sub-GHz OOK/FSK capture-and-decode channel (§8b). Remaining:
-
-| Feature | Notes |
-|---|---|
+| RDS (stereo still open, §18), ADS-B + map, AIS + map, POCSAG, AX.25/APRS (Mic-E still open), RTTY, Morse, frequency scanner. NAVTEX(SITOR-B), ACARS, and the sub-GHz OOK/FSK capture-and-decode channel (§8b). | self |
 | **HF WEFAX** (weather fax) | self — blocked on transport, not on DSP: a fax page is an image, and §5 has no frame kind for one. Needs an `IMAGE` binary frame plus a canvas panel before the demod is worth writing |
 | **Signal-strength hunt mode** (fox-hunting / find-the-transmitter) | app; uses RSSI + audio/visual feedback |
 | Channel analyzer (scope, constellation) | IQ taps §9 |
@@ -551,10 +322,6 @@ Shipped at M4–M5: RDS (stereo still open, §18), ADS-B + map, AIS + map, POCSA
 | Per-channel sinks: audio recording, baseband file (SigMF/raw), UDP out | self; UDP feeds external tools (multimon-ng et al.) |
 | APRS *feature* (station/position collection, distinct from the channel) | app |
 | Spectrum annotations (band plans / editable frequency DB overlaid on spectrum) | app; §8a |
-
-### Phase 3 — digital voice & harder modems
-| Feature | Notes |
-|---|---|
 | **WFM stereo** | the open half of `demodbfm` (§18): two-channel PCM/Opus/worklet path |
 | **M17** | fully open protocol; Codec2 has a pure-Rust port (`codec2` crate — verify quality, else C FFI) |
 | **FreeDV** | Codec2 modes + FDMDV modems |
@@ -576,10 +343,6 @@ Shipped at M4–M5: RDS (stereo still open, §18), ADS-B + map, AIS + map, POCSA
 | **PSK31/63**, **WSPR** | self |
 | **VDL Mode 2** (ACARS successor, D8PSK 31.5k) | self; dumpvdl2 as reference |
 | **ISM sensors** (rtl_433-style: weather stations, TPMS, utility meters — top protocols) | self, rtl_433 as reference; escape hatch: UDP sink → rtl_433 binary |
-
-### Phase 4 — features & advanced
-| Feature | Notes |
-|---|---|
 | **Satellite tracker** | `sgp4` crate (well-maintained), TLE fetch, pass prediction, doppler-corrects linked channels |
 | **Rotator control** (GS-232, rotctld) + **rig ctl server** (rigctld protocol compat) | self |
 | **Star tracker / radio astronomy** (integrating radiometer, spectral line) | self |
@@ -588,11 +351,10 @@ Shipped at M4–M5: RDS (stereo still open, §18), ADS-B + map, AIS + map, POCSA
 | **GPS position source** (gpsd / NMEA serial): live station position for maps & trackers, geotagged mobile heat map (drive-around coverage), auto grid locator | parity — SDRangel supports external GPS dongles for mobile heat maps; ours adds auto grid locator + geotagged recordings |
 | **Antenna tools** (dipole/λ calculators) · **3D spectrogram** view | trivial / WebGL eye-candy |
 | **Remote sink/source** between sdr-- instances; **rtl_tcp / SpyServer client devices**; **KiwiSDR client**; **audio-input device** (`cpal`) | cheap wins, huge reach |
-| **rtl_tcp server** (serve our devices to other apps) + local sink/input routing between device sets | complements the client side |
 | **Meteor M-2 LRPT** (digital weather-sat imagery: QPSK, Viterbi+RS) | self; SatDump as reference — pairs with pass automation |
 | **Trunking following** (P25 / DMR Tier III: decode control channel, auto-steer voice channels; multi-dongle aware) | SDRTrunk as reference |
 | **CW skimmer** (decode every CW signal in the passband simultaneously) | self |
-| **TETRA** (clear-mode RX only) | candidate; RX legality varies by country |
+| **TETRA**  | self |
 | **Coherent array DoA**: bearings on the map (MUSIC/ESPRIT), multi-station triangulation; **passive radar** (range-Doppler); **beamforming / diversity combine** | targets the `CoherentArray` abstraction (§6) — KrakenSDR today, any synced N-RX later; stretch |
 | **NanoVNA integration** (USB serial, documented protocol): antenna sweeps, SWR/Smith-chart panels, saved antenna profiles | tools tab |
 | **DATV (DVB-S/S2)** | stretch; FFI candidates (leandvb-style) or long-term self |
@@ -600,50 +362,8 @@ Shipped at M4–M5: RDS (stereo still open, §18), ADS-B + map, AIS + map, POCSA
 
 ---
 
-## 14. Testing strategy
-
-- **`dsp`:** unit tests against analytically generated signals + golden vectors (filter
-  responses, PLL lock behaviour). `criterion` benches for the hot paths are still open.
-- **Decoders (the crown jewels):** every decoder ships with short IQ fixtures + expected
-  decoded output — building the fixture *is* part of building the decoder.
-  - **Reference modulators** live once, in `channels::testgen` behind the crate's
-    `test-signals` feature. One encoder per protocol feeds all three consumers — the decoder's
-    unit tests, the engine's end-to-end runs through `device-virtual`, and `xtask fixtures` —
-    without duplicating protocol encoding, and without `channels` gaining a dependency (§3:
-    it still depends only on `dsp` + `wire`; the feature is test-only).
-  - Where a generator and a decoder could share a mistake and cancel it out, they are written
-    from different derivations on purpose (ADS-B's CPR/Gillham/callsign encoders are closed
-    form against the decoder's tables) — a mistyped constant must fail a test, not disappear.
-  - Synthesized fixtures prove the decoder against the *specification*. Off-air captures prove
-    it against the *world* and land per decoder as hardware sessions produce them; a decoder
-    without one says so in `PROGRESS.md` rather than pretending coverage it does not have.
-- **Engine:** end-to-end through `device-virtual` — siggen or replayed SigMF → channel →
-  assert audio RMS / decoded events. **No hardware in CI, ever.**
-- **Server:** axum handler tests via `tower::ServiceExt`; OpenAPI snapshot test; codegen-drift
-  check (regenerate → `git diff --exit-code`).
-- **Web:** `tsgo` strict and vitest for stores/utils, plus one Playwright smoke flow (M7,
-  `cargo xtask smoke`) that drives the *built* UI served by the real binary on `device-virtual`
-  — bind a radio, add a channel, pin a face, reload and find the arrangement still there. It
-  runs against the release composition rather than the dev server, because the dev server is
-  not what anyone ships.
-- **Hardware is the owner's test bench, not CI's.** Field sessions are run against the built
-  release artifact and written down in `PROGRESS.md` with what was measured — that is the only
-  record that a driver, a gain table or a decoder survived contact with a real radio.
-- **Performance gates (open):** criterion benches in CI for regression tracking, plus a manual
-  on-Pi soak checklist per release (X channels at Y rate → CPU%, thermals) — the Pi 4 is the
-  floor (§1), so a budget decision is only settled when it is measured there.
-
----
-
 ## 15. Build, packaging, CI
 
-- **Toolchain:** **pinned Rust nightly** (`rust-toolchain.toml`) with the next-gen borrow
-  checker (`-Zpolonius=next`). The pin is bumped deliberately, never floating, so builds stay
-  reproducible; CI uses the same pin. `cargo xtask` is the only entry point, locally and in
-  CI — a gate that cannot be run locally does not exist.
-- **CI (GitHub Actions)** mirrors `cargo xtask check` + `cargo xtask test` on ubuntu-x86_64 and
-  macos-arm64, including the codegen-drift gate and the Soapy-free build. It grows with the
-  project; the local command grows first.
 - **Release artifacts:** `sdrmm` headless (linux x86_64 + aarch64, macOS arm64, UI embedded),
   Tauri desktop bundles, and a multi-arch Docker image (`--device /dev/bus/usb`) for Pi/NAS.
 - **The hard packaging rule: release artifacts just run.** The default hardware (RTL-SDR,
@@ -653,32 +373,6 @@ Shipped at M4–M5: RDS (stereo still open, §18), ADS-B + map, AIS + map, POCSA
   static linking cannot fix stays out of scope and honest — OS USB permissions (udev rules)
   and vendor daemons (SDRplay); `sdrmm --doctor` prints what is found and what to fix.
 
----
-
-## 16. Milestones (implementation order)
-
-M0 walking skeleton · M1 real hardware · M2 listen · M3 record & replay · M4 decoders wave 1 ·
-M5 ops & UX polish (scanner, auto-reconnect, token auth, MCP, templates, native backends,
-packaging, docs, `--doctor`) — **all shipped; `PROGRESS.md` records what each one built and how
-it was verified.**
-
-- **M6 — the UI shell ✅ shipped.** Workspaces → tabs → dockview panel layouts, server-persisted
-  (§10); templates gained layouts. `PROGRESS.md` records what it built, how it was verified and
-  the gaps it left.
-- **Decoders wave 2 ✅ shipped** (post-M6): NAVTEX (SITOR-B), ACARS and the sub-GHz OOK/FSK
-  channel, each with a reference modulator, unit tests, an engine end-to-end run and a playable
-  fixture. `PROGRESS.md` records what it built and the gaps it left.
-- **M7 — the canvas ✅ shipped** (`PLAN-CANVAS.md`): the client rebuilt canvas-first — patch
-  graph + rack replaced tabs + dockview, stable device identity landed first, decoder panels
-  became node faces, `DESIGN.md` was rewritten to match. `PROGRESS.md` records what it built,
-  how it was verified and the gaps it left; the deviations are recorded in `PLAN-CANVAS.md`
-  beside the rules they deviate from.
-- **M8+ — Phase 3/4 waves** per §13, prioritized by demand, plus the open Phase 1/2 items.
-
-The milestone rule that outlives the list: a milestone is done when its tests are green
-*and* its gaps are written down (§14) — not when the feature runs once.
-
----
 
 ## 17. Risks & mitigations
 
@@ -713,12 +407,6 @@ What follows is the rest — the choices with a rejected alternative or a reason
 
 | Decision | Choice |
 |---|---|
-| Digital voice (DMR/P25 …) | default-on, voice included; use proven libs (DSDcc/mbelib) via FFI |
-| MQTT / Home Assistant export | rejected — not wanted |
-| UI shell | Workspaces (one active) → unlimited tabs → dockview panel layouts, server-persisted (M6) |
-| Workspace layout model (M6) | Our own tree in `wire` (`LayoutNode` = split/group, weights in **permille**), not the dock library's JSON: templates author layouts in Rust, stored workspaces survive a dockview major, and integer weights make a load→save cycle a fixed point instead of drifting. Panels carry no device-set or channel binding — engine ids are per-run and *reused*, so a stored pin would silently attach a panel to a different radio; panels follow the client's active set. One snapshot blob per row like presets (written atomically, read whole, never queried by inner field), with `tabs` denormalized so a layout this build cannot parse breaks opening *that* workspace, never the switcher. Concurrent clients converge via a revision-checked update (409, refetch, re-apply) rather than last-write-wins |
-| Maps | MapLibre GL; OpenFreeMap default (no key), self-hosted PMTiles for offline, optional satellite-imagery key |
-| MCP server | yes — `rmcp` over streamable HTTP at `/mcp`, same token auth (M5) |
 | Onboarding | template gallery + first-run wizard + band-plan explorer (M5) |
 | Coherent arrays | generic `CoherentArray` abstraction (§6), NOT a Kraken-specific driver — KrakenSDR is one populator, any synced N-RX (future Dragon-class boards, RTL banks) works the same; DoA + passive radar + beamforming (stretch) |
 | Decoder events (M4) | typed `DecoderEvent` in `wire`, emitted by channels as owned values (never JSON on the DSP thread); own broadcast + bounded hand-off queue with reported drops (§5); persisted by the server, never by the engine (crate boundary) |
@@ -853,13 +541,6 @@ of ours.
 | interferometer | ✅ stretch (coherent hardware; §5 timestamps are the prerequisite) |
 | doa2 | ✅ stretch — direction finding, same prerequisite |
 | beamsteeringcwmod | ⏭ TX, deferred |
-
-### Beyond parity (ours, not in SDRangel)
-
-MCP server for LLM agents (M5), the decoder-log database with export (M4), and the
-frequency-allocation DB (§8a, unbuilt). GPS is *not* beyond parity — SDRangel supports external
-GPS dongles for mobile heat maps, so it is tracked in the P4 table above. The consolidated idea
-backlog lives in §20.
 
 ---
 

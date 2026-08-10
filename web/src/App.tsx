@@ -7,7 +7,7 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
-import { bindChannels, bindDevices } from "./canvas/binding";
+import { bindChannels, bindDevices, deviceNodeOf } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { StationProvider } from "./canvas/context";
 import { isPinned, patchNode, pin, pruneRack, unpin } from "./canvas/graph";
@@ -157,16 +157,11 @@ export function App() {
 
   const selectedNode = graph.nodes.find((node) => node.id === selected) ?? null;
   const selectedChannel = selected === null ? null : (channels.get(selected) ?? null);
-  const selectedSet =
-    selected === null
-      ? null
-      : (devices.get(selected) ??
-        (() => {
-          const owner = (graph.edges ?? []).find(
-            (edge) => edge.to.node === selected && edge.to.port === "iq",
-          );
-          return owner === undefined ? null : (devices.get(owner.from.node) ?? null);
-        })());
+  // The radio the keyboard acts on: the selected node when it is one, otherwise the one its wire
+  // leads to — the same resolver every face uses, so a key and a face never disagree about which
+  // radio a selection is about.
+  const selectedDevice = selected === null ? null : deviceNodeOf(graph, selected);
+  const selectedSet = selectedDevice === null ? null : (devices.get(selectedDevice) ?? null);
 
   const channelNodes = graph.nodes.filter((node) => node.kind === "channel");
 
@@ -187,16 +182,11 @@ export function App() {
       const next = Math.min(TUNE_STEPS_HZ.length - 1, Math.max(0, at + direction));
       setStepHz(TUNE_STEPS_HZ[next] ?? stepHz);
     },
-    // One dial per receiver node, so the binding reaches the *selected* node's dial; with a
-    // channel selected it reaches the receiver that channel is wired to.
+    // One dial per device node, so the binding reaches the *selected* node's dial; with a channel
+    // selected it reaches the radio that channel is wired to.
     focusDial: () => {
-      const owner =
-        selected !== null && devices.has(selected)
-          ? selected
-          : (graph.edges ?? []).find((edge) => edge.to.node === selected && edge.to.port === "iq")
-              ?.from.node;
-      if (owner !== undefined) {
-        document.getElementById(deviceDialId(owner))?.focus();
+      if (selectedDevice !== null) {
+        document.getElementById(deviceDialId(selectedDevice))?.focus();
       }
     },
     cycleMode: (direction) => {

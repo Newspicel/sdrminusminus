@@ -40,13 +40,16 @@
   --color-plot-ink: oklch(0.97 0.01 85);
   --color-plot-ink-dim: oklch(0.72 0.01 85);
 
-  /* Hue encodes the data type a port and its wire carry, and nothing else (CANVAS §6). Each is
-     paired with a marker shape in `NodeShell`, so the graph reads by shape alone; these three
-     are the only streams the engine produces today, and the set stays that small on purpose.
+  /* Hue encodes the data type a port and its wire carry, and nothing else (DESIGN.md §2). Each is
+     paired with a marker shape in `NodeShell`, so the graph reads by shape alone; the set stays
+     small on purpose — three streams the engine moves, tuning ownership, and the transmit input
+     reserved by PLAN §12a, which is drawn hollow because nothing can fill it yet.
      Chroma is held below the accent's so a lit wire never outshouts a tuned control. */
   --color-port-iq: oklch(0.72 0.11 235);
   --color-port-audio: oklch(0.74 0.12 158);
   --color-port-events: oklch(0.78 0.11 85);
+  --color-port-control: oklch(0.76 0.1 300);
+  --color-port-tx: oklch(0.76 0.12 345);
 
   /* The category strip on a node header: what the box *is*, before its label is read. Low
      chroma — this is a silkscreen mark, not a status light. */
@@ -84,6 +87,23 @@
     --color-accent-dim: oklch(0.68 0.1 62);
     --color-danger: oklch(0.51 0.19 27);
     --color-ok: oklch(0.5 0.115 155);
+
+    /* Re-anchored, not inherited. Left dark, these five measure 1.8–2.1:1 against the light
+       ground — under the 3:1 floor a non-text graphic has to clear, which made a patch
+       unreadable in this theme (DESIGN.md §2 carried it as an open defect). Each is the
+       lightness that puts its hue at 3.5:1 on `bg`, 3.2:1 on `panel-2`. */
+    --color-port-iq: oklch(0.592 0.11 235);
+    --color-port-audio: oklch(0.583 0.12 158);
+    --color-port-events: oklch(0.599 0.11 85);
+    --color-port-control: oklch(0.606 0.1 300);
+    --color-port-tx: oklch(0.613 0.12 345);
+
+    --color-cat-source: oklch(0.594 0.07 235);
+    --color-cat-channel: oklch(0.603 0.07 300);
+    --color-cat-display: oklch(0.592 0.05 200);
+    --color-cat-feature: oklch(0.602 0.07 60);
+    --color-cat-sink: oklch(0.598 0.03 80);
+
     --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.08), 0 8px 24px oklch(0 0 0 / 0.12);
   }
 
@@ -180,6 +200,12 @@
 
 .wire-events .react-flow__edge-path {
   stroke: var(--color-port-events);
+}
+
+/* Ownership rather than a stream, and drawn like one: a scanner's wire runs into the radio it
+   has taken over, so the arrowhead at its end points the same way the marker on the port does. */
+.wire-control .react-flow__edge-path {
+  stroke: var(--color-port-control);
 }
 
 /* A wire that exists but cannot carry what it says it carries: dashed and in `danger`, with the

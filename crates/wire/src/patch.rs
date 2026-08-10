@@ -46,12 +46,13 @@ pub const MAX_NODE_SIZE: f32 = 10_000.0;
 pub const RACK_COLS: u16 = 12;
 pub const RACK_ROWS: u16 = 8;
 
-/// What a wire carries. Hue encodes this and only this (CANVAS §6), so the set stays small and
-/// every member is a stream the engine actually produces today.
+/// What a wire carries. Hue encodes this and only this (`DESIGN.md` §2), so the set stays small
+/// and every member is something the engine actually moves today — with one named exception,
+/// [`PortType::Tx`], which is reserved and unwireable until transmit exists (PLAN §12a).
 ///
-/// `iq-tap` (decimated channel IQ) and `position` (GPS) are named by CANVAS §1 and deliberately
-/// absent: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4, so neither has a
-/// stream to carry. A port whose type nothing can emit is a wire that can only dangle.
+/// `iq-tap` (decimated channel IQ) and `position` (GPS) stay absent for the reason that exception
+/// does *not* apply to them: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4,
+/// so a port for either would be a wire that dangles with nothing reserving it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PortType {
@@ -61,6 +62,16 @@ pub enum PortType {
     Audio,
     /// Typed decoder frames ([`crate::DecodedRecord`]).
     Events,
+    /// Tuning ownership, not a stream: a scanner sweeps the radio it is wired into, and client
+    /// retunes on that radio are refused while it does (PLAN §18). The wire *is* the ownership,
+    /// which is what makes "which radio has this sweep taken over" a thing you can see.
+    Control,
+    /// Complex baseband to be transmitted at the device rate.
+    ///
+    /// **Reserved, and inert by construction.** No node kind in this build emits it, so no edge
+    /// into a transmit input can validate — the port is the shape transmit will arrive in, not a
+    /// path to it. PLAN §12a owns what has to exist first: the authorized-use gate.
+    Tx,
 }
 
 impl PortType {
@@ -70,6 +81,8 @@ impl PortType {
             Self::Iq => "iq",
             Self::Audio => "audio",
             Self::Events => "events",
+            Self::Control => "control",
+            Self::Tx => "tx",
         }
     }
 }
@@ -103,11 +116,17 @@ pub struct PortSpec {
     pub name: String,
     pub port_type: PortType,
     pub direction: PortDirection,
-    /// Whether more than one edge may land here. Outputs always fan out (one device feeds N
-    /// channels, scopes and a recorder — that *is* today's device set, drawn); inputs say so.
+    /// Whether more than one edge may touch this port. A *stream* output fans out — one device
+    /// feeds N channels, scopes and a recorder, which is today's device set drawn — but an
+    /// ownership output does not: a scanner drives one radio, because one sweep is what the
+    /// engine runs. So arity is stated on both sides and checked on both sides.
     pub multi: bool,
     #[serde(default, skip_serializing_if = "is_always")]
     pub condition: PortCondition,
+    /// Why this port refuses everything, for the ports that do. The client renders what the
+    /// server describes (PLAN §2), and a port with no wire and no explanation reads as broken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 fn is_always(condition: &PortCondition) -> bool {
@@ -128,7 +147,14 @@ impl PortSpec {
             direction,
             multi,
             condition,
+            note: None,
         }
+    }
+
+    #[must_use]
+    fn noted(mut self, note: &str) -> Self {
+        self.note = Some(note.to_owned());
+        self
     }
 
     /// Whether this port exists on a channel node of the given type.
@@ -207,7 +233,7 @@ impl DeviceRef {
 /// A device node's payload: the radio it names, or nothing yet.
 ///
 /// Unbound is a first-class state, not an error — it is the empty node a fresh station starts on,
-/// and it renders the receiver picker. Bound-but-absent is the other one: controls disabled,
+/// and it renders the device picker. Bound-but-absent is the other one: controls disabled,
 /// wires kept, never silently rebound (CANVAS §3).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceNode {
@@ -246,8 +272,9 @@ pub enum NodeBody {
     Recorder,
     /// CSV/JSON export of the stored decoder log.
     Export,
-    /// Frequency scanner. Its edge to a device is *ownership*, not consumption: a running scan
-    /// owns that set's centre frequency and client retunes are refused while it does (PLAN §18).
+    /// Frequency scanner. Its edge runs *into* the device it drives, because it is ownership and
+    /// not consumption: a running scan owns that set's centre frequency and client retunes are
+    /// refused while it does (PLAN §18).
     Scanner,
 }
 
@@ -292,15 +319,25 @@ impl NodeBody {
 fn ports_for(kind: &str) -> Vec<PortSpec> {
     use PortCondition::{Always, ChannelHasAudio, ChannelIsDecoder};
     use PortDirection::{In, Out};
-    use PortType::{Audio, Events, Iq};
+    use PortType::{Audio, Control, Events, Iq, Tx};
     match kind {
-        "device" => vec![PortSpec::new("iq", Iq, Out, true, Always)],
+        // A radio's left side is what is done *to* it, and its right side is what comes off it.
+        // Both inputs take one wire: one sweep owns the tuning, one baseband keys the transmitter.
+        "device" => vec![
+            PortSpec::new("control", Control, In, false, Always),
+            PortSpec::new("tx", Tx, In, false, Always).noted(
+                "reserved: transmit is not built (PLAN §12a), so nothing in this build emits \
+                 a signal to key a radio with",
+            ),
+            PortSpec::new("iq", Iq, Out, true, Always),
+        ],
         "channel" => vec![
             PortSpec::new("iq", Iq, In, false, Always),
             PortSpec::new("audio", Audio, Out, true, ChannelHasAudio),
             PortSpec::new("events", Events, Out, true, ChannelIsDecoder),
         ],
-        "scope" | "recorder" | "scanner" => vec![PortSpec::new("iq", Iq, In, false, Always)],
+        "scope" | "recorder" => vec![PortSpec::new("iq", Iq, In, false, Always)],
+        "scanner" => vec![PortSpec::new("control", Control, Out, false, Always)],
         "speaker" => vec![PortSpec::new("audio", Audio, In, true, Always)],
         "map" | "decoder_log" | "export" => vec![PortSpec::new("events", Events, In, true, Always)],
         _ => Vec::new(),
@@ -341,7 +378,7 @@ impl PatchCatalog {
         };
         Self {
             nodes: vec![
-                entry(&NodeBody::Device(DeviceNode::default()), "Receiver"),
+                entry(&NodeBody::Device(DeviceNode::default()), "Device"),
                 entry(
                     &NodeBody::Channel(ChannelNode {
                         channel_type: String::new(),
@@ -617,7 +654,8 @@ impl PatchGraph {
     }
 
     fn check_edges(&self, channels: Option<&[ChannelDescriptor]>) -> Result<(), PatchError> {
-        let mut wired: Vec<&PortRef> = Vec::with_capacity(self.edges.len());
+        let mut landed: Vec<&PortRef> = Vec::with_capacity(self.edges.len());
+        let mut left: Vec<&PortRef> = Vec::with_capacity(self.edges.len());
         for edge in &self.edges {
             if edge.from.node == edge.to.node {
                 return Err(PatchError::SelfEdge(edge.from.node.clone()));
@@ -630,8 +668,13 @@ impl PatchGraph {
                     to: input.port_type,
                 });
             }
-            if wired.contains(&&edge.to) && !input.multi {
+            if landed.contains(&&edge.to) && !input.multi {
                 return Err(PatchError::PortOccupied(edge.to.clone()));
+            }
+            // An output says its arity too: a stream fans out, ownership does not, and a scanner
+            // sweeping two radios at once is a station the engine cannot run.
+            if left.contains(&&edge.from) && !out.multi {
+                return Err(PatchError::PortOccupied(edge.from.clone()));
             }
             if self
                 .edges
@@ -642,7 +685,8 @@ impl PatchGraph {
             {
                 return Err(PatchError::DuplicateEdge(edge.to.clone()));
             }
-            wired.push(&edge.to);
+            landed.push(&edge.to);
+            left.push(&edge.from);
         }
         Ok(())
     }
@@ -962,35 +1006,134 @@ mod tests {
         );
     }
 
-    /// No cycle is expressible: only device nodes emit `iq`, only channels transform it, and
-    /// everything else is terminal (CANVAS §1). This asserts the port table keeps that true.
+    /// No station can be drawn that feeds itself. The proof is over the *kinds*: "some output of
+    /// kind A can reach some input of kind B" is read off the port table, and that graph — self
+    /// edges included, since one would mean two nodes of a kind could feed each other — has to be
+    /// acyclic. Stronger than the per-kind assertions it replaces, and it does not have to be
+    /// rewritten each time a kind grows a port.
+    ///
+    /// It stops being the whole proof the day something emits [`PortType::Tx`]: bench loopback is
+    /// a named use of PLAN §12a and is device → channel → modulator → device by design, so cycle
+    /// checking moves to the instance level then. That nothing emits it today is pinned below.
     #[test]
     fn the_port_table_admits_no_cycle() {
-        for entry in PatchCatalog::build().nodes {
-            let outputs: Vec<PortType> = entry
-                .ports
+        let catalog = PatchCatalog::build();
+        let reaches = |from: &NodeTypeInfo, to: &NodeTypeInfo| {
+            from.ports
                 .iter()
-                .filter(|p| p.direction == PortDirection::Out)
-                .map(|p| p.port_type)
-                .collect();
-            let inputs: Vec<PortType> = entry
-                .ports
-                .iter()
-                .filter(|p| p.direction == PortDirection::In)
-                .map(|p| p.port_type)
-                .collect();
-            match entry.kind.as_str() {
-                "device" => assert!(inputs.is_empty(), "a source consumes nothing"),
-                "channel" => {
-                    assert_eq!(inputs, vec![PortType::Iq]);
-                    assert!(
-                        !outputs.contains(&PortType::Iq),
-                        "a channel must not re-emit what it consumes, or two could feed each other"
-                    );
-                }
-                _ => assert!(outputs.is_empty(), "{} must be terminal", entry.kind),
-            }
+                .filter(|port| port.direction == PortDirection::Out)
+                .any(|out| {
+                    to.ports.iter().any(|input| {
+                        input.direction == PortDirection::In && input.port_type == out.port_type
+                    })
+                })
+        };
+        let edges: Vec<(usize, usize)> = (0..catalog.nodes.len())
+            .flat_map(|a| (0..catalog.nodes.len()).map(move |b| (a, b)))
+            .filter(|&(a, b)| reaches(&catalog.nodes[a], &catalog.nodes[b]))
+            .collect();
+        // Kahn: drop any kind nothing still open can reach, until nothing more can be dropped.
+        let mut open: Vec<usize> = (0..catalog.nodes.len()).collect();
+        while let Some(at) = open
+            .iter()
+            .position(|&kind| !edges.iter().any(|&(a, b)| b == kind && open.contains(&a)))
+        {
+            open.remove(at);
         }
+        let cycle: Vec<&str> = open
+            .iter()
+            .map(|&k| catalog.nodes[k].kind.as_str())
+            .collect();
+        assert!(
+            cycle.is_empty(),
+            "these kinds can feed each other: {cycle:?}"
+        );
+    }
+
+    /// The transmit gate at this layer (PLAN §12a). The device node reserves the input transmit
+    /// will arrive on, and *nothing in this build emits that type* — so no edge into it validates,
+    /// and the reservation cannot quietly become a path to a keyed radio.
+    #[test]
+    fn the_reserved_transmit_input_can_take_no_wire() {
+        let catalog = PatchCatalog::build();
+        let ports = || catalog.nodes.iter().flat_map(|entry| &entry.ports);
+        let reserved = ports()
+            .find(|port| port.port_type == PortType::Tx)
+            .expect("the device node reserves a transmit input");
+        assert_eq!(reserved.direction, PortDirection::In);
+        assert!(
+            reserved.note.is_some(),
+            "a port that refuses everything says why"
+        );
+        assert!(
+            !ports()
+                .any(|port| port.port_type == PortType::Tx && port.direction == PortDirection::Out),
+            "nothing may emit transmit baseband before PLAN §12a's gate exists"
+        );
+
+        // The nearest thing to a transmit source is another radio's IQ, and the types do not join.
+        let mut retransmit = station();
+        retransmit
+            .nodes
+            .push(node("dev2", NodeBody::Device(DeviceNode::default())));
+        retransmit.edges.push(edge(("dev", "iq"), ("dev2", "tx")));
+        assert_eq!(
+            retransmit.validate(),
+            Err(PatchError::TypeMismatch {
+                from: PortType::Iq,
+                to: PortType::Tx
+            })
+        );
+    }
+
+    /// The scanner wire runs *into* the radio it drives, and ownership is exclusive at both ends:
+    /// the engine runs one sweep per device set, and a set answers to one sweep.
+    #[test]
+    fn a_scanner_owns_the_one_radio_its_wire_runs_into() {
+        let mut driven = station();
+        driven.nodes.push(node("scan", NodeBody::Scanner));
+        driven
+            .edges
+            .push(edge(("scan", "control"), ("dev", "control")));
+        driven.validate().expect("a scanner drives a radio");
+
+        let mut backwards = driven.clone();
+        backwards.edges = vec![edge(("dev", "control"), ("scan", "control"))];
+        assert_eq!(
+            backwards.validate(),
+            Err(PatchError::Direction(PortRef {
+                node: "dev".to_owned(),
+                port: "control".to_owned()
+            }))
+        );
+
+        let mut two_radios = driven.clone();
+        two_radios
+            .nodes
+            .push(node("dev2", NodeBody::Device(DeviceNode::default())));
+        two_radios
+            .edges
+            .push(edge(("scan", "control"), ("dev2", "control")));
+        assert_eq!(
+            two_radios.validate(),
+            Err(PatchError::PortOccupied(PortRef {
+                node: "scan".to_owned(),
+                port: "control".to_owned()
+            }))
+        );
+
+        let mut two_scanners = driven.clone();
+        two_scanners.nodes.push(node("scan2", NodeBody::Scanner));
+        two_scanners
+            .edges
+            .push(edge(("scan2", "control"), ("dev", "control")));
+        assert_eq!(
+            two_scanners.validate(),
+            Err(PatchError::PortOccupied(PortRef {
+                node: "dev".to_owned(),
+                port: "control".to_owned()
+            }))
+        );
     }
 
     #[test]
@@ -1170,11 +1313,17 @@ mod tests {
 
         let json = serde_json::to_value(&catalog).unwrap();
         assert_eq!(json["nodes"][0]["kind"], "device");
+        assert_eq!(json["nodes"][0]["name"], "Device");
         assert_eq!(json["nodes"][0]["category"], "source");
-        assert_eq!(json["nodes"][0]["ports"][0]["port_type"], "iq");
-        assert_eq!(json["nodes"][0]["ports"][0]["direction"], "out");
+        let ports = &json["nodes"][0]["ports"];
+        assert_eq!(ports[0]["port_type"], "control");
+        assert_eq!(ports[0]["direction"], "in");
+        assert_eq!(ports[1]["port_type"], "tx");
+        assert!(ports[1]["note"].is_string(), "the reserved port says why");
+        assert_eq!(ports[2]["port_type"], "iq");
+        assert_eq!(ports[2]["direction"], "out");
         assert!(
-            json["nodes"][0]["ports"][0].get("condition").is_none(),
+            ports[2].get("condition").is_none() && ports[2].get("note").is_none(),
             "the common case stays off the wire"
         );
     }

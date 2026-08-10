@@ -90,8 +90,8 @@ export function ScopeFace({ node }: { node: PatchNode }) {
         {set === null ? (
           <FaceEmpty>
             {wired
-              ? "The receiver this scope watches is not attached. The wire is kept."
-              : "Wire a receiver's IQ out to watch its spectrum."}
+              ? "The radio this scope watches is not attached. The wire is kept."
+              : "Wire a device's IQ out to watch its spectrum."}
           </FaceEmpty>
         ) : (
           // Keyed on the radio: another device set is another span, and markers, max hold and

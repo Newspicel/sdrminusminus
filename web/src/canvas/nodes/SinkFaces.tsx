@@ -250,7 +250,7 @@ export function RecorderFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {set === null ? (
-          <FaceEmpty>Wire a receiver's IQ out to record it.</FaceEmpty>
+          <FaceEmpty>Wire a device's IQ out to record it.</FaceEmpty>
         ) : (
           <RecordControl set={set} />
         )}
@@ -260,7 +260,7 @@ export function RecorderFace({ node }: { node: PatchNode }) {
 }
 
 /** `deriveRecordControl` owns the two rules this face must not restate: a start needs a running
- * receiver, and a faulted recording still reads as recording until it is explicitly stopped. */
+ * radio, and a faulted recording still reads as recording until it is explicitly stopped. */
 function RecordControl({ set }: { set: DeviceSet }) {
   const record = useMutation({
     mutationFn: (action: RecordAction) => recordDeviceSet(set.id, action),
@@ -274,7 +274,7 @@ function RecordControl({ set }: { set: DeviceSet }) {
           type="button"
           className={BTN}
           disabled={!control.canStart || record.isPending}
-          title={control.canStart ? "Record IQ to a SigMF pair" : "The receiver must be running"}
+          title={control.canStart ? "Record IQ to a SigMF pair" : "The radio must be running"}
           onClick={() => record.mutate("start")}
         >
           <span aria-hidden className="text-danger">
@@ -329,10 +329,10 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
 }
 
 /**
- * The scanner owns a receiver's tuning while it runs, and CANVAS §9 left where it lives open.
- * It is a node wired to the radio it drives: the edge *is* the ownership, which is the only way
- * to see at a glance which radio a running sweep has taken over — and client retunes on that
- * radio are refused while it does (PLAN §18), which the face says in words.
+ * The scanner owns a radio's tuning while it runs, so its wire runs *into* the radio: the edge is
+ * the ownership, which is the only way to see at a glance which radio a running sweep has taken
+ * over — and client retunes on that radio are refused while it does (PLAN §18), which the face
+ * says in words. It consumes nothing; the sweep reads the device set the engine already gave it.
  */
 export function ScannerFace({ node }: { node: PatchNode }) {
   const station = useStationContext();
@@ -349,7 +349,9 @@ export function ScannerFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         {set === null ? (
-          <FaceEmpty>Wire a receiver in; the scanner drives its tuning.</FaceEmpty>
+          <FaceEmpty>
+            Wire this out to a device; the scanner then drives that radio's tuning.
+          </FaceEmpty>
         ) : (
           <ScannerPanel active={set} />
         )}

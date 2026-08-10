@@ -584,7 +584,7 @@ impl Store {
         }
     }
 
-    /// Give a workspace-less database the default station, so a first run lands on a receiver
+    /// Give a workspace-less database the default station, so a first run lands on a device
     /// node and a scope instead of an empty canvas. Runs on every open and only acts on an empty
     /// table — a station whose last workspace was deleted gets the default back on the next
     /// restart, which beats a permanently empty shell, and it is also what re-seeds a database

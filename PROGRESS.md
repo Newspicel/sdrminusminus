@@ -1692,3 +1692,43 @@ PPM bit, a CRC-24 that cannot pass, silence. Measured off-grid before the fix: 0
 - **The waterfall washes out.** Its colour range is the frame's own min…max, so a noise floor at
   −40 dB in a −93…−13 dB range lands two thirds up the colormap and everything is bright. A
   percentile-anchored range is the fix
+
+---
+
+## The radio grew a left side ✅
+
+The node was called a **Receiver** and had one port: `iq`, leaving on the right. Nothing arrived
+at a radio, because in this build nothing did. That is now the wrong shape twice over — the
+scanner *commands* a radio and was drawn as if it consumed one, and a transceiver's send side had
+nowhere to be. `cargo xtask check` + `cargo xtask test` green (582 Rust, 281 web).
+
+- [x] **Device, not Receiver**, everywhere it names the node — the palette entry, the face, the
+  picker (`DeviceChoices`), the refusals. The plan's own catalog table always said Device; the
+  shipped label was the drift
+- [x] **`control` in, `tx` in, `iq` out.** The left side is what is done *to* the radio. Both
+  inputs take one wire: one sweep owns the tuning, one baseband would key the transmitter
+- [x] **The scanner's edge reversed** and its `iq` input is gone: it reads nothing, it drives.
+  `PortType::Control` carries ownership, drawn as an arrowhead pointing into the radio it has
+  taken over. A stored `device.iq → scanner.iq` is translated on read (`migrateSnapshot`), where
+  the workspace enters the client — not at render, because an edit reading the old shape out of
+  the cache would write it straight back and cutting the migrated wire would not stick
+- [x] **Arity is checked on outputs too.** A stream fans out; ownership does not, and one sweep
+  per radio is what the engine runs. `multi` was always on the wire for both directions and only
+  inputs were enforced
+- [x] **The transmit input is reserved and inert by construction** (`PLAN §12a`): no node kind
+  emits `Tx`, so no edge into it validates, and the port refuses everything with the server's own
+  reason in its hover title (`PortSpec.note`). `the_reserved_transmit_input_can_take_no_wire` is
+  the gate at this layer — it fails the day anything emits that type
+- [x] **The no-cycle proof is a DAG over node kinds** read off the port table, self-edges
+  included, replacing per-kind assertions that a device with inputs had already outgrown. It
+  stops being sufficient when bench loopback becomes expressible, which `PLAN §12a` now says
+- [x] **One resolver for "which radio is this face about"** (`deviceNodeOf`): an IQ wire in, or a
+  control wire out. Two hand-rolled copies in `App.tsx` followed only the first and would have
+  left a selected scanner with no radio
+- [x] **The light theme can be read again.** `--color-port-*` and `--color-cat-*` were defined
+  dark-only and measured 1.8–2.1:1 on a light ground — under the 3:1 floor for every wire and
+  every category strip. Both families are written out in the light block now, measured: 3.5:1 on
+  `bg`, 3.2:1 on `panel-2`. `DESIGN.md` §2 carried this as an open defect and now carries only
+  the third part of it, the light `accent`
+- [x] A wire's colour comes off the port's *type*, not its name — they coincide today, and a
+  port whose name differed would have drawn an uncoloured wire
