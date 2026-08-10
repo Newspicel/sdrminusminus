@@ -2,9 +2,10 @@
 // gesture back, and hands the result up to be persisted.
 //
 // The loop this file exists to break: drag → save → `StateChanged` → refetch → apply → dockview
-// emits a layout change → save… Three things stop it. Writes are suppressed while a layout is
-// being applied; a layout that maps back to exactly what is stored is not written; and an
-// incoming tab equal to the one just emitted is not re-applied.
+// emits a layout change → save… Four things stop it. Writes are suppressed while a layout is
+// being applied; a layout that maps back to exactly what is stored is not written, and cancels
+// any write the same gesture had already queued; and an incoming tab equal to the one just
+// emitted is not re-applied.
 import {
   type DockviewApi,
   DockviewReact,
@@ -133,6 +134,14 @@ export function WorkspaceDock({
         }
         const mapped = fromSerializedDockview(event.api.toJSON(), tabRef.current);
         if (currentRef.current !== null && sameTab(mapped, currentRef.current)) {
+          // Back where it started — an aborted drag. Whatever intermediate position an earlier
+          // event in the same gesture queued must go with it, or the debounce would store a
+          // layout the user backed out of and the screen would silently stop matching the store.
+          pendingRef.current = null;
+          if (saveTimer.current !== null) {
+            window.clearTimeout(saveTimer.current);
+            saveTimer.current = null;
+          }
           return;
         }
         pendingRef.current = mapped;
