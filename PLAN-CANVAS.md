@@ -158,8 +158,14 @@ camera.
 
 - Pin a node's face from the canvas; unpin returns it. The rack may be empty — the canvas
   alone is a complete UI.
-- **One live surface per node:** a pinned face renders in the rack and the canvas node
-  collapses to a compact "pinned →" placeholder. Never two GL contexts for one instrument.
+- **Pinning adds a surface, it does not move one.** A pinned face renders in the rack *and*
+  stays where it was on the canvas: a node that collapsed to a "pinned →" placeholder left a
+  hole where the operator had put an instrument, and made the patch a worse picture of the
+  station for having operated it. (Amended after the first build shipped the placeholder.) The
+  rule it replaces existed to avoid two live surfaces for one instrument; two of the three
+  reasons are gone — the two views are alternates, only one mounted at a time, and scope faces
+  now share a single WebGL context across all of them (§7). MapLibre still takes a context per
+  map, which is the cost a future split view would have to weigh.
 - Keyboard-first carries over: tune step, mode, squelch, selecting a node, pinning it and
   swapping patch for rack are all bound (`DESIGN.md §10`). There is no focus-next-face key this
   section once promised — the number row addresses a node directly, which is what an operator

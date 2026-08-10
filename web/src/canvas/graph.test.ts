@@ -10,6 +10,7 @@ import {
   addEdge,
   connectionRefusal,
   edgeKey,
+  edgeWarning,
   type GraphContext,
   isPinned,
   newNodeId,
@@ -176,8 +177,9 @@ describe("connectionRefusal", () => {
     );
   });
 
-  /// PLAN §18: the wideband rule shows on the wire, naming the rate that works.
-  it("refuses a wideband channel on a radio running at the wrong rate", () => {
+  /// PLAN §18: the wideband rule is a fault *on* the wire, not a refusal of it — the rate is one
+  /// setting away, and the face at the end of the wire offers that setting.
+  it("allows a wideband channel on the wrong rate and marks the wire instead", () => {
     const graph = {
       ...station(),
       nodes: [
@@ -186,14 +188,19 @@ describe("connectionRefusal", () => {
       ],
     };
     const wrong = { ...context, bound: boundAt(2_400_000) };
-    expect(connectionRefusal(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toMatch(
-      /exactly 2 Msps/,
+    expect(connectionRefusal(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
+
+    // Short enough to sit on a wire; the face at its end carries the explanation.
+    expect(edgeWarning(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toBe(
+      "needs 2.000 MHz",
     );
 
     const right = { ...context, bound: boundAt(2_000_000) };
-    expect(connectionRefusal(right, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
+    expect(edgeWarning(right, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
     // An unbound receiver has no rate to be wrong about yet.
-    expect(connectionRefusal(context, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
+    expect(edgeWarning(context, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
+    // A mode that leaves a guard band is never a fault, whatever the radio is doing.
+    expect(edgeWarning(wrong, graph, port("dev", "iq"), port("nfm", "iq"))).toBeNull();
   });
 });
 

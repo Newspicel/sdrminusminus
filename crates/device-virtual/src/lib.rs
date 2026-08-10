@@ -160,9 +160,12 @@ impl SigGen {
                 max: 6_000_000_000.0,
                 step: None,
             }],
+            // 2 Msps is here for one reason: it is the only rate ADS-B can run at (PLAN §18),
+            // so without it the demo radio cannot carry the mode its own fixture decodes.
             sample_rates: vec![
                 250_000.0,
                 1_024_000.0,
+                2_000_000.0,
                 2_048_000.0,
                 2_400_000.0,
                 3_200_000.0,

@@ -1510,8 +1510,8 @@ to `nodes`; the seed then puts the default station back, and a test pins that or
 ### Verified live (browser, `device-virtual`)
 - [x] `cargo xtask smoke`: the default station renders; picking the signal generator in the
   receiver node opens it and the node becomes the dial; a channel node dropped from the palette
-  and wired to the receiver becomes a real engine channel; pinning the scope moves the live face
-  to the rack and leaves a placeholder; a reload restores both
+  and wired to the receiver becomes a real engine channel; pinning the scope puts its face on
+  the rack while leaving the canvas node in place; a reload restores both
 - [x] The smoke flow found a real ordering bug, which is why it exists: `apply()` raced the
   debounced graph write, so the server brought the engine up to the *previous* graph and the new
   channel was never created. Apply now goes through the same serialized queue as a write

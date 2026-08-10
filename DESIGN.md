@@ -149,8 +149,16 @@ never outshouts a tuned control.
   is already saying what the wire carries, and a wire that changed colour on hover would be
   hue carrying state.
 - The in-flight connection line is 2px `accent`, because it is not carrying anything yet.
-- A refused wire is never drawn. The refusal is stated in words where the operator is looking
-  (`CANVAS §1`) — today a bottom-right toast naming the fix, e.g. the rate a decoder needs.
+- A **refused** wire is never drawn — the port types do not join, or the input already has its
+  one wire. The reason is stated in words where the operator is looking (`CANVAS §1`): a
+  bottom-right toast, raised from `onConnectEnd`, because React Flow only calls `onConnect` for
+  connections it has already accepted.
+- A **faulted** wire *is* drawn: `danger`, 5-4 dashed, with a short label on it (`needs 2.000
+  MHz`). This is the wire that is legal but cannot carry what it says it carries — a wideband
+  mode on a receiver at the wrong rate (`PLAN §18`). It is a fault and not a refusal because the
+  rate is one setting away: the operator meant to put that decoder on that radio, and the face
+  at the end of the wire says why in full and offers the setting as a button. Refusing the
+  connection would have made the patch unable to express an intention the station can satisfy.
 
 ### Category strip
 
@@ -338,11 +346,18 @@ event.
 **Scrolling.** `FaceBody` scrolls its content by default; `scroll={false}` when the content owns
 its own size — a plot, a map, a canvas.
 
-**One live surface per node** (`CANVAS §5`, `§7`). Browsers cap live GL contexts at roughly
-8–16, so a pinned face renders in the rack and its canvas node collapses to a compact
-"pinned →" placeholder. Never two GL contexts for one instrument. GL faces render only while on
-screen, and because React Flow zooms with a CSS transform they re-render at a zoom-adjusted
-device pixel ratio — a zoomed plot is redrawn crisp, never upscaled as a bitmap.
+**Pinning adds a surface; it never removes one** (`CANVAS §5`). A pinned face renders in the
+rack *and* keeps its place on the canvas: a node that turned into a placeholder left a hole
+where the operator had put an instrument, and made the patch a worse picture of the station for
+having operated it. The patch and the rack are alternate views, so only one is mounted at a
+time.
+
+**One GL context for every plot** (`CANVAS §7`). Browsers cap live GL contexts at roughly 8–16,
+so every scope face shares one context and one renderer, whichever view it is in. GL faces
+render only while on screen, and because React Flow zooms with a CSS transform they re-render at
+a zoom-adjusted device pixel ratio — a zoomed plot is redrawn crisp, never upscaled as a bitmap.
+MapLibre is the exception the budget still has to respect: it takes a context per map instance,
+so a view showing the canvas and the rack at once would pay twice for a pinned map.
 
 **Errors never take a row.** No banner appears above a face and pushes it down; failures are
 toasts in the bottom-right, dismissible, auto-expiring for the transient kinds. A banner that
@@ -367,8 +382,8 @@ second canvas (`CANVAS §5`). Operating wants alignment, density and muscle memo
 | full rack | the pin is a no-op — a full rack is a rack, not an error |
 | deleted node | its slot is dropped |
 
-Pinning collapses the canvas node to a placeholder (§7); unpinning returns the face to it. The
-rack may be empty — the canvas alone is a complete UI, and the rack is never a required stop.
+Pinning leaves the canvas node exactly where it was (§7); unpinning only takes the face off the
+grid. The rack may be empty — the canvas alone is a complete UI, and the rack is never a required stop.
 Nothing in the rack ever reflows because something else moved: whole-cell placement with
 refusal-on-overlap is chosen over a packing algorithm precisely so that muscle memory holds.
 
@@ -391,7 +406,7 @@ zeros are drawn in `ink-faint` so magnitude is readable before any digit is pars
 | ↑ / ↓ | ± one unit of the focused digit |
 | PageUp / PageDown | ± ten units |
 | 0–9 typed | write that digit and advance right |
-| Enter or `f` | open direct entry — type `145.5`, `145m5`, `433800k` |
+| Enter | open direct entry — type `145.5`, `145m5`, `433800k`. Keyboard only: a pointer gesture that opened it swallowed the second press of a double-click on a digit, which is the fastest way to step one |
 | Esc | cancel direct entry, restore the tuned value |
 
 The active digit carries a 2px `accent` underline; the whole dial carries the focus ring when
@@ -446,7 +461,7 @@ These are the bindings that exist:
 | `←` `→` | tune down / up one step |
 | `Shift` + `←` `→` | tune ten steps |
 | `[` `]` | smaller / larger tune step |
-| `f` | type a frequency into the dial |
+| `f` | focus the selected receiver's dial — then Enter to type a frequency |
 | `,` `.` | previous / next channel |
 | `m` / `Shift+M` | cycle the selected channel's mode forward / back |
 | `-` `=` | squelch down / up 2 dB |

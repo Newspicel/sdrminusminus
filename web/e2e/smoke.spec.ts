@@ -78,11 +78,12 @@ test.describe("the station", () => {
     await expect(channel).toHaveCount(1);
     await expect(channel.getByText(/nothing feeds this channel|not been created/i)).toHaveCount(0);
 
-    // Pinning moves the live face to the rack and leaves a placeholder behind (CANVAS §5).
+    // Pinning adds the face to the rack and leaves the canvas node where it was (CANVAS §5).
     await node("scope")
       .getByRole("button", { name: /pin to the rack/i })
       .click();
-    await expect(node("scope").getByText(/pinned to the rack/i)).toBeVisible();
+    await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
+    await expect(node("scope").getByText(/pinned to the rack/i)).toHaveCount(0);
 
     const rack = page.getByRole("group", { name: "View" }).getByRole("button", { name: "Rack" });
     await rack.click();
@@ -91,7 +92,7 @@ test.describe("the station", () => {
     // The arrangement is server state, not browser state (PLAN §10): a reload restores it — and
     // the station comes back bound, which is what applying on load buys.
     await page.reload();
-    await expect(node("scope").getByText(/pinned to the rack/i)).toBeVisible();
+    await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
     await expect(node("device").locator('[id^="frequency-dial"]')).toBeVisible();
     await expect(
       page.locator('.react-flow__node[data-id^="channel:"]').getByText(/nothing feeds/i),

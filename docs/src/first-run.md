@@ -20,9 +20,9 @@ the recordings directory. Click the signal generator.
 
 The node becomes the instrument: the tuning dial takes over its face, with the gain, rate and
 driver-specific controls the device reports underneath. Every digit of the dial is its own
-control — scroll it, click its upper or lower half, or focus it and use the arrows. The set
-starts at 100 MHz, 2.048 Msps, and the scope on the other end of that `iq` wire fills
-immediately.
+control — scroll it, click its upper or lower half, or focus it and use the arrows. To type a
+frequency instead, focus the dial (`f`) and press Enter. The set starts at 100 MHz, 2.048 Msps,
+and the scope on the other end of that `iq` wire fills immediately.
 
 Drag a node by its header to move it; scroll to pan the canvas, ⌘/Ctrl+scroll to zoom. Press
 `?` at any time for the keyboard list.

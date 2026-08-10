@@ -120,20 +120,24 @@ export function App() {
     }
   }, [station.error]);
 
-  // A patch that names radios which are not attached is normal (CANVAS §3) — but a patch whose
-  // channels the engine refused is a station that is not doing what it draws, so it is said out
-  // loud rather than left to be noticed.
-  useEffect(() => {
-    for (const refusal of station.applied?.refused ?? []) {
-      pushToast(`${refusal.node}: ${refusal.reason}`);
-    }
-  }, [station.applied]);
-
   const snapshot = station.active?.snapshot ?? null;
   const graph: PatchGraph = useMemo(
     () => snapshot?.graph ?? { nodes: [], edges: [] },
     [snapshot?.graph],
   );
+  // A patch that names radios which are not attached is normal (CANVAS §3) — but a patch whose
+  // channels the engine refused is a station that is not doing what it draws, so it is said out
+  // loud rather than left to be noticed.
+  useEffect(() => {
+    for (const refusal of station.applied?.refused ?? []) {
+      // Named the way the operator named it: a node id is a uuid nobody reads.
+      const node = graph.nodes.find((candidate) => candidate.id === refusal.node);
+      const what =
+        node?.label ?? (node?.kind === "channel" ? node.data.channel_type.toUpperCase() : "node");
+      pushToast(`${what}: ${refusal.reason}`);
+    }
+  }, [station.applied, graph.nodes]);
+
   const devices = useMemo(() => bindDevices(graph, deviceSets), [graph, deviceSets]);
   const channels = useMemo(() => bindChannels(graph, devices), [graph, devices]);
 
