@@ -76,16 +76,29 @@ pub(crate) fn rms(x: &[f32]) -> f32 {
     (x.iter().map(|&v| f64::from(v) * f64::from(v)).sum::<f64>() / x.len() as f64).sqrt() as f32
 }
 
-/// Dominant tone of a real signal: `(peak frequency in Hz, peak±3-bin power over the rest of
-/// the half spectrum)`. Callers keep the tone on a bin center so leakage stays in the guard.
-pub(crate) fn dominant_tone(audio: &[f32], rate: f64) -> (f64, f64) {
+/// Power spectrum of a real signal over its half spectrum, bin 0 included.
+fn half_spectrum(audio: &[f32]) -> Vec<f64> {
     let n = audio.len();
     let mut buf: Vec<Complex<f32>> = audio.iter().map(|&v| Complex::new(v, 0.0)).collect();
     FftPlanner::new().plan_fft_forward(n).process(&mut buf);
-    let power: Vec<f64> = buf[..=n / 2]
+    buf[..=n / 2]
         .iter()
         .map(|v| f64::from(v.norm_sqr()))
-        .collect();
+        .collect()
+}
+
+/// Power within ±3 bins of `bin`. Callers keep the tone on a bin center so leakage stays in
+/// the guard.
+fn bin_power(power: &[f64], bin: usize) -> f64 {
+    let lo = bin.saturating_sub(3);
+    let hi = (bin + 3).min(power.len() - 1);
+    power[lo..=hi].iter().sum()
+}
+
+/// Dominant tone of a real signal: `(peak frequency in Hz, peak±3-bin power over the rest of
+/// the half spectrum)`.
+pub(crate) fn dominant_tone(audio: &[f32], rate: f64) -> (f64, f64) {
+    let power = half_spectrum(audio);
     let peak = power
         .iter()
         .enumerate()
@@ -93,9 +106,15 @@ pub(crate) fn dominant_tone(audio: &[f32], rate: f64) -> (f64, f64) {
         .max_by(|a, b| a.1.total_cmp(b.1))
         .map(|(i, _)| i)
         .unwrap();
-    let lo = peak.saturating_sub(3);
-    let hi = (peak + 3).min(n / 2);
-    let signal: f64 = power[lo..=hi].iter().sum();
+    let signal = bin_power(&power, peak);
     let rest = (power.iter().sum::<f64>() - signal).max(1e-30);
-    (peak as f64 * rate / n as f64, signal / rest)
+    (peak as f64 * rate / audio.len() as f64, signal / rest)
+}
+
+/// Share of a real signal's total power sitting within ±3 bins of `freq_hz` — says a named
+/// tone is present when it is not the only one, which `dominant_tone` cannot.
+pub(crate) fn tone_power(audio: &[f32], freq_hz: f64, rate: f64) -> f64 {
+    let power = half_spectrum(audio);
+    let bin = (freq_hz * audio.len() as f64 / rate).round() as usize;
+    bin_power(&power, bin) / power.iter().sum::<f64>().max(1e-30)
 }

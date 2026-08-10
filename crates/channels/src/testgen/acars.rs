@@ -141,15 +141,6 @@ pub fn msk_audio(bits: &[bool], rate: f64) -> Vec<f32> {
         .collect()
 }
 
-/// Amplitude-modulate `audio` onto a carrier at complex baseband.
-#[must_use]
-pub fn am_modulate(audio: &[f32]) -> Vec<Complex<f32>> {
-    audio
-        .iter()
-        .map(|&s| Complex::new(1.0 + AM_DEPTH * s, 0.0))
-        .collect()
-}
-
 /// A complete transmission: pre-key, the bit-sync characters, then the framed block, as an AM
 /// carrier at baseband. The `+*` pair is not a sync word a receiver matches on — it is there
 /// because a real transmitter sends it, and a decoder must hunt past it to the sync pair.
@@ -158,7 +149,7 @@ pub fn transmission(block: &Block<'_>, rate: f64) -> Vec<Complex<f32>> {
     let mut stream: Vec<bool> = (0..PREKEY_BITS).map(|i| i.is_multiple_of(2)).collect();
     stream.extend(bits(&BSYNC));
     stream.extend(bits(&block_bytes(block)));
-    am_modulate(&msk_audio(&stream, rate))
+    super::am_modulate(&msk_audio(&stream, rate), AM_DEPTH)
 }
 
 #[cfg(test)]
