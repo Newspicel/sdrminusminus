@@ -1,0 +1,263 @@
+import { describe, expect, it } from "vitest";
+import type {
+  ChannelDescriptor,
+  DeviceSet,
+  PatchCatalog,
+  PatchGraph,
+  PatchNode,
+} from "../lib/types";
+import {
+  addEdge,
+  connectionRefusal,
+  edgeKey,
+  type GraphContext,
+  isPinned,
+  newNodeId,
+  pin,
+  placeSlot,
+  portsOf,
+  pruneRack,
+  RACK_COLS,
+  removeNode,
+  sameGraph,
+  unpin,
+} from "./graph";
+
+// The catalog is generated; this is the shape `GET /api/patch/catalog` returns for the kinds the
+// tests wire together.
+const CATALOG: PatchCatalog = {
+  nodes: [
+    {
+      kind: "device",
+      name: "Receiver",
+      category: "source",
+      ports: [{ name: "iq", port_type: "iq", direction: "out", multi: true }],
+    },
+    {
+      kind: "channel",
+      name: "Channel",
+      category: "channel",
+      needs_channel_type: true,
+      ports: [
+        { name: "iq", port_type: "iq", direction: "in", multi: false },
+        {
+          name: "audio",
+          port_type: "audio",
+          direction: "out",
+          multi: true,
+          condition: "channel_has_audio",
+        },
+        {
+          name: "events",
+          port_type: "events",
+          direction: "out",
+          multi: true,
+          condition: "channel_is_decoder",
+        },
+      ],
+    },
+    {
+      kind: "scope",
+      name: "Scope",
+      category: "display",
+      ports: [{ name: "iq", port_type: "iq", direction: "in", multi: false }],
+    },
+    {
+      kind: "speaker",
+      name: "Speaker",
+      category: "sink",
+      ports: [{ name: "audio", port_type: "audio", direction: "in", multi: true }],
+    },
+  ],
+};
+
+const TYPES: ChannelDescriptor[] = [
+  {
+    type_id: "nfm",
+    name: "NFM",
+    bandwidth_hz: 12_500,
+    input_rate_hz: 48_000,
+    has_audio: true,
+    exact_rate_only: false,
+  },
+  {
+    type_id: "adsb",
+    name: "ADS-B",
+    bandwidth_hz: 2_000_000,
+    input_rate_hz: 2_000_000,
+    has_audio: false,
+    decoder_kind: "adsb",
+    exact_rate_only: true,
+  },
+];
+
+const context: GraphContext = { catalog: CATALOG, channelTypes: TYPES };
+
+function node(id: string, body: Partial<PatchNode> & Pick<PatchNode, "kind">): PatchNode {
+  return { id, position: { x: 0, y: 0 }, ...body } as PatchNode;
+}
+
+function station(): PatchGraph {
+  return {
+    nodes: [
+      node("dev", { kind: "device", data: {} }),
+      node("scope", { kind: "scope" }),
+      node("nfm", { kind: "channel", data: { channel_type: "nfm" } }),
+      node("spk", { kind: "speaker" }),
+    ],
+    edges: [
+      { from: { node: "dev", port: "iq" }, to: { node: "scope", port: "iq" } },
+      { from: { node: "dev", port: "iq" }, to: { node: "nfm", port: "iq" } },
+    ],
+  };
+}
+
+const port = (n: string, p: string) => ({ node: n, port: p });
+
+/** The receiver node bound to a set running at this rate — all the live rate rule reads. */
+const boundAt = (rate: number) =>
+  new Map([["dev", { settings: { sample_rate: rate } } as DeviceSet]]);
+
+describe("ports", () => {
+  it("resolves a channel's conditional outputs against its type", () => {
+    const graph = station();
+    const nfm = graph.nodes[2];
+    const adsb = node("adsb", { kind: "channel", data: { channel_type: "adsb" } });
+    expect(nfm && portsOf(context, nfm).map((p) => p.name)).toEqual(["iq", "audio"]);
+    expect(portsOf(context, adsb).map((p) => p.name)).toEqual(["iq", "events"]);
+  });
+
+  it("gives an unknown channel type only its input", () => {
+    const ghost = node("x", { kind: "channel", data: { channel_type: "wefax" } });
+    expect(portsOf(context, ghost).map((p) => p.name)).toEqual(["iq"]);
+  });
+});
+
+describe("connectionRefusal", () => {
+  it("accepts the wires the model is for", () => {
+    const graph = station();
+    expect(
+      connectionRefusal(context, graph, port("nfm", "audio"), port("spk", "audio")),
+    ).toBeNull();
+    // A device fans out: a second scope on the same radio is the point.
+    const withScope = { ...graph, nodes: [...graph.nodes, node("scope2", { kind: "scope" })] };
+    expect(
+      connectionRefusal(context, withScope, port("dev", "iq"), port("scope2", "iq")),
+    ).toBeNull();
+  });
+
+  it("names the reason for every refusal", () => {
+    const graph = station();
+    expect(connectionRefusal(context, graph, port("dev", "iq"), port("dev", "iq"))).toMatch(
+      /itself/,
+    );
+    expect(connectionRefusal(context, graph, port("dev", "iq"), port("spk", "audio"))).toMatch(
+      /iq cannot feed a audio input/,
+    );
+    expect(connectionRefusal(context, graph, port("scope", "iq"), port("nfm", "iq"))).toMatch(
+      /output to an input/,
+    );
+    expect(connectionRefusal(context, graph, port("dev", "iq"), port("nfm", "tap"))).toMatch(
+      /does not exist/,
+    );
+    expect(connectionRefusal(context, graph, port("dev", "iq"), port("nfm", "iq"))).toMatch(
+      /already wired/,
+    );
+  });
+
+  // CANVAS §1: two devices into one channel is refused until `CoherentArray` exists.
+  it("refuses a second receiver on a channel and names why", () => {
+    const graph = {
+      ...station(),
+      nodes: [...station().nodes, node("dev2", { kind: "device", data: {} })],
+    };
+    expect(connectionRefusal(context, graph, port("dev2", "iq"), port("nfm", "iq"))).toMatch(
+      /coherent array/,
+    );
+  });
+
+  /// PLAN §18: the wideband rule shows on the wire, naming the rate that works.
+  it("refuses a wideband channel on a radio running at the wrong rate", () => {
+    const graph = {
+      ...station(),
+      nodes: [
+        ...station().nodes,
+        node("adsb", { kind: "channel", data: { channel_type: "adsb" } }),
+      ],
+    };
+    const wrong = { ...context, bound: boundAt(2_400_000) };
+    expect(connectionRefusal(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toMatch(
+      /exactly 2 Msps/,
+    );
+
+    const right = { ...context, bound: boundAt(2_000_000) };
+    expect(connectionRefusal(right, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
+    // An unbound receiver has no rate to be wrong about yet.
+    expect(connectionRefusal(context, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
+  });
+});
+
+describe("editing", () => {
+  it("removing a node takes its wires with it", () => {
+    const graph = removeNode(station(), "nfm");
+    expect(graph.nodes.map((n) => n.id)).toEqual(["dev", "scope", "spk"]);
+    expect(graph.edges?.map(edgeKey)).toEqual(["dev.iq->scope.iq"]);
+  });
+
+  it("ids are unique per node", () => {
+    expect(newNodeId("scope")).not.toEqual(newNodeId("scope"));
+    expect(newNodeId("scope").startsWith("scope:")).toBe(true);
+  });
+
+  it("compares graphs structurally so an echo of our own write is not re-applied", () => {
+    expect(sameGraph(station(), station())).toBe(true);
+    expect(
+      sameGraph(
+        station(),
+        addEdge(station(), {
+          from: { node: "nfm", port: "audio" },
+          to: { node: "spk", port: "audio" },
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("the rack", () => {
+  it("pins into the first free cell and unpins", () => {
+    let rack = pin({ slots: [] }, "scope");
+    expect(rack.slots).toEqual([{ node: "scope", x: 0, y: 0, w: 12, h: 8 }]);
+    rack = pin(rack, "nfm");
+    expect(rack.slots?.[1]).toEqual({ node: "nfm", x: 12, y: 0, w: 12, h: 8 });
+    // A third face wraps to the next row rather than overlapping.
+    rack = pin(rack, "spk");
+    expect(rack.slots?.[2]).toEqual({ node: "spk", x: 0, y: 8, w: 12, h: 8 });
+
+    expect(isPinned(rack, "nfm")).toBe(true);
+    rack = unpin(rack, "nfm");
+    expect(isPinned(rack, "nfm")).toBe(false);
+    // Pinning twice is a no-op, not a second slot.
+    expect(pin(rack, "scope")).toBe(rack);
+  });
+
+  it("refuses a move that overlaps or leaves the grid", () => {
+    const rack = pin(pin({ slots: [] }, "a"), "b");
+    expect(placeSlot(rack, "b", { x: 0, y: 0, w: 12, h: 8 })).toBe(rack);
+    expect(placeSlot(rack, "b", { x: RACK_COLS - 2, y: 0, w: 12, h: 8 })).toBe(rack);
+    expect(placeSlot(rack, "b", { x: 0, y: 8, w: 12, h: 8 }).slots?.[1]).toEqual({
+      node: "b",
+      x: 0,
+      y: 8,
+      w: 12,
+      h: 8,
+    });
+    // Resizing in place is allowed: a slot never collides with itself.
+    expect(placeSlot(rack, "a", { x: 0, y: 0, w: 12, h: 16 }).slots?.[0]?.h).toBe(16);
+  });
+
+  it("drops slots whose node is gone", () => {
+    const rack = pin({ slots: [] }, "nfm");
+    expect(pruneRack(rack, removeNode(station(), "nfm")).slots).toEqual([]);
+    expect(pruneRack(rack, station())).toBe(rack);
+  });
+});

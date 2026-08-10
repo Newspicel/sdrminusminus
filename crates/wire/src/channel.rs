@@ -24,10 +24,34 @@ pub struct ChannelDescriptor {
     /// uses it to pick the panel that renders the events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decoder_kind: Option<String>,
+    /// The type occupies its whole channel rate, so it runs only with the device tuned to
+    /// exactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18;
+    /// ADS-B is the one such mode). Reported so the canvas can refuse the wire where the
+    /// operator draws it, naming the rate that works, instead of letting the engine reject it
+    /// after the fact. Defaults to `false`, which is every other type.
+    #[serde(default)]
+    pub exact_rate_only: bool,
 }
 
 fn default_has_audio() -> bool {
     true
+}
+
+/// The neutral descriptor a channel module fills in. Its values are the serde defaults, so a
+/// descriptor built from a literal and one parsed from JSON agree on every field nobody set —
+/// `has_audio` in particular, which is `true` for the audio channels that pre-date the flag.
+impl Default for ChannelDescriptor {
+    fn default() -> Self {
+        Self {
+            type_id: String::new(),
+            name: String::new(),
+            bandwidth_hz: 0.0,
+            input_rate_hz: 0.0,
+            has_audio: default_has_audio(),
+            decoder_kind: None,
+            exact_rate_only: false,
+        }
+    }
 }
 
 fn default_nfm_bandwidth_hz() -> f64 {

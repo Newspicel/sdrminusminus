@@ -62,11 +62,32 @@ The shipped set is FM radio (with RDS), airband, aircraft (ADS-B), ships (AIS), 
 (POCSAG), ham 2 m and marine VHF. More entries follow their decoders — a template is only
 worth shipping once the channels it creates exist.
 
-Templates need no special engine code — they are presets plus a layout, and applying one goes
-through the same path as anything else.
+Templates need no special engine code — they are presets plus a patch, and applying one goes
+through the same path as anything else: it configures the device set you name, then draws its
+nodes and wiring into the station you are looking at. Applying the same template twice replaces
+its own block rather than stacking a second copy, and it wires into a receiver node you already
+have for that radio instead of drawing a second box for one antenna.
 
-## Workspaces
+## Stations
 
-Server-persisted workspaces and tabs (one active workspace, unlimited tabs, each a dockable
-panel layout) are part of the UI shell described in `PLAN.md` §10. They are not built yet;
-the current UI is a fixed panel layout that collapses to a single column below 768 px.
+The client is a canvas: every radio, channel, scope, map and sink is a node, and the wires
+between them are the UI. A **station** (a workspace) is that patch plus the rack of pinned
+faces, stored server-side — exactly one is active, so every browser and the desktop app open
+the same arrangement, and it survives a restart.
+
+```http
+GET    /api/workspaces
+POST   /api/workspaces          {"name": "Bench"}
+PUT    /api/workspaces/{id}     {"revision": 3, "snapshot": {...}}
+POST   /api/workspaces/{id}/activate
+POST   /api/workspaces/{id}/apply
+GET    /api/patch/catalog
+```
+
+`apply` is what turns the drawing into a running station: it opens the radios the patch names
+and adds the channels it draws. It is additive and idempotent — it never closes a radio or
+deletes a channel — so the client calls it whenever a station is opened.
+
+A node names its radio by backend and serial, never by an engine id, so an unplugged receiver
+comes back as a disconnected node with its wiring intact rather than silently binding to
+whichever radio opened first.

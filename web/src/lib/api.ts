@@ -19,6 +19,8 @@ import type {
   DevicesResponse,
   DoctorReport,
   ExportFormat,
+  PatchApplyReport,
+  PatchCatalog,
   PresetInfo,
   RecordAction,
   RecordingStatus,
@@ -67,6 +69,7 @@ export const AUTH_KEY = ["get", "/api/auth"] as const;
 export const CLIENTS_KEY = ["get", "/api/clients"] as const;
 export const DOCTOR_KEY = ["get", "/api/doctor"] as const;
 export const WORKSPACES_KEY = ["get", "/api/workspaces"] as const;
+export const PATCH_CATALOG_KEY = ["get", "/api/patch/catalog"] as const;
 
 export function stateQuery() {
   return queryOptions({
@@ -314,6 +317,22 @@ export async function deleteWorkspace(id: number): Promise<void> {
 
 export async function activateWorkspace(id: number): Promise<void> {
   unwrap(await client.POST("/api/workspaces/{id}/activate", { params: { path: { id } } }));
+}
+
+/** Bring the engine up to what the station draws (CANVAS §2): open the radios its device nodes
+ * name, add the channels it wires. Additive and idempotent, so it is safe on every load. */
+export async function applyWorkspace(id: number): Promise<PatchApplyReport> {
+  return unwrap(await client.POST("/api/workspaces/{id}/apply", { params: { path: { id } } }));
+}
+
+/** The node palette and its ports (CANVAS §1). Static for a build, like the channel types, so
+ * it is fetched once and never invalidated. */
+export function patchCatalogQuery() {
+  return queryOptions({
+    queryKey: PATCH_CATALOG_KEY,
+    queryFn: async (): Promise<PatchCatalog> => unwrap(await client.GET("/api/patch/catalog")),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
 }
 
 export function doctorQuery(enabled: boolean) {

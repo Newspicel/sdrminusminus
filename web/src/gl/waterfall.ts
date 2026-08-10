@@ -1,11 +1,25 @@
-// WebGL2 scrolling waterfall (PLAN §9, §10). Each spectrum frame is one row in an R8 texture
-// ring; a full-screen quad samples it through the view window and maps intensity through a
-// colormap in the fragment shader.
+// The one WebGL2 context in the document, shared by every scope on the canvas (CANVAS §7,
+// PLAN §17). Browsers cap live contexts at roughly 8–16 per document, and a patch full of scope
+// nodes walks straight past that: the browser then drops the oldest context and some *other*
+// plot goes black. So the context lives here, module-level, on one offscreen canvas. A plot
+// owns nothing but its history texture and its window into it; one rAF loop draws each visible
+// plot into the shared buffer at that plot's device-pixel size and blits the result into the
+// plot's own 2D canvas.
+//
+// Each spectrum frame is one row of an R8 texture ring (PLAN §9, §10); a full-screen quad
+// samples the ring through the view window and maps intensity through a colormap in the
+// fragment shader.
 //
 // Every colormap here is perceptually uniform and monotone in luminance (DESIGN.md §2): jet and
 // its relatives invent bands in smooth data, so they are not offered.
 
+import { backingPx, fitExtent, nextRingRow, pixelRatio, rowsForHeight, zoomOf } from "./raster";
+
 const HISTORY_ROWS = 1024;
+
+/** A plot just outside the viewport is drawn anyway, so panning it into view shows history
+ * rather than a blank rectangle filling in. */
+const PREROLL_MARGIN = "128px";
 
 export const COLORMAPS = ["magma", "inferno", "plasma", "viridis", "gray"] as const;
 export type Colormap = (typeof COLORMAPS)[number];
@@ -92,65 +106,103 @@ void main() {
   fragColor = vec4(colormap(v), 1.0);
 }`;
 
-export class WaterfallRenderer {
-  private readonly gl: WebGL2RenderingContext;
-  private readonly canvas: HTMLCanvasElement;
-  private readonly program: WebGLProgram;
+/**
+ * One plot's share of the shared renderer. Created by `attachWaterfall`, which owns everything
+ * else: the caller feeds it rows and tells it what to show, and drawing — when, how large, and
+ * whether at all — is the renderer's decision.
+ */
+export interface WaterfallView {
+  /** Append one spectrum row (bin bytes over the frame's [dbMin, dbMax]). Rows accumulate while
+   * the plot is off screen; only the drawing is skipped. */
+  pushRow(bins: Uint8Array): void;
+  /** The visible window over the device span, `start` and `width` as fractions of it. Applied
+   * to the whole history at once, so zooming re-frames what has already been received rather
+   * than only what arrives next. */
+  setWindow(start: number, width: number): void;
+  setColormap(name: Colormap): void;
+  /** Release this plot's texture, and the context itself when it was the last plot. */
+  dispose(): void;
+}
+
+/**
+ * Draw a waterfall into `canvas`, a 2D canvas the caller owns and sizes with CSS. Throws when
+ * the browser cannot give us WebGL2 at all — the scope face catches that and keeps its trace.
+ */
+export function attachWaterfall(canvas: HTMLCanvasElement): WaterfallView {
+  const plot = new Plot(canvas, acquire());
+  plots.add(plot);
+  if (frame === 0) {
+    frame = requestAnimationFrame(draw);
+  }
+  return plot;
+}
+
+interface Uniforms {
+  write: WebGLUniformLocation | null;
+  height: WebGLUniformLocation | null;
+  rows: WebGLUniformLocation | null;
+  viewStart: WebGLUniformLocation | null;
+  viewWidth: WebGLUniformLocation | null;
+  map: WebGLUniformLocation | null;
+}
+
+interface Shared {
+  canvas: HTMLCanvasElement;
+  gl: WebGL2RenderingContext;
+  program: WebGLProgram;
+  uniforms: Uniforms;
+  vao: WebGLVertexArrayObject | null;
+  quad: WebGLBuffer | null;
+}
+
+let shared: Shared | null = null;
+const plots = new Set<Plot>();
+let frame = 0;
+let teardown = 0;
+
+class Plot implements WaterfallView {
+  private readonly ctx: CanvasRenderingContext2D | null;
   private readonly texture: WebGLTexture;
-  private readonly uWrite: WebGLUniformLocation | null;
-  private readonly uHeight: WebGLUniformLocation | null;
-  private readonly uRows: WebGLUniformLocation | null;
-  private readonly uViewStart: WebGLUniformLocation | null;
-  private readonly uViewWidth: WebGLUniformLocation | null;
-  private readonly uMap: WebGLUniformLocation | null;
-  private readonly vao: WebGLVertexArrayObject | null;
-  private readonly quadBuffer: WebGLBuffer | null;
-  private width = 0;
+  private readonly observer: IntersectionObserver;
+  private bins = 0;
   private writeRow = 0;
-  private raf = 0;
-  private viewStart = 0;
-  private viewWidth = 1;
+  private windowStart = 0;
+  private windowWidth = 1;
   private map = 0;
+  private ratio = 1;
+  // Starts hidden: the observer reports the real answer within a frame or two, and a plot drawn
+  // before that would be one the operator cannot see.
+  private onScreen = false;
 
-  constructor(canvas: HTMLCanvasElement) {
-    const gl = canvas.getContext("webgl2", { antialias: false, depth: false });
-    if (!gl) {
-      throw new Error("WebGL2 is required for the waterfall display");
-    }
-    this.gl = gl;
-    this.canvas = canvas;
-    this.program = createProgram(gl, VERT, FRAG);
-    this.uWrite = gl.getUniformLocation(this.program, "uWrite");
-    this.uHeight = gl.getUniformLocation(this.program, "uHeight");
-    this.uRows = gl.getUniformLocation(this.program, "uRows");
-    this.uViewStart = gl.getUniformLocation(this.program, "uViewStart");
-    this.uViewWidth = gl.getUniformLocation(this.program, "uViewWidth");
-    this.uMap = gl.getUniformLocation(this.program, "uMap");
-    const quad = createFullScreenQuad(gl, this.program);
-    this.vao = quad.vao;
-    this.quadBuffer = quad.buffer;
-
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly context: Shared,
+  ) {
+    this.ctx = canvas.getContext("2d");
+    const gl = context.gl;
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     this.texture = texture;
     this.allocate(1024);
-
-    const loop = () => {
-      this.render();
-      this.raf = requestAnimationFrame(loop);
-    };
-    this.raf = requestAnimationFrame(loop);
+    this.observer = new IntersectionObserver(
+      (entries) => {
+        this.onScreen = entries[entries.length - 1]?.isIntersecting ?? false;
+      },
+      { rootMargin: PREROLL_MARGIN },
+    );
+    this.observer.observe(canvas);
   }
 
-  /** Append one spectrum row (bin bytes over [dbMin, dbMax]). */
   pushRow(bins: Uint8Array): void {
-    const gl = this.gl;
-    if (bins.length !== this.width) {
+    if (bins.length === 0) {
+      return;
+    }
+    const gl = this.context.gl;
+    if (bins.length !== this.bins) {
       this.allocate(bins.length);
     }
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
@@ -159,20 +211,18 @@ export class WaterfallRenderer {
       0,
       0,
       this.writeRow,
-      this.width,
+      this.bins,
       1,
       gl.RED,
       gl.UNSIGNED_BYTE,
       bins,
     );
-    this.writeRow = (this.writeRow + 1) % HISTORY_ROWS;
+    this.writeRow = nextRingRow(this.writeRow, HISTORY_ROWS);
   }
 
-  /** The visible window over the device span. Applied to the whole history at once, so zooming
-   * re-frames what has already been received rather than only what arrives next. */
-  setView(start: number, width: number): void {
-    this.viewStart = start;
-    this.viewWidth = width;
+  setWindow(start: number, width: number): void {
+    this.windowStart = start;
+    this.windowWidth = width;
   }
 
   setColormap(name: Colormap): void {
@@ -180,38 +230,70 @@ export class WaterfallRenderer {
   }
 
   dispose(): void {
-    cancelAnimationFrame(this.raf);
-    this.gl.deleteTexture(this.texture);
-    this.gl.deleteProgram(this.program);
-    this.gl.deleteVertexArray(this.vao);
-    this.gl.deleteBuffer(this.quadBuffer);
-    // Deleting the objects does not free the *context*, and browsers cap how many a document
-    // may hold (~16). A dock creates and destroys panels for the life of the session, so
-    // without this the oldest context is dropped by the browser and some other canvas — not
-    // this one — goes black.
-    //
-    // Deferred and conditional, because losing a context poisons the *canvas*: `getContext`
-    // hands back the same dead object forever, and every later shader compile fails with an
-    // empty log. StrictMode runs mount→unmount→mount on the very same canvas, so releasing
-    // eagerly would kill the renderer it is about to rebuild. By the next macrotask a genuinely
-    // removed panel has been detached from the document; a remount has not.
-    window.setTimeout(() => {
-      if (!this.canvas.isConnected) {
-        this.gl.getExtension("WEBGL_lose_context")?.loseContext();
-      }
-    }, 0);
+    this.observer.disconnect();
+    plots.delete(this);
+    this.context.gl.deleteTexture(this.texture);
+    if (plots.size === 0) {
+      cancelAnimationFrame(frame);
+      frame = 0;
+      release();
+    }
   }
 
-  private allocate(width: number): void {
-    const gl = this.gl;
-    this.width = Math.max(1, width);
+  /** Bring the plot's own canvas up to its device-pixel size and report it, or `null` when this
+   * plot must not be drawn: off screen, or laid out at zero — a node collapsed to a rack
+   * placeholder, or one dragged to nothing. */
+  measure(): { w: number; h: number } | null {
+    if (!this.onScreen) {
+      return null;
+    }
+    const cssWidth = this.canvas.clientWidth;
+    const cssHeight = this.canvas.clientHeight;
+    if (cssWidth === 0 || cssHeight === 0) {
+      return null;
+    }
+    const rect = this.canvas.getBoundingClientRect();
+    this.ratio = pixelRatio(window.devicePixelRatio, zoomOf(rect.width, cssWidth));
+    const w = backingPx(cssWidth, this.ratio);
+    const h = backingPx(cssHeight, this.ratio);
+    if (w === 0 || h === 0) {
+      return null;
+    }
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
+    return { w, h };
+  }
+
+  paint(w: number, h: number): void {
+    const { gl, canvas: buffer, uniforms } = this.context;
+    gl.viewport(0, 0, w, h);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.uniform1f(uniforms.write, this.writeRow);
+    gl.uniform1f(uniforms.height, HISTORY_ROWS);
+    gl.uniform1f(uniforms.rows, rowsForHeight(h, this.ratio, HISTORY_ROWS));
+    gl.uniform1f(uniforms.viewStart, this.windowStart);
+    gl.uniform1f(uniforms.viewWidth, this.windowWidth);
+    gl.uniform1i(uniforms.map, this.map);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    // GL's origin is bottom-left, so the viewport just drawn is the bottom w×h of the shared
+    // buffer. Copying it here, inside the same animation frame, is what makes
+    // `preserveDrawingBuffer` unnecessary: the drawing buffer is cleared when the browser
+    // composites it, which is after this callback returns.
+    this.ctx?.drawImage(buffer, 0, buffer.height - h, w, h, 0, 0, w, h);
+  }
+
+  private allocate(bins: number): void {
+    const gl = this.context.gl;
+    this.bins = Math.max(1, bins);
     this.writeRow = 0;
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
       gl.R8,
-      this.width,
+      this.bins,
       HISTORY_ROWS,
       0,
       gl.RED,
@@ -219,41 +301,118 @@ export class WaterfallRenderer {
       null,
     );
   }
+}
 
-  private render(): void {
-    const gl = this.gl;
-    this.resizeToDisplay();
-    // A panel in a background tab, or one dragged to zero width, measures 0×0. Drawing into it
-    // is wasted GPU work every frame, and the rows keep accumulating either way. The *display*
-    // size is what goes to zero — `resizeToDisplay` deliberately leaves the backing store at its
-    // last non-zero size, so testing `canvas.width` would never fire.
-    if (this.canvas.clientWidth === 0 || this.canvas.clientHeight === 0) {
+function draw(): void {
+  frame = requestAnimationFrame(draw);
+  const context = shared;
+  if (context === null) {
+    return;
+  }
+  const pending: { plot: Plot; w: number; h: number }[] = [];
+  let width = 0;
+  let height = 0;
+  for (const plot of plots) {
+    const size = plot.measure();
+    if (size === null) {
+      continue;
+    }
+    pending.push({ plot, ...size });
+    width = Math.max(width, size.w);
+    height = Math.max(height, size.h);
+  }
+  if (pending.length === 0) {
+    // Nothing visible: the buffer keeps its size, so panning a node back into view costs a draw
+    // and not a reallocation.
+    return;
+  }
+  const w = fitExtent(context.canvas.width, width);
+  const h = fitExtent(context.canvas.height, height);
+  if (w !== context.canvas.width || h !== context.canvas.height) {
+    context.canvas.width = w;
+    context.canvas.height = h;
+  }
+  context.gl.useProgram(context.program);
+  context.gl.bindVertexArray(context.vao);
+  for (const entry of pending) {
+    entry.plot.paint(entry.w, entry.h);
+  }
+}
+
+function acquire(): Shared {
+  // A plot arrived, so whatever release was pending is cancelled — see `release` for why the
+  // teardown is deferred in the first place.
+  window.clearTimeout(teardown);
+  teardown = 0;
+  // A failure is not remembered: the browser's cap counts *every* context in the document, ours
+  // and MapLibre's, so a refusal while a map face is open is one a later scope may not meet.
+  shared ??= create();
+  return shared;
+}
+
+/**
+ * Give the context back once no plot is left. Deleting the objects does not free the *context*,
+ * and the cap this whole module exists for is on contexts.
+ *
+ * Deferred, because losing a context poisons the *canvas* it came from: `getContext` hands back
+ * the same dead object forever, and every later shader compile fails with an empty log. React
+ * StrictMode runs mount→unmount→mount, so releasing eagerly would kill the renderer it is about
+ * to rebuild. By the next macrotask the second mount has already called `acquire`, which
+ * cancels this; a station whose last scope really was removed has not.
+ */
+function release(): void {
+  if (teardown !== 0 || shared === null) {
+    return;
+  }
+  teardown = window.setTimeout(() => {
+    teardown = 0;
+    const context = shared;
+    if (context === null || plots.size > 0) {
       return;
     }
-    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.useProgram(this.program);
-    gl.bindVertexArray(this.vao);
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.uniform1f(this.uWrite, this.writeRow);
-    gl.uniform1f(this.uHeight, HISTORY_ROWS);
-    // One row per *CSS* pixel: on a 2× display, counting backing-store rows would halve the
-    // scroll speed and double how long the history takes to reach the bottom of the panel.
-    const rows = this.canvas.height / Math.min(window.devicePixelRatio || 1, 2);
-    gl.uniform1f(this.uRows, Math.max(2, Math.min(HISTORY_ROWS, rows)));
-    gl.uniform1f(this.uViewStart, this.viewStart);
-    gl.uniform1f(this.uViewWidth, this.viewWidth);
-    gl.uniform1i(this.uMap, this.map);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-  }
+    // The canvas is dropped with the context, so the next `acquire` builds a fresh pair rather
+    // than asking a poisoned canvas for a context it can never give.
+    shared = null;
+    context.gl.deleteProgram(context.program);
+    context.gl.deleteVertexArray(context.vao);
+    context.gl.deleteBuffer(context.quad);
+    context.gl.getExtension("WEBGL_lose_context")?.loseContext();
+  }, 0);
+}
 
-  private resizeToDisplay(): void {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = Math.round(this.canvas.clientWidth * dpr);
-    const h = Math.round(this.canvas.clientHeight * dpr);
-    if (w > 0 && h > 0 && (this.canvas.width !== w || this.canvas.height !== h)) {
-      this.canvas.width = w;
-      this.canvas.height = h;
-    }
+function create(): Shared {
+  const canvas = document.createElement("canvas");
+  const gl = canvas.getContext("webgl2", { antialias: false, depth: false });
+  if (!gl) {
+    throw new Error("WebGL2 is required for the waterfall display");
+  }
+  try {
+    const program = createProgram(gl, VERT, FRAG);
+    const quad = createFullScreenQuad(gl, program);
+    // Rows are single-byte R8 and any bin count is legal, so the default four-byte row alignment
+    // would misread every frame whose width is not a multiple of four.
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    return {
+      canvas,
+      gl,
+      program,
+      vao: quad.vao,
+      quad: quad.buffer,
+      uniforms: {
+        write: gl.getUniformLocation(program, "uWrite"),
+        height: gl.getUniformLocation(program, "uHeight"),
+        rows: gl.getUniformLocation(program, "uRows"),
+        viewStart: gl.getUniformLocation(program, "uViewStart"),
+        viewWidth: gl.getUniformLocation(program, "uViewWidth"),
+        map: gl.getUniformLocation(program, "uMap"),
+      },
+    };
+  } catch (error) {
+    // A context whose shader would not compile still counts against the browser's cap, and
+    // `acquire` retries on the next face. Handing it back is what keeps a driver that refuses
+    // the shader from costing one live context per attempt.
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    throw error;
   }
 }
 

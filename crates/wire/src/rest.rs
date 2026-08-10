@@ -232,10 +232,12 @@ pub struct TemplateInfo {
     /// cannot reach instead of failing on apply.
     pub min_freq_hz: f64,
     pub max_freq_hz: f64,
-    /// Panel layout the template opens as a tab in the active workspace (M6, PLAN §16). A
-    /// template that names none leaves the workspace alone.
+    /// The patch the template draws into the active workspace (CANVAS §8 phase ④): a receiver,
+    /// the channels above, their wiring and the faces to operate them. Its channel nodes are the
+    /// `channels` list in order, so the n-th node binds the n-th channel the apply creates. A
+    /// template that names no patch leaves the station alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub layout: Option<crate::workspace::LayoutNode>,
+    pub patch: Option<crate::patch::PatchGraph>,
 }
 
 /// `GET /api/templates`.

@@ -64,3 +64,37 @@ export function channelHasAudio(descriptor: ChannelDescriptor | undefined): bool
 export function channelDecoderKind(descriptor: ChannelDescriptor | undefined): string | null {
   return descriptor?.decoder_kind ?? null;
 }
+
+/** How far the channel can be offset before its passband leaves the receiver's span: half the
+ * span, less the half-bandwidth the channel itself occupies. `null` when the rate is unknown —
+ * the offset field is then left unbounded rather than clamped to a guess. */
+export function offsetLimitHz(
+  spanHz: number | null | undefined,
+  descriptor: ChannelDescriptor | undefined,
+): number | null {
+  if (spanHz == null || !Number.isFinite(spanHz) || spanHz <= 0) {
+    return null;
+  }
+  return Math.max(0, (spanHz - (descriptor?.bandwidth_hz ?? 0)) / 2);
+}
+
+/** Holds an offset inside `offsetLimitHz`. An offset past the edge of the span tunes the channel
+ * to nothing, so the steppers stop there rather than walking off the band. */
+export function clampOffsetHz(hz: number, limitHz: number | null): number {
+  return limitHz === null ? hz : Math.min(limitHz, Math.max(-limitHz, hz));
+}
+
+/** The rate this channel needs, when the receiver is not running it — otherwise `null`.
+ *
+ * A mode that fills its whole channel rate has no guard band to resample through (PLAN §18), so
+ * a radio retuned to another rate after the wire was drawn stops feeding it. `connectionRefusal`
+ * catches that at drag time; this is the same rule for a pairing that has already been made. */
+export function exactRateMismatch(
+  descriptor: ChannelDescriptor | undefined,
+  sampleRateHz: number | null | undefined,
+): number | null {
+  if (descriptor?.exact_rate_only !== true || sampleRateHz == null) {
+    return null;
+  }
+  return sampleRateHz === descriptor.input_rate_hz ? null : descriptor.input_rate_hz;
+}

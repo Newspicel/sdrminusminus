@@ -272,9 +272,31 @@ const REGISTRY: &[Registration] = &[
 ];
 
 /// Descriptors for every compiled-in channel type (PLAN §8: static registry).
+///
+/// `exact_rate_only` is derived here rather than written into each descriptor, from the same two
+/// functions the engine's admission check uses: the answer must not be able to disagree with the
+/// refusal it predicts.
 #[must_use]
 pub fn descriptors() -> Vec<ChannelDescriptor> {
-    REGISTRY.iter().map(|r| (r.descriptor)().clone()).collect()
+    REGISTRY
+        .iter()
+        .map(|r| {
+            let mut descriptor = (r.descriptor)().clone();
+            descriptor.exact_rate_only = exact_rate_only(&descriptor);
+            descriptor
+        })
+        .collect()
+}
+
+/// Whether this type can only run with the device at exactly its input rate (PLAN §18): a mode
+/// occupying its full output rate leaves the DDC no guard band, so no resampled path can carry
+/// it. ADS-B is the one such mode today.
+fn exact_rate_only(descriptor: &ChannelDescriptor) -> bool {
+    let Some(params) = ChannelParams::default_for(&descriptor.type_id) else {
+        return false;
+    };
+    let (low, high) = occupied_band(&params);
+    high - low >= sdrmm_dsp::resamplable_bandwidth_hz(descriptor.input_rate_hz)
 }
 
 /// Build the channel matching `settings.params`.
@@ -384,6 +406,20 @@ mod tests {
                 d.has_audio,
                 matches!(d.type_id.as_str(), "nfm" | "am" | "ssb" | "wfm"),
                 "{} audio flag does not match its mode class",
+                d.type_id
+            );
+        }
+    }
+
+    /// The flag the canvas refuses a wire on (PLAN §18): it must name exactly the modes the
+    /// engine's admission check would reject at a resampled rate, which today is ADS-B alone.
+    #[test]
+    fn only_adsb_needs_the_device_at_its_own_rate() {
+        for d in descriptors() {
+            assert_eq!(
+                d.exact_rate_only,
+                d.type_id == "adsb",
+                "{} exact-rate flag",
                 d.type_id
             );
         }

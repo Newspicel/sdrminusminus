@@ -32,3 +32,6 @@ docs/book
 # Off-air IQ captures from hardware sessions: hundreds of MB each, kept locally as
 # reproductions for decoder work (fixtures/ holds the small synthesized pairs instead).
 captures
+web/.e2e-tmp/
+web/test-results/
+web/playwright-report/

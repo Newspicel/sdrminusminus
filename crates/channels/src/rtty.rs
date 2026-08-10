@@ -60,6 +60,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     input_rate_hz: 8_000.0,
     has_audio: false,
     decoder_kind: Some("rtty".to_owned()),
+    ..ChannelDescriptor::default()
 });
 
 pub struct RttyChannel {

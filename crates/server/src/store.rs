@@ -122,6 +122,14 @@ const MIGRATIONS: &[&str] = &[
     );
     INSERT INTO active_workspace (id, workspace_id) VALUES (0, NULL);
     ",
+    "
+    -- M7, the canvas (CANVAS §8 phase ⑤). A stored M6 workspace is a tabs-and-dockview tree the
+    -- patch model cannot express, so the rows go rather than a converter nobody would want: the
+    -- next open re-seeds the default station. Recorded in PLAN-CANVAS, not hidden.
+    DELETE FROM workspaces;
+    UPDATE active_workspace SET workspace_id = NULL;
+    ALTER TABLE workspaces RENAME COLUMN tabs TO nodes;
+    ",
 ];
 
 /// Index fields for one finalized recording, derived from its SigMF pair during
@@ -420,7 +428,7 @@ impl Store {
     pub fn list_workspaces(&self) -> Result<WorkspacesResponse, StoreError> {
         let conn = self.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, name, created_at, updated_at, revision, tabs FROM workspaces ORDER BY id",
+            "SELECT id, name, created_at, updated_at, revision, nodes FROM workspaces ORDER BY id",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(WorkspaceInfo {
@@ -429,7 +437,7 @@ impl Store {
                 created_at: row.get(2)?,
                 updated_at: row.get(3)?,
                 revision: row.get::<_, i64>(4)?.unsigned_abs(),
-                tabs: row.get(5)?,
+                nodes: row.get(5)?,
             })
         })?;
         let workspaces: Vec<WorkspaceInfo> = rows.collect::<Result<_, _>>()?;
@@ -457,9 +465,9 @@ impl Store {
         let now = now_rfc3339();
         let conn = self.lock();
         conn.execute(
-            "INSERT INTO workspaces (name, created_at, updated_at, revision, tabs, snapshot) \
+            "INSERT INTO workspaces (name, created_at, updated_at, revision, nodes, snapshot) \
              VALUES (?1, ?2, ?2, 1, ?3, ?4)",
-            params![name, now, snapshot.tabs.len() as i64, json],
+            params![name, now, snapshot.graph.nodes.len() as i64, json],
         )
         .map_err(|err| name_taken(err, name))?;
         Ok(conn.last_insert_rowid())
@@ -508,11 +516,11 @@ impl Store {
         }
         if let Some(snapshot) = &req.snapshot {
             tx.execute(
-                "UPDATE workspaces SET snapshot = ?2, tabs = ?3 WHERE id = ?1",
+                "UPDATE workspaces SET snapshot = ?2, nodes = ?3 WHERE id = ?1",
                 params![
                     id,
                     serde_json::to_string(snapshot)?,
-                    snapshot.tabs.len() as i64
+                    snapshot.graph.nodes.len() as i64
                 ],
             )?;
         }
@@ -576,10 +584,11 @@ impl Store {
         }
     }
 
-    /// Give a workspace-less database the layout M0–M5 shipped as a fixed arrangement, so a
-    /// first run lands on a working station instead of an empty grid. Runs on every open and
-    /// only acts on an empty table — a station whose last workspace was deleted gets the
-    /// default back on the next restart, which beats a permanently empty shell.
+    /// Give a workspace-less database the default station, so a first run lands on a receiver
+    /// node and a scope instead of an empty canvas. Runs on every open and only acts on an empty
+    /// table — a station whose last workspace was deleted gets the default back on the next
+    /// restart, which beats a permanently empty shell, and it is also what re-seeds a database
+    /// whose M6 workspaces migration 5 cleared.
     fn seed_workspaces(&self) -> Result<(), StoreError> {
         {
             let conn = self.lock();
@@ -627,7 +636,7 @@ fn set_active_workspace(conn: &Connection, id: Option<i64>) -> Result<(), StoreE
 
 fn read_workspace_info(conn: &Connection, id: i64) -> Result<WorkspaceInfo, StoreError> {
     conn.query_row(
-        "SELECT id, name, created_at, updated_at, revision, tabs FROM workspaces WHERE id = ?1",
+        "SELECT id, name, created_at, updated_at, revision, nodes FROM workspaces WHERE id = ?1",
         params![id],
         |row| {
             Ok(WorkspaceInfo {
@@ -636,7 +645,7 @@ fn read_workspace_info(conn: &Connection, id: i64) -> Result<WorkspaceInfo, Stor
                 created_at: row.get(2)?,
                 updated_at: row.get(3)?,
                 revision: row.get::<_, i64>(4)?.unsigned_abs(),
-                tabs: row.get(5)?,
+                nodes: row.get(5)?,
             })
         },
     )
@@ -1298,7 +1307,7 @@ mod tests {
         assert_eq!(listed.workspaces.len(), 1);
         assert_eq!(listed.workspaces[0].name, "Station");
         assert_eq!(listed.workspaces[0].revision, 1);
-        assert_eq!(listed.workspaces[0].tabs, 2);
+        assert_eq!(listed.workspaces[0].nodes, 3);
         assert_eq!(listed.active, Some(listed.workspaces[0].id));
 
         let active = store.active_workspace().expect("active").expect("seeded");
@@ -1307,6 +1316,49 @@ mod tests {
         // Seeding is an empty-table rule, not a first-open rule: reopening must not add a
         // second "Station" (and the UNIQUE name would fail loudly if it tried).
         drop(store);
+    }
+
+    /// The M7 migration drops M6's workspaces rather than converting a dock tree the patch model
+    /// cannot express (CANVAS §8 phase ⑤). The reset must leave a station behind, not an empty
+    /// switcher — the re-seed runs after the migration in `Store::open`, and this is what pins
+    /// that order.
+    #[test]
+    fn the_canvas_migration_clears_m6_workspaces_and_re_seeds() {
+        let file = tempfile::NamedTempFile::new().expect("temp db");
+        {
+            let conn = Connection::open(file.path()).expect("open");
+            // Everything up to and including M6's workspaces table, as a v4 database had it.
+            for (i, migration) in MIGRATIONS.iter().take(4).enumerate() {
+                conn.execute_batch(&format!(
+                    "BEGIN;\n{migration}\nPRAGMA user_version = {};\nCOMMIT;",
+                    i + 1
+                ))
+                .expect("migrate");
+            }
+            conn.execute(
+                "INSERT INTO workspaces (name, created_at, updated_at, revision, tabs, snapshot) \
+                 VALUES ('Old', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 7, 2, \
+                 '{\"version\":1,\"tabs\":[]}')",
+                [],
+            )
+            .expect("an M6 row");
+            conn.execute("UPDATE active_workspace SET workspace_id = 1", [])
+                .expect("active");
+        }
+
+        let store = Store::open(Some(file.path())).expect("reopen");
+        let listed = store.list_workspaces().expect("list");
+        assert_eq!(listed.workspaces.len(), 1, "the M6 row is gone");
+        assert_eq!(listed.workspaces[0].name, "Station");
+        assert_eq!(listed.active, Some(listed.workspaces[0].id));
+        assert_eq!(
+            store
+                .active_workspace()
+                .expect("active")
+                .expect("seeded")
+                .snapshot,
+            WorkspaceSnapshot::station_default()
+        );
     }
 
     #[test]
@@ -1329,8 +1381,7 @@ mod tests {
         assert_eq!(detail.info.created_at, detail.info.updated_at);
 
         let mut edited = snapshot.clone();
-        edited.tabs.truncate(1);
-        edited.active_tab = None;
+        edited.graph.nodes.retain(|node| node.id != "speaker");
         let info = store
             .update_workspace(
                 id,
@@ -1343,7 +1394,7 @@ mod tests {
             .expect("update");
         assert_eq!(info.revision, 2);
         assert_eq!(info.name, "Bench 2");
-        assert_eq!(info.tabs, 1);
+        assert_eq!(info.nodes, 2);
         assert_eq!(store.workspace(id).expect("read").snapshot, edited);
 
         // Deleting the active workspace promotes a survivor rather than leaving none.
@@ -1395,14 +1446,22 @@ mod tests {
     fn workspace_writes_reject_a_bad_layout_and_a_taken_name() {
         let store = Store::open(None).expect("open");
         let id = store.list_workspaces().expect("list").workspaces[0].id;
-        let empty = WorkspaceSnapshot {
-            version: sdrmm_wire::WORKSPACE_SNAPSHOT_VERSION,
-            tabs: Vec::new(),
-            active_tab: None,
-        };
+        // A wire into a node that is not there: the graph is refused whole rather than stored
+        // with a wire the canvas would drop on read.
+        let mut dangling = WorkspaceSnapshot::station_default();
+        dangling.graph.edges.push(sdrmm_wire::PatchEdge {
+            from: sdrmm_wire::PortRef {
+                node: "device".to_string(),
+                port: "iq".to_string(),
+            },
+            to: sdrmm_wire::PortRef {
+                node: "ghost".to_string(),
+                port: "iq".to_string(),
+            },
+        });
         assert!(matches!(
-            store.create_workspace("Empty", &empty),
-            Err(StoreError::WorkspaceLayout(WorkspaceError::NoTabs))
+            store.create_workspace("Broken", &dangling),
+            Err(StoreError::WorkspaceLayout(WorkspaceError::Patch(_)))
         ));
         assert!(matches!(
             store.update_workspace(
@@ -1410,10 +1469,10 @@ mod tests {
                 &UpdateWorkspaceRequest {
                     revision: 1,
                     name: None,
-                    snapshot: Some(empty),
+                    snapshot: Some(dangling),
                 }
             ),
-            Err(StoreError::WorkspaceLayout(WorkspaceError::NoTabs))
+            Err(StoreError::WorkspaceLayout(WorkspaceError::Patch(_)))
         ));
         // A refused write leaves the revision alone, or the next honest write would 409.
         assert_eq!(store.workspace(id).expect("read").info.revision, 1);

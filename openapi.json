@@ -970,6 +970,23 @@
         }
       }
     },
+    "/api/patch/catalog": {
+      "get": {
+        "operationId": "get_patch_catalog",
+        "responses": {
+          "200": {
+            "description": "The node palette: every node kind this build offers, its category and its ports. The canvas renders its \"add node\" menu and enforces its drag-time connection rules from this, so a new node type needs no frontend table",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchCatalog"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/presets": {
       "get": {
         "operationId": "list_presets",
@@ -1549,6 +1566,55 @@
         "responses": {
           "204": {
             "description": "Workspace activated for every client"
+          },
+          "400": {
+            "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Workspace not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/workspaces/{id}/apply": {
+      "post": {
+        "operationId": "apply_workspace",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Workspace id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The station was brought up: radios opened, channels added, and what could not be satisfied. Additive and idempotent — nothing is closed or deleted, so calling it twice changes nothing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchApplyReport"
+                }
+              }
+            }
           },
           "400": {
             "description": "Invalid path parameter",
@@ -2176,6 +2242,10 @@
             ],
             "description": "[`crate::DecoderEvent::kind`] this channel emits, when it is a decoder — the client\nuses it to pick the panel that renders the events."
           },
+          "exact_rate_only": {
+            "type": "boolean",
+            "description": "The type occupies its whole channel rate, so it runs only with the device tuned to\nexactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18;\nADS-B is the one such mode). Reported so the canvas can refuse the wire where the\noperator draws it, naming the rate that works, instead of letting the engine reject it\nafter the fact. Defaults to `false`, which is every other type."
+          },
           "has_audio": {
             "type": "boolean",
             "description": "Whether the channel produces listenable audio. Data decoders (PLAN §13 wave 1) do\nnot, so the client hides their audio controls instead of offering a silent stream.\nDefaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour."
@@ -2210,6 +2280,19 @@
           },
           "settings": {
             "$ref": "#/components/schemas/ChannelSettings"
+          }
+        }
+      },
+      "ChannelNode": {
+        "type": "object",
+        "description": "A channel node's payload. The *type* is topology — it decides the node's ports — while the\nsettings behind it stay on the engine's channel (module docs).",
+        "required": [
+          "channel_type"
+        ],
+        "properties": {
+          "channel_type": {
+            "type": "string",
+            "description": "[`ChannelDescriptor::type_id`]: `\"nfm\"`, `\"adsb\"`, `\"subghz\"`, …"
           }
         }
       },
@@ -2755,7 +2838,7 @@
               },
               {
                 "$ref": "#/components/schemas/WorkspaceSnapshot",
-                "description": "Layout to start from; omitted means [`WorkspaceSnapshot::station_default`]."
+                "description": "Station to start from; omitted means [`WorkspaceSnapshot::station_default`]."
               }
             ]
           }
@@ -3136,6 +3219,48 @@
           }
         }
       },
+      "DeviceNode": {
+        "type": "object",
+        "description": "A device node's payload: the radio it names, or nothing yet.\n\nUnbound is a first-class state, not an error — it is the empty node a fresh station starts on,\nand it renders the receiver picker. Bound-but-absent is the other one: controls disabled,\nwires kept, never silently rebound (CANVAS §3).",
+        "properties": {
+          "device": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeviceRef"
+              }
+            ]
+          }
+        }
+      },
+      "DeviceRef": {
+        "type": "object",
+        "description": "A device named by durable identity (CANVAS §3), never by an engine or probe id: those are\nallocated per run and reused, so a stored engine id would silently bind a node to whichever\nradio opened first — the kind of failure that looks like a working panel.\n\n`key` is the tie-break CANVAS §3 does not name, added because a backend can have several\ndevices and no serials: the virtual backend's key is `siggen` or the stem of a recording, both\ndurable, and without it a patch could not say *which* capture it plays. It is consulted only\nwhen there is no serial, which is what keeps it away from the case it would be wrong for — an\nRTL-SDR clone whose key is a bus index.",
+        "required": [
+          "backend"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string",
+            "description": "Driver id, matching [`DeviceInfo::driver`]: `\"rtlsdr\"`, `\"hackrf\"`, `\"soapy\"`, `\"virtual\"`."
+          },
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Per-driver key, used only when the driver exposes no serial."
+          },
+          "serial": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "DeviceSet": {
         "type": "object",
         "description": "One opened device and everything hosted on it (PLAN §2: \"one device set per opened device\").",
@@ -3447,38 +3572,6 @@
           "value": {}
         }
       },
-      "FloatingGroup": {
-        "type": "object",
-        "description": "A group floating above the grid (PLAN §10). Geometry is a fraction of the dock, never\npixels: the same workspace opens on a phone and on a 4K desktop, and stored pixels would put\na floating panel off-screen on the smaller one.",
-        "required": [
-          "group",
-          "x_frac",
-          "y_frac",
-          "w_frac",
-          "h_frac"
-        ],
-        "properties": {
-          "group": {
-            "$ref": "#/components/schemas/PanelGroup"
-          },
-          "h_frac": {
-            "type": "number",
-            "format": "float"
-          },
-          "w_frac": {
-            "type": "number",
-            "format": "float"
-          },
-          "x_frac": {
-            "type": "number",
-            "format": "float"
-          },
-          "y_frac": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      },
       "GainStage": {
         "type": "object",
         "description": "A named gain stage with its range in dB (e.g. RTL-SDR tuner gain, HackRF LNA/VGA).",
@@ -3511,67 +3604,6 @@
             "format": "double"
           }
         }
-      },
-      "LayoutChild": {
-        "type": "object",
-        "description": "One child of a split, with its share of the parent's extent.",
-        "required": [
-          "weight_permille",
-          "node"
-        ],
-        "properties": {
-          "node": {
-            "$ref": "#/components/schemas/LayoutNode",
-            "description": "The subtree. `no_recursion` breaks the schema cycle — utoipa would otherwise recurse\nforever collecting `LayoutNode` → `LayoutChild` → `LayoutNode`."
-          },
-          "weight_permille": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Share of the parent along its axis, in permille. Integers, not fractions: the layout is\nre-persisted on every gesture, and a float would drift across load→save cycles (and can\nserialize as `null` for NaN, which fails the *whole* snapshot on the way back in).",
-            "minimum": 0
-          }
-        }
-      },
-      "LayoutNode": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "node"
-            ],
-            "properties": {
-              "data": {
-                "$ref": "#/components/schemas/SplitNode"
-              },
-              "node": {
-                "type": "string",
-                "enum": [
-                  "split"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "data",
-              "node"
-            ],
-            "properties": {
-              "data": {
-                "$ref": "#/components/schemas/PanelGroup"
-              },
-              "node": {
-                "type": "string",
-                "enum": [
-                  "group"
-                ]
-              }
-            }
-          }
-        ],
-        "description": "The panel-layout tree of one tab. Adjacently tagged like [`crate::ChannelParams`], so the\ngenerated TypeScript is a union the client can exhaustively switch on."
       },
       "MorseParams": {
         "type": "object",
@@ -3682,64 +3714,363 @@
           }
         }
       },
-      "PanelGroup": {
+      "NodeBody": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DeviceNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "device"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ChannelNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "channel"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Spectrum + waterfall over a device's IQ.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "scope"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Client-side audio mix (PLAN §9: the server ships streams, not a mix).",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "speaker"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "MapLibre, one layer per connected decoder.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "map"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The stored decoder log, filtered to the decoders wired into it.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "decoder_log"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "SigMF recording of a device's IQ.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "recorder"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "CSV/JSON export of the stored decoder log.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "export"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Frequency scanner. Its edge to a device is *ownership*, not consumption: a running scan\nowns that set's centre frequency and client retunes are refused while it does (PLAN §18).",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "scanner"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "What a node is. Adjacently tagged like [`crate::ChannelParams`], so the generated TypeScript\nis a union the client can exhaustively switch on.\n\nThe catalog is deliberately shorter than CANVAS §1's table: the GPS source, the UDP sink and\nthe WAV audio-file sink need server features that do not exist (PLAN §13 Phase 2/4), and a\nnode whose backend is unbuilt is a face that can only apologise."
+      },
+      "NodeCategory": {
+        "type": "string",
+        "description": "The band a node's header strip carries (CANVAS §6): what the operator is looking at before\nthey read the label.",
+        "enum": [
+          "source",
+          "channel",
+          "display",
+          "feature",
+          "sink"
+        ]
+      },
+      "NodeTypeInfo": {
         "type": "object",
-        "description": "A tab-stack of panels sharing one rectangle.",
+        "description": "One entry of the node palette the client renders its \"add node\" menu from (PLAN §2: the client\nrenders what the server describes).",
         "required": [
-          "panels"
+          "kind",
+          "name",
+          "category",
+          "ports"
         ],
         "properties": {
-          "active": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Which panel is on top. An id, never an index: an index goes stale the moment a panel is\nclosed. `None` means \"the first one\"."
+          "category": {
+            "$ref": "#/components/schemas/NodeCategory"
           },
-          "panels": {
+          "kind": {
+            "type": "string",
+            "description": "Slug matching [`NodeBody::kind`]."
+          },
+          "name": {
+            "type": "string"
+          },
+          "needs_channel_type": {
+            "type": "boolean",
+            "description": "Channel nodes need a type from `GET /api/channeltypes`; the menu offers one entry per\ndescriptor rather than one entry for \"channel\"."
+          },
+          "ports": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/PanelSpec"
+              "$ref": "#/components/schemas/PortSpec"
             }
           }
         }
       },
-      "PanelKind": {
-        "type": "string",
-        "description": "What a panel shows. A closed enum on purpose: the web UI ships inside the same binary as\nthis crate, so client and server can never disagree about the set — and a stored workspace\nnaming a kind this build does not have must fail loudly (the row is refused) rather than be\nsilently rewritten without the panels it could not read.",
-        "enum": [
-          "spectrum",
-          "channels",
-          "scanner",
-          "decoders",
-          "map",
-          "decoder_log",
-          "presets",
-          "bookmarks",
-          "templates",
-          "recordings"
-        ]
-      },
-      "PanelSpec": {
+      "PatchApplyReport": {
         "type": "object",
-        "description": "One panel in a group. `id` is stored rather than derived from `kind`: two spectrum panels in\none tab is a legitimate layout, and the dock needs unique panel ids.",
+        "description": "`POST /api/workspaces/{id}/apply` — what applying the station did.\n\nApply is additive and idempotent: it opens the radios the graph names and adds the channels it\ndraws, and never closes or deletes anything. Removing a node is a gesture with its own\nendpoint; a reconciler that also deleted would turn \"this workspace has fewer nodes\" into\n\"close that operator's radio\".",
         "required": [
-          "id",
-          "kind"
+          "bound",
+          "opened",
+          "created"
         ],
         "properties": {
-          "id": {
+          "absent": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Device nodes whose radio is not attached; they render disconnected (CANVAS §3)."
+          },
+          "bound": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatchBinding"
+            },
+            "description": "Every device node that now has a running device set."
+          },
+          "created": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Channels created by this call.",
+            "minimum": 0
+          },
+          "opened": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Device sets opened by this call.",
+            "minimum": 0
+          },
+          "refused": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatchRefusal"
+            },
+            "description": "Nodes apply could not satisfy, with the reason — a wideband channel on a device running\nat the wrong rate is the common one (PLAN §18). Reported, never silently skipped."
+          }
+        }
+      },
+      "PatchBinding": {
+        "type": "object",
+        "description": "One device node now driving an engine device set (CANVAS §3). Bindings are recomputed per run\nand never stored.",
+        "required": [
+          "node",
+          "device_set"
+        ],
+        "properties": {
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "node": {
+            "type": "string"
+          }
+        }
+      },
+      "PatchCatalog": {
+        "type": "object",
+        "description": "`GET /api/patch/catalog` — the node palette and its ports.",
+        "required": [
+          "nodes"
+        ],
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NodeTypeInfo"
+            }
+          }
+        }
+      },
+      "PatchEdge": {
+        "type": "object",
+        "description": "A wire: which stream a node consumes, and from whom.",
+        "required": [
+          "from",
+          "to"
+        ],
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/PortRef"
+          },
+          "to": {
+            "$ref": "#/components/schemas/PortRef"
+          }
+        }
+      },
+      "PatchGraph": {
+        "type": "object",
+        "description": "The station as a graph (CANVAS §1).",
+        "required": [
+          "nodes"
+        ],
+        "properties": {
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatchEdge"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatchNode"
+            }
+          }
+        }
+      },
+      "PatchNode": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NodeBody"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "position"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Client-generated, unique within the graph, stable for the node's life."
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "User-renamed caption; `None` renders the kind's default name."
+              },
+              "position": {
+                "$ref": "#/components/schemas/Position"
+              },
+              "size": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Size"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "One node: what it is, where it sits, and what the operator called it.\n\nThere is no `pinned` flag: rack membership is the single truth for \"this face is being\noperated\", and two representations of one fact drift."
+      },
+      "PatchRefusal": {
+        "type": "object",
+        "description": "One node apply could not satisfy.",
+        "required": [
+          "node",
+          "reason"
+        ],
+        "properties": {
+          "node": {
             "type": "string"
           },
-          "kind": {
-            "$ref": "#/components/schemas/PanelKind"
-          },
-          "title": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "User-renamed caption; `None` renders the client's default name for the kind."
+          "reason": {
+            "type": "string"
           }
         }
       },
@@ -3822,6 +4153,96 @@
           "alpha"
         ]
       },
+      "PortCondition": {
+        "type": "string",
+        "description": "When a port exists. A channel's outputs depend on what its type produces, and that answer\nlives once in [`ChannelDescriptor`] — the catalog states the dependency instead of the client\ninventing port names for it.",
+        "enum": [
+          "always",
+          "channel_has_audio",
+          "channel_is_decoder"
+        ]
+      },
+      "PortDirection": {
+        "type": "string",
+        "description": "Which side of a node a port sits on.",
+        "enum": [
+          "in",
+          "out"
+        ]
+      },
+      "PortRef": {
+        "type": "object",
+        "description": "One end of an edge.",
+        "required": [
+          "node",
+          "port"
+        ],
+        "properties": {
+          "node": {
+            "type": "string"
+          },
+          "port": {
+            "type": "string",
+            "description": "[`PortSpec::name`] on that node."
+          }
+        }
+      },
+      "PortSpec": {
+        "type": "object",
+        "description": "One port of a node type.",
+        "required": [
+          "name",
+          "port_type",
+          "direction",
+          "multi"
+        ],
+        "properties": {
+          "condition": {
+            "$ref": "#/components/schemas/PortCondition"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/PortDirection"
+          },
+          "multi": {
+            "type": "boolean",
+            "description": "Whether more than one edge may land here. Outputs always fan out (one device feeds N\nchannels, scopes and a recorder — that *is* today's device set, drawn); inputs say so."
+          },
+          "name": {
+            "type": "string",
+            "description": "Stable slug, unique within its node and direction; this is what an edge names."
+          },
+          "port_type": {
+            "$ref": "#/components/schemas/PortType"
+          }
+        }
+      },
+      "PortType": {
+        "type": "string",
+        "description": "What a wire carries. Hue encodes this and only this (CANVAS §6), so the set stays small and\nevery member is a stream the engine actually produces today.\n\n`iq-tap` (decimated channel IQ) and `position` (GPS) are named by CANVAS §1 and deliberately\nabsent: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4, so neither has a\nstream to carry. A port whose type nothing can emit is a wire that can only dangle.",
+        "enum": [
+          "iq",
+          "audio",
+          "events"
+        ]
+      },
+      "Position": {
+        "type": "object",
+        "description": "Canvas position of a node, in React Flow's coordinate space.",
+        "required": [
+          "x",
+          "y"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "format": "float"
+          },
+          "y": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
       "PresetInfo": {
         "type": "object",
         "description": "`GET /api/presets` list entry.",
@@ -3879,6 +4300,70 @@
             "minimum": 0
           }
         }
+      },
+      "RackCell": {
+        "type": "object",
+        "description": "One pinned face on the rack grid.",
+        "required": [
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "properties": {
+          "h": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "w": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "x": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Whole grid cells from the left / top.",
+            "minimum": 0
+          },
+          "y": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "RackLayout": {
+        "type": "object",
+        "description": "The operate view: faces on a snapping grid, no pan, no zoom, no wires (CANVAS §5).",
+        "properties": {
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RackSlot"
+            }
+          }
+        }
+      },
+      "RackSlot": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RackCell"
+          },
+          {
+            "type": "object",
+            "required": [
+              "node"
+            ],
+            "properties": {
+              "node": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "One pinned node and the cells it occupies."
       },
       "Range": {
         "type": "object",
@@ -4645,30 +5130,21 @@
           "lsb"
         ]
       },
-      "SplitDirection": {
-        "type": "string",
-        "description": "How a split arranges its children.",
-        "enum": [
-          "row",
-          "column"
-        ]
-      },
-      "SplitNode": {
+      "Size": {
         "type": "object",
-        "description": "A split and its children.",
+        "description": "Face size in canvas units. Absent means the node's natural size.",
         "required": [
-          "direction",
-          "children"
+          "w",
+          "h"
         ],
         "properties": {
-          "children": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/LayoutChild"
-            }
+          "h": {
+            "type": "number",
+            "format": "float"
           },
-          "direction": {
-            "$ref": "#/components/schemas/SplitDirection"
+          "w": {
+            "type": "number",
+            "format": "float"
           }
         }
       },
@@ -4982,32 +5458,6 @@
           }
         }
       },
-      "TabSpec": {
-        "type": "object",
-        "description": "One tab: a named panel layout.",
-        "required": [
-          "id",
-          "name",
-          "layout"
-        ],
-        "properties": {
-          "floating": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FloatingGroup"
-            }
-          },
-          "id": {
-            "type": "string"
-          },
-          "layout": {
-            "$ref": "#/components/schemas/LayoutNode"
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      },
       "TemplateInfo": {
         "type": "object",
         "description": "One built-in station template (PLAN §10: the template gallery). Read-only and\ndevice-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry\napplies to whatever hardware is open, provided the device can tune it.",
@@ -5046,17 +5496,6 @@
             "type": "string",
             "description": "Stable slug used in `POST /api/templates/{id}/apply`."
           },
-          "layout": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/LayoutNode",
-                "description": "Panel layout the template opens as a tab in the active workspace (M6, PLAN §16). A\ntemplate that names none leaves the workspace alone."
-              }
-            ]
-          },
           "max_freq_hz": {
             "type": "number",
             "format": "double"
@@ -5068,6 +5507,17 @@
           },
           "name": {
             "type": "string"
+          },
+          "patch": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PatchGraph",
+                "description": "The patch the template draws into the active workspace (CANVAS §8 phase ④): a receiver,\nthe channels above, their wiring and the faces to operate them. Its channel nodes are the\n`channels` list in order, so the n-th node binds the n-th channel the apply creates. A\ntemplate that names no patch leaves the station alone."
+              }
+            ]
           },
           "sample_rate": {
             "type": "number",
@@ -5092,7 +5542,7 @@
       },
       "UpdateWorkspaceRequest": {
         "type": "object",
-        "description": "`PUT /api/workspaces/{id}` — rename, re-layout, or both.",
+        "description": "`PUT /api/workspaces/{id}` — rename, re-patch, or both.",
         "required": [
           "revision"
         ],
@@ -5152,18 +5602,18 @@
             }
           }
         ],
-        "description": "`GET /api/workspaces/{id}` — the row plus its layout."
+        "description": "`GET /api/workspaces/{id}` — the row plus its station."
       },
       "WorkspaceInfo": {
         "type": "object",
-        "description": "`GET /api/workspaces` list entry — the projection a switcher needs, without the layout.",
+        "description": "`GET /api/workspaces` list entry — the projection a switcher needs, without the station.",
         "required": [
           "id",
           "name",
           "created_at",
           "updated_at",
           "revision",
-          "tabs"
+          "nodes"
         ],
         "properties": {
           "created_at": {
@@ -5177,16 +5627,16 @@
           "name": {
             "type": "string"
           },
+          "nodes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Node count, denormalized so the switcher can describe a workspace without parsing its\ngraph.",
+            "minimum": 0
+          },
           "revision": {
             "type": "integer",
             "format": "int64",
-            "description": "Bumped on every stored change. An update carrying a stale revision is refused rather\nthan silently overwriting another client's layout.",
-            "minimum": 0
-          },
-          "tabs": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Tab count, so the switcher can describe a workspace without fetching its layout.",
+            "description": "Bumped on every stored change. An update carrying a stale revision is refused rather than\nsilently overwriting another client's arrangement.",
             "minimum": 0
           },
           "updated_at": {
@@ -5197,24 +5647,18 @@
       },
       "WorkspaceSnapshot": {
         "type": "object",
-        "description": "The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — it is\nwritten atomically, read whole, and never queried by inner field).",
+        "description": "The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written\natomically, read whole, never queried by inner field).",
         "required": [
           "version",
-          "tabs"
+          "graph"
         ],
         "properties": {
-          "active_tab": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Id of the tab on top; `None` means the first one."
+          "graph": {
+            "$ref": "#/components/schemas/PatchGraph"
           },
-          "tabs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TabSpec"
-            }
+          "rack": {
+            "$ref": "#/components/schemas/RackLayout",
+            "description": "Faces pinned to the operate view. May be empty — the canvas alone is a complete UI\n(CANVAS §5)."
           },
           "version": {
             "type": "integer",

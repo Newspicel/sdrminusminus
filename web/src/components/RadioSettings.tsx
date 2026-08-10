@@ -1,7 +1,7 @@
 // Capability-driven receiver controls (PLAN §6): everything renders from `Capabilities` +
-// `DeviceSettings` alone, so a new device setting needs zero frontend work. The dial and the
-// tune step keep first-class UI in the top bar; the rest lives here, one row per setting, in
-// the radio popover — these are consulted, not watched (DESIGN.md §5).
+// `DeviceSettings` alone, so a new device setting needs zero frontend work. One row per setting,
+// everything the dial is not — the same rows serve the device node's face (CANVAS §1) and the
+// M6 radio popover, because a receiver has one set of controls, not one per surface.
 import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
 import { Checkbox } from "./Checkbox";
@@ -11,7 +11,10 @@ import { Select, withCurrent } from "./Select";
 import { Slider } from "./Slider";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
-const ROW = "grid grid-cols-[4.5rem_1fr] items-center gap-3";
+// The label track gives its width back when there is none to spare: these rows now also render
+// inside a node the operator can drag down to 220 px, where a fixed column would push the
+// control off the edge.
+const ROW = "grid grid-cols-[minmax(0,4.5rem)_1fr] items-center gap-3";
 
 const formatMsps = (hz: number): string => `${(hz / 1e6).toFixed(3)} MS/s`;
 
@@ -130,7 +133,9 @@ function GainControl({
   const shown = pending ?? value;
   return (
     <div className={ROW}>
-      <span className="legend">{stage.name}</span>
+      <span className="legend truncate" title={stage.name}>
+        {stage.name}
+      </span>
       <span className="flex items-center gap-2">
         <Slider
           label={`${stage.name} gain (dB)`}
@@ -162,7 +167,9 @@ function ExtraControl({
     case "bool":
       return (
         <div className={ROW}>
-          <span className="legend">{setting.name}</span>
+          <span className="legend truncate" title={setting.name}>
+            {setting.name}
+          </span>
           <span className="justify-self-start">
             <Checkbox
               label={setting.name}
@@ -175,7 +182,9 @@ function ExtraControl({
     case "enum":
       return (
         <div className={ROW}>
-          <span className="legend">{setting.name}</span>
+          <span className="legend truncate" title={setting.name}>
+            {setting.name}
+          </span>
           <Select
             label={setting.name}
             className="w-full"
@@ -188,7 +197,9 @@ function ExtraControl({
     case "range":
       return (
         <div className={ROW}>
-          <span className="legend">{setting.name}</span>
+          <span className="legend truncate" title={setting.name}>
+            {setting.name}
+          </span>
           <span className="flex items-center gap-2">
             <NumberField
               label={`${setting.name} (${setting.unit})`}

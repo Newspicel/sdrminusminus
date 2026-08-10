@@ -1,24 +1,22 @@
-// Spectrum trace + WebGL2 waterfall for one device set (DESIGN.md §7). Binary frames bypass
-// React state and go straight to the canvases (PLAN §10: high-rate streams never touch TanStack
-// Query); only the readout's slow-moving metadata is state.
+// The scope face: trace + waterfall for whatever radio its `iq` wire comes from — CANVAS §1's
+// "the WebGL plot, one component, patched anywhere". Binary frames bypass React state and go
+// straight to the canvases (PLAN §10: high-rate streams never touch TanStack Query); only the
+// readout's slow-moving metadata is state.
 //
-// The plot is the instrument, so it owns its own gestures: wheel zooms about the cursor, a drag
-// pans, a click tunes, and a marker drag moves a channel.
+// The plot is the instrument, so it owns its gestures: wheel zooms about the cursor, a drag
+// pans, a click tunes, and a marker drag moves a channel. All three of React Flow's opt-out
+// classes are needed to keep the canvas's own camera off them — `nowheel` covers wheel events
+// only, and it is `nopan` that stops a double-click to tune from also zooming the whole patch.
 import {
-  type ReactNode,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
   useEffect,
   useRef,
   useState,
 } from "react";
-import { COLORMAPS, type Colormap, WaterfallRenderer } from "../gl/waterfall";
-import type { SpectrumFrame } from "../lib/frame";
-import { token } from "../lib/tokens";
-import type { ChannelInfo, ChannelParams } from "../lib/types";
-import type { SdrSocket } from "../lib/ws";
-import { plotButton, segment } from "./controls";
-import { formatSignedKhz } from "./format";
-import { Popover } from "./Popover";
+import { plotButton, segment } from "../../components/controls";
+import { formatSignedKhz } from "../../components/format";
+import { Popover } from "../../components/Popover";
 import {
   decibelTicks,
   FULL_VIEW,
@@ -32,10 +30,19 @@ import {
   viewToSpan,
   viewWidth,
   zoomView,
-} from "./spectrumView";
+} from "../../components/spectrumView";
+import { pixelRatio, zoomOf } from "../../gl/raster";
+import { attachWaterfall, COLORMAPS, type Colormap, type WaterfallView } from "../../gl/waterfall";
+import type { SpectrumFrame } from "../../lib/frame";
+import { spectrumHub } from "../../lib/spectrum";
+import { token } from "../../lib/tokens";
+import type { ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
+import { useChannelPatch } from "../../lib/useChannelPatch";
+import { useDevicePatch } from "../../lib/useDevicePatch";
+import { channelNodesOf, sourcesOf } from "../binding";
+import { deviceSetOf, useStationContext } from "../context";
+import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
 
-const BINS = 1024;
-const FPS = 30;
 /** Below this a pointer gesture is a click, not a pan (DESIGN.md §7). */
 const DRAG_SLOP_PX = 4;
 /** How close the pointer must be to a marker to grab it rather than pan the plot. */
@@ -65,33 +72,45 @@ interface Gesture {
   moved: boolean;
 }
 
-export function SpectrumDisplay({
-  socket,
-  deviceSet,
-  connected,
-  channels,
-  selectedChannel,
-  onSelectChannel,
-  onTuneCenter,
-  onTuneChannel,
-  empty,
-}: {
-  socket: SdrSocket;
-  deviceSet: number | null;
-  connected: boolean;
-  channels: readonly ChannelInfo[];
-  selectedChannel: number | null;
-  onSelectChannel: (ch: number) => void;
-  onTuneCenter: (hz: number) => void;
-  onTuneChannel: (ch: number, offsetHz: number) => void;
-  /** Shown over the plot when no radio is open — the place a station is started from, so it
-   * sits where the operator is already looking. */
-  empty: ReactNode;
-}) {
+export function ScopeFace({ node }: { node: PatchNode }) {
+  const station = useStationContext();
+  const set = deviceSetOf(station, node.id);
+  const wired = sourcesOf(station.graph, node.id, "iq").length > 0;
+
+  return (
+    <NodeShell
+      node={node}
+      title="Scope"
+      category="display"
+      subtitle={set?.device.label}
+      live={set !== null}
+    >
+      <FaceBody scroll={false}>
+        {set === null ? (
+          <FaceEmpty>
+            {wired
+              ? "The receiver this scope watches is not attached. The wire is kept."
+              : "Wire a receiver's IQ out to watch its spectrum."}
+          </FaceEmpty>
+        ) : (
+          // Keyed on the radio: another device set is another span, and markers, max hold and
+          // the waterfall's history must never be carried across two of them.
+          <Spectrum key={set.id} node={node} set={set} />
+        )}
+      </FaceBody>
+    </NodeShell>
+  );
+}
+
+function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
+  const station = useStationContext();
+  const { applyPatch } = useDevicePatch();
+  const { applyEdit } = useChannelPatch();
+
   const plotRef = useRef<HTMLDivElement>(null);
   const waterfallRef = useRef<HTMLCanvasElement>(null);
   const traceRef = useRef<HTMLCanvasElement>(null);
-  const rendererRef = useRef<WaterfallRenderer | null>(null);
+  const rendererRef = useRef<WaterfallView | null>(null);
   const frameRef = useRef<SpectrumFrame | null>(null);
   const holdRef = useRef<Uint8Array | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
@@ -104,6 +123,7 @@ export function SpectrumDisplay({
   const [traceFraction, setTraceFraction] = useState(0.32);
   const [preview, setPreview] = useState<{ channel: number; offsetHz: number } | null>(null);
   const [panning, setPanning] = useState(false);
+  const [picked, setPicked] = useState<number | null>(null);
 
   // Read inside the render loop and the frame handler, neither of which may be rebuilt per
   // frame or per state change.
@@ -112,18 +132,50 @@ export function SpectrumDisplay({
   const holdRequested = useRef(hold);
   holdRequested.current = hold;
 
+  // Engine channel id → the node whose face tunes it. Built by following the wires rather than
+  // by matching ids, because a channel id is only unique within its device set.
+  const faces = new Map<number, string>();
+  const deviceNode = sourcesOf(station.graph, node.id, "iq")[0];
+  if (deviceNode !== undefined) {
+    for (const channelNode of channelNodesOf(station.graph, deviceNode)) {
+      const channel = station.channels.get(channelNode.id);
+      if (channel !== undefined) {
+        faces.set(channel.id, channelNode.id);
+      }
+    }
+  }
+
+  // The channel a click tunes. The station's selection wins while it names a channel on this
+  // radio; otherwise the last marker picked here stands — clicking the plot also selects the
+  // scope node, and that must not silently switch the click from the channel to the receiver.
+  const stationChannel = [...faces].find(([, id]) => id === station.selected)?.[0] ?? null;
+  const selectedChannel =
+    stationChannel ?? (set.channels.some((channel) => channel.id === picked) ? picked : null);
+
+  const selectChannel = (channel: number): void => {
+    setPicked(channel);
+    const face = faces.get(channel);
+    if (face !== undefined) {
+      station.select(face);
+    }
+  };
+
+  const tuneCenter = (hz: number): void => applyPatch(set.id, { center_hz: hz });
+  const tuneChannel = (channel: number, offsetHz: number): void =>
+    applyEdit(set.id, channel, { offset_hz: offsetHz });
+
   useEffect(() => {
     const canvas = waterfallRef.current;
-    if (!canvas) {
+    if (canvas === null) {
       return;
     }
-    let renderer: WaterfallRenderer;
+    let renderer: WaterfallView;
     try {
-      renderer = new WaterfallRenderer(canvas);
+      renderer = attachWaterfall(canvas);
     } catch (error) {
-      // No WebGL2, a driver that refuses the shader, a lost context: the waterfall is the
-      // centerpiece, but throwing out of a dock panel's mount takes the whole UI down with it.
-      // The trace, the controls and every other panel still work without it.
+      // No WebGL2, or a driver that refuses the shader. The waterfall is the centerpiece, but
+      // throwing out of a node's mount takes the whole canvas down with it; the trace, the
+      // controls and every other face still work without it.
       setGlError(error instanceof Error ? error.message : String(error));
       return;
     }
@@ -139,22 +191,14 @@ export function SpectrumDisplay({
   }, [colormap]);
 
   useEffect(() => {
-    rendererRef.current?.setView(view.start, viewWidth(view));
+    rendererRef.current?.setWindow(view.start, viewWidth(view));
   }, [view]);
 
+  // The hub refcounts the subscription and re-sends it after a reconnect, so two scopes on one
+  // radio cost one stream and neither can stop the other's.
   useEffect(() => {
-    // A device-set switch invalidates everything cached from frames: markers and the readout
-    // must never be placed by the previous set's span, and a max-hold would mix two radios.
-    setMeta(null);
-    setView(FULL_VIEW);
-    frameRef.current = null;
-    holdRef.current = null;
     let count = 0;
-    socket.onSpectrum = (frame: SpectrumFrame) => {
-      // Spectrum stream ids are device-set ids; drop late frames from a previous set.
-      if (frame.streamId !== deviceSet) {
-        return;
-      }
+    return spectrumHub.subscribe(set.id, (frame) => {
       frameRef.current = frame;
       rendererRef.current?.pushRow(frame.bins);
       accumulateHold(holdRef, frame.bins, holdRequested.current);
@@ -169,11 +213,8 @@ export function SpectrumDisplay({
           dbMax: frame.dbMax,
         });
       }
-    };
-    return () => {
-      socket.onSpectrum = () => {};
-    };
-  }, [socket, deviceSet]);
+    });
+  }, [set.id]);
 
   // Drawing is driven by animation frames rather than by arriving data: a pan or a zoom must
   // repaint the trace even while the radio is between frames.
@@ -192,25 +233,8 @@ export function SpectrumDisplay({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Subscribe only once the socket is actually open, and re-subscribe whenever it reconnects
-  // (`connected` cycles false→true). `send()` drops commands while not OPEN, so gating on
-  // `connected` avoids both the initial CONNECTING race and a permanently frozen stream after a
-  // reconnect (the new server connection has no subscriptions).
-  useEffect(() => {
-    if (deviceSet === null || !connected) {
-      return;
-    }
-    socket.send({
-      type: "SubscribeSpectrum",
-      data: { device_set: deviceSet, fps: FPS, bins: BINS },
-    });
-    return () => {
-      socket.send({ type: "UnsubscribeSpectrum", data: { device_set: deviceSet } });
-    };
-  }, [socket, deviceSet, connected]);
-
   // React marks its delegated wheel listener passive, so zoom has to be bound natively or the
-  // dock panel scrolls underneath the gesture.
+  // page scrolls underneath the gesture.
   useEffect(() => {
     const plot = plotRef.current;
     if (plot === null) {
@@ -247,9 +271,9 @@ export function SpectrumDisplay({
     }
     const rect = plotRef.current.getBoundingClientRect();
     const at = pointerFraction(event.clientX);
-    const grabbed = markerAt(channels, view, spanHz, at, GRAB_PX / rect.width);
+    const grabbed = markerAt(set.channels, view, spanHz, at, GRAB_PX / rect.width);
     if (grabbed !== null) {
-      onSelectChannel(grabbed.id);
+      selectChannel(grabbed.id);
     }
     // Recorded before the capture is requested: the gesture must survive a pointer the browser
     // refuses to capture, or the release would find nothing to act on.
@@ -304,7 +328,7 @@ export function SpectrumDisplay({
     }
     if (gesture.moved) {
       if (gesture.channel !== null && preview !== null) {
-        onTuneChannel(gesture.channel, preview.offsetHz);
+        tuneChannel(gesture.channel, preview.offsetHz);
       }
       return;
     }
@@ -317,16 +341,16 @@ export function SpectrumDisplay({
     // is only the radio itself to move.
     const offsetHz = Math.round(spanToOffset(viewToSpan(gesture.view, gesture.at), meta.spanHz));
     if (selectedChannel !== null) {
-      onTuneChannel(selectedChannel, offsetHz);
+      tuneChannel(selectedChannel, offsetHz);
     } else {
-      onTuneCenter(meta.centerHz + offsetHz);
+      tuneCenter(meta.centerHz + offsetHz);
     }
   };
 
   return (
     <div
       ref={plotRef}
-      className={`relative flex h-full min-h-0 flex-col overflow-hidden bg-plot-bg touch-none ${
+      className={`nodrag nopan nowheel relative flex h-full min-h-0 flex-col overflow-hidden bg-plot-bg touch-none ${
         panning ? "cursor-grabbing" : "cursor-crosshair"
       }`}
       onPointerDown={onPointerDown}
@@ -338,7 +362,7 @@ export function SpectrumDisplay({
           return;
         }
         const at = pointerFraction(event.clientX);
-        onTuneCenter(Math.round(meta.centerHz + spanToOffset(viewToSpan(view, at), meta.spanHz)));
+        tuneCenter(Math.round(meta.centerHz + spanToOffset(viewToSpan(view, at), meta.spanHz)));
         setView(FULL_VIEW);
       }}
     >
@@ -350,96 +374,64 @@ export function SpectrumDisplay({
       <Divider fraction={traceFraction} onFraction={setTraceFraction} plotRef={plotRef} />
       {/* `min-h-0` is load-bearing: a canvas has an intrinsic size from its backing store, and a
           flex item defaults to `min-height: auto`, so the waterfall would refuse to shrink below
-          the height it was last given and overflow its dock panel. */}
+          the height it was last given and overflow the node. */}
       <canvas ref={waterfallRef} className="w-full min-h-0 flex-1" />
 
-      {meta !== null && deviceSet !== null && (
+      {meta !== null && (
         <Markers
-          channels={channels}
+          channels={set.channels}
           view={view}
           spanHz={meta.spanHz}
           selected={selectedChannel}
           preview={preview}
-          onSelect={onSelectChannel}
+          onSelect={selectChannel}
         />
       )}
 
-      {deviceSet !== null && (
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
-          <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
-            {meta !== null && (
-              <>
-                {formatCentre(meta, view)}
-                {/* The dB range is the first thing to go when the bar is narrower than the
-                    numbers: the frequency is what the operator is reading. */}
-                <span className="max-md:hidden">{formatRange(meta)}</span>
-              </>
+      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
+        <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
+          {meta !== null && `${formatCentre(meta, view)}${formatRange(meta)}`}
+        </span>
+        {/* Bottom-left: the only corner of the plot no data occupies, so the toolbar costs the
+            trace nothing. */}
+        <div className="pointer-events-auto flex items-center gap-1 self-start">
+          <Popover label={colormap} triggerClass={plotButton(false)} width="w-36">
+            {(close) => (
+              <div className="flex flex-col gap-0.5">
+                {COLORMAPS.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`${segment(name === colormap)} justify-start`}
+                    onClick={() => {
+                      chooseColormap(name);
+                      close();
+                    }}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
             )}
-          </span>
-          {/* Bottom-left: the only corner of the plot no data occupies, so the toolbar costs
-              the trace nothing. */}
-          <div className="pointer-events-auto flex items-center gap-1 self-start">
-            <Popover label={colormap} triggerClass={plotButton(false)} width="w-36">
-              {(close) => (
-                <div className="flex flex-col gap-0.5">
-                  {COLORMAPS.map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      className={`${segment(name === colormap)} justify-start`}
-                      onClick={() => {
-                        chooseColormap(name);
-                        close();
-                      }}
-                    >
-                      {name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </Popover>
-            <button
-              type="button"
-              className={plotButton(hold)}
-              aria-pressed={hold}
-              onClick={() => {
-                holdRef.current = null;
-                setHold(!hold);
-              }}
-            >
-              max hold
+          </Popover>
+          <button
+            type="button"
+            className={plotButton(hold)}
+            aria-pressed={hold}
+            onClick={() => {
+              holdRef.current = null;
+              setHold(!hold);
+            }}
+          >
+            max hold
+          </button>
+          {!isFullView(view) && (
+            <button type="button" className={plotButton(false)} onClick={() => setView(FULL_VIEW)}>
+              {(1 / viewWidth(view)).toFixed(1)}× · reset
             </button>
-            {/* A touch pointer has no wheel, so the zoom gesture needs buttons of its own. */}
-            <span className="hidden items-center gap-1 pointer-coarse:flex">
-              <button
-                type="button"
-                className={plotButton(false)}
-                aria-label="Zoom out"
-                onClick={() => setView((current) => zoomView(current, 0.5, 1 / 1.6))}
-              >
-                −
-              </button>
-              <button
-                type="button"
-                className={plotButton(false)}
-                aria-label="Zoom in"
-                onClick={() => setView((current) => zoomView(current, 0.5, 1.6))}
-              >
-                +
-              </button>
-            </span>
-            {!isFullView(view) && (
-              <button
-                type="button"
-                className={plotButton(false)}
-                onClick={() => setView(FULL_VIEW)}
-              >
-                {(1 / viewWidth(view)).toFixed(1)}× · reset
-              </button>
-            )}
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {glError !== null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
@@ -449,18 +441,10 @@ export function SpectrumDisplay({
         </div>
       )}
 
-      {deviceSet === null ? (
-        // The canvases stay mounted underneath so the GL context survives a radio being closed
-        // and reopened; only the invitation is layered on top.
-        <div className="absolute inset-0 flex items-center justify-center bg-plot-bg px-6 pb-12">
-          {empty}
-        </div>
-      ) : (
-        meta === null && (
-          <p className="pointer-events-none absolute inset-0 flex items-center justify-center pb-12 text-sm text-plot-ink-dim">
-            Waiting for the first frame…
-          </p>
-        )
+      {meta === null && (
+        <p className="pointer-events-none absolute inset-0 flex items-center justify-center pb-12 text-sm text-plot-ink-dim">
+          Waiting for the first frame…
+        </p>
       )}
     </div>
   );
@@ -475,7 +459,7 @@ function Divider({
 }: {
   fraction: number;
   onFraction: (fraction: number) => void;
-  plotRef: React.RefObject<HTMLDivElement | null>;
+  plotRef: RefObject<HTMLDivElement | null>;
 }) {
   return (
     <div
@@ -522,7 +506,7 @@ function Markers({
   spanHz: number;
   selected: number | null;
   preview: { channel: number; offsetHz: number } | null;
-  onSelect: (ch: number) => void;
+  onSelect: (channel: number) => void;
 }) {
   const visible = spanHz * viewWidth(view);
   return (
@@ -556,11 +540,16 @@ function Markers({
             />
             <button
               type="button"
-              // The hit strip is invisible and wide (40px on coarse pointers); the drawn line
-              // stays 1px, because ink and target size are different budgets.
-              className="pointer-events-auto absolute inset-y-0 w-5 -translate-x-1/2 cursor-ew-resize pointer-coarse:w-10"
+              // The hit strip is invisible and wide; the drawn line stays 1px, because ink and
+              // target size are different budgets.
+              className="pointer-events-auto absolute inset-y-0 w-5 -translate-x-1/2 cursor-ew-resize"
               style={{ left: `${at * 100}%` }}
-              onClick={() => onSelect(channel.id)}
+              // React Flow selects the node a click landed in, which would take the selection
+              // straight back off the channel this click just put it on.
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelect(channel.id);
+              }}
               aria-label={`${channel.settings.params.type} channel at ${formatSignedKhz(offsetHz)} — drag to tune`}
             />
             <span
@@ -608,7 +597,7 @@ function markerAt(
 }
 
 function accumulateHold(
-  ref: React.RefObject<Uint8Array | null>,
+  ref: RefObject<Uint8Array | null>,
   bins: Uint8Array,
   enabled: boolean,
 ): void {
@@ -661,14 +650,17 @@ function drawTrace(
   if (!canvas) {
     return;
   }
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   if (width === 0 || height === 0) {
     return;
   }
-  const w = Math.round(width * dpr);
-  const h = Math.round(height * dpr);
+  // Same rule as the waterfall (CANVAS §7): React Flow magnifies the node with a CSS transform,
+  // so the backing store follows the zoom or the trace is a stretched bitmap.
+  const rect = canvas.getBoundingClientRect();
+  const ratio = pixelRatio(window.devicePixelRatio, zoomOf(rect.width, width));
+  const w = Math.round(width * ratio);
+  const h = Math.round(height * ratio);
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
     canvas.height = h;
@@ -677,7 +669,7 @@ function drawTrace(
   if (!ctx) {
     return;
   }
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
   if (frame === null || frame.bins.length < 2 || !(frame.dbMax > frame.dbMin)) {
     return;

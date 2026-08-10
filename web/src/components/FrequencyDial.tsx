@@ -16,14 +16,37 @@ import {
  * can hold without threading a ref through the whole shell. */
 export const DIAL_ID = "frequency-dial";
 
+/**
+ * How large the digits are drawn. The bar's dial is the tallest thing in the chrome and sizes
+ * off the viewport; a node face sizes off the node, which the operator resizes — so there the
+ * digits follow the container the face puts around them (CANVAS §6: the dial is the face of
+ * every device node, at whatever size that node has been given).
+ */
+export type DialSize = "bar" | "face";
+
+const DIGIT_SIZE: Record<DialSize, string> = {
+  bar: "text-[20px] md:text-[34px]",
+  face: "text-[15px] @min-[17rem]:text-[19px] @min-[22rem]:text-[26px] @min-[28rem]:text-[34px]",
+};
+
 export function FrequencyDial({
   hz,
   range,
   onTune,
+  size = "bar",
+  disabled = false,
+  id = DIAL_ID,
 }: {
   hz: number;
   range: Range;
   onTune: (hz: number) => void;
+  size?: DialSize;
+  /** Something else owns the tuning: a running scanner drives the radio and the server refuses a
+   * client retune while it does (PLAN §18). The readout stays live; only the controls go. */
+  disabled?: boolean;
+  /** An id has to be unique, and the canvas draws one dial per device node, so a face passes its
+   * own (`deviceDialId`). */
+  id?: string;
 }) {
   const places = useMemo(() => dialPlaces(range.max), [range.max]);
   const digits = dialDigits(hz, places);
@@ -40,7 +63,7 @@ export function FrequencyDial({
   // natively or the page scrolls while the dial tunes.
   useEffect(() => {
     const dial = dialRef.current;
-    if (dial === null || draft !== null) {
+    if (dial === null || draft !== null || disabled) {
       return;
     }
     const onWheel = (event: WheelEvent) => {
@@ -55,7 +78,7 @@ export function FrequencyDial({
     };
     dial.addEventListener("wheel", onWheel, { passive: false });
     return () => dial.removeEventListener("wheel", onWheel);
-  }, [hz, places, range, onTune, draft]);
+  }, [hz, places, range, onTune, draft, disabled]);
 
   if (draft !== null) {
     return (
@@ -100,26 +123,29 @@ export function FrequencyDial({
     // the roving-tabindex pattern; a native input cannot address one decade at a time.
     <div
       ref={dialRef}
-      id={DIAL_ID}
+      id={id}
       role="spinbutton"
       tabIndex={0}
       // The dial's own arrows move between digits; the shell's global bindings must not also
       // fire while it is focused.
       data-hotkeys="off"
       aria-label="Tuned frequency"
+      aria-disabled={disabled || undefined}
       aria-valuenow={hz}
       aria-valuemin={range.min}
       aria-valuemax={range.max}
       aria-valuetext={`${(hz / 1e6).toFixed(6)} megahertz`}
       className="flex items-baseline rounded-[3px] font-mono leading-none select-none"
-      onKeyDown={onKeyDown}
-      onDoubleClick={() => setDraft("")}
+      onKeyDown={disabled ? undefined : onKeyDown}
+      onDoubleClick={disabled ? undefined : () => setDraft("")}
     >
       {digits.map((digit, i) => (
         <Digit
           key={digit.place}
           digit={digit}
+          size={size}
           active={i === index}
+          disabled={disabled}
           onSelect={() => setActive(i)}
           onStep={(direction) => onTune(stepDial(hz, digit.place, direction, range))}
         />
@@ -137,12 +163,16 @@ export function FrequencyDial({
  * press, because a control that retunes the radio has to say which way it is about to go. */
 function Digit({
   digit,
+  size,
   active,
+  disabled,
   onSelect,
   onStep,
 }: {
   digit: DialDigit;
+  size: DialSize;
   active: boolean;
+  disabled: boolean;
   onSelect: () => void;
   onStep: (direction: number) => void;
 }) {
@@ -155,9 +185,10 @@ function Digit({
       <button
         type="button"
         tabIndex={-1}
+        disabled={disabled}
         data-place={digit.place}
         aria-label={`${10 ** digit.place} hertz digit`}
-        className={`relative min-h-7 overflow-hidden rounded-[2px] px-[2px] text-[20px] tabular-nums transition-colors duration-100 pointer-coarse:min-h-10 md:text-[34px] ${
+        className={`relative min-h-7 overflow-hidden rounded-[2px] px-[2px] tabular-nums transition-colors duration-100 pointer-coarse:min-h-10 ${DIGIT_SIZE[size]} ${
           armed === null ? "" : armed > 0 ? "cursor-n-resize" : "cursor-s-resize"
         } ${
           armed !== null || active ? "text-accent" : digit.leading ? "text-ink-faint" : "text-ink"
@@ -202,7 +233,7 @@ function Digit({
         <span className="relative">{digit.digit}</span>
       </button>
       {separator !== "" && (
-        <span aria-hidden className="text-[20px] text-ink-dim md:text-[34px]">
+        <span aria-hidden className={`text-ink-dim ${DIGIT_SIZE[size]}`}>
           {separator}
         </span>
       )}

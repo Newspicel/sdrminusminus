@@ -57,6 +57,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     input_rate_hz: 8_000.0,
     has_audio: false,
     decoder_kind: Some("morse".to_owned()),
+    ..ChannelDescriptor::default()
 });
 
 /// Pack an element run into its lookup key: a leading 1 marks the start, then one bit per

@@ -1,7 +1,12 @@
 // One WebSocket per client (PLAN §5): JSON `ServerEvent`s + binary frames in, JSON
 // `ClientCommand`s out. Auto-reconnects. The app shell owns the single-handler fields
-// (`onEvent`/`onSpectrum`/`onStatus`/`onAudio`); subsystems that must observe the same
-// events without stealing those use the add/remove listener methods.
+// (`onEvent`/`onStatus`/`onAudio`); subsystems that must observe the same events without
+// stealing those use the add/remove listener methods.
+//
+// Spectrum is a listener *set*, not a handler: a canvas can carry several scope faces (CANVAS
+// §1), and a single slot meant the last one mounted silently starved the others and cleared
+// their feed on unmount. Frames carry the device-set id as their stream id, so each listener
+// filters for its own.
 
 import { withToken } from "./auth";
 import {
@@ -29,9 +34,9 @@ export class SdrSocket {
   private readonly path: string;
   private readonly eventListeners = new Set<(event: ServerEvent) => void>();
   private readonly statusListeners = new Set<(connected: boolean) => void>();
+  private readonly spectrumListeners = new Set<(frame: SpectrumFrame) => void>();
 
   onEvent: (event: ServerEvent) => void = () => {};
-  onSpectrum: (frame: SpectrumFrame) => void = () => {};
   onStatus: (connected: boolean) => void = () => {};
   onAudio: (frame: AudioFrame) => void = () => {};
 
@@ -67,6 +72,14 @@ export class SdrSocket {
 
   removeEventListener(listener: (event: ServerEvent) => void): void {
     this.eventListeners.delete(listener);
+  }
+
+  addSpectrumListener(listener: (frame: SpectrumFrame) => void): void {
+    this.spectrumListeners.add(listener);
+  }
+
+  removeSpectrumListener(listener: (frame: SpectrumFrame) => void): void {
+    this.spectrumListeners.delete(listener);
   }
 
   addStatusListener(listener: (connected: boolean) => void): void {
@@ -146,7 +159,9 @@ export class SdrSocket {
       case FRAME_KIND_SPECTRUM: {
         const frame = decodeSpectrum(buffer);
         if (frame) {
-          this.onSpectrum(frame);
+          for (const listener of this.spectrumListeners) {
+            listener(frame);
+          }
         }
         break;
       }

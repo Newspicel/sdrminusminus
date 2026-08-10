@@ -11,6 +11,7 @@ pub mod decode;
 pub mod device;
 pub mod doctor;
 pub mod frame;
+pub mod patch;
 pub mod rest;
 pub mod scan;
 pub mod state;
@@ -32,6 +33,12 @@ pub use device::{
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame};
+pub use patch::{
+    ChannelNode, DeviceNode, DeviceRef, MAX_EDGES, MAX_NODES, NodeBody, NodeCategory, NodeTypeInfo,
+    PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortCondition, PortDirection,
+    PortRef, PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout, RackSlot,
+    Size,
+};
 pub use rest::{
     ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse,
     ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
@@ -45,9 +52,8 @@ pub use scan::{
 };
 pub use state::{DeviceSet, DeviceSetStatus, RecordingStatus, StateSnapshot};
 pub use workspace::{
-    CreateWorkspaceRequest, FloatingGroup, LayoutChild, LayoutNode, MAX_PANELS_PER_TAB,
-    MAX_SPLIT_DEPTH, MAX_TABS, PanelGroup, PanelKind, PanelSpec, SplitDirection, SplitNode,
-    TabSpec, UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,
+    CreateWorkspaceRequest, MAX_NAME_LEN, PatchApplyReport, PatchBinding, PatchRefusal,
+    UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,
     WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
 };
 pub use ws::{ClientCommand, ServerEvent, StateScope, StreamKind};

@@ -1,9 +1,12 @@
 // Per-decoder live views (PLAN §13). All of them read the decoded store, never TanStack Query:
 // decoder frames are a stream, not server state. The projection/format/sort logic lives in
 // `decoderViews.ts`; these components only render it.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+//
+// A view is the lower half of a channel node's face (CANVAS §8 phase ③), so each one is scoped
+// to a single channel and `DecoderView` picks the one that channel's `decoder_kind` calls for.
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
-import type { DecodedRecordOf } from "../lib/types";
+import type { DecodedRecordOf, DecoderKind } from "../lib/types";
 import { BTN, FIELD } from "./controls";
 import {
   acarsHeadline,
@@ -134,9 +137,29 @@ function Flag({ label, on }: { label: string; on: boolean }) {
   );
 }
 
-export function TargetsView({ scope = {} }: { scope?: DecoderScope }) {
+const TARGET_COLUMNS = {
+  adsb: {
+    title: "Aircraft",
+    idHeader: "ICAO",
+    labelHeader: "Callsign",
+    primaryHeader: "Altitude",
+    secondaryHeader: "Speed / track",
+  },
+  ais: {
+    title: "Ships",
+    idHeader: "MMSI",
+    labelHeader: "Name",
+    primaryHeader: "Speed",
+    secondaryHeader: "Course / destination",
+  },
+} as const;
+
+export function TargetsView({ kind, scope = {} }: { kind: "adsb" | "ais"; scope?: DecoderScope }) {
   const now = useNow();
   const ageOut = useDecodedStoreAgeOut();
+  // Both stores are read unconditionally: reading one behind a test on `kind` would change the
+  // hook count if a channel's type were patched in place, which React answers by tearing the
+  // tree down (same rule as `TextView`).
   const aircraft = stationsInScope(useStations("adsb"), scope);
   const ships = stationsInScope(useStations("ais"), scope);
   const [sort, setSort] = useState<TargetSort>("age");
@@ -153,34 +176,14 @@ export function TargetsView({ scope = {} }: { scope?: DecoderScope }) {
     }
   };
 
+  const rows =
+    kind === "adsb" ? aircraft.map((s) => aircraftRow(s, now)) : ships.map((s) => shipRow(s, now));
+
   return (
     <div className={PANE}>
       <TargetTable
-        title="Aircraft"
-        idHeader="ICAO"
-        labelHeader="Callsign"
-        primaryHeader="Altitude"
-        secondaryHeader="Speed / track"
-        rows={sortTargets(
-          aircraft.map((s) => aircraftRow(s, now)),
-          sort,
-          descending,
-        )}
-        sort={sort}
-        descending={descending}
-        onSort={toggle}
-      />
-      <TargetTable
-        title="Ships"
-        idHeader="MMSI"
-        labelHeader="Name"
-        primaryHeader="Speed"
-        secondaryHeader="Course / destination"
-        rows={sortTargets(
-          ships.map((s) => shipRow(s, now)),
-          sort,
-          descending,
-        )}
+        {...TARGET_COLUMNS[kind]}
+        rows={sortTargets(rows, sort, descending)}
         sort={sort}
         descending={descending}
         onSort={toggle}
@@ -578,4 +581,31 @@ export function SubghzView({ scope = {} }: { scope?: DecoderScope }) {
       </div>
     </div>
   );
+}
+
+/** The view each decoder kind is read in. Keyed on the generated `DecoderKind`, so a decoder
+ * added to `wire` fails to compile here until it has somewhere to be read. */
+const VIEWS: Record<DecoderKind, (scope: DecoderScope) => ReactNode> = {
+  rds: (scope) => <RdsView scope={scope} />,
+  adsb: (scope) => <TargetsView kind="adsb" scope={scope} />,
+  ais: (scope) => <TargetsView kind="ais" scope={scope} />,
+  aprs: (scope) => <AprsView scope={scope} />,
+  pocsag: (scope) => <PagerView scope={scope} />,
+  rtty: (scope) => <TextView kind="rtty" scope={scope} />,
+  morse: (scope) => <TextView kind="morse" scope={scope} />,
+  navtex: (scope) => <NavtexView scope={scope} />,
+  acars: (scope) => <AcarsView scope={scope} />,
+  subghz: (scope) => <SubghzView scope={scope} />,
+};
+
+// `ChannelDescriptor.decoder_kind` is a bare string on the wire, so a server newer than this
+// client can name a decoder there is no view for.
+function isDecoderKind(kind: string): kind is DecoderKind {
+  return Object.hasOwn(VIEWS, kind);
+}
+
+/** What a decoder channel's face shows under its settings; nothing for a kind this client has
+ * no view for. */
+export function DecoderView({ kind, scope }: { kind: string; scope: DecoderScope }) {
+  return isDecoderKind(kind) ? VIEWS[kind](scope) : null;
 }

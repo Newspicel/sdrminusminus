@@ -30,6 +30,9 @@ enum Cmd {
     Check,
     /// Full test suite (uses `device-virtual`; no hardware).
     Test,
+    /// The Playwright smoke flow against the real server on `device-virtual` (PLAN §14).
+    /// Separate from `test` because it needs a browser binary; CI installs one.
+    Smoke,
     /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
     Fixtures,
     /// Build the self-contained release artifact for this host (PLAN §15).
@@ -46,6 +49,7 @@ fn main() -> Result<()> {
         Cmd::Dev => dev(&root()),
         Cmd::Check => check(&root()),
         Cmd::Test => test(&root()),
+        Cmd::Smoke => smoke(&root()),
         Cmd::Fixtures => fixtures(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
     }
@@ -276,6 +280,21 @@ fn test(root: &Path) -> Result<()> {
     run("cargo", &["test", "--all-targets"], root)?;
     ensure_web_deps(root)?;
     run("pnpm", &["--dir", "web", "test"], root)?;
+    Ok(())
+}
+
+/// The browser smoke flow. It drives the built UI served by the real binary, which is how a
+/// release artifact runs — the dev server would test a composition nobody gets. Playwright
+/// starts and stops the server itself (`web/playwright.config.ts`), so the only thing to do
+/// here is make sure the UI it serves is the one just built.
+fn smoke(root: &Path) -> Result<()> {
+    ensure_web_deps(root)?;
+    web_build(root)?;
+    run(
+        "pnpm",
+        &["--dir", "web", "exec", "playwright", "test"],
+        root,
+    )?;
     Ok(())
 }
 

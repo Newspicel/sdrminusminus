@@ -37,6 +37,12 @@ jobs:
         run: cargo xtask check
       - name: cargo xtask test
         run: cargo xtask test
+      # The browser flow is its own step because it needs a browser binary the other gates do
+      # not; it drives the real server on `device-virtual`, so still no hardware (PLAN §14).
+      - name: install the smoke browser
+        run: pnpm --dir web exec playwright install --with-deps chromium
+      - name: cargo xtask smoke
+        run: cargo xtask smoke
 
   rust-macos:
     name: Rust tests (macos-arm64)

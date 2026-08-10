@@ -1,34 +1,21 @@
-// Channel management for the active device set (PLAN §8, §10): add, tune, squelch, and listen
-// per channel. Edits go through `useChannelPatch`, the same optimistic pipeline a marker drag
-// and the keyboard use, so sliders don't fight WS-driven refetches and no two surfaces disagree.
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+// The settings surface for one channel (CANVAS §1): where it sits in the receiver's passband,
+// and the knobs its mode owns. Edits go through `useChannelPatch`, the same optimistic pipeline
+// a marker drag and the keyboard use, so sliders don't fight WS-driven refetches and no two
+// surfaces disagree.
+//
+// Audio is deliberately absent: a channel's sound belongs to whatever speaker its `audio` wire
+// reaches, so play and volume live on the speaker face, once per listener.
 import { useState } from "react";
-import { channelTypesQuery, createChannel, deleteChannel, STATE_KEY } from "../lib/api";
-import { useChannelAudio } from "../lib/audio/useChannelAudio";
-import { pushToast } from "../lib/toasts";
-import type {
-  ChannelDescriptor,
-  ChannelInfo,
-  ChannelParams,
-  ChannelSettings,
-  DeviceSet,
-} from "../lib/types";
+import type { ChannelDescriptor, ChannelInfo, ChannelParams } from "../lib/types";
 import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
-import type { SdrSocket } from "../lib/ws";
 import { Checkbox } from "./Checkbox";
-import {
-  type ChannelParamsOf,
-  channelDecoderKind,
-  channelHasAudio,
-  defaultChannelSettings,
-} from "./channelSettings";
-import { BTN, BTN_DANGER, BTN_PRIMARY, BTN_QUIET, LABEL, type Options, segment } from "./controls";
-import { formatKhz, formatSignedKhz } from "./format";
+import { type ChannelParamsOf, clampOffsetHz, offsetLimitHz } from "./channelSettings";
+import { BTN, LABEL, type Options } from "./controls";
+import { formatKhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
 import { Select, withCurrent } from "./Select";
 import { Slider } from "./Slider";
-import { TemplatesPanel } from "./TemplatesPanel";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const OFFSET_STEPS_HZ = [-25_000, -5_000, 5_000, 25_000];
@@ -78,291 +65,101 @@ const SUBGHZ_MODULATIONS: Options<NonNullable<ChannelParamsOf<"subghz">["modulat
   { value: "fsk", label: "FSK" },
 ];
 
-export function ChannelsPanel({
-  socket,
+/**
+ * One channel's settings, addressed by the device set it lives on and the engine channel itself.
+ * Everything above — which radio, which node, whether it exists at all — is the caller's; this is
+ * only the control surface.
+ */
+export function ChannelControls({
   deviceSet,
-  selected,
-  onSelect,
-}: {
-  socket: SdrSocket;
-  deviceSet: DeviceSet;
-  selected: number | null;
-  onSelect: (ch: number | null) => void;
-}) {
-  const queryClient = useQueryClient();
-  const types = useQuery(channelTypesQuery());
-  const { applyEdit } = useChannelPatch();
-  const [newType, setNewType] = useState("nfm");
-
-  const invalidateState = (): void => {
-    void queryClient.invalidateQueries({ queryKey: STATE_KEY });
-  };
-  const createMut = useMutation({
-    mutationFn: (settings: ChannelSettings) => createChannel(deviceSet.id, settings),
-    onSuccess: (id) => onSelect(id),
-    onError: (e) => pushToast(e.message),
-    onSettled: invalidateState,
-  });
-  const deleteMut = useMutation({
-    mutationFn: (ch: number) => deleteChannel(deviceSet.id, ch),
-    onError: (e) => pushToast(e.message),
-    onSettled: invalidateState,
-  });
-
-  const descriptorOf = (typeId: string): ChannelDescriptor | undefined =>
-    types.data?.types.find((t) => t.type_id === typeId);
-
-  return (
-    <div className="flex flex-col gap-3 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className={LABEL}>
-          <span className="legend">Add</span>
-          <Select
-            label="Channel type"
-            className="w-40"
-            value={newType}
-            options={(types.data?.types ?? []).map((t) => ({ value: t.type_id, label: t.name }))}
-            onChange={setNewType}
-          />
-        </label>
-        <button
-          type="button"
-          className={BTN_PRIMARY}
-          disabled={createMut.isPending || defaultChannelSettings(newType) === null}
-          onClick={() => {
-            const settings = defaultChannelSettings(newType);
-            if (settings) {
-              createMut.mutate(settings);
-            }
-          }}
-        >
-          Add channel
-        </button>
-      </div>
-
-      {deviceSet.channels.length === 0 ? (
-        <div className="flex flex-col gap-2 rounded-md border border-line bg-panel p-3">
-          <p className="text-sm text-ink-dim">
-            Nothing is being demodulated yet. Add a channel above, or start from a template.
-          </p>
-          <TemplatesPanel active={deviceSet} />
-        </div>
-      ) : (
-        deviceSet.channels.map((c) => (
-          <ChannelRow
-            key={c.id}
-            socket={socket}
-            dsId={deviceSet.id}
-            channel={c}
-            descriptor={descriptorOf(c.settings.params.type)}
-            spanHz={deviceSet.settings.sample_rate ?? null}
-            selected={selected === c.id}
-            onSelect={() => onSelect(c.id)}
-            onEdit={(edit) => applyEdit(deviceSet.id, c.id, edit)}
-            onRemove={() => deleteMut.mutate(c.id)}
-          />
-        ))
-      )}
-    </div>
-  );
-}
-
-function ChannelRow({
-  socket,
-  dsId,
   channel,
   descriptor,
   spanHz,
-  selected,
-  onSelect,
-  onEdit,
-  onRemove,
 }: {
-  socket: SdrSocket;
-  dsId: number;
+  deviceSet: number;
   channel: ChannelInfo;
   descriptor: ChannelDescriptor | undefined;
+  /** Receiver sample rate, which is the width the offset may move within. */
   spanHz: number | null;
-  selected: boolean;
-  onSelect: () => void;
-  onEdit: (edit: ChannelEdit) => void;
-  onRemove: () => void;
 }) {
-  const typeId = channel.settings.params.type;
-  const name = descriptor?.name ?? typeId.toUpperCase();
-  const hasAudio = channelHasAudio(descriptor);
-  const decoderKind = channelDecoderKind(descriptor);
-  // Unconditional (rules of hooks); a data channel simply never starts a stream.
-  const audio = useChannelAudio(socket, dsId, channel.id);
-  // Any live intent — bound, still subscribing, or muted by a suspended output — must offer
-  // Stop, or an in-flight/failed subscribe leaves the button inert (no silent failure).
-  const engaged = audio.playing || audio.pending || audio.suspended;
+  const { applyEdit } = useChannelPatch();
+  const onEdit = (edit: ChannelEdit): void => applyEdit(deviceSet, channel.id, edit);
   const settings = channel.settings;
   const offsetHz = settings.offset_hz ?? 0;
   const squelchDb = settings.squelch_db ?? null;
   // Remembered across off/on so re-enabling restores the last threshold.
   const [offSquelchDb, setOffSquelchDb] = useState(DEFAULT_SQUELCH_DB);
   const squelchSlider = useDebouncedCommit((db) => onEdit({ squelch_db: db }));
-  const halfSpanKhz = spanHz !== null ? spanHz / 2000 : undefined;
+  const limitHz = offsetLimitHz(spanHz, descriptor);
+  const limitKhz = limitHz === null ? undefined : limitHz / 1000;
 
   return (
-    <article
-      className={`overflow-hidden rounded-md border ${
-        selected ? "border-accent bg-panel" : "border-line bg-panel"
-      }`}
-    >
-      <div className="flex items-center gap-2 bg-panel-2 pr-1 pl-1">
-        <button
-          type="button"
-          // The whole name-and-badge run selects, not just the word: width along the axis the
-          // pointer travels is the cheapest thing to buy.
-          className="flex min-h-8 flex-1 items-center gap-2 px-2 text-left"
-          onClick={onSelect}
-          aria-pressed={selected}
-        >
-          <span
-            className={`font-mono text-xs font-medium ${selected ? "text-accent" : "text-ink"}`}
+    <div className="flex flex-col gap-2 p-2">
+      <div className="flex flex-wrap items-center gap-1">
+        {OFFSET_STEPS_HZ.map((step) => (
+          <button
+            key={step}
+            type="button"
+            className={`${BTN} font-mono tabular-nums`}
+            onClick={() =>
+              onEdit((current) => ({
+                offset_hz: clampOffsetHz((current.offset_hz ?? 0) + step, limitHz),
+              }))
+            }
           >
-            {name}
-          </span>
-          {decoderKind !== null && (
-            <span className="legend rounded-[2px] border border-line px-1">{decoderKind}</span>
-          )}
-          <span className="font-mono text-xs text-ink-dim tabular-nums">
-            {formatSignedKhz(offsetHz)}
-          </span>
-        </button>
+            {step > 0 ? "+" : "−"}
+            {Math.abs(step) / 1000}k
+          </button>
+        ))}
+        <NumberField
+          label="Offset (kHz)"
+          value={offsetHz / 1000}
+          min={limitKhz !== undefined ? -limitKhz : undefined}
+          max={limitKhz}
+          step={0.5}
+          onCommit={(khz) => onEdit({ offset_hz: Math.round(khz * 1000) })}
+          className="w-24"
+        />
+        <span className="legend">kHz</span>
+      </div>
 
-        {hasAudio && (
+      {/* Wrapping, not nowrap: a node face is as narrow as the operator drags it, and the
+          threshold readout must stay beside its slider rather than be clipped. */}
+      <label className={`${LABEL} flex-wrap`}>
+        <Checkbox
+          checked={squelchDb !== null}
+          onChange={(on) => {
+            if (on) {
+              onEdit({ squelch_db: offSquelchDb });
+            } else {
+              setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
+              squelchSlider.cancel();
+              onEdit({ squelch_db: null });
+            }
+          }}
+        />
+        <span className="legend">Squelch</span>
+        {squelchDb !== null && (
           <>
-            <button
-              type="button"
-              className={engaged ? segment(true) : BTN_QUIET}
-              aria-pressed={engaged}
-              onClick={() => (engaged ? audio.stop() : audio.start())}
-            >
-              {engaged ? "Stop" : "Play"}
-            </button>
             <Slider
-              label={`${name} volume`}
-              className="w-20"
-              min={0}
-              max={1}
-              step={0.02}
-              value={audio.volume}
-              onChange={audio.setVolume}
+              label="Squelch threshold (dB)"
+              className="w-24"
+              min={-120}
+              max={0}
+              step={1}
+              value={squelchSlider.pending ?? squelchDb}
+              onChange={squelchSlider.change}
             />
+            <span className="w-12 text-right font-mono text-xs text-ink tabular-nums">
+              {(squelchSlider.pending ?? squelchDb).toFixed(0)}
+            </span>
           </>
         )}
+      </label>
 
-        <button
-          type="button"
-          className={`${BTN_QUIET} hover:text-danger`}
-          onClick={onRemove}
-          aria-label={`Remove ${name} channel`}
-        >
-          ×
-        </button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 p-2">
-        <div className="flex items-center gap-1">
-          {OFFSET_STEPS_HZ.map((step) => (
-            <button
-              key={step}
-              type="button"
-              className={`${BTN} font-mono tabular-nums`}
-              onClick={() => onEdit((current) => ({ offset_hz: (current.offset_hz ?? 0) + step }))}
-            >
-              {step > 0 ? "+" : "−"}
-              {Math.abs(step) / 1000}k
-            </button>
-          ))}
-          <NumberField
-            label="Offset (kHz)"
-            value={offsetHz / 1000}
-            min={halfSpanKhz !== undefined ? -halfSpanKhz : undefined}
-            max={halfSpanKhz}
-            step={0.5}
-            onCommit={(khz) => onEdit({ offset_hz: Math.round(khz * 1000) })}
-            className="w-24"
-          />
-          <span className="legend">kHz</span>
-        </div>
-
-        <label className={LABEL}>
-          <Checkbox
-            checked={squelchDb !== null}
-            onChange={(on) => {
-              if (on) {
-                onEdit({ squelch_db: offSquelchDb });
-              } else {
-                setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
-                squelchSlider.cancel();
-                onEdit({ squelch_db: null });
-              }
-            }}
-          />
-          <span className="legend">Squelch</span>
-          {squelchDb !== null && (
-            <>
-              <Slider
-                label="Squelch threshold (dB)"
-                className="w-24"
-                min={-120}
-                max={0}
-                step={1}
-                value={squelchSlider.pending ?? squelchDb}
-                onChange={squelchSlider.change}
-              />
-              <span className="w-12 text-right font-mono text-xs text-ink tabular-nums">
-                {(squelchSlider.pending ?? squelchDb).toFixed(0)}
-              </span>
-            </>
-          )}
-        </label>
-
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <ModeControls params={settings.params} onParams={(params) => onEdit({ params })} />
       </div>
-
-      {hasAudio && audio.suspended && (
-        <InlineFault
-          message="Audio output suspended by the browser — no sound."
-          action="Resume"
-          onAction={audio.resumeOutput}
-        />
-      )}
-      {hasAudio && audio.error !== null && (
-        <InlineFault
-          message={`Audio failed: ${audio.error}`}
-          action="Dismiss"
-          onAction={audio.dismissError}
-        />
-      )}
-    </article>
-  );
-}
-
-/** A fault bound to one channel stays on that channel — it has coordinates the toast stack
- * cannot show, and the fix is the button beside it. */
-function InlineFault({
-  message,
-  action,
-  onAction,
-}: {
-  message: string;
-  action: string;
-  onAction: () => void;
-}) {
-  return (
-    <div
-      role="alert"
-      className="flex items-center justify-between gap-3 border-t border-danger/40 bg-danger/10 px-2 py-1.5"
-    >
-      <span className="font-mono text-xs text-danger">{message}</span>
-      <button type="button" className={BTN_DANGER} onClick={onAction}>
-        {action}
-      </button>
     </div>
   );
 }

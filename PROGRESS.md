@@ -1403,3 +1403,138 @@ settings form — no hand-written TS anywhere.
   layouts (weather stations, TPMS), which is data, not DSP
 - **NAVTEX needs the header to be received.** A receiver that joins mid-broadcast keeps the text
   but reports no station or serial, and the message is marked incomplete when the carrier drops
+
+---
+
+## M7 — The canvas ✅
+
+Goal (PLAN §16, `PLAN-CANVAS.md`): the client rebuilt canvas-first. The station becomes a patch
+graph — every radio, channel, scope, map and sink is a node, wiring is the UI, and a pin-board
+rack holds the faces being operated. Tabs and dockview go. The reason is spatial identity: with
+more than one receiver, "which SDR is this?" should be answered by a labelled box and the wires
+leaving it, not by a dropdown.
+
+**Status: complete.** All five phases of `CANVAS §8` landed in one change (the transitional dual
+shell was skipped — recorded there). `cargo xtask check` and `cargo xtask test` green (764 Rust
+tests, 271 web tests), and `cargo xtask smoke` — the Playwright flow the suite has owed since
+M6 — drives the built UI against the real server on `device-virtual`.
+
+### The wire model — `crates/wire/src/patch.rs`
+
+`PatchGraph` + `RackLayout`, ours, never React Flow's serialization (the same rule and the same
+reasons as M6's layout tree). A node is `{ id, kind, data?, position, size?, label? }` with the
+kind adjacently tagged, so the generated TypeScript is a union the canvas switches on
+exhaustively. Three decisions are worth the ink:
+
+- **A channel node names its type, not its settings.** The type is topology — it decides the
+  node's ports — while the settings stay on the engine's channel. The alternative (a full
+  desired-state graph) puts every squelch turn into a revision-checked workspace blob, where two
+  clients editing different channels would 409 each other over unrelated edits.
+- **No `pinned` flag.** Rack membership is the single truth for "this face is being operated";
+  two representations of one fact drift.
+- **The catalog is data, not a client table.** `GET /api/patch/catalog` serves the node palette
+  and its ports, so the "add node" menu and the drag-time rules are generated, and a new node
+  kind needs no frontend edit (PLAN §2).
+
+Validation is pure and lives in `wire`: ids, geometry, port existence, direction, type match,
+single-input arity, duplicate and self wires, and the rack grid. A second entry point,
+`validate_against(&[ChannelDescriptor])`, adds what needs the running build's registry — an
+unknown channel type, and a conditional port on a type that does not have it (wiring an ADS-B
+channel's audio out is refused because ADS-B has no audio out). The port table is what makes a
+cycle unrepresentable, and a test asserts that property of the table rather than trusting it.
+
+### Device identity — the prerequisite (CANVAS §3)
+
+`DeviceRef { backend, serial?, key? }`. Serial wins where a driver exposes one; `key` is the
+tie-break `CANVAS §3` did not name, added because the virtual backend has several devices and no
+serials — without it a patch could not say *which* recording a file-playback node plays. It is
+consulted only when there is no serial, which keeps it away from the case it would be wrong for
+(an RTL-SDR clone whose key is a bus index).
+
+**Bindings are computed, never stored.** A device node claims the first unclaimed set or
+attached radio it matches, in stored node order; a channel node binds the n-th engine channel of
+its type on that set. The same two rules run server-side in `apply_station` and client-side in
+`web/src/canvas/binding.ts`, both tested, because the face the canvas draws has to be the
+channel the server's apply created.
+
+### Apply — additive and idempotent
+
+`POST /api/workspaces/{id}/apply` opens the radios the graph names and creates the channels it
+draws. It never closes a set and never deletes a channel: removing a node is its own gesture,
+and a reconciler that also deleted would read "this workspace has fewer nodes than the engine
+has channels" — the normal state when a second client adds one — as an instruction to close
+someone's radio. Because it is idempotent it runs on every station load, which is what makes a
+restart come back as a station rather than an empty canvas. What it cannot satisfy is reported,
+not skipped: an absent radio lands in `absent`, a refused channel in `refused` with the engine's
+own reason.
+
+### The rate rule, on the wire
+
+`ChannelDescriptor.exact_rate_only` is derived in `channels` from the same `occupied_band` and
+`resamplable_bandwidth_hz` the engine's admission check uses, and shipped on the wire. So the
+canvas refuses an ADS-B wire to a 2.4 Msps receiver *where the operator drew it*, naming the
+rate that works (PLAN §18), and the refusal it predicts cannot disagree with the one the engine
+would give — which re-deriving the guard-band constant in TypeScript would eventually do.
+
+### One shared WebGL renderer (CANVAS §7)
+
+Browsers cap live GL contexts and a canvas can hold several scope faces, so `gl/waterfall.ts`
+became one module-level WebGL2 context on one detached canvas: per view its own ring texture,
+window and colormap; one rAF loop that sizes the shared buffer once, draws each visible view
+through `gl.viewport`, and blits it into that view's own 2D canvas. Off-screen views
+(`IntersectionObserver`) are skipped. Because React Flow zooms with a CSS transform, the plot
+re-renders at zoom-adjusted DPR — snapped to eighths so a zoom gesture reallocates a handful of
+times instead of every frame. Spectrum subscriptions are refcounted per device set in
+`lib/spectrum.ts`, and `socket.onSpectrum` became a listener set: a single handler meant the
+last scope mounted silently starved the others and cleared their feed on unmount.
+
+### What the operator sees
+
+One row of chrome: the station switcher, the node palette, patch/rack, and a library drawer for
+the things that are not nodes (presets, bookmarks, templates, recordings — they configure the
+radios that nodes name). Then the canvas. Faces: the receiver (the dial, capability-rendered
+settings, and the picker when unbound), the channel (offset, mode settings and its own decoded
+output — the decoder panels are node faces now), the scope, the speaker (client-side mixing over
+the channels wired into it), the map, the decoder log, the recorder, the export and the scanner.
+The scanner closes `CANVAS §9`: it is a node wired to the radio it drives, because the edge *is*
+the tuning ownership.
+
+### Deleted, recorded not hidden
+
+dockview and its 7.0.4 dependency, `WorkspaceDock`, `dockLayout` and its test, `TabBar`,
+`panels.tsx`, `useNarrow`, `TopBar`, `SpectrumDisplay`, `LayoutNode`/`TabSpec`/`PanelKind`/
+`FloatingGroup` from `wire`, and the `.dv-theme-sdrmm` block. Every mobile path went with them
+(PLAN §18). Migration 5 deletes stored M6 workspaces and renames the denormalized `tabs` column
+to `nodes`; the seed then puts the default station back, and a test pins that ordering.
+
+### Verified live (browser, `device-virtual`)
+- [x] `cargo xtask smoke`: the default station renders; picking the signal generator in the
+  receiver node opens it and the node becomes the dial; a channel node dropped from the palette
+  and wired to the receiver becomes a real engine channel; pinning the scope moves the live face
+  to the rack and leaves a placeholder; a reload restores both
+- [x] The smoke flow found a real ordering bug, which is why it exists: `apply()` raced the
+  debounced graph write, so the server brought the engine up to the *previous* graph and the new
+  channel was never created. Apply now goes through the same serialized queue as a write
+
+### Gates
+- [x] `cargo xtask check` green (fmt, clippy `-D warnings`, Soapy-free and native-driver builds,
+  `biome ci`, type-aware `oxlint`, `tsgo`, web build, zero codegen drift)
+- [x] `cargo xtask test` green — 764 Rust tests, 271 web tests
+- [x] `cargo xtask smoke` green — the Playwright flow, in CI behind a browser install step
+
+### Known gaps (honest, not deferred silently)
+- **Three node kinds in `CANVAS §1` are not built**: the GPS source (PLAN §13 Phase 4), the UDP
+  sink and the WAV audio-file sink (Phase 2). Their backends do not exist, and a node whose
+  backend is unbuilt is a face that can only apologise. The `iq-tap` and `position` port types
+  are absent for the same reason — the channel analyzer and the GPS source own them
+- **No channel analyzer, so a scope only takes a device.** `CANVAS §1` wants one scope component
+  patched anywhere, including a channel's tap; the tap is Phase 2 work
+- **Settings do not survive a restart.** Apply recreates channels at their type's defaults, so
+  offsets and squelch come back neutral; that is presets' and templates' job today, and the
+  graph deliberately does not hold a second copy of settings. Restoring the last-used settings
+  per node is the obvious follow-up
+- **One smoke flow, not a suite.** It covers the spine (bind, add, wire, apply, pin, reload). It
+  does not cover the rack drag, the 409 recovery, two clients, or a scope on a real spectrum
+- **No off-air session.** Everything above was verified against `device-virtual`; the canvas has
+  not yet been driven with hardware attached, which is where an absent-radio node and a
+  serial-less clone binding at most one node get their real test (PLAN §14)

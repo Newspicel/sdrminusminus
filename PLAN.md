@@ -377,7 +377,7 @@ The stack is settled and lives in `web/package.json` + CLAUDE.md, not here. What
 - **Server state discipline:** TanStack Query is the *only* holder of REST data; WS
   `StateChanged` events invalidate keys — no polling, no manual refetch. High-rate binary
   streams bypass Query entirely → Zustand/refs → canvas.
-- **The station is a patch graph (M7, `PLAN-CANVAS.md`):** the client is a canvas — every
+- **The station is a patch graph (M7 ✅, `PLAN-CANVAS.md`):** the client is a canvas — every
   device, channel, feature and sink is a typed node, wiring is the UI, and a pin-board
   **rack** holds the faces being operated. Server-persisted **workspaces** remain: exactly
   one active at a time, each now a canvas graph + rack layout in SQLite next to presets —
@@ -387,10 +387,13 @@ The stack is settled and lives in `web/package.json` + CLAUDE.md, not here. What
     must not invalidate stored workspaces (the same rule the M6 layout tree followed, §18).
   - **Nodes name devices by durable identity** (backend + serial), never by per-run engine
     ids; an absent device renders as a disconnected node and is never silently rebound.
-  - **The graph is control plane only.** The server validates it and applies diffs through
-    the existing command queue; the DSP plane (§7) is untouched — no runtime graph scheduler.
-  - Graph writes are debounced to the end of a gesture and carry the revision they were read
-    at; a stale one is refused rather than overwriting another client's arrangement.
+  - **The graph is control plane only.** The server validates it and applies it through the
+    existing command queue — additively and idempotently, so applying a station opens what it
+    names and never closes what it does not (`CANVAS §4`); the DSP plane (§7) is untouched —
+    no runtime graph scheduler.
+  - Graph writes happen at the end of a gesture and carry the revision they were read at; a
+    stale one is refused rather than overwriting another client's arrangement. Settings are not
+    in the graph, so turning a knob is not a workspace write at all.
 - **Maps:** MapLibre GL on OpenFreeMap tiles (free, no key). Offline/self-contained mode is
   still open: drop a region **`.pmtiles`** file next to the server and it serves the tiles
   itself — a Pi in a field needs no internet. Globe projection for satellite views, openAIP
@@ -401,7 +404,7 @@ The stack is settled and lives in `web/package.json` + CLAUDE.md, not here. What
   **hue encodes data type** on ports and wires (`CANVAS §6`), never decoration, and no state
   is carried by hue alone. Colorblind-safe waterfall colormaps; zero decorative
   gradients/glassmorphism/emoji. The numeric rulebook is `DESIGN.md`, rewritten to the canvas
-  direction during M7. **A design pass is part of every UI milestone's definition of done.**
+  direction at M7. **A design pass is part of every UI milestone's definition of done.**
 - **Beginner-friendly, expert-deep:** the first-run wizard and template gallery ship; a
   template is a patch — devices + channels + wiring + rack + a short "what am I looking at"
   explainer, built from presets and `PatchGraph`, never from special engine code. Still open:
@@ -610,8 +613,11 @@ Shipped at M4–M5: RDS (stereo still open, §18), ADS-B + map, AIS + map, POCSA
   assert audio RMS / decoded events. **No hardware in CI, ever.**
 - **Server:** axum handler tests via `tower::ServiceExt`; OpenAPI snapshot test; codegen-drift
   check (regenerate → `git diff --exit-code`).
-- **Web:** `tsgo` strict and vitest for stores/utils; still open is one Playwright smoke flow
-  against the real server with `device-virtual`.
+- **Web:** `tsgo` strict and vitest for stores/utils, plus one Playwright smoke flow (M7,
+  `cargo xtask smoke`) that drives the *built* UI served by the real binary on `device-virtual`
+  — bind a radio, add a channel, pin a face, reload and find the arrangement still there. It
+  runs against the release composition rather than the dev server, because the dev server is
+  not what anyone ships.
 - **Hardware is the owner's test bench, not CI's.** Field sessions are run against the built
   release artifact and written down in `PROGRESS.md` with what was measured — that is the only
   record that a driver, a gain table or a decoder survived contact with a real radio.
@@ -654,9 +660,11 @@ it was verified.**
 - **Decoders wave 2 ✅ shipped** (post-M6): NAVTEX (SITOR-B), ACARS and the sub-GHz OOK/FSK
   channel, each with a reference modulator, unit tests, an engine end-to-end run and a playable
   fixture. `PROGRESS.md` records what it built and the gaps it left.
-- **M7 — the canvas** (`PLAN-CANVAS.md`): the client rebuilt canvas-first — patch graph +
-  rack replace tabs + dockview, stable device identity lands first, decoder panels become
-  node faces, `DESIGN.md` is rewritten to match.
+- **M7 — the canvas ✅ shipped** (`PLAN-CANVAS.md`): the client rebuilt canvas-first — patch
+  graph + rack replaced tabs + dockview, stable device identity landed first, decoder panels
+  became node faces, `DESIGN.md` was rewritten to match. `PROGRESS.md` records what it built,
+  how it was verified and the gaps it left; the deviations are recorded in `PLAN-CANVAS.md`
+  beside the rules they deviate from.
 - **M8+ — Phase 3/4 waves** per §13, prioritized by demand, plus the open Phase 1/2 items.
 
 The milestone rule that outlives the list: a milestone is done when its tests are green
@@ -726,7 +734,9 @@ What follows is the rest — the choices with a rejected alternative or a reason
 | Canvas-first client (M7) | **Supersedes the two M6 rows above** ("UI shell", "Workspace layout model"): the tabs→dockview shell and its `LayoutNode` tree are removed, replaced by a patch-graph canvas + pin-board rack, modelled as `PatchGraph` + `RackLayout` in `wire` (own model, never the canvas library's serialization — same reasoning, new document). Motivation: with several radios, identity must be *spatial* — a labelled device node and the wires leaving it answer "which SDR is this?" structurally, where tabbed UIs (SDRangel) answer it with a dropdown. Full model in `PLAN-CANVAS.md`; M6's shipped work is deleted in its final phase, recorded not hidden |
 | Mobile support (M7) | Removed entirely — §10 previously bound phone usability and viewport-guarded layout writes; both are gone. Desktop-only assumptions (pointer, keyboard, laptop-class viewport) are allowed everywhere. Cost accepted and recorded: the phone-as-remote-control use case dies with it |
 | Canvas library (M7) | React Flow (`@xyflow/react` 12, MIT — verified Aug 2026) over tldraw (production use needs a license key, the free tier forces a watermark — and it is a whiteboard, not a node graph) and Rete/litegraph (MIT but not React-idiomatic). Node faces are plain React components, so Base UI parts and our tokens carry into every node |
-| Stable device identity (M7) | Graduates from deferral (the M6 "panels name no device set" rule) to prerequisite #1: `PatchGraph` names devices by backend + serial; an absent device is a visibly disconnected node, never a silent rebind. Serial-less duplicate clones bind at most one node and `--doctor` suggests programming an EEPROM serial |
+| Stable device identity (M7) | Graduates from deferral (the M6 "panels name no device set" rule) to prerequisite #1: `PatchGraph` names devices by backend + serial; an absent device is a visibly disconnected node, never a silent rebind. Serial-less duplicate clones bind at most one node and `--doctor` suggests programming an EEPROM serial. Built with one addition, `CANVAS §3`: a `key` tie-break consulted only when a backend exposes no serial, without which a patch could not name *which* recording a file-playback node plays |
+| Graph applies additively (M7) | `POST /api/workspaces/{id}/apply` opens the radios a station names and creates the channels it draws, and never closes or deletes: removing a node is its own gesture, and a reconciler that also deleted would read "this workspace has fewer nodes than the engine has channels" — the normal state when a second client adds one — as an instruction to close someone's radio. Idempotent, so it runs on every station load, which is what makes a restart come back as a station. Rejected alternative: storing channel settings in the graph so it could be a full desired-state reconciler — one revision-checked blob per workspace means every squelch turn would become a workspace write and two clients editing different channels would 409 each other (`CANVAS §4`) |
+| The rate rule on the wire (M7) | `ChannelDescriptor.exact_rate_only` is derived in `channels` from the same `occupied_band` + `resamplable_bandwidth_hz` the engine's admission check uses, and shipped on the wire, so the canvas can refuse an ADS-B wire to a 2.4 Msps receiver where the operator drew it. Rejected: re-deriving the 80% guard-band constant in TypeScript, which is a second implementation of a DSP rule that would drift from the first |
 
 ---
 

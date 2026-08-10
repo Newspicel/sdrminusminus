@@ -1,299 +1,58 @@
-//! Workspaces — the persisted UI shell (PLAN §10, §16 M6). A workspace holds tabs, a tab holds
-//! a panel layout, and exactly one workspace is active server-side, so every client that opens
-//! the station sees the same setup.
+//! Workspaces — the persisted station (PLAN §10, CANVAS §4). A workspace holds one patch graph
+//! and one rack layout, and exactly one workspace is active server-side, so every client that
+//! opens the station sees the same setup.
 //!
-//! The layout is *our* tree, not the dock library's serialization: templates author layouts in
-//! Rust (PLAN §16 M6), the server is the source of truth for type definitions (PLAN §2), and a
-//! dock-library major must not invalidate stored workspaces. The client compiles this tree into
-//! its dock and maps the dock's state back on every user gesture.
+//! The graph is *our* model, not the canvas library's serialization: templates author stations in
+//! Rust (CANVAS §8 phase ④), the server is the source of truth for type definitions (PLAN §2),
+//! and a React Flow major must not invalidate stored workspaces. The shape lives in
+//! [`crate::patch`]; this module is the stored row around it.
 //!
-//! Two things are deliberately *not* addressable here: a panel names no device set and no
-//! channel. Engine ids are allocated per server run and reused after a restart, so a stored
-//! panel pinned to "device set 1" would silently bind to whichever radio opened first — the
-//! kind of failure that looks like a working panel. Panels follow the client's active set.
+//! What a stored node may name changed at M7 and the reason did not: engine ids are allocated per
+//! run and reused, so a node names a *device* by durable identity ([`crate::DeviceRef`]) and
+//! never a device set. The M6 rule that a panel could name no radio at all is retired — spatial
+//! identity is the point of the canvas (PLAN §18) — but nothing per-run is stored to buy it.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Shape version of a stored [`WorkspaceSnapshot`]. A build refuses to *write back* a snapshot
-/// it did not itself produce: layouts are re-persisted on every user gesture, so a downgrade
-/// would silently rewrite a newer layout with whatever this build understood of it.
-pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 1;
+use crate::patch::{DeviceRef, NodeBody, PatchError, PatchGraph, PatchNode, Position, RackLayout};
 
-/// Structural caps. A layout is rewritten on every gesture and stored whole, so the bounds are
-/// what keeps one row from growing without limit; the numbers are far above any usable station.
-pub const MAX_TABS: usize = 32;
-pub const MAX_PANELS_PER_TAB: usize = 64;
-pub const MAX_SPLIT_DEPTH: usize = 16;
+/// Shape version of a stored [`WorkspaceSnapshot`]. A build refuses to *write back* a snapshot it
+/// did not itself produce: a station is re-persisted on every arrangement gesture, so a downgrade
+/// would silently rewrite a newer one with whatever this build understood of it.
+///
+/// Version 2 is the canvas (M7). Version 1 was the tabs-and-dockview tree; stored v1 rows do not
+/// migrate (CANVAS §8 phase ⑤: a clean reset, recorded rather than converted, because the new
+/// model cannot express a dock layout and nobody would want it to).
+pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 2;
+
+/// Bound on every user-visible name here: a workspace is picked by name in the switcher and a
+/// node by its label on the canvas, so an unbounded string is a layout bug, not a feature.
 pub const MAX_NAME_LEN: usize = 64;
 
-/// What a panel shows. A closed enum on purpose: the web UI ships inside the same binary as
-/// this crate, so client and server can never disagree about the set — and a stored workspace
-/// naming a kind this build does not have must fail loudly (the row is refused) rather than be
-/// silently rewritten without the panels it could not read.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PanelKind {
-    /// Spectrum + waterfall for the active device set.
-    Spectrum,
-    /// Channel list and per-channel controls.
-    Channels,
-    /// Frequency scanner.
-    Scanner,
-    /// Live decoder views for the active set's decoder channels.
-    Decoders,
-    /// Map of decoded positions.
-    Map,
-    /// The stored decoder log.
-    DecoderLog,
-    Presets,
-    Bookmarks,
-    Templates,
-    Recordings,
-}
+/// Vertical gap between an existing station and a patch merged under it, in canvas units.
+const MERGE_GAP: f32 = 120.0;
 
-impl PanelKind {
-    /// Stable slug, matching the serde representation — used to build panel ids.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Spectrum => "spectrum",
-            Self::Channels => "channels",
-            Self::Scanner => "scanner",
-            Self::Decoders => "decoders",
-            Self::Map => "map",
-            Self::DecoderLog => "decoder_log",
-            Self::Presets => "presets",
-            Self::Bookmarks => "bookmarks",
-            Self::Templates => "templates",
-            Self::Recordings => "recordings",
-        }
-    }
-}
-
-/// One panel in a group. `id` is stored rather than derived from `kind`: two spectrum panels in
-/// one tab is a legitimate layout, and the dock needs unique panel ids.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct PanelSpec {
-    pub id: String,
-    pub kind: PanelKind,
-    /// User-renamed caption; `None` renders the client's default name for the kind.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-}
-
-impl PanelSpec {
-    /// A panel with the conventional `panel:<kind>` id, which is what a layout authored in Rust
-    /// (defaults, templates) uses.
-    #[must_use]
-    pub fn new(kind: PanelKind) -> Self {
-        Self {
-            id: format!("panel:{}", kind.as_str()),
-            kind,
-            title: None,
-        }
-    }
-}
-
-/// A tab-stack of panels sharing one rectangle.
-#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
-pub struct PanelGroup {
-    pub panels: Vec<PanelSpec>,
-    /// Which panel is on top. An id, never an index: an index goes stale the moment a panel is
-    /// closed. `None` means "the first one".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active: Option<String>,
-}
-
-impl PanelGroup {
-    /// A group holding one panel per kind, in order, with the first on top.
-    #[must_use]
-    pub fn of(kinds: &[PanelKind]) -> Self {
-        Self {
-            panels: kinds.iter().copied().map(PanelSpec::new).collect(),
-            active: None,
-        }
-    }
-}
-
-/// How a split arranges its children.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SplitDirection {
-    /// Children side by side, left to right.
-    Row,
-    /// Children stacked, top to bottom.
-    Column,
-}
-
-/// One child of a split, with its share of the parent's extent.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct LayoutChild {
-    /// Share of the parent along its axis, in permille. Integers, not fractions: the layout is
-    /// re-persisted on every gesture, and a float would drift across load→save cycles (and can
-    /// serialize as `null` for NaN, which fails the *whole* snapshot on the way back in).
-    pub weight_permille: u16,
-    /// The subtree. `no_recursion` breaks the schema cycle — utoipa would otherwise recurse
-    /// forever collecting `LayoutNode` → `LayoutChild` → `LayoutNode`.
-    #[schema(no_recursion)]
-    pub node: LayoutNode,
-}
-
-/// A split and its children.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct SplitNode {
-    pub direction: SplitDirection,
-    pub children: Vec<LayoutChild>,
-}
-
-/// The panel-layout tree of one tab. Adjacently tagged like [`crate::ChannelParams`], so the
-/// generated TypeScript is a union the client can exhaustively switch on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "node", content = "data", rename_all = "snake_case")]
-pub enum LayoutNode {
-    Split(SplitNode),
-    Group(PanelGroup),
-}
-
-impl LayoutNode {
-    /// A split whose children are given as `(weight_permille, node)`; weights are stored as
-    /// written and normalized on the way into the dock.
-    #[must_use]
-    pub fn split(direction: SplitDirection, children: Vec<(u16, Self)>) -> Self {
-        Self::Split(SplitNode {
-            direction,
-            children: children
-                .into_iter()
-                .map(|(weight_permille, node)| LayoutChild {
-                    weight_permille,
-                    node,
-                })
-                .collect(),
-        })
-    }
-
-    /// A leaf holding one panel per kind.
-    #[must_use]
-    pub fn group(kinds: &[PanelKind]) -> Self {
-        Self::Group(PanelGroup::of(kinds))
-    }
-
-    fn walk_panels<'a>(&'a self, out: &mut Vec<&'a PanelSpec>) {
-        match self {
-            Self::Split(split) => {
-                for child in &split.children {
-                    child.node.walk_panels(out);
-                }
-            }
-            Self::Group(group) => out.extend(group.panels.iter()),
-        }
-    }
-
-    fn depth(&self) -> usize {
-        match self {
-            Self::Split(split) => {
-                1 + split
-                    .children
-                    .iter()
-                    .map(|c| c.node.depth())
-                    .max()
-                    .unwrap_or(0)
-            }
-            Self::Group(_) => 1,
-        }
-    }
-
-    fn validate(&self, seen: &mut Vec<String>) -> Result<(), WorkspaceError> {
-        match self {
-            Self::Split(split) => {
-                // A one-child split is a node the dock never produces and cannot represent; it
-                // means the reverse mapper failed to collapse, so it is rejected rather than
-                // stored and half-applied.
-                if split.children.len() < 2 {
-                    return Err(WorkspaceError::DegenerateSplit);
-                }
-                for child in &split.children {
-                    if child.weight_permille == 0 {
-                        return Err(WorkspaceError::ZeroWeight);
-                    }
-                    child.node.validate(seen)?;
-                }
-                Ok(())
-            }
-            Self::Group(group) => {
-                for panel in &group.panels {
-                    if panel.id.is_empty() || panel.id.len() > MAX_NAME_LEN {
-                        return Err(WorkspaceError::PanelId(panel.id.clone()));
-                    }
-                    if seen.contains(&panel.id) {
-                        return Err(WorkspaceError::DuplicatePanel(panel.id.clone()));
-                    }
-                    seen.push(panel.id.clone());
-                }
-                match &group.active {
-                    Some(active) if !group.panels.iter().any(|p| p.id == *active) => {
-                        Err(WorkspaceError::UnknownPanel(active.clone()))
-                    }
-                    _ => Ok(()),
-                }
-            }
-        }
-    }
-}
-
-/// A group floating above the grid (PLAN §10). Geometry is a fraction of the dock, never
-/// pixels: the same workspace opens on a phone and on a 4K desktop, and stored pixels would put
-/// a floating panel off-screen on the smaller one.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct FloatingGroup {
-    pub group: PanelGroup,
-    pub x_frac: f32,
-    pub y_frac: f32,
-    pub w_frac: f32,
-    pub h_frac: f32,
-}
-
-/// One tab: a named panel layout.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct TabSpec {
-    pub id: String,
-    pub name: String,
-    pub layout: LayoutNode,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub floating: Vec<FloatingGroup>,
-}
-
-/// The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — it is
-/// written atomically, read whole, and never queried by inner field).
+/// The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written
+/// atomically, read whole, never queried by inner field).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceSnapshot {
     /// [`WORKSPACE_SNAPSHOT_VERSION`] at the time of writing.
     pub version: u32,
-    pub tabs: Vec<TabSpec>,
-    /// Id of the tab on top; `None` means the first one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_tab: Option<String>,
+    pub graph: PatchGraph,
+    /// Faces pinned to the operate view. May be empty — the canvas alone is a complete UI
+    /// (CANVAS §5).
+    #[serde(default)]
+    pub rack: RackLayout,
 }
 
-/// Why a snapshot was refused. Structural only — the checks are pure, so they run in `wire`
-/// and the server has one rejection point instead of scattered guards. `Display` is written out
+/// Why a snapshot was refused. Structural only — the checks are pure, so they run in `wire` and
+/// the server has one rejection point instead of scattered guards. `Display` is written out
 /// rather than derived because this crate carries no error-derive dependency (PLAN §3).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorkspaceError {
     Version(u32),
-    NoTabs,
-    TooManyTabs,
-    TooManyPanels(String),
-    TooDeep,
-    DegenerateSplit,
-    ZeroWeight,
-    PanelId(String),
-    DuplicatePanel(String),
-    UnknownPanel(String),
-    TabId(String),
-    DuplicateTab(String),
-    UnknownTab(String),
-    FloatingGeometry,
+    Patch(PatchError),
     Name,
 }
 
@@ -305,21 +64,7 @@ impl std::fmt::Display for WorkspaceError {
                 "unsupported workspace snapshot version {v} (this build writes \
                  {WORKSPACE_SNAPSHOT_VERSION})"
             ),
-            Self::NoTabs => f.write_str("a workspace needs at least one tab"),
-            Self::TooManyTabs => write!(f, "too many tabs (max {MAX_TABS})"),
-            Self::TooManyPanels(tab) => {
-                write!(f, "too many panels in tab {tab} (max {MAX_PANELS_PER_TAB})")
-            }
-            Self::TooDeep => write!(f, "layout nested deeper than {MAX_SPLIT_DEPTH}"),
-            Self::DegenerateSplit => f.write_str("a split needs at least two children"),
-            Self::ZeroWeight => f.write_str("a split child cannot have zero weight"),
-            Self::PanelId(id) => write!(f, "invalid panel id {id:?}"),
-            Self::DuplicatePanel(id) => write!(f, "duplicate panel id {id}"),
-            Self::UnknownPanel(id) => write!(f, "active panel {id} is not in its group"),
-            Self::TabId(id) => write!(f, "invalid tab id {id:?}"),
-            Self::DuplicateTab(id) => write!(f, "duplicate tab id {id}"),
-            Self::UnknownTab(id) => write!(f, "active tab {id} does not exist"),
-            Self::FloatingGeometry => f.write_str("floating geometry outside the dock"),
+            Self::Patch(err) => write!(f, "{err}"),
             Self::Name => write!(f, "name must be 1..={MAX_NAME_LEN} characters"),
         }
     }
@@ -327,151 +72,176 @@ impl std::fmt::Display for WorkspaceError {
 
 impl std::error::Error for WorkspaceError {}
 
+impl From<PatchError> for WorkspaceError {
+    fn from(err: PatchError) -> Self {
+        Self::Patch(err)
+    }
+}
+
 impl WorkspaceSnapshot {
-    /// Structural bounds a stored layout must satisfy. Client-built trees come from a dock's
-    /// own state, so a malformed one is a client bug or a corrupt row — either way it is
-    /// refused at the API edge rather than half-applied.
+    /// A snapshot holding `graph` and `rack` at this build's version.
+    #[must_use]
+    pub fn new(graph: PatchGraph, rack: RackLayout) -> Self {
+        Self {
+            version: WORKSPACE_SNAPSHOT_VERSION,
+            graph,
+            rack,
+        }
+    }
+
+    /// Structural bounds a stored station must satisfy. Client-built graphs come from a canvas
+    /// the same rules already policed at drag time, so a malformed one is a client bug or a
+    /// corrupt row — either way it is refused at the API edge rather than half-applied.
     pub fn validate(&self) -> Result<(), WorkspaceError> {
         if self.version != WORKSPACE_SNAPSHOT_VERSION {
             return Err(WorkspaceError::Version(self.version));
         }
-        if self.tabs.is_empty() {
-            return Err(WorkspaceError::NoTabs);
-        }
-        if self.tabs.len() > MAX_TABS {
-            return Err(WorkspaceError::TooManyTabs);
-        }
-        let mut tab_ids: Vec<&str> = Vec::with_capacity(self.tabs.len());
-        for tab in &self.tabs {
-            if tab.id.is_empty() || tab.id.len() > MAX_NAME_LEN {
-                return Err(WorkspaceError::TabId(tab.id.clone()));
-            }
-            if tab.name.is_empty() || tab.name.chars().count() > MAX_NAME_LEN {
-                return Err(WorkspaceError::Name);
-            }
-            if tab_ids.contains(&tab.id.as_str()) {
-                return Err(WorkspaceError::DuplicateTab(tab.id.clone()));
-            }
-            tab_ids.push(&tab.id);
-            if tab.layout.depth() > MAX_SPLIT_DEPTH {
-                return Err(WorkspaceError::TooDeep);
-            }
-            // Panel ids are unique per tab, not per workspace: two tabs each showing a spectrum
-            // is normal, and the dock that hosts them is per tab.
-            let mut seen = Vec::new();
-            tab.layout.validate(&mut seen)?;
-            for floating in &tab.floating {
-                if !(floating.x_frac.is_finite()
-                    && floating.y_frac.is_finite()
-                    && (0.0..=1.0).contains(&floating.w_frac)
-                    && (0.0..=1.0).contains(&floating.h_frac)
-                    && floating.w_frac > 0.0
-                    && floating.h_frac > 0.0)
-                {
-                    return Err(WorkspaceError::FloatingGeometry);
-                }
-                LayoutNode::Group(floating.group.clone()).validate(&mut seen)?;
-            }
-            if seen.len() > MAX_PANELS_PER_TAB {
-                return Err(WorkspaceError::TooManyPanels(tab.id.clone()));
-            }
-        }
-        match &self.active_tab {
-            Some(active) if !tab_ids.contains(&active.as_str()) => {
-                Err(WorkspaceError::UnknownTab(active.clone()))
-            }
-            _ => Ok(()),
-        }
+        self.graph.validate()?;
+        self.rack.validate(&self.graph)?;
+        Ok(())
     }
 
-    /// Every panel in the workspace, docked and floating, in tab order.
-    #[must_use]
-    pub fn panels(&self) -> Vec<&PanelSpec> {
-        let mut out = Vec::new();
-        for tab in &self.tabs {
-            tab.layout.walk_panels(&mut out);
-            for floating in &tab.floating {
-                out.extend(floating.group.panels.iter());
-            }
-        }
-        out
-    }
-
-    /// Insert `tab`, replacing any tab with the same id, and make it active. This is how a
-    /// template's layout lands in the active workspace: the id is derived from the template, so
-    /// applying it twice replaces its tab instead of stacking copies.
-    pub fn upsert_tab(&mut self, tab: TabSpec) {
-        self.active_tab = Some(tab.id.clone());
-        match self.tabs.iter_mut().find(|t| t.id == tab.id) {
-            Some(existing) => *existing = tab,
-            None => self.tabs.push(tab),
-        }
-    }
-
-    /// The layout a fresh install starts on: the fixed arrangement M0–M5 shipped, expressed as
-    /// tabs so nothing a user could reach before M6 is now unreachable.
+    /// The station a fresh install opens on: one empty receiver node feeding a scope, with a
+    /// speaker waiting for a channel. Empty rather than pre-populated because the receiver node
+    /// *is* the "open a radio" invitation — picking a device in it is the first gesture.
     #[must_use]
     pub fn station_default() -> Self {
-        use PanelKind::{
-            Bookmarks, Channels, DecoderLog, Decoders, Map, Presets, Recordings, Scanner, Templates,
+        let node = |id: &str, body: NodeBody, x: f32, y: f32| PatchNode {
+            id: id.to_owned(),
+            body,
+            position: Position { x, y },
+            size: None,
+            label: None,
         };
-        Self {
-            version: WORKSPACE_SNAPSHOT_VERSION,
-            tabs: vec![
-                TabSpec {
-                    id: "station".to_string(),
-                    name: "Station".to_string(),
-                    layout: LayoutNode::split(
-                        SplitDirection::Column,
-                        vec![
-                            (600, LayoutNode::group(&[PanelKind::Spectrum])),
-                            (
-                                400,
-                                LayoutNode::split(
-                                    SplitDirection::Row,
-                                    vec![
-                                        (600, LayoutNode::group(&[Channels, Scanner])),
-                                        (
-                                            400,
-                                            LayoutNode::group(&[
-                                                Presets, Bookmarks, Templates, Recordings,
-                                            ]),
-                                        ),
-                                    ],
-                                ),
-                            ),
-                        ],
-                    ),
-                    floating: Vec::new(),
-                },
-                TabSpec {
-                    id: "decoders".to_string(),
-                    name: "Decoders".to_string(),
-                    layout: LayoutNode::split(
-                        SplitDirection::Row,
-                        vec![
-                            (600, LayoutNode::group(&[Decoders])),
-                            (
-                                400,
-                                LayoutNode::split(
-                                    SplitDirection::Column,
-                                    vec![
-                                        (600, LayoutNode::group(&[Map])),
-                                        (400, LayoutNode::group(&[DecoderLog])),
-                                    ],
-                                ),
-                            ),
-                        ],
-                    ),
-                    floating: Vec::new(),
-                },
+        let graph = PatchGraph {
+            nodes: vec![
+                node(
+                    "device",
+                    NodeBody::Device(crate::patch::DeviceNode::default()),
+                    0.0,
+                    0.0,
+                ),
+                node("scope", NodeBody::Scope, 420.0, 0.0),
+                node("speaker", NodeBody::Speaker, 420.0, 380.0),
             ],
-            active_tab: Some("station".to_string()),
+            edges: vec![crate::patch::PatchEdge {
+                from: crate::patch::PortRef {
+                    node: "device".to_owned(),
+                    port: "iq".to_owned(),
+                },
+                to: crate::patch::PortRef {
+                    node: "scope".to_owned(),
+                    port: "iq".to_owned(),
+                },
+            }],
+        };
+        Self::new(graph, RackLayout::default())
+    }
+
+    /// Merge an authored patch (a template, CANVAS §8 phase ④) into this station.
+    ///
+    /// Node ids are namespaced by `prefix` and the prefix's previous nodes are removed first, so
+    /// applying a template twice replaces its own block instead of stacking copies — the same
+    /// contract M6's `upsert_tab` had. A device node in the patch binds to `device`: if the
+    /// station already has a node for that radio the patch wires into *it* rather than drawing a
+    /// second box for one receiver.
+    pub fn merge_patch(&mut self, patch: &PatchGraph, prefix: &str, device: Option<&DeviceRef>) {
+        self.remove_prefixed(prefix);
+
+        let existing_device = device.and_then(|want| {
+            self.graph
+                .device_nodes()
+                .find(|node| match &node.body {
+                    NodeBody::Device(d) => d.device.as_ref() == Some(want),
+                    _ => false,
+                })
+                .map(|node| node.id.clone())
+        });
+        let offset = self.merge_offset();
+
+        let mut mapped: Vec<(String, String)> = Vec::with_capacity(patch.nodes.len());
+        for node in &patch.nodes {
+            let is_device = matches!(node.body, NodeBody::Device(_));
+            if is_device && let Some(reuse) = &existing_device {
+                mapped.push((node.id.clone(), reuse.clone()));
+                continue;
+            }
+            let id = format!("{prefix}{}", node.id);
+            mapped.push((node.id.clone(), id.clone()));
+            let body = match (&node.body, device) {
+                // An authored patch leaves its receiver unbound; applying it to a radio is what
+                // names one.
+                (NodeBody::Device(d), Some(want)) if d.device.is_none() => {
+                    NodeBody::Device(crate::patch::DeviceNode {
+                        device: Some(want.clone()),
+                    })
+                }
+                (body, _) => body.clone(),
+            };
+            self.graph.nodes.push(PatchNode {
+                id,
+                body,
+                position: Position {
+                    x: node.position.x,
+                    y: node.position.y + offset,
+                },
+                size: node.size,
+                label: node.label.clone(),
+            });
         }
+
+        let remap = |id: &str| -> Option<String> {
+            mapped
+                .iter()
+                .find(|(from, _)| from == id)
+                .map(|(_, to)| to.clone())
+        };
+        for edge in &patch.edges {
+            let (Some(from), Some(to)) = (remap(&edge.from.node), remap(&edge.to.node)) else {
+                continue;
+            };
+            let mapped_edge = crate::patch::PatchEdge {
+                from: crate::patch::PortRef {
+                    node: from,
+                    port: edge.from.port.clone(),
+                },
+                to: crate::patch::PortRef {
+                    node: to,
+                    port: edge.to.port.clone(),
+                },
+            };
+            // Reusing a device node can reproduce a wire the station already has.
+            if !self.graph.edges.contains(&mapped_edge) {
+                self.graph.edges.push(mapped_edge);
+            }
+        }
+    }
+
+    /// Drop every node this prefix owns, and everything that referenced them.
+    fn remove_prefixed(&mut self, prefix: &str) {
+        self.graph.nodes.retain(|node| !node.id.starts_with(prefix));
+        self.graph.edges.retain(|edge| {
+            !edge.from.node.starts_with(prefix) && !edge.to.node.starts_with(prefix)
+        });
+        self.rack
+            .slots
+            .retain(|slot| !slot.node.starts_with(prefix));
+    }
+
+    /// Where a merged block starts: under everything already drawn, so a template never lands on
+    /// top of the station it is being added to.
+    fn merge_offset(&self) -> f32 {
+        self.graph
+            .nodes
+            .iter()
+            .map(|node| node.position.y + node.size.map_or(0.0, |s| s.h))
+            .fold(f32::NEG_INFINITY, f32::max)
+            .max(0.0)
+            + MERGE_GAP
     }
 }
 
-/// `GET /api/workspaces` list entry — the projection a switcher needs, without the layout.
+/// `GET /api/workspaces` list entry — the projection a switcher needs, without the station.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceInfo {
     pub id: i64,
@@ -480,11 +250,12 @@ pub struct WorkspaceInfo {
     pub created_at: String,
     /// RFC3339 UTC.
     pub updated_at: String,
-    /// Bumped on every stored change. An update carrying a stale revision is refused rather
-    /// than silently overwriting another client's layout.
+    /// Bumped on every stored change. An update carrying a stale revision is refused rather than
+    /// silently overwriting another client's arrangement.
     pub revision: u64,
-    /// Tab count, so the switcher can describe a workspace without fetching its layout.
-    pub tabs: u32,
+    /// Node count, denormalized so the switcher can describe a workspace without parsing its
+    /// graph.
+    pub nodes: u32,
 }
 
 /// `GET /api/workspaces`.
@@ -496,7 +267,7 @@ pub struct WorkspacesResponse {
     pub active: Option<i64>,
 }
 
-/// `GET /api/workspaces/{id}` — the row plus its layout.
+/// `GET /api/workspaces/{id}` — the row plus its station.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceDetail {
     #[serde(flatten)]
@@ -508,12 +279,12 @@ pub struct WorkspaceDetail {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreateWorkspaceRequest {
     pub name: String,
-    /// Layout to start from; omitted means [`WorkspaceSnapshot::station_default`].
+    /// Station to start from; omitted means [`WorkspaceSnapshot::station_default`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<WorkspaceSnapshot>,
 }
 
-/// `PUT /api/workspaces/{id}` — rename, re-layout, or both.
+/// `PUT /api/workspaces/{id}` — rename, re-patch, or both.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct UpdateWorkspaceRequest {
     /// The revision the client last saw. A mismatch is a `409`, never a silent overwrite.
@@ -524,213 +295,252 @@ pub struct UpdateWorkspaceRequest {
     pub snapshot: Option<WorkspaceSnapshot>,
 }
 
+/// One device node now driving an engine device set (CANVAS §3). Bindings are recomputed per run
+/// and never stored.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PatchBinding {
+    pub node: String,
+    pub device_set: u32,
+}
+
+/// `POST /api/workspaces/{id}/apply` — what applying the station did.
+///
+/// Apply is additive and idempotent: it opens the radios the graph names and adds the channels it
+/// draws, and never closes or deletes anything. Removing a node is a gesture with its own
+/// endpoint; a reconciler that also deleted would turn "this workspace has fewer nodes" into
+/// "close that operator's radio".
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PatchApplyReport {
+    /// Every device node that now has a running device set.
+    pub bound: Vec<PatchBinding>,
+    /// Device sets opened by this call.
+    pub opened: u32,
+    /// Channels created by this call.
+    pub created: u32,
+    /// Device nodes whose radio is not attached; they render disconnected (CANVAS §3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub absent: Vec<String>,
+    /// Nodes apply could not satisfy, with the reason — a wideband channel on a device running
+    /// at the wrong rate is the common one (PLAN §18). Reported, never silently skipped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<PatchRefusal>,
+}
+
+/// One node apply could not satisfy.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PatchRefusal {
+    pub node: String,
+    pub reason: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::patch::{ChannelNode, DeviceNode, PatchEdge, PortRef, RackCell, RackSlot};
 
-    fn snapshot() -> WorkspaceSnapshot {
-        WorkspaceSnapshot::station_default()
-    }
-
-    /// The tags the generated TS union switches on.
-    #[test]
-    fn layout_node_is_adjacently_tagged() {
-        let node = LayoutNode::split(
-            SplitDirection::Row,
-            vec![
-                (700, LayoutNode::group(&[PanelKind::Spectrum])),
-                (300, LayoutNode::group(&[PanelKind::DecoderLog])),
-            ],
-        );
-        let json = serde_json::to_value(&node).unwrap();
-        assert_eq!(json["node"], "split");
-        assert_eq!(json["data"]["direction"], "row");
-        assert_eq!(json["data"]["children"][0]["weight_permille"], 700);
-        assert_eq!(json["data"]["children"][0]["node"]["node"], "group");
-        assert_eq!(
-            json["data"]["children"][1]["node"]["data"]["panels"][0]["kind"],
-            "decoder_log"
-        );
-        assert!(
-            json["data"]["children"][0]["node"]["data"]
-                .get("active")
-                .is_none()
-        );
-        let back: LayoutNode = serde_json::from_value(json).unwrap();
-        assert_eq!(back, node);
-    }
-
-    #[test]
-    fn station_default_validates_and_holds_every_panel_kind_once() {
-        let snap = snapshot();
-        snap.validate().expect("default is valid");
-        let mut kinds: Vec<PanelKind> = snap.panels().iter().map(|p| p.kind).collect();
-        let total = kinds.len();
-        kinds.sort_unstable_by_key(|k| k.as_str());
-        kinds.dedup();
-        assert_eq!(kinds.len(), total, "a kind appears twice in the default");
-        assert_eq!(total, 10, "every panel kind should be reachable by default");
-    }
-
-    #[test]
-    fn snapshot_roundtrips_through_json() {
-        let snap = snapshot();
-        let json = serde_json::to_string(&snap).unwrap();
-        let back: WorkspaceSnapshot = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, snap);
-    }
-
-    #[test]
-    fn validate_rejects_structural_nonsense() {
-        let mut wrong_version = snapshot();
-        wrong_version.version = 99;
-        assert_eq!(wrong_version.validate(), Err(WorkspaceError::Version(99)));
-
-        let empty = WorkspaceSnapshot {
-            version: WORKSPACE_SNAPSHOT_VERSION,
-            tabs: Vec::new(),
-            active_tab: None,
-        };
-        assert_eq!(empty.validate(), Err(WorkspaceError::NoTabs));
-
-        let one_child = WorkspaceSnapshot {
-            version: WORKSPACE_SNAPSHOT_VERSION,
-            tabs: vec![TabSpec {
-                id: "t".to_string(),
-                name: "T".to_string(),
-                layout: LayoutNode::split(
-                    SplitDirection::Row,
-                    vec![(1000, LayoutNode::group(&[PanelKind::Map]))],
-                ),
-                floating: Vec::new(),
-            }],
-            active_tab: None,
-        };
-        assert_eq!(one_child.validate(), Err(WorkspaceError::DegenerateSplit));
-
-        let mut duplicate = snapshot();
-        duplicate.tabs[1].id = duplicate.tabs[0].id.clone();
-        assert!(matches!(
-            duplicate.validate(),
-            Err(WorkspaceError::DuplicateTab(_))
-        ));
-
-        let mut unknown_tab = snapshot();
-        unknown_tab.active_tab = Some("nope".to_string());
-        assert_eq!(
-            unknown_tab.validate(),
-            Err(WorkspaceError::UnknownTab("nope".to_string()))
-        );
-
-        let mut zero_weight = snapshot();
-        if let LayoutNode::Split(split) = &mut zero_weight.tabs[0].layout {
-            split.children[0].weight_permille = 0;
+    fn node(id: &str, body: NodeBody) -> PatchNode {
+        PatchNode {
+            id: id.to_owned(),
+            body,
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
         }
-        assert_eq!(zero_weight.validate(), Err(WorkspaceError::ZeroWeight));
     }
 
-    /// Two panels with the same id in one tab would collide in the dock, which keys panels by
-    /// id — one of them would silently disappear.
-    #[test]
-    fn validate_rejects_duplicate_panel_ids_within_a_tab() {
-        let mut snap = snapshot();
-        snap.tabs[0].layout = LayoutNode::split(
-            SplitDirection::Row,
-            vec![
-                (500, LayoutNode::group(&[PanelKind::Map])),
-                (500, LayoutNode::group(&[PanelKind::Map])),
+    fn wire(from: (&str, &str), to: (&str, &str)) -> PatchEdge {
+        PatchEdge {
+            from: PortRef {
+                node: from.0.to_owned(),
+                port: from.1.to_owned(),
+            },
+            to: PortRef {
+                node: to.0.to_owned(),
+                port: to.1.to_owned(),
+            },
+        }
+    }
+
+    fn rtlsdr() -> DeviceRef {
+        DeviceRef {
+            backend: "rtlsdr".to_owned(),
+            serial: Some("00000001".to_owned()),
+            key: None,
+        }
+    }
+
+    /// An airband-style template: a receiver, two channels and a speaker.
+    fn template() -> PatchGraph {
+        PatchGraph {
+            nodes: vec![
+                node("dev", NodeBody::Device(DeviceNode::default())),
+                node(
+                    "ch",
+                    NodeBody::Channel(ChannelNode {
+                        channel_type: "am".to_owned(),
+                    }),
+                ),
+                node("spk", NodeBody::Speaker),
             ],
-        );
-        assert!(matches!(
-            snap.validate(),
-            Err(WorkspaceError::DuplicatePanel(_))
-        ));
+            edges: vec![
+                wire(("dev", "iq"), ("ch", "iq")),
+                wire(("ch", "audio"), ("spk", "audio")),
+            ],
+        }
+    }
 
-        // The same id in a *different* tab is fine: each tab is its own dock.
-        let ok = snapshot();
+    #[test]
+    fn station_default_validates_and_is_a_receiver_with_a_scope() {
+        let snap = WorkspaceSnapshot::station_default();
+        snap.validate().expect("the default is valid");
+        assert_eq!(snap.version, WORKSPACE_SNAPSHOT_VERSION);
+        assert_eq!(snap.graph.nodes.len(), 3);
+        assert!(snap.rack.slots.is_empty());
+        assert_eq!(snap.graph.device_nodes().count(), 1);
+        assert_eq!(
+            snap.graph.targets_of("device", "iq").collect::<Vec<_>>(),
+            vec!["scope"]
+        );
+    }
+
+    #[test]
+    fn snapshot_roundtrips_through_json_and_omits_an_empty_rack_body() {
+        let snap = WorkspaceSnapshot::station_default();
+        let json = serde_json::to_value(&snap).unwrap();
+        assert_eq!(json["version"], WORKSPACE_SNAPSHOT_VERSION);
+        assert_eq!(json["graph"]["nodes"][0]["kind"], "device");
         assert!(
-            ok.panels()
-                .iter()
-                .filter(|p| p.kind == PanelKind::Map)
-                .count()
-                <= 1
+            json["graph"]["nodes"][0]["data"].get("device").is_none(),
+            "an unbound receiver names no radio"
         );
+        assert_eq!(json["rack"]["slots"].as_array().map(Vec::len), Some(0));
+        let back: WorkspaceSnapshot = serde_json::from_value(json).unwrap();
+        assert_eq!(back, snap);
+
+        // A snapshot from a peer that omits the rack entirely still reads.
+        let bare: WorkspaceSnapshot =
+            serde_json::from_str(r#"{"version":2,"graph":{"nodes":[]}}"#).unwrap();
+        assert!(bare.rack.slots.is_empty());
+        assert!(bare.graph.edges.is_empty());
     }
 
     #[test]
-    fn validate_rejects_a_floating_group_outside_the_dock() {
-        let mut snap = snapshot();
-        snap.tabs[0].floating = vec![FloatingGroup {
-            group: PanelGroup::of(&[PanelKind::Scanner]),
-            x_frac: 0.1,
-            y_frac: 0.1,
-            w_frac: 0.0,
-            h_frac: 0.4,
-        }];
-        assert_eq!(snap.validate(), Err(WorkspaceError::FloatingGeometry));
+    fn validate_refuses_a_version_this_build_did_not_write() {
+        let mut snap = WorkspaceSnapshot::station_default();
+        snap.version = 1;
+        assert_eq!(snap.validate(), Err(WorkspaceError::Version(1)));
+    }
 
-        // A floating panel duplicating a docked id collides just the same.
-        let mut collide = snapshot();
-        collide.tabs[0].floating = vec![FloatingGroup {
-            group: PanelGroup::of(&[PanelKind::Channels]),
-            x_frac: 0.1,
-            y_frac: 0.1,
-            w_frac: 0.3,
-            h_frac: 0.3,
-        }];
+    #[test]
+    fn validate_surfaces_the_graph_and_rack_reasons() {
+        let mut broken = WorkspaceSnapshot::station_default();
+        broken
+            .graph
+            .edges
+            .push(wire(("device", "iq"), ("ghost", "iq")));
+        assert_eq!(
+            broken.validate(),
+            Err(WorkspaceError::Patch(PatchError::UnknownNode(
+                "ghost".to_owned()
+            )))
+        );
+
+        let mut pinned_ghost = WorkspaceSnapshot::station_default();
+        pinned_ghost.rack.slots.push(RackSlot {
+            node: "ghost".to_owned(),
+            cell: RackCell {
+                x: 0,
+                y: 0,
+                w: 2,
+                h: 2,
+            },
+        });
         assert!(matches!(
-            collide.validate(),
-            Err(WorkspaceError::DuplicatePanel(_))
+            pinned_ghost.validate(),
+            Err(WorkspaceError::Patch(PatchError::UnknownNode(_)))
         ));
     }
 
     #[test]
-    fn upsert_tab_replaces_in_place_and_activates() {
-        let mut snap = snapshot();
-        let before = snap.tabs.len();
-        let tab = TabSpec {
-            id: "template:adsb".to_string(),
-            name: "Aircraft".to_string(),
-            layout: LayoutNode::group(&[PanelKind::Decoders]),
-            floating: Vec::new(),
-        };
-        snap.upsert_tab(tab.clone());
-        assert_eq!(snap.tabs.len(), before + 1);
-        assert_eq!(snap.active_tab.as_deref(), Some("template:adsb"));
+    fn merging_a_template_namespaces_it_binds_the_radio_and_lands_below() {
+        let mut snap = WorkspaceSnapshot::station_default();
+        snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
+        snap.validate().expect("still valid after a merge");
 
-        snap.active_tab = Some("station".to_string());
-        let mut renamed = tab;
-        renamed.name = "Aircraft (ADS-B)".to_string();
-        snap.upsert_tab(renamed);
+        // The station's own receiver was unbound, so the template drew its own — bound.
+        let ids: Vec<&str> = snap.graph.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(ids.contains(&"template:airband:ch"));
+        assert!(ids.contains(&"template:airband:dev"));
+        let merged = snap.graph.node("template:airband:dev").unwrap();
         assert_eq!(
-            snap.tabs.len(),
-            before + 1,
-            "re-apply must replace, not add"
+            merged.body,
+            NodeBody::Device(DeviceNode {
+                device: Some(rtlsdr())
+            })
         );
-        assert_eq!(snap.tabs[before].name, "Aircraft (ADS-B)");
-        assert_eq!(snap.active_tab.as_deref(), Some("template:adsb"));
-        snap.validate().expect("still valid");
+        assert!(
+            merged.position.y >= MERGE_GAP,
+            "a merged patch lands under the station, not on it"
+        );
+        assert_eq!(
+            snap.graph
+                .channels_of("template:airband:dev")
+                .map(|n| n.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["template:airband:ch"]
+        );
     }
 
-    /// `active` names a panel id; a stale one would leave the dock without a visible tab.
     #[test]
-    fn validate_rejects_an_active_panel_that_is_not_in_its_group() {
-        let snap = WorkspaceSnapshot {
-            version: WORKSPACE_SNAPSHOT_VERSION,
-            tabs: vec![TabSpec {
-                id: "t".to_string(),
-                name: "T".to_string(),
-                layout: LayoutNode::Group(PanelGroup {
-                    panels: vec![PanelSpec::new(PanelKind::Map)],
-                    active: Some("panel:spectrum".to_string()),
-                }),
-                floating: Vec::new(),
-            }],
-            active_tab: None,
+    fn re_applying_a_template_replaces_its_own_block() {
+        let mut snap = WorkspaceSnapshot::station_default();
+        snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
+        let after_first = snap.graph.nodes.len();
+        let edges_first = snap.graph.edges.len();
+        snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
+        assert_eq!(snap.graph.nodes.len(), after_first, "re-apply must replace");
+        assert_eq!(snap.graph.edges.len(), edges_first);
+        snap.validate().expect("valid after a re-apply");
+    }
+
+    /// One radio, one box: a template applied to a receiver the station already draws wires into
+    /// that node instead of adding a second one for the same hardware.
+    #[test]
+    fn merging_reuses_a_device_node_that_already_names_the_radio() {
+        let mut snap = WorkspaceSnapshot::station_default();
+        let NodeBody::Device(device) = &mut snap.graph.nodes[0].body else {
+            unreachable!("the default station opens with a receiver node")
         };
+        device.device = Some(rtlsdr());
+
+        snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
+        snap.validate().expect("valid");
+        assert_eq!(snap.graph.device_nodes().count(), 1, "one radio, one node");
+        assert!(snap.graph.node("template:airband:dev").is_none());
         assert_eq!(
-            snap.validate(),
-            Err(WorkspaceError::UnknownPanel("panel:spectrum".to_string()))
+            snap.graph
+                .channels_of("device")
+                .map(|n| n.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["template:airband:ch"]
         );
+    }
+
+    #[test]
+    fn apply_report_omits_the_quiet_fields() {
+        let json = serde_json::to_value(PatchApplyReport {
+            bound: vec![PatchBinding {
+                node: "device".to_owned(),
+                device_set: 1,
+            }],
+            opened: 1,
+            created: 2,
+            ..PatchApplyReport::default()
+        })
+        .unwrap();
+        assert_eq!(json["bound"][0]["device_set"], 1);
+        assert_eq!(json["opened"], 1);
+        assert!(json.get("absent").is_none());
+        assert!(json.get("refused").is_none());
     }
 }

@@ -1,4 +1,4 @@
-// The keyboard layer (PLAN §10 "keyboard-first", DESIGN.md §8). One listener on the document,
+// The keyboard layer (PLAN §10 "keyboard-first", DESIGN.md). One listener on the document,
 // one table, and every binding also listed in the `?` overlay — a shortcut nobody can find is
 // not a feature.
 import { useEffect, useRef } from "react";
@@ -14,8 +14,12 @@ export interface HotkeyActions {
   toggleSquelch: () => void;
   toggleAudio: () => void;
   selectChannel: (direction: number) => void;
-  /** Zero-based tab index from the number row. */
-  selectTab: (index: number) => void;
+  /** Zero-based node index from the number row — the patch in stored order. */
+  selectNode: (index: number) => void;
+  /** Pin or unpin the selected node's face on the rack (CANVAS §5). */
+  togglePin: () => void;
+  /** Swap between the patch and the rack. */
+  toggleView: () => void;
   showShortcuts: () => void;
 }
 
@@ -35,7 +39,9 @@ export const BINDINGS: readonly Binding[] = [
   { keys: "- =", what: "Squelch down / up 2 dB" },
   { keys: "s", what: "Squelch on / off" },
   { keys: "Space", what: "Start / stop audio on the selected channel" },
-  { keys: "1 – 9", what: "Switch tab" },
+  { keys: "1 – 9", what: "Select the nth node" },
+  { keys: "p", what: "Pin / unpin the selected face on the rack" },
+  { keys: "v", what: "Swap the patch and the rack" },
   { keys: "?", what: "This list" },
   { keys: "Esc", what: "Close an overlay or a menu" },
 ];
@@ -95,6 +101,12 @@ export function useHotkeys(actions: HotkeyActions): void {
         case "s":
           act.toggleSquelch();
           break;
+        case "p":
+          act.togglePin();
+          break;
+        case "v":
+          act.toggleView();
+          break;
         case " ":
           act.toggleAudio();
           break;
@@ -103,7 +115,7 @@ export function useHotkeys(actions: HotkeyActions): void {
           break;
         default:
           if (/^[1-9]$/.test(event.key)) {
-            act.selectTab(Number(event.key) - 1);
+            act.selectNode(Number(event.key) - 1);
             break;
           }
           return;
