@@ -13,6 +13,9 @@ Personal project (not planned for public release). License: **MIT**.
 > was verified. This plan keeps what code cannot say: the idea (§1–§2), the binding rules and
 > invariants, everything not yet built (§8a, §8b, §12a, §13, §19, §20), and the decision log
 > (§18). Section numbers are stable — code comments cite them as `PLAN §N`.
+>
+> **The canvas-first client rebuild (M7) lives in its own document, `PLAN-CANVAS.md`** — it
+> governs the client the way this file governs the whole, and is cited as `CANVAS §N`.
 
 ---
 
@@ -155,14 +158,14 @@ Text frames = JSON `ServerEvent` / `ClientCommand` (from `wire`):
 - Scanner progress (`ScannerUpdate`) is its own event for the same reason: a running sweep
   retunes several times a second. `DeviceSet.scanner` in the snapshot stays authoritative;
   a `StateChanged` fires when a scan starts or stops (M5).
-- Stream subscriptions are per-connection — a phone can ask for 10 fps/1024 bins while a
-  desktop gets 30 fps/4096.
+- Stream subscriptions are per-connection — a lightweight client can ask for 10 fps/1024
+  bins while a desktop gets 30 fps/4096.
 
 Binary frames (kinds: SPECTRUM, AUDIO_OPUS, IQ_F32; layout documented in `wire/frame.rs`,
 §4) carry **sample-count timestamps from day one** — cheap now, required later for scanner
 accuracy, recordings alignment, and (far future) multi-device coherence.
 
-Backpressure: UI streams are drop-oldest per connection (a slow phone never stalls the DSP);
+Backpressure: UI streams are drop-oldest per connection (a slow client never stalls the DSP);
 recording and decoder paths are lossless (bounded queue → hard error, never silent loss).
 
 ### MCP server
@@ -354,8 +357,8 @@ over the wire:
 
 - **Spectrum:** server-side averaged FFT, reduced to ≤4096 display bins by max-decimation and
   quantized to u8 over an adaptive dB window carried in the frame header. Rate and bin count
-  are per-connection, never global — a phone and a desktop watching the same device set ask
-  for different things. Zoom is a client-side crop; a true zoom-FFT belongs to the channel
+  are per-connection, never global — two clients watching the same device set can ask for
+  different things. Zoom is a client-side crop; a true zoom-FFT belongs to the channel
   analyzer, not the device spectrum.
 - **Audio:** demods emit 48 kHz PCM → Opus (20 ms frames) → WS binary. Mixing is client-side:
   the server ships streams, not a mix, so N listeners on one channel cost one encode. Browser
@@ -374,40 +377,38 @@ The stack is settled and lives in `web/package.json` + CLAUDE.md, not here. What
 - **Server state discipline:** TanStack Query is the *only* holder of REST data; WS
   `StateChanged` events invalidate keys — no polling, no manual refetch. High-rate binary
   streams bypass Query entirely → Zustand/refs → canvas.
-- **Workspaces & tabs (M6, shipped):** server-persisted **workspaces** — exactly one active at
-  a time, unlimited **tabs** per workspace, each tab a dockable panel layout (`dockview`:
-  splitting, floating, drag-rearrange). Workspaces live in SQLite next to presets — your
-  station layout is part of the station config, not browser state, so every client sees the
-  same setup. What binds:
-  - **The layout tree is ours, in `wire`** (§4), not the dock library's serialization: templates
-    author layouts in Rust, and a dock-library major must not invalidate stored workspaces. The
-    client compiles that tree into its dock and maps the dock's state back.
-  - **A panel names no device set and no channel.** Engine ids are per-run and reused after a
-    restart, so a stored panel pinned to one would silently bind to a different radio. Panels
-    follow the client's active set; per-panel pinning waits for stable device identity.
-  - **Sizes are relative, and a viewport that cannot honour the layout does not write it back.**
-    Below the phone breakpoint every panel is one stack and nothing is persisted — otherwise the
-    dock's minimum sizes would flatten a layout authored on a desktop.
-  - Layout writes are debounced to the end of a gesture and carry the revision they were read
+- **The station is a patch graph (M7, `PLAN-CANVAS.md`):** the client is a canvas — every
+  device, channel, feature and sink is a typed node, wiring is the UI, and a pin-board
+  **rack** holds the faces being operated. Server-persisted **workspaces** remain: exactly
+  one active at a time, each now a canvas graph + rack layout in SQLite next to presets —
+  the station is part of the station config, not browser state. What binds:
+  - **The graph document is ours, in `wire`** (§4) — `PatchGraph` + `RackLayout`, never the
+    canvas library's serialization: templates author stations in Rust, and a library major
+    must not invalidate stored workspaces (the same rule the M6 layout tree followed, §18).
+  - **Nodes name devices by durable identity** (backend + serial), never by per-run engine
+    ids; an absent device renders as a disconnected node and is never silently rebound.
+  - **The graph is control plane only.** The server validates it and applies diffs through
+    the existing command queue; the DSP plane (§7) is untouched — no runtime graph scheduler.
+  - Graph writes are debounced to the end of a gesture and carry the revision they were read
     at; a stale one is refused rather than overwriting another client's arrangement.
 - **Maps:** MapLibre GL on OpenFreeMap tiles (free, no key). Offline/self-contained mode is
   still open: drop a region **`.pmtiles`** file next to the server and it serves the tiles
   itself — a Pi in a field needs no internet. Globe projection for satellite views, openAIP
   aviation overlays and optional satellite imagery via a user key, later.
-- **Design language (explicitly: no AI slop):** professional instrumentation aesthetic — the
-  reference points are pro audio tools and lab equipment, not landing pages. Dark-first with a
-  maintained light theme; a mono face with tabular numerals for frequencies and data columns;
-  a large, digit-scrollable frequency readout; restrained neutral palette, one accent,
-  semantic status colors only; colorblind-safe waterfall colormaps; 4-px grid discipline;
-  keyboard-first (tune step, mode, squelch, tab switching all bound); zero decorative
-  gradients/glassmorphism/emoji. The 60 fps waterfall is the centerpiece and every panel earns
-  its pixels. **A design pass is part of every UI milestone's definition of done.**
+- **Design language (explicitly: no AI slop):** a bench of instruments at night — dark,
+  dense, keyboard-first, a mono face with tabular numerals wherever a number can change, a
+  large digit-scrollable frequency dial as the signature element. Colour is spent on meaning:
+  **hue encodes data type** on ports and wires (`CANVAS §6`), never decoration, and no state
+  is carried by hue alone. Colorblind-safe waterfall colormaps; zero decorative
+  gradients/glassmorphism/emoji. The numeric rulebook is `DESIGN.md`, rewritten to the canvas
+  direction during M7. **A design pass is part of every UI milestone's definition of done.**
 - **Beginner-friendly, expert-deep:** the first-run wizard and template gallery ship; a
-  template is device + channels + (later) layout + a short "what am I looking at" explainer,
-  built from presets, never from special engine code. Still open: layouts in templates, and a
-  band-plan explorer that suggests mode and settings when you click a band (§8a). Expert mode
-  hides none of the knobs.
-- The UI must stay usable on a phone — it is the remote control for a server in another room.
+  template is a patch — devices + channels + wiring + rack + a short "what am I looking at"
+  explainer, built from presets and `PatchGraph`, never from special engine code. Still open:
+  the band-plan explorer that suggests mode and settings when you click a band (§8a). Expert
+  mode hides none of the knobs.
+- **Desktop-only.** Mobile support is removed (§18): no phone layouts, no touch-first paths —
+  the client assumes a pointer, a keyboard and a laptop-class viewport.
 
 ---
 
@@ -653,7 +654,10 @@ it was verified.**
 - **Decoders wave 2 ✅ shipped** (post-M6): NAVTEX (SITOR-B), ACARS and the sub-GHz OOK/FSK
   channel, each with a reference modulator, unit tests, an engine end-to-end run and a playable
   fixture. `PROGRESS.md` records what it built and the gaps it left.
-- **M7+ — Phase 3/4 waves** per §13, prioritized by demand, plus the open Phase 1/2 items.
+- **M7 — the canvas** (`PLAN-CANVAS.md`): the client rebuilt canvas-first — patch graph +
+  rack replace tabs + dockview, stable device identity lands first, decoder panels become
+  node faces, `DESIGN.md` is rewritten to match.
+- **M8+ — Phase 3/4 waves** per §13, prioritized by demand, plus the open Phase 1/2 items.
 
 The milestone rule that outlives the list: a milestone is done when its tests are green
 *and* its gaps are written down (§14) — not when the feature runs once.
@@ -671,6 +675,7 @@ The milestone rule that outlives the list: a milestone is done when its tests ar
 | AMBE/IMBE patents, fdk-aac license | accepted — personal, non-distributed project; default-on |
 | Nightly toolchain / `-Zpolonius=next` breakage | pinned nightly, bumped deliberately with CI green as the gate; the flag is one line to drop |
 | Tauri v2 churn, macOS signing | desktop is a thin shell over the always-working web path; bundles ship unsigned until Apple secrets exist |
+| Many WebGL plots on one canvas (M7) | browsers cap live GL contexts — one shared renderer for all visible scope faces, render only on-screen faces, re-render at zoom-adjusted DPR (`CANVAS §7`) |
 | Vendored radio drivers are ours to maintain | deliberate, and the reason is in §18 — two upstream crates had two divergent, both-wrong USB error policies. One shared transport with librtlsdr's policy replaced them; "always newest versions" does not apply to code with no upstream |
 | `soapysdr` binding maintenance | our own trait isolates it (§18); Soapy is optional extra coverage, never the launch path (§15) |
 
@@ -718,6 +723,10 @@ What follows is the rest — the choices with a rejected alternative or a reason
 | Decoders wave 2 (post-M6) | Three channels, one rule each. **NAVTEX** emits only what sits between `ZCZC` and `NNNN`: a broadcast station idles for minutes, and a decoder that logged everything it sliced would bury the messages in phasing signal — the CCIR 476 chart is stored as a *code → ITA2* map so the alphabet stays defined once, in `rtty`. **ACARS** repairs nothing: parity and the ARINC 618 CRC both have to pass or the block is dropped, because the payload is free text and a plausible-but-wrong message is worse than a missing one (`acarsdec`'s syndrome-table repair is a deliberate non-goal, noted in PROGRESS). **Sub-GHz** names no chip — an EV1527's 24 data bits and a PT2262's 12 tri-state symbols are the same pulse train, so `encoding` says `pwm` and both readings ride along; repeats inside 500 ms collapse into one event with a count, and a better-classified frame supersedes a held one only while that one is still a single sighting, which is what keeps a capture that started mid-burst from logging its fragment |
 | WEFAX deferred (wave 2) | Not a DSP problem: a fax page is an image, and §5's frame kinds are spectrum, audio and IQ. Shipping it means adding an `IMAGE` binary frame, a server-side page store and a canvas panel — a transport decision, not a decoder, so it waits for one rather than being smuggled in as base64 in a decoder-log row |
 | Templates (M5) | A static Rust table, not seeded SQLite rows: templates ship with the binary, so rows would need a migration per edit and a user could delete an entry the next release restores. Presets remain the writable, device-bound half of the same idea |
+| Canvas-first client (M7) | **Supersedes the two M6 rows above** ("UI shell", "Workspace layout model"): the tabs→dockview shell and its `LayoutNode` tree are removed, replaced by a patch-graph canvas + pin-board rack, modelled as `PatchGraph` + `RackLayout` in `wire` (own model, never the canvas library's serialization — same reasoning, new document). Motivation: with several radios, identity must be *spatial* — a labelled device node and the wires leaving it answer "which SDR is this?" structurally, where tabbed UIs (SDRangel) answer it with a dropdown. Full model in `PLAN-CANVAS.md`; M6's shipped work is deleted in its final phase, recorded not hidden |
+| Mobile support (M7) | Removed entirely — §10 previously bound phone usability and viewport-guarded layout writes; both are gone. Desktop-only assumptions (pointer, keyboard, laptop-class viewport) are allowed everywhere. Cost accepted and recorded: the phone-as-remote-control use case dies with it |
+| Canvas library (M7) | React Flow (`@xyflow/react` 12, MIT — verified Aug 2026) over tldraw (production use needs a license key, the free tier forces a watermark — and it is a whiteboard, not a node graph) and Rete/litegraph (MIT but not React-idiomatic). Node faces are plain React components, so Base UI parts and our tokens carry into every node |
+| Stable device identity (M7) | Graduates from deferral (the M6 "panels name no device set" rule) to prerequisite #1: `PatchGraph` names devices by backend + serial; an absent device is a visibly disconnected node, never a silent rebind. Serial-less duplicate clones bind at most one node and `--doctor` suggests programming an EEPROM serial |
 
 ---
 

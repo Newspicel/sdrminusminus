@@ -104,7 +104,8 @@ fixtures            golden IQ fixtures for the decoder tests
   built with mdBook)
 - API reference: `/api/docs` on a running server (Swagger UI over the generated OpenAPI
   document)
-- Architecture, scope and roadmap: [`PLAN.md`](PLAN.md)
+- Architecture, scope and roadmap: [`PLAN.md`](PLAN.md); the canvas-first client rebuild
+  (M7): [`PLAN-CANVAS.md`](PLAN-CANVAS.md)
 - What is built and green: [`PROGRESS.md`](PROGRESS.md)
 - Working agreement for contributors: [`CLAUDE.md`](CLAUDE.md)
 
