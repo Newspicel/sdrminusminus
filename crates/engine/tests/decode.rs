@@ -496,6 +496,8 @@ async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
 /// which no receiver can round to 2.000 — is a working ADS-B receiver rather than a refusal
 /// (PLAN §18, amended). This is the whole feature, end to end: capture at the radio's rate,
 /// through the mixing-only DDC, into a decoder whose half-chips are 1.024 samples wide.
+/// The frames land off the sample grid, as the air always delivers them — grid-aligned e2e
+/// coverage is the other ADS-B test's job.
 #[tokio::test]
 async fn adsb_decodes_at_an_rtl_sdr_rate_the_ddc_could_not_have_resampled() {
     let dir = TempDir::new().unwrap();
@@ -514,7 +516,7 @@ async fn adsb_decodes_at_an_rtl_sdr_rate_the_ddc_could_not_have_resampled() {
             testgen::adsb::me_airborne_position(38_000, 52.2657, 3.9184, true),
         ),
     ];
-    let iq = testgen::adsb::transmission(&frames, 500.0, 0.8, RTL_RATE);
+    let iq = testgen::adsb::transmission_at_phase(&frames, 500.0, 0.8, RTL_RATE, 0.37);
 
     let device = plant(dir.path(), "adsb-rtl", iq, RTL_RATE);
     let record = decode_first(
