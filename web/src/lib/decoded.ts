@@ -62,6 +62,13 @@ export interface DecodedState {
   received: number;
   /** Stages a frame. Nothing renders until the next flush (at most `FLUSH_MS` later). */
   push: (record: DecodedRecord) => void;
+  /** Rebuilds the station picture from what the server heard before this client connected
+   * (`ServerEvent::DecodedBacklog`), so a reload does not start with an empty map.
+   *
+   * Stations only — these records are already in the stored decoder log, and staging them as
+   * frames too would show every one of them twice in a log panel that renders the stored page
+   * with a live tail on top. */
+  hydrate: (records: readonly DecodedRecord[]) => void;
   reportLost: (count: number) => void;
   /** WS glue: wire once with `socket.addEventListener(useDecodedStore.getState().observe)` —
    * zustand action identities are stable, so the listener never has to be re-registered. */
@@ -97,11 +104,32 @@ export const useDecodedStore = create<DecodedState>((set) => ({
     }
   },
 
+  hydrate: (records) => {
+    const touched = new Set<DecoderKind>();
+    for (const record of records) {
+      if (mergeStation(record)) {
+        touched.add(record.event.kind);
+      }
+    }
+    if (touched.size === 0) {
+      return;
+    }
+    set((state) => {
+      const stations = { ...state.stations };
+      for (const kind of touched) {
+        assignStations(stations, kind, snapshotStations(kind));
+      }
+      return { stations };
+    });
+  },
+
   reportLost: (count) => set((state) => ({ lost: state.lost + count })),
 
   observe: (event) => {
     if (event.type === "Decoded") {
       useDecodedStore.getState().push(event.data);
+    } else if (event.type === "DecodedBacklog") {
+      useDecodedStore.getState().hydrate(event.data.records);
     } else if (event.type === "DecodedLost") {
       useDecodedStore.getState().reportLost(event.data.count);
     }
@@ -200,10 +228,11 @@ function cancelFlush(): void {
   }
 }
 
-function mergeStation(record: DecodedRecord): void {
+/** Whether the record belonged to a tracked station and was merged into it. */
+function mergeStation(record: DecodedRecord): boolean {
   const id = stationId(record.event);
   if (id === null) {
-    return;
+    return false;
   }
   const kind = record.event.kind;
   let stations = stationIndex.get(kind);
@@ -225,6 +254,7 @@ function mergeStation(record: DecodedRecord): void {
     frames: (previous?.frames ?? 0) + 1,
   });
   evictOldest(stations);
+  return true;
 }
 
 /** Drop least-recently-seen stations down to [`STATION_CAPACITY`]. Insertion order is not

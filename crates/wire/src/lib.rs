@@ -15,6 +15,7 @@ pub mod patch;
 pub mod rest;
 pub mod scan;
 pub mod state;
+pub mod station;
 pub mod workspace;
 pub mod ws;
 
@@ -51,6 +52,7 @@ pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
 pub use state::{DeviceSet, DeviceSetStatus, RecordingStatus, StateSnapshot};
+pub use station::{STATION_STATE_VERSION, StationChannel, StationDevice, StationState};
 pub use workspace::{
     CreateWorkspaceRequest, MAX_NAME_LEN, PatchApplyReport, PatchBinding, PatchRefusal,
     UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,

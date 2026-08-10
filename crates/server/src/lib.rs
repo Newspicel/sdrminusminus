@@ -31,8 +31,10 @@ mod decoderlog;
 pub mod doctor;
 mod mcp;
 mod rest;
+mod station;
 mod store;
 mod templates;
+mod tracks;
 mod ws;
 
 pub use store::{Store, StoreError};
@@ -75,6 +77,10 @@ pub(crate) struct AppState {
     /// ADS-B traffic this is hundreds of frames a second, and serializing byte-identical JSON
     /// per socket multiplied the cost by the number of browsers watching.
     pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
+    /// The recent past of every identified station, so a client that connects late is handed what
+    /// it missed instead of an empty map (PLAN §10). In memory only — the answer is worthless
+    /// after a restart, and the decoder log is what persists.
+    pub(crate) tracks: Arc<tracks::Tracks>,
     /// Live WebSocket connections, reported by `GET /api/clients`.
     pub clients: Arc<std::sync::atomic::AtomicU32>,
 }
@@ -90,6 +96,7 @@ impl AppState {
             apply_gate: Arc::new(std::sync::Mutex::new(())),
             decoder_log_dropped: Arc::new(AtomicU64::new(0)),
             decoded_text: tokio::sync::broadcast::channel(DECODED_TEXT_CAP).0,
+            tracks: Arc::new(tracks::Tracks::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         }
     }
@@ -150,6 +157,7 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
 fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Writer) {
     let writer = start_decoder_log_writer(&state);
     ws::start_decoded_encoder(&state);
+    station::spawn_autosave(&state);
     let (api_router, api) = rest::openapi_router().split_for_parts();
 
     let mut app = Router::new()
@@ -309,13 +317,26 @@ mod tests {
     /// Same, but keeping a handle on the store so tests can plant snapshots the REST surface
     /// cannot produce (e.g. a preset whose channels are invalid at its own rate).
     fn test_router_with_store() -> (Router, Arc<Store>) {
+        let (router, state) = test_router_with_state();
+        (router, state.store.clone())
+    }
+
+    /// Same, keeping the whole state: a test that needs the pieces HTTP does not expose (the
+    /// settings autosave) or a second engine over the same store (a restart) starts here.
+    fn test_router_with_state() -> (Router, AppState) {
+        let store = Arc::new(Store::open(None).expect("in-memory store"));
+        let state = state_over(store);
+        let (router, writer) = router_with_state(state.clone(), &ServerOptions::default());
+        writer.detach();
+        (router, state)
+    }
+
+    /// A fresh engine over an existing store — what a restart is, from the station's point of
+    /// view: the same database, none of the live device sets or channels.
+    fn state_over(store: Arc<Store>) -> AppState {
         let mut registry = sdrmm_device::DeviceRegistry::new();
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
-        let store = Arc::new(Store::open(None).expect("in-memory store"));
-        let state = AppState::new(Engine::with_registry(registry, None), store.clone());
-        let (router, writer) = router_with_state(state, &ServerOptions::default());
-        writer.detach();
-        (router, store)
+        AppState::new(Engine::with_registry(registry, None), store)
     }
 
     /// Hermetic recording setup: the virtual driver and the engine share one scoped temp
@@ -1748,6 +1769,191 @@ mod tests {
         let (status, body) = request(app.clone(), "GET", "/api/workspaces", None).await;
         assert_eq!(status, StatusCode::OK);
         serde_json::from_slice(&body).expect("json")
+    }
+
+    /// Store a station naming the virtual signal generator with one NFM channel, and hand back
+    /// the workspace it went into.
+    async fn store_siggen_station(app: &Router) -> i64 {
+        let workspace = workspaces(app).await.active.expect("seeded workspace");
+        let mut snapshot = sdrmm_wire::WorkspaceSnapshot::station_default();
+        let sdrmm_wire::NodeBody::Device(node) = &mut snapshot.graph.nodes[0].body else {
+            panic!("the default station opens with a receiver")
+        };
+        node.device = Some(sdrmm_wire::DeviceRef {
+            backend: "virtual".to_string(),
+            serial: None,
+            key: Some("siggen".to_string()),
+        });
+        snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
+            id: "voice".to_string(),
+            body: sdrmm_wire::NodeBody::Channel(sdrmm_wire::ChannelNode {
+                channel_type: "nfm".to_string(),
+            }),
+            position: sdrmm_wire::Position { x: 400.0, y: 300.0 },
+            size: None,
+            label: None,
+        });
+        snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
+            from: sdrmm_wire::PortRef {
+                node: "device".to_string(),
+                port: "iq".to_string(),
+            },
+            to: sdrmm_wire::PortRef {
+                node: "voice".to_string(),
+                port: "iq".to_string(),
+            },
+        });
+        let (status, body) = request(
+            app.clone(),
+            "PUT",
+            &format!("/api/workspaces/{workspace}"),
+            Some(&format!(
+                r#"{{"revision":1,"snapshot":{}}}"#,
+                serde_json::to_string(&snapshot).unwrap()
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        workspace
+    }
+
+    async fn apply(app: &Router, workspace: i64) -> sdrmm_wire::PatchApplyReport {
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/workspaces/{workspace}/apply"),
+            Some("{}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        serde_json::from_slice(&body).expect("json")
+    }
+
+    /// PLAN §7: a station's tuning is part of the station. Apply used to rebuild the topology and
+    /// hand every channel back at its type's defaults, so a restart kept the patch and lost the
+    /// work — the frequencies, the offset and the squelch.
+    #[tokio::test]
+    async fn a_station_comes_back_tuned_the_way_it_was_left() {
+        let (app, state) = test_router_with_state();
+        let workspace = store_siggen_station(&app).await;
+        assert_eq!(apply(&app, workspace).await.created, 1);
+
+        let ds = get_state(&app).await.device_sets[0].id;
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(r#"{"center_hz":145500000.0}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let channel = get_state(&app).await.device_sets[0].channels[0].id;
+        let (status, body) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/channels/{channel}"),
+            Some(
+                r#"{"offset_hz":12500.0,"squelch_db":-42.0,"params":{"type":"nfm","settings":{}}}"#,
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+
+        // What the autosave task does once the settings stop moving.
+        station::save_active(&state).expect("capture the station");
+
+        // Restart: same database, a new engine that has never seen a device set.
+        let restarted = state_over(state.store.clone());
+        let (app, writer) = router_with_state(restarted, &ServerOptions::default());
+        writer.detach();
+        assert!(get_state(&app).await.device_sets.is_empty());
+
+        let report = apply(&app, workspace).await;
+        assert_eq!(report.opened, 1);
+        assert_eq!(report.created, 1);
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+        let set = &get_state(&app).await.device_sets[0];
+        assert_eq!(set.settings.center_hz, Some(145_500_000.0));
+        assert_eq!(set.channels.len(), 1, "no duplicate channel on restore");
+        assert_eq!(set.channels[0].settings.offset_hz, 12_500.0);
+        assert_eq!(set.channels[0].settings.squelch_db, Some(-42.0));
+    }
+
+    /// Apply is additive: a radio someone is already using keeps the frequency it is on, whatever
+    /// the stored station says, because a second browser loading the station is not a retune.
+    #[tokio::test]
+    async fn applying_a_station_does_not_retune_an_open_radio() {
+        let (app, state) = test_router_with_state();
+        let workspace = store_siggen_station(&app).await;
+        apply(&app, workspace).await;
+
+        let ds = get_state(&app).await.device_sets[0].id;
+        let tune = async |hz: f64| {
+            let (status, _) = request(
+                app.clone(),
+                "PATCH",
+                &format!("/api/devicesets/{ds}/device"),
+                Some(&format!(r#"{{"center_hz":{hz}}}"#)),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+        };
+
+        tune(145_500_000.0).await;
+        station::save_active(&state).expect("capture the station");
+        tune(433_800_000.0).await;
+
+        apply(&app, workspace).await;
+        assert_eq!(
+            get_state(&app).await.device_sets[0].settings.center_hz,
+            Some(433_800_000.0)
+        );
+    }
+
+    /// A radio that is not plugged in this run must not lose where it was tuned last run: a
+    /// capture that saw nothing means "not observed", never "reset it".
+    #[tokio::test]
+    async fn a_capture_without_the_radio_keeps_its_stored_settings() {
+        let (app, state) = test_router_with_state();
+        let workspace = store_siggen_station(&app).await;
+        apply(&app, workspace).await;
+        let ds = get_state(&app).await.device_sets[0].id;
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(r#"{"center_hz":145500000.0}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        station::save_active(&state).expect("capture the station");
+
+        // The radio goes away, and the station is captured again with nothing bound.
+        let (status, _) = request(
+            app.clone(),
+            "DELETE",
+            &format!("/api/devicesets/{ds}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        station::save_active(&state).expect("capture the empty station");
+
+        let stored = state.store.station_state(workspace).expect("station state");
+        assert_eq!(
+            stored
+                .device("device")
+                .expect("device entry")
+                .settings
+                .center_hz,
+            Some(145_500_000.0)
+        );
     }
 
     #[tokio::test]

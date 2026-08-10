@@ -1,0 +1,216 @@
+//! The station's *settings*, as opposed to its shape (PLAN §7, §10).
+//!
+//! A [`crate::WorkspaceSnapshot`] says which radios a station names and what hangs off them; it
+//! deliberately says nothing about where they are tuned, because a node names a device by durable
+//! identity and settings belong to the engine's live device set. That split is why applying a
+//! station used to hand every channel back at `ChannelParams::default_for`, with the operator's
+//! offsets and squelch gone — the topology survived a restart and the tuning did not.
+//!
+//! This is the other half: one row per workspace, keyed by *node id*, holding the last settings
+//! the server saw on the device set and channels each node was bound to. Node ids are stored in
+//! the graph and therefore durable, which the engine's per-run device-set and channel ids are not
+//! (module docs of [`crate::workspace`]).
+//!
+//! It is server-owned and written from the engine's own snapshot, never by a client, which is what
+//! keeps it off the workspace row: the canvas re-persists its layout on every arrangement gesture
+//! under a revision check, and a second writer on that row would turn "the operator nudged a node
+//! while the dial was moving" into a 409.
+
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+use crate::{channel::ChannelSettings, device::DeviceSettings};
+
+/// Shape version of a stored [`StationState`]. Read like [`crate::WORKSPACE_SNAPSHOT_VERSION`]:
+/// a row this build did not produce is discarded rather than guessed at. Discarding is safe here
+/// in a way it is not for a workspace — the station still opens, just at defaults, which is
+/// exactly the behavior that predates this file.
+pub const STATION_STATE_VERSION: u32 = 1;
+
+/// Settings for one workspace's nodes, as last observed on the engine.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct StationState {
+    /// [`STATION_STATE_VERSION`] at the time of writing.
+    pub version: u32,
+    #[serde(default)]
+    pub devices: Vec<StationDevice>,
+}
+
+/// One device node's radio settings, and the channels hanging off it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct StationDevice {
+    /// [`crate::PatchNode::id`] of the device node these settings belong to.
+    pub node: String,
+    pub settings: DeviceSettings,
+    #[serde(default)]
+    pub channels: Vec<StationChannel>,
+}
+
+/// One channel node's settings. `settings.params` also carries the channel's *type*, which is not
+/// the same thing as the node's declared [`crate::ChannelNode::channel_type`]: a mode changed in
+/// place on a live channel (PLAN §8) replaces the params without touching the node that drew it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct StationChannel {
+    /// [`crate::PatchNode::id`] of the channel node these settings belong to.
+    pub node: String,
+    pub settings: ChannelSettings,
+}
+
+impl StationState {
+    /// An empty state at the current version.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            version: STATION_STATE_VERSION,
+            devices: Vec::new(),
+        }
+    }
+
+    /// The stored state, or an empty one if it was written by a different build.
+    #[must_use]
+    pub fn current(self) -> Self {
+        if self.version == STATION_STATE_VERSION {
+            self
+        } else {
+            Self::new()
+        }
+    }
+
+    /// The device entry for a node, if one was saved.
+    #[must_use]
+    pub fn device(&self, node: &str) -> Option<&StationDevice> {
+        self.devices.iter().find(|device| device.node == node)
+    }
+
+    /// The channel entry for a node, if one was saved.
+    #[must_use]
+    pub fn channel(&self, node: &str) -> Option<&StationChannel> {
+        self.devices
+            .iter()
+            .flat_map(|device| &device.channels)
+            .find(|channel| channel.node == node)
+    }
+
+    /// Replace the entries for `captured`'s nodes, keeping every other entry untouched.
+    ///
+    /// A capture only sees the nodes bound *this run*: a radio that is unplugged today contributes
+    /// nothing, and overwriting wholesale would erase where it was tuned yesterday. Absence of a
+    /// node from a capture means "not observed", never "reset it".
+    pub fn merge(&mut self, captured: Vec<StationDevice>) {
+        for device in captured {
+            match self
+                .devices
+                .iter_mut()
+                .find(|existing| existing.node == device.node)
+            {
+                Some(existing) => {
+                    for channel in device.channels {
+                        match existing
+                            .channels
+                            .iter_mut()
+                            .find(|held| held.node == channel.node)
+                        {
+                            Some(held) => *held = channel,
+                            None => existing.channels.push(channel),
+                        }
+                    }
+                    existing.settings = device.settings;
+                }
+                None => self.devices.push(device),
+            }
+        }
+    }
+
+    /// Drop entries for nodes the graph no longer contains, so deleting a node eventually forgets
+    /// its settings instead of holding them for the lifetime of the workspace.
+    pub fn retain_nodes(&mut self, present: impl Fn(&str) -> bool) {
+        self.devices.retain(|device| present(&device.node));
+        for device in &mut self.devices {
+            device.channels.retain(|channel| present(&channel.node));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channel::{ChannelParams, NfmParams};
+
+    fn channel(node: &str, offset_hz: f64) -> StationChannel {
+        StationChannel {
+            node: node.to_string(),
+            settings: ChannelSettings {
+                offset_hz,
+                squelch_db: None,
+                params: ChannelParams::Nfm(NfmParams::default()),
+            },
+        }
+    }
+
+    fn device(node: &str, center_hz: f64, channels: Vec<StationChannel>) -> StationDevice {
+        StationDevice {
+            node: node.to_string(),
+            settings: DeviceSettings {
+                center_hz: Some(center_hz),
+                ..DeviceSettings::default()
+            },
+            channels,
+        }
+    }
+
+    #[test]
+    fn merge_keeps_unobserved_nodes() {
+        let mut state = StationState::new();
+        state.merge(vec![
+            device("a", 100.0, vec![channel("a1", 1000.0)]),
+            device("b", 200.0, vec![]),
+        ]);
+
+        // Only "a" was bound this run; "b" is an unplugged radio.
+        state.merge(vec![device("a", 101.0, vec![channel("a1", 2000.0)])]);
+
+        assert_eq!(state.devices.len(), 2);
+        assert_eq!(state.device("a").unwrap().settings.center_hz, Some(101.0));
+        assert_eq!(state.channel("a1").unwrap().settings.offset_hz, 2000.0);
+        assert_eq!(state.device("b").unwrap().settings.center_hz, Some(200.0));
+    }
+
+    #[test]
+    fn merge_adds_new_channels_to_a_known_device() {
+        let mut state = StationState::new();
+        state.merge(vec![device("a", 100.0, vec![channel("a1", 1000.0)])]);
+        state.merge(vec![device("a", 100.0, vec![channel("a2", 3000.0)])]);
+
+        let saved = state.device("a").unwrap();
+        assert_eq!(saved.channels.len(), 2);
+        assert_eq!(state.channel("a2").unwrap().settings.offset_hz, 3000.0);
+    }
+
+    #[test]
+    fn retain_nodes_forgets_deleted_ones() {
+        let mut state = StationState::new();
+        state.merge(vec![
+            device(
+                "a",
+                100.0,
+                vec![channel("a1", 1000.0), channel("a2", 2000.0)],
+            ),
+            device("b", 200.0, vec![]),
+        ]);
+
+        state.retain_nodes(|node| node != "b" && node != "a2");
+
+        assert_eq!(state.devices.len(), 1);
+        assert_eq!(state.device("a").unwrap().channels.len(), 1);
+        assert!(state.channel("a2").is_none());
+    }
+
+    #[test]
+    fn a_foreign_version_reads_as_empty() {
+        let mut state = StationState::new();
+        state.merge(vec![device("a", 100.0, vec![])]);
+        state.version = STATION_STATE_VERSION + 1;
+
+        assert!(state.current().devices.is_empty());
+    }
+}
