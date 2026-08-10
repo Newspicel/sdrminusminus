@@ -8,6 +8,7 @@
    - Engine: end-to-end via `device-virtual` (no hardware in CI, ever).
    - Server: handler tests + OpenAPI snapshot + codegen-drift check.
    - Performance gates tests for DSP paths to avoid regressions.
+   - Client: unit and smoke tests
    A change that can't be tested needs a written reason in the PR.
 3. **No useless comments.** Comment *why*, never *what*. Don't narrate the code, don't leave
    "changed X" / "this function does Y" noise, don't restate the signature. A comment earns its
@@ -20,7 +21,7 @@
 5. **Match the established pattern.** Before writing, read neighboring code and follow its
    conventions (naming, error handling, module layout, test style). Consistency beats personal
    preference. If the whole codebase's pattern is off, fix the pattern, don't fork a new one.
-6. **Self-written pure Rust first** (portable by construction), if there is not a good reason not to or public rust code we can copy. (Only use dependencies from large repos; above 100 stars on)
+6. **Self-written pure Rust first** we can copy open source code (Only use dependencies from large repos; above 100 stars on)
 
 ## Coding structure
 - Respect crate boundaries: `dsp` has no I/O and no internal deps; `channels` depends only
