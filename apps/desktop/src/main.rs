@@ -30,6 +30,13 @@ fn main() -> anyhow::Result<()> {
             // Managed so the exit hook below can reach the engine for teardown.
             app.manage(engine.clone());
             let store = sdrmm_server::Store::open(Some(&data_dir.join("sdrmm.db")))?;
+            // `setup` runs before anything has entered the async runtime, and building the
+            // router spawns the server's background tasks (the decoder-frame encoder, the
+            // settings autosave). Without a runtime in context they decline to start and never
+            // get another chance — this shell is the one caller that does not go through
+            // `serve()`, which builds its router inside one.
+            let runtime = tauri::async_runtime::handle();
+            let _entered = runtime.inner().enter();
             let router = sdrmm_server::router(
                 engine,
                 store,

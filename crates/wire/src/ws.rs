@@ -78,6 +78,19 @@ pub enum ServerEvent {
     /// broadcast carries hundreds of buffered `StateChanged`s, which would each pay for a
     /// record they never hold. `Box` is transparent to serde and to the schema.
     Decoded(Box<DecodedRecord>),
+    /// What the decoders heard shortly before this client connected, oldest first, sent once
+    /// after [`ServerEvent::Hello`].
+    ///
+    /// Decodes are pushed and never replayed, so a reloaded browser used to start with an empty
+    /// map and refill it only as contacts happened to transmit again — a gap in the server, since
+    /// the engine had been decoding the whole time. The server keeps a bounded, in-memory buffer
+    /// of the last few records per station and hands it over on connect.
+    ///
+    /// Raw records rather than merged tracks, on purpose: the client already merges a position
+    /// frame onto an earlier identity frame, and replaying what it would have received reaches
+    /// the same state through the same code instead of a second implementation of that rule.
+    /// Records are aggregated by station id, so an event with no identity is never in here.
+    DecodedBacklog { records: Vec<DecodedRecord> },
     /// Decoder frames were dropped before reaching clients or the log because a consumer
     /// fell behind. Loss is surfaced, never silent (PLAN §5).
     DecodedLost { count: u64 },

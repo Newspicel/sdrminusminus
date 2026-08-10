@@ -1,8 +1,9 @@
 //! SQLite persistence (PLAN §11): presets (full device-set + channels snapshots), bookmarks,
 //! the recordings index (the SigMF pairs on disk are the source of truth; rows here are
-//! reconciled from them) and the decoder log (queryable and exportable decodes, not
-//! scroll-back-only). `rusqlite` with the bundled engine — zero system deps. All calls
-//! block, so handlers reach the store via `spawn_blocking` only.
+//! reconciled from them), the decoder log (queryable and exportable decodes, not
+//! scroll-back-only) and, per workspace, the station's shape and where it was tuned.
+//! `rusqlite` with the bundled engine — zero system deps. All calls block, so handlers reach
+//! the store via `spawn_blocking` only.
 
 use std::{
     path::Path,
@@ -12,8 +13,8 @@ use std::{
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 use sdrmm_wire::{
     Bookmark, CreateBookmarkRequest, DecodedRecord, DecoderLogEntry, DecoderLogQuery, PresetInfo,
-    PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceError,
-    WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
+    PresetSnapshot, RecordingInfo, StationState, UpdateWorkspaceRequest, WorkspaceDetail,
+    WorkspaceError, WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -129,6 +130,18 @@ const MIGRATIONS: &[&str] = &[
     DELETE FROM workspaces;
     UPDATE active_workspace SET workspace_id = NULL;
     ALTER TABLE workspaces RENAME COLUMN tabs TO nodes;
+    ",
+    "
+    -- Where a station is tuned, as opposed to what it is made of (PLAN §7). Its own table and
+    -- not a column on `workspaces` because the writers are different: the canvas re-persists
+    -- the layout under a revision check on every arrangement gesture, while this row is written
+    -- by the server from the engine's own snapshot. Sharing a row would make an operator nudging
+    -- a node while the dial moves a 409.
+    CREATE TABLE station_state (
+        workspace_id INTEGER PRIMARY KEY,
+        updated_at TEXT NOT NULL,
+        state TEXT NOT NULL
+    );
     ",
 ];
 
@@ -554,9 +567,47 @@ impl Store {
                 .optional()?;
             set_active_workspace(&tx, next)?;
         }
+        tx.execute(
+            "DELETE FROM station_state WHERE workspace_id = ?1",
+            params![id],
+        )?;
         let active = active_workspace(&tx)?;
         tx.commit()?;
         Ok(active)
+    }
+
+    /// Where a workspace's radios were last tuned, or an empty state if it has never been
+    /// captured — a station that has never run is not an error, it just applies at defaults.
+    pub fn station_state(&self, workspace_id: i64) -> Result<StationState, StoreError> {
+        let conn = self.lock();
+        let stored: Option<String> = conn
+            .query_row(
+                "SELECT state FROM station_state WHERE workspace_id = ?1",
+                params![workspace_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match stored {
+            Some(json) => Ok(serde_json::from_str::<StationState>(&json)?.current()),
+            None => Ok(StationState::new()),
+        }
+    }
+
+    /// Persist a workspace's settings, replacing whatever was there. No revision check: the
+    /// server is the only writer and the engine's snapshot is by definition the newest truth.
+    pub fn put_station_state(
+        &self,
+        workspace_id: i64,
+        state: &StationState,
+    ) -> Result<(), StoreError> {
+        let json = serde_json::to_string(state)?;
+        let conn = self.lock();
+        conn.execute(
+            "INSERT INTO station_state (workspace_id, updated_at, state) VALUES (?1, ?2, ?3) \
+             ON CONFLICT(workspace_id) DO UPDATE SET updated_at = ?2, state = ?3",
+            params![workspace_id, now_rfc3339(), json],
+        )?;
+        Ok(())
     }
 
     pub fn activate_workspace(&self, id: i64) -> Result<(), StoreError> {

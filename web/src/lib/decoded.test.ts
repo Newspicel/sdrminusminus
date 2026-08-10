@@ -264,3 +264,55 @@ describe("station capacity", () => {
     expect(ids.has(String(STATION_CAPACITY + overflow - 1))).toBe(true);
   });
 });
+
+describe("backlog", () => {
+  it("rebuilds the station picture a reload would otherwise have lost", () => {
+    useDecodedStore.getState().observe({
+      type: "DecodedBacklog",
+      data: {
+        records: [
+          adsb({ icao: "abc123", callsign: "DLH400", type_code: 4 }, 0),
+          adsb({ icao: "abc123", lat: 52.5, lon: 13.4, type_code: 11 }, 1_000),
+          adsb({ icao: "def456", lat: 48.1, lon: 11.6, type_code: 11 }, 2_000),
+        ],
+      },
+    });
+
+    const stations = useDecodedStore.getState().stations.adsb ?? [];
+    expect(stations).toHaveLength(2);
+    expect(stations[0]?.event.data).toMatchObject({ callsign: "DLH400", lat: 52.5, lon: 13.4 });
+  });
+
+  it("leaves the frame ring alone, because the decoder log already holds these", () => {
+    useDecodedStore.getState().observe({
+      type: "DecodedBacklog",
+      data: { records: [adsb({ icao: "abc123" })] },
+    });
+
+    expect(useDecodedStore.getState().frames.adsb).toBeUndefined();
+    expect(useDecodedStore.getState().received).toBe(0);
+  });
+
+  it("is unharmed by a live frame the backlog already carried", () => {
+    const duplicate = adsb({ icao: "abc123", callsign: "DLH400", type_code: 4 }, 0);
+    useDecodedStore.getState().observe({
+      type: "DecodedBacklog",
+      data: { records: [duplicate] },
+    });
+    push(duplicate);
+
+    const stations = useDecodedStore.getState().stations.adsb ?? [];
+    expect(stations).toHaveLength(1);
+    expect(stations[0]?.event.data).toMatchObject({ callsign: "DLH400" });
+    expect(stations[0]?.lastSeen).toBe(T0);
+  });
+
+  it("ignores records for decoders that do not accumulate into a target", () => {
+    useDecodedStore.getState().observe({
+      type: "DecodedBacklog",
+      data: { records: [rtty("CQ CQ")] },
+    });
+
+    expect(useDecodedStore.getState().stations.rtty).toBeUndefined();
+  });
+});

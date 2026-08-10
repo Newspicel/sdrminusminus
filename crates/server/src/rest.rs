@@ -19,14 +19,15 @@ use sdrmm_wire::{
     DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, NodeBody,
     PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal, PresetInfo, PresetSnapshot,
     RecordAction, RecordRequest, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest,
-    ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse,
-    UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
+    ScannerStatus, ServerEvent, StateScope, StateSnapshot, StationState, TemplateInfo,
+    TemplatesResponse, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot,
+    WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::{
-    AppState,
+    AppState, station,
     store::{RecordingRow, Store, StoreError},
 };
 
@@ -1084,17 +1085,29 @@ fn apply_template_patch(
 /// Bindings are computed here and never stored (CANVAS §3): a device node claims the first
 /// unclaimed set or attached radio its [`sdrmm_wire::DeviceRef`] matches, in stored node order,
 /// so serial-less clones bind at most one node each and the assignment is stable across runs.
+///
+/// `saved` is where those nodes were last tuned ([`crate::station`]). A radio this apply *opens*
+/// is handed its settings back before its channels are added, and a channel node is created with
+/// the offset, squelch and params it last had rather than its type's defaults — which is the
+/// difference between a station that survives a restart and one that comes back neutral (PLAN §7).
 fn apply_station(
     engine: &sdrmm_engine::Engine,
     snapshot: &WorkspaceSnapshot,
+    saved: &StationState,
 ) -> Result<PatchApplyReport, AppError> {
     let mut report = PatchApplyReport::default();
     let mut state = engine.snapshot();
-    let mut claimed: Vec<u32> = Vec::new();
+
+    // Radios already open bind as they are. Their settings are deliberately left alone: apply is
+    // additive, and re-tuning a running set to yesterday's frequency because a second browser
+    // loaded the station is the same mistake as closing it.
+    for (node, device_set) in station::bind_devices(&snapshot.graph, &state) {
+        report.bound.push(PatchBinding { node, device_set });
+    }
+
     // Probed only when the graph names a radio that is not already open: enumerating USB is slow
     // and was what crashed libusb in the M2 field sessions when it overlapped itself.
     let mut attached: Option<Vec<DeviceInfo>> = None;
-
     for node in snapshot.graph.device_nodes() {
         let NodeBody::Device(device) = &node.body else {
             continue;
@@ -1102,16 +1115,7 @@ fn apply_station(
         let Some(reference) = &device.device else {
             continue;
         };
-        if let Some(set) = state
-            .device_sets
-            .iter()
-            .find(|set| !claimed.contains(&set.id) && reference.matches(&set.device))
-        {
-            claimed.push(set.id);
-            report.bound.push(PatchBinding {
-                node: node.id.clone(),
-                device_set: set.id,
-            });
+        if report.bound.iter().any(|bound| bound.node == node.id) {
             continue;
         }
         let devices = attached.get_or_insert_with(|| engine.probe_devices());
@@ -1129,7 +1133,14 @@ fn apply_station(
             Some(device_id) => match engine.create_device_set(&device_id) {
                 Ok(id) => {
                     report.opened += 1;
-                    claimed.push(id);
+                    // Before any channel is added, because the saved sample rate is what decides
+                    // whether the wideband channels below are even legal (PLAN §21).
+                    if let Err(reason) = station::restore_device(engine, id, &node.id, saved) {
+                        report.refused.push(PatchRefusal {
+                            node: node.id.clone(),
+                            reason,
+                        });
+                    }
                     report.bound.push(PatchBinding {
                         node: node.id.clone(),
                         device_set: id,
@@ -1172,17 +1183,13 @@ fn apply_station(
                 live.remove(at);
                 continue;
             }
-            let Some(params) = sdrmm_wire::ChannelParams::default_for(&channel.channel_type) else {
+            let Some(settings) = station::channel_settings(&node.id, &channel.channel_type, saved)
+            else {
                 report.refused.push(PatchRefusal {
                     node: node.id.clone(),
                     reason: format!("this build has no channel type {:?}", channel.channel_type),
                 });
                 continue;
-            };
-            let settings = ChannelSettings {
-                offset_hz: 0.0,
-                squelch_db: None,
-                params,
             };
             // A refusal here is normally the wideband rule (PLAN §18: ADS-B needs the device at
             // exactly 2 Msps), which is a true statement about the station and belongs in front
@@ -1374,7 +1381,7 @@ async fn apply_workspace(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let workspace = store.workspace(id)?;
-        apply_station(&engine, &workspace.snapshot)
+        apply_station(&engine, &workspace.snapshot, &store.station_state(id)?)
     })
     .await??;
     Ok(Json(report))

@@ -46,10 +46,14 @@ pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>)
 pub(crate) fn start_decoded_encoder(state: &AppState) {
     let mut decoded_rx = state.engine.subscribe_decoded();
     let out = state.decoded_text.clone();
+    let tracks = state.tracks.clone();
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        // The desktop shell builds the router outside a runtime; its own `spawn` below would
-        // panic. The encoder is started again by whichever runtime serves the app.
-        tracing::debug!("no runtime yet for the decoded encoder; it starts with the server");
+        // Building a router with no runtime in context would panic on the `spawn` below. Every
+        // caller in the tree enters one first (`serve` builds inside its own; the desktop shell
+        // enters Tauri's), so this is the guard on a caller that has not been written yet — and
+        // it is loud, because a server whose decoders never reach a client looks like broken
+        // radio hardware from the outside.
+        tracing::warn!("no runtime in context: decoder frames will not reach clients");
         return;
     };
     let _guard = handle.enter();
@@ -57,6 +61,10 @@ pub(crate) fn start_decoded_encoder(state: &AppState) {
         loop {
             match decoded_rx.recv().await {
                 Ok(record) => {
+                    // Buffered here rather than in a second subscriber: this task already sees
+                    // every record exactly once, and another receiver on the engine's broadcast
+                    // would be another thing that can lag and lose frames.
+                    tracks.observe(&record);
                     // send() only errors with no subscribers — the common headless case.
                     let _ = out.send(encode_event(&ServerEvent::Decoded(Box::new(record))));
                 }
@@ -99,6 +107,18 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         revision: engine.snapshot().revision,
     };
     let _ = out_tx.send(text_event(&hello)).await;
+
+    // Snapshotted after the live subscription above, so the seam repeats a record rather than
+    // dropping one. A repeat is free — merging the same decode onto a station it is already part
+    // of changes nothing — while a gap would leave a contact off the map until it transmits again.
+    let backlog = state.tracks.backlog();
+    if !backlog.is_empty() {
+        let _ = out_tx
+            .send(text_event(&ServerEvent::DecodedBacklog {
+                records: backlog,
+            }))
+            .await;
+    }
 
     let events = spawn_events(event_rx, out_tx.clone());
     let decoded = spawn_decoded(decoded_rx, out_tx.clone());
@@ -1150,6 +1170,84 @@ mod tests {
                     assert_eq!(*got, record);
                     break;
                 }
+            }
+        }
+    }
+
+    /// A client that connects after the decoding started must not begin with an empty map: the
+    /// server hands it what it missed, after `Hello` and before anything live (PLAN §10).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_late_client_is_handed_the_recent_past() {
+        let engine = test_engine();
+        let (addr, state) = serve_ws(engine).await;
+
+        let record = sdrmm_wire::DecodedRecord {
+            device_set: 1,
+            channel: 2,
+            at: "2026-08-09T12:00:00.000000000Z".to_string(),
+            freq_hz: 1_090_000_000.0,
+            event: sdrmm_wire::DecoderEvent::Adsb(sdrmm_wire::AdsbMessage {
+                icao: "3C6444".to_string(),
+                df: 17,
+                raw: "8D3C6444".to_string(),
+                ..sdrmm_wire::AdsbMessage::default()
+            }),
+        };
+        state.tracks.observe(&record);
+
+        let mut ws = dial(addr).await;
+        assert!(
+            matches!(next_event(&mut ws).await, ServerEvent::Hello { .. }),
+            "the backlog follows Hello, never precedes it"
+        );
+        loop {
+            if let ServerEvent::DecodedBacklog { records } = next_event(&mut ws).await {
+                assert_eq!(records, vec![record]);
+                break;
+            }
+        }
+    }
+
+    /// Nothing heard yet means no message at all, not an empty one.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_silent_server_sends_no_backlog() {
+        let engine = test_engine();
+        let (addr, state) = serve_ws(engine).await;
+        let mut ws = dial(addr).await;
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Hello { .. }
+        ));
+
+        // A frame published after connect proves the socket is live and that nothing came before
+        // it: a backlog message would have had to arrive in between.
+        let record = sdrmm_wire::DecodedRecord {
+            device_set: 0,
+            channel: 0,
+            at: "2026-08-09T12:00:01.000000000Z".to_string(),
+            freq_hz: 1_090_000_000.0,
+            event: sdrmm_wire::DecoderEvent::Adsb(sdrmm_wire::AdsbMessage {
+                icao: "4CA1FA".to_string(),
+                df: 17,
+                raw: "8D4CA1FA".to_string(),
+                ..sdrmm_wire::AdsbMessage::default()
+            }),
+        };
+        state
+            .decoded_text
+            .send(encode_event(&ServerEvent::Decoded(Box::new(
+                record.clone(),
+            ))))
+            .expect("subscribers");
+
+        loop {
+            match next_event(&mut ws).await {
+                ServerEvent::DecodedBacklog { .. } => panic!("nothing had been decoded yet"),
+                ServerEvent::Decoded(got) => {
+                    assert_eq!(*got, record);
+                    break;
+                }
+                _ => {}
             }
         }
     }
