@@ -311,20 +311,32 @@ export function kindOptions(entries: readonly DecoderLogEntry[]): string[] {
   return [...DECODER_KINDS, ...[...extra].sort()];
 }
 
-/** Live sets plus sets that only exist in the log: a set closed since the frames were recorded
- * still has rows, and they must stay reachable. */
-export function deviceSetOptions(
+/**
+ * Live sets, plus every set seen in the log so far: a set closed since the frames were recorded
+ * still has rows, and they must stay reachable.
+ *
+ * "So far", not "on this page", is the load-bearing part. Deriving the list from the *filtered*
+ * page makes the filter one-way — pick set 2 and set 0 vanishes from the list with the rows it
+ * named, so there is no way back to it. Returns `previous` unchanged when nothing is new, so the
+ * caller can hold it in state without looping.
+ */
+export function mergeDeviceSets(
+  previous: readonly number[],
   entries: readonly DecoderLogEntry[],
   sets: readonly DeviceSet[],
-): number[] {
-  const ids = new Set<number>(sets.map((s) => s.id));
+): readonly number[] {
+  const ids = new Set<number>(previous);
+  const before = ids.size;
+  for (const set of sets) {
+    ids.add(set.id);
+  }
   for (const entry of entries) {
     ids.add(entry.device_set);
   }
   // `toSorted` wants lib es2023 (tsconfig pins es2022); the spread already prevents the
   // mutation the rule guards against.
   // oxlint-disable-next-line unicorn/no-array-sort
-  return [...ids].sort((a, b) => a - b);
+  return ids.size === before ? previous : [...ids].sort((a, b) => a - b);
 }
 
 /** Gaps are never hidden (PLAN §5): `lost` is what this browser's WS connection missed,

@@ -8,8 +8,14 @@
 
    `@theme` declares the roles to Tailwind (it needs them at build time to emit `bg-panel` and
    friends); the values below are the dark theme. `:root[data-theme]` re-points the same
-   variables, which is why no component contains a colour decision. */
-@theme {
+   variables, which is why no component contains a colour decision.
+
+   `static` is load-bearing: Tailwind only emits the theme variables some generated utility
+   references, and the 2D canvases read theirs with `getComputedStyle` instead (`lib/tokens.ts`)
+   — a token no class names is dropped from the stylesheet, `token()` answers `""`, and a canvas
+   silently ignores the assignment and keeps the colour it last had. That is how the max-hold
+   trace came to be drawn in the live trace's colour. */
+@theme static {
   --color-bg: oklch(0.185 0.006 75);
   --color-panel: oklch(0.225 0.007 75);
   --color-panel-2: oklch(0.265 0.008 75);
@@ -199,7 +205,9 @@
   filter: brightness(1.35);
 }
 
-/* A node is our own chrome end to end; the library's box would draw a second border under it. */
+/* A node is our own chrome end to end; the library's box would draw a second border under it.
+   No size here on purpose: a face is as big as its instrument needs (`NODE_SIZE`), and a fixed
+   height would put a scrollbar inside every node that asked for one more row. */
 .react-flow__node {
   border: 0;
   background: transparent;
@@ -208,8 +216,6 @@
   box-shadow: none;
   font-size: inherit;
   color: inherit;
-  width: 320px;
-  height: 220px;
 }
 
 .react-flow__handle {

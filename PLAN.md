@@ -393,7 +393,14 @@ The stack is settled and lives in `web/package.json` + CLAUDE.md, not here. What
     no runtime graph scheduler.
   - Graph writes happen at the end of a gesture and carry the revision they were read at; a
     stale one is refused rather than overwriting another client's arrangement. Settings are not
-    in the graph, so turning a knob is not a workspace write at all.
+    in the graph, so turning a knob is not a workspace write at all. The optimistic half of the
+    write is applied to the cache *synchronously*, in the same task as the gesture that ended:
+    a drag drops its own preview on pointer-up, and anything that renders the stored arrangement
+    in between — one microtask, or one whole round trip when a previous write is in flight — is
+    a frame of the face back where it started, which reads as flicker.
+  - **A new workspace is empty.** `POST /api/workspaces` creates nothing unless the caller sends
+    a snapshot; only the workspace a fresh install seeds opens on a starter station. A patch is
+    the operator's drawing, and deleting someone else's guess is worse than drawing two nodes.
 - **Maps:** MapLibre GL on OpenFreeMap tiles (free, no key). Offline/self-contained mode is
   still open: drop a region **`.pmtiles`** file next to the server and it serves the tiles
   itself — a Pi in a field needs no internet. Globe projection for satellite views, openAIP

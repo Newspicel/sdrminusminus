@@ -17,7 +17,7 @@ import { ScannerPanel } from "../../components/ScannerPanel";
 import { Slider } from "../../components/Slider";
 import { decoderLogExportUrl, recordDeviceSet } from "../../lib/api";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
-import { mapKindsOf } from "../../lib/map/layers";
+import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { pushToast } from "../../lib/toasts";
 import type {
   ChannelInfo,
@@ -28,7 +28,7 @@ import type {
 } from "../../lib/types";
 import { inputsOf } from "../binding";
 import { deviceSetOf, useStationContext } from "../context";
-import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
+import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 /** One channel wired into a sink, resolved to the engine objects behind it. */
 type Input = { node: string; deviceSet: number; channel: ChannelInfo };
@@ -146,10 +146,18 @@ export function MapFace({ node }: { node: PatchNode }) {
             drawn.
           </FaceEmpty>
         ) : (
-          <MapPanel kinds={kinds} className="h-full min-h-0 w-full flex-1" />
+          <Plot kinds={kinds} />
         )}
       </FaceBody>
     </NodeShell>
+  );
+}
+
+/** Its own component so it can read whether this face is the active one — the hook only answers
+ * inside the shell, and the map has to give its wheel back to the camera until then. */
+function Plot({ kinds }: { kinds: readonly MapKind[] }) {
+  return (
+    <MapPanel kinds={kinds} active={useFaceActive()} className="h-full min-h-0 w-full flex-1" />
   );
 }
 

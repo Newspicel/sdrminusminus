@@ -19,6 +19,7 @@ import type {
   WorkspaceInfo,
   WorkspaceSnapshot,
 } from "../lib/types";
+import { pruneRack } from "./graph";
 
 export interface StationState {
   workspaces: WorkspaceInfo[];
@@ -95,19 +96,37 @@ export function useStation(): StationState {
         return;
       }
       const key = [...WORKSPACES_KEY, id] as const;
+      const current = queryClient.getQueryData<WorkspaceDetail>(key);
+      if (current === undefined) {
+        return;
+      }
+      // Applied to the cache *synchronously*, in the same task as the gesture that ended: a
+      // drag's own preview is dropped on pointer-up, and anything that renders the stored
+      // arrangement between the two — one microtask, or one whole round trip when a previous
+      // write is still in flight — is a frame of the face back where it started. That frame is
+      // the flicker. Reading the cache rather than a captured snapshot is what keeps two edits
+      // within one round trip composing: the second sees the first.
+      queryClient.setQueryData<WorkspaceDetail>(key, {
+        ...current,
+        // Every write leaves a rack the server will accept: it validates the whole snapshot, so
+        // one slot left over from an older grid would refuse every later write — including a
+        // node drag on the canvas that has nothing to do with the rack.
+        snapshot: fitRack(edit(current.snapshot)),
+      });
+      // The write itself is still serialized, and still reads the revision the previous one
+      // produced — issuing them concurrently would send the same revision twice, and the server,
+      // correctly, refuses the second as stale.
       queue.current = queue.current
         .catch(() => undefined)
         .then(() => {
-          const current = queryClient.getQueryData<WorkspaceDetail>(key);
-          if (current === undefined) {
-            return undefined;
-          }
-          const snapshot = edit(current.snapshot);
-          // Show the new arrangement immediately: the round trip is a refetch away, and letting
-          // the canvas flicker back to the old patch for a frame is worse than a brief
-          // divergence the very next response settles.
-          queryClient.setQueryData<WorkspaceDetail>(key, { ...current, snapshot });
-          return update.mutateAsync({ id, revision: current.revision, snapshot });
+          const latest = queryClient.getQueryData<WorkspaceDetail>(key);
+          return latest === undefined
+            ? undefined
+            : update.mutateAsync({
+                id,
+                revision: latest.revision,
+                snapshot: latest.snapshot,
+              });
         })
         // The failure is already on screen through `update.error`; this only keeps the last one
         // in a chain from surfacing as an unhandled rejection.
@@ -167,4 +186,10 @@ export function useStation(): StationState {
 
 function errorOf(error: Error | null): string | null {
   return error === null ? null : error.message;
+}
+
+/** The snapshot with its rack re-laid out if it no longer fits the grid (`pruneRack`). */
+function fitRack(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+  const rack = pruneRack(snapshot.rack ?? {}, snapshot.graph);
+  return rack === snapshot.rack ? snapshot : { ...snapshot, rack };
 }

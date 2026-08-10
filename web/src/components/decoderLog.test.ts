@@ -6,7 +6,6 @@ import {
   collectLive,
   DECODER_KINDS,
   DEFAULT_LOG_FILTER,
-  deviceSetOptions,
   droppedNotice,
   eventStation,
   eventSummary,
@@ -17,6 +16,7 @@ import {
   type LogFilter,
   liveRow,
   matchesFilter,
+  mergeDeviceSets,
   storedRow,
   toQuery,
 } from "./decoderLog";
@@ -263,11 +263,14 @@ describe("option lists", () => {
     expect(kindOptions([entry({ kind: "dmr" }), entry({ kind: "dmr" })]).at(-1)).toBe("dmr");
   });
 
-  it("unions live device sets with sets that only exist in the log", () => {
+  it("unions live device sets with sets that only exist in the log, and never forgets one", () => {
     const sets = [{ id: 3 } as DeviceSet];
-    expect(deviceSetOptions([entry({ device_set: 7 }), entry({ device_set: 3 })], sets)).toEqual([
-      3, 7,
-    ]);
+    const first = mergeDeviceSets([], [entry({ device_set: 7 }), entry({ device_set: 3 })], sets);
+    expect(first).toEqual([3, 7]);
+    // Filtering to set 3 returns a page with no set 7 in it — the option must survive, or there
+    // is no way back to it.
+    expect(mergeDeviceSets(first, [entry({ device_set: 3 })], sets)).toBe(first);
+    expect(mergeDeviceSets(first, [entry({ device_set: 1 })], sets)).toEqual([1, 3, 7]);
   });
 });
 

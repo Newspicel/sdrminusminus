@@ -1572,3 +1572,70 @@ still describing the deleted shell.
 - **No off-air session.** Everything above was verified against `device-virtual`; the canvas has
   not yet been driven with hardware attached, which is where an absent-radio node and a
   serial-less clone binding at most one node get their real test (PLAN §14)
+
+## The bench pass — the camera, the rack and three real bugs ✅
+
+The first session with hardware attached, and everything below is what an hour of using the
+canvas found. `cargo xtask check` + `cargo xtask test` + `cargo xtask smoke` green.
+
+### The camera and the faces (CANVAS §7, amended)
+- [x] **The wheel works over a face.** It did not: React Flow stamps `nopan` on every node it
+  considers draggable, and with `panOnScroll` on, `nopan` swallows wheel events too — so the
+  patch was unscrollable wherever a face sat under the pointer. The rule now is the desktop's:
+  a face is a picture until it is clicked, and only the *active* face takes the wheel, the drag
+  and its own gestures (`useFaceActive`). The dial, the plot and the map read the same flag, or
+  one notch would tune the radio *and* pan the patch at once
+- [x] **Faces open at the size their instrument needs** (`NODE_SIZE`), not a fixed 320×220 box:
+  a width per kind, and a height only where the content is a viewport (plot, map, log). A stored
+  `size` exists only once a corner has been dragged, and the context menu resets it
+- [x] **The patch opens framed** (`fitView`), so a station drawn over several screens comes back
+  whole rather than at whatever corner the camera was left in. Mouse pan is at full speed
+- [x] **Right-click**: pin, reset size, cut a wire, fit the patch. A wire has no chrome of its
+  own, so without a menu the only way to cut one was a key nobody had been told about — the
+  shortcut sheet now names it, and Delete works beside Backspace
+- [x] **Deleting a node closes what it was driving on every path.** Backspace removed the node
+  and left the channel running in the engine; the face's ✕ did not. One `closeEngineObjects`,
+  called from both (and refusing the deletion if the engine says no)
+
+### The rack (CANVAS §5, amended)
+- [x] **12×8, not 24×24**, and a face pins at a quarter of the rack. A cell is the unit of every
+  gesture and the old one was a sliver; the header grip was 24 px wide
+- [x] **Drag an edge and the boundary moves**: the neighbours give up exactly what the face
+  takes. A full rack could not be re-balanced at all before — every change needed a hole first
+- [x] **Drop a face on another and they trade places**, cells whole. It is the one
+  re-arrangement that cannot fail, since the set of occupied cells does not change
+- [x] **The flicker is gone, and it was not the rack.** `save()` applied its optimistic write
+  inside the write queue — a microtask later, or a whole round trip when a previous write was in
+  flight — while the drag dropped its preview on pointer-up. Every frame in between rendered the
+  face back where it started. The cache write is synchronous now; only the network write queues
+- [x] Faces are memoised, so crossing a cell no longer repaints every scope and map in the rack
+- [x] A rack stored against the old grid is re-laid out on read (`pruneRack`) — the server
+  validates the whole snapshot, so one stale slot would have refused every later write
+- [x] The smoke flow drags a boundary and asserts both halves of it, which is the "no rack drag"
+  gap the M7 entry above admitted
+
+### Three bugs the bench found
+- [x] **The max-hold trace was drawn in the live trace's colour, and the grid in black.** Tailwind
+  only emits the theme variables some generated utility references, and the 2D canvases read
+  theirs with `getComputedStyle` — `--color-plot-trace`, `-hold` and `-grid` name no class, so
+  they were absent at runtime, `token()` answered `""`, and the canvas silently kept whatever
+  colour it last had. `@theme static` emits them all
+- [x] **The decoder log's device-set filter was one-way.** The list was derived from the filtered
+  page, so choosing set 2 dropped set 0 from it along with its rows
+- [x] **The library drawer offered a radio the patch could not see.** Applying never closes
+  anything, so an emptied workspace still sat beside whatever the last one left running, and the
+  drawer named it. It counts the radios *this patch* binds now
+- [x] A new workspace starts empty, and the UI calls them workspaces — only the seeded first one
+  opens on a starter station
+
+### Still open
+- **ADS-B still needs the device at exactly 2 Msps**, which no RTL-SDR can produce (2.048 is its
+  nearest). Confirmed empirically, not assumed: the signal generated at 2.048 Msps and pushed
+  through the production DDC decodes nothing, and so does a naive unfiltered resample — a 0.5 µs
+  pulse is *one sample* at 2 Msps, so any rate change splits it across two. The fix is a
+  decoder that runs at the device rate with fractional samples per bit (what dump1090 does at
+  2.4 Msps), which needs a channel that opts out of the DDC's rate conversion — a feature, not a
+  constant. Until then the map stays empty on an RTL-SDR, because nothing decodes
+- **The waterfall washes out.** Its colour range is the frame's own min…max, so a noise floor at
+  −40 dB in a −93…−13 dB range lands two thirds up the colormap and everything is bright. A
+  percentile-anchored range is the fix

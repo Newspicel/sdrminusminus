@@ -13,6 +13,7 @@ import {
   edgeWarning,
   type GraphContext,
   isPinned,
+  moveSlot,
   newNodeId,
   pin,
   placeSlot,
@@ -20,6 +21,7 @@ import {
   pruneRack,
   RACK_COLS,
   removeNode,
+  resizeSlot,
   sameGraph,
   unpin,
 } from "./graph";
@@ -233,12 +235,12 @@ describe("editing", () => {
 describe("the rack", () => {
   it("pins into the first free cell and unpins", () => {
     let rack = pin({ slots: [] }, "scope");
-    expect(rack.slots).toEqual([{ node: "scope", x: 0, y: 0, w: 12, h: 8 }]);
+    expect(rack.slots).toEqual([{ node: "scope", x: 0, y: 0, w: 6, h: 4 }]);
     rack = pin(rack, "nfm");
-    expect(rack.slots?.[1]).toEqual({ node: "nfm", x: 12, y: 0, w: 12, h: 8 });
+    expect(rack.slots?.[1]).toEqual({ node: "nfm", x: 6, y: 0, w: 6, h: 4 });
     // A third face wraps to the next row rather than overlapping.
     rack = pin(rack, "spk");
-    expect(rack.slots?.[2]).toEqual({ node: "spk", x: 0, y: 8, w: 12, h: 8 });
+    expect(rack.slots?.[2]).toEqual({ node: "spk", x: 0, y: 4, w: 6, h: 4 });
 
     expect(isPinned(rack, "nfm")).toBe(true);
     rack = unpin(rack, "nfm");
@@ -247,24 +249,74 @@ describe("the rack", () => {
     expect(pin(rack, "scope")).toBe(rack);
   });
 
-  it("refuses a move that overlaps or leaves the grid", () => {
+  it("refuses a placement that overlaps or leaves the grid", () => {
     const rack = pin(pin({ slots: [] }, "a"), "b");
-    expect(placeSlot(rack, "b", { x: 0, y: 0, w: 12, h: 8 })).toBe(rack);
-    expect(placeSlot(rack, "b", { x: RACK_COLS - 2, y: 0, w: 12, h: 8 })).toBe(rack);
-    expect(placeSlot(rack, "b", { x: 0, y: 8, w: 12, h: 8 }).slots?.[1]).toEqual({
+    expect(placeSlot(rack, "b", { x: 0, y: 0, w: 6, h: 4 })).toBe(rack);
+    expect(placeSlot(rack, "b", { x: RACK_COLS - 2, y: 0, w: 6, h: 4 })).toBe(rack);
+    expect(placeSlot(rack, "b", { x: 0, y: 4, w: 6, h: 4 }).slots?.[1]).toEqual({
       node: "b",
       x: 0,
-      y: 8,
-      w: 12,
-      h: 8,
+      y: 4,
+      w: 6,
+      h: 4,
     });
     // Resizing in place is allowed: a slot never collides with itself.
-    expect(placeSlot(rack, "a", { x: 0, y: 0, w: 12, h: 16 }).slots?.[0]?.h).toBe(16);
+    expect(placeSlot(rack, "a", { x: 0, y: 0, w: 6, h: 8 }).slots?.[0]?.h).toBe(8);
   });
 
-  it("drops slots whose node is gone", () => {
+  it("trades places when a face is dropped on another", () => {
+    // Two faces of different sizes, side by side.
+    const rack = placeSlot(pin(pin({ slots: [] }, "a"), "b"), "b", { x: 6, y: 0, w: 6, h: 8 });
+    const swapped = moveSlot(rack, "a", { x: 6, y: 0 });
+    expect(swapped.slots).toEqual([
+      { node: "a", x: 6, y: 0, w: 6, h: 8 },
+      { node: "b", x: 0, y: 0, w: 6, h: 4 },
+    ]);
+    // Into free space it simply moves.
+    expect(moveSlot(rack, "a", { x: 0, y: 4 }).slots?.[0]).toEqual({
+      node: "a",
+      x: 0,
+      y: 4,
+      w: 6,
+      h: 4,
+    });
+    // Off the grid, and onto two faces at once, are both refused rather than clamped.
+    expect(moveSlot(rack, "a", { x: RACK_COLS - 1, y: 0 })).toBe(rack);
+    const three = placeSlot(pin(rack, "c"), "c", { x: 6, y: 4, w: 6, h: 4 });
+    expect(moveSlot(three, "a", { x: 5, y: 2 })).toBe(three);
+  });
+
+  it("moves the boundary between two faces, one growing as the other shrinks", () => {
+    const rack = pin(pin({ slots: [] }, "a"), "b");
+    const wider = resizeSlot(rack, "a", "e", 2);
+    expect(wider.slots).toEqual([
+      { node: "a", x: 0, y: 0, w: 8, h: 4 },
+      { node: "b", x: 8, y: 0, w: 4, h: 4 },
+    ]);
+    // The same boundary from the other side, and back again.
+    expect(resizeSlot(wider, "b", "w", -2)).toEqual(rack);
+    // A face never shrinks below a cell, and the drag is refused whole rather than half-applied.
+    expect(resizeSlot(rack, "a", "e", 6)).toBe(rack);
+    // An edge with nothing behind it resizes this face alone, up to the grid.
+    expect(resizeSlot(rack, "a", "s", 2).slots?.[0]?.h).toBe(6);
+    expect(resizeSlot(rack, "a", "s", 6)).toBe(rack);
+    // Faces that only touch at a corner do not share a boundary.
+    const stacked = placeSlot(pin(rack, "c"), "c", { x: 6, y: 4, w: 6, h: 4 });
+    expect(resizeSlot(stacked, "a", "s", 1).slots).toEqual([
+      { node: "a", x: 0, y: 0, w: 6, h: 5 },
+      { node: "b", x: 6, y: 0, w: 6, h: 4 },
+      { node: "c", x: 6, y: 4, w: 6, h: 4 },
+    ]);
+  });
+
+  it("drops slots whose node is gone and re-places ones the grid no longer holds", () => {
     const rack = pin({ slots: [] }, "nfm");
     expect(pruneRack(rack, removeNode(station(), "nfm")).slots).toEqual([]);
     expect(pruneRack(rack, station())).toBe(rack);
+
+    // A rack stored against the old 24×24 grid: the slot is off this one, so it is re-placed
+    // rather than left to make every later write fail validation.
+    const stale = { slots: [{ node: "nfm", x: 12, y: 12, w: 12, h: 8 }] };
+    expect(pruneRack(stale, station()).slots).toEqual([{ node: "nfm", x: 0, y: 0, w: 6, h: 4 }]);
   });
 });

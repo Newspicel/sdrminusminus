@@ -2838,7 +2838,7 @@
               },
               {
                 "$ref": "#/components/schemas/WorkspaceSnapshot",
-                "description": "Station to start from; omitted means [`WorkspaceSnapshot::station_default`]."
+                "description": "Station to start from; omitted means [`WorkspaceSnapshot::empty`] — a new workspace is a\nclean bench. Only the first workspace a fresh install seeds opens on a starter station."
               }
             ]
           }

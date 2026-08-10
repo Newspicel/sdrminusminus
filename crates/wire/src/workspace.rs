@@ -34,10 +34,11 @@ pub const MAX_NAME_LEN: usize = 64;
 const MERGE_GAP: f32 = 120.0;
 
 /// Height to assume for a node that has never been resized. `size` is `None` until the operator
-/// drags a corner, so without this the merge offset would measure to the *top* of the lowest
-/// node and drop the new block on top of it. The number is the node height the canvas lays out
-/// by default (`web/src/index.css`, `.react-flow__node`).
-const NATURAL_NODE_H: f32 = 220.0;
+/// drags a corner, so without this the merge offset would measure to the *top* of the lowest node
+/// and drop the new block on top of it. A face is as tall as its instrument now
+/// (`web/src/canvas/graph.ts`, `NODE_SIZE`), so this is a generous stand-in for the tallest of
+/// them — erring high only opens a gap, erring low overlaps two stations.
+const NATURAL_NODE_H: f32 = 380.0;
 
 /// The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written
 /// atomically, read whole, never queried by inner field).
@@ -107,9 +108,18 @@ impl WorkspaceSnapshot {
         Ok(())
     }
 
+    /// A workspace with nothing on it. What `POST /api/workspaces` creates unless the caller
+    /// sends a snapshot: a new workspace is a clean bench, and an operator who wanted a receiver
+    /// and a scope on it would rather draw them than delete someone else's guess.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::new(PatchGraph::default(), RackLayout::default())
+    }
+
     /// The station a fresh install opens on: one empty receiver node feeding a scope, with a
     /// speaker waiting for a channel. Empty rather than pre-populated because the receiver node
-    /// *is* the "open a radio" invitation — picking a device in it is the first gesture.
+    /// *is* the "open a radio" invitation — picking a device in it is the first gesture. Only the
+    /// seeded first workspace starts here; every later one starts [`empty`](Self::empty).
     #[must_use]
     pub fn station_default() -> Self {
         let node = |id: &str, body: NodeBody, x: f32, y: f32| PatchNode {
@@ -316,7 +326,8 @@ pub struct WorkspaceDetail {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreateWorkspaceRequest {
     pub name: String,
-    /// Station to start from; omitted means [`WorkspaceSnapshot::station_default`].
+    /// Station to start from; omitted means [`WorkspaceSnapshot::empty`] — a new workspace is a
+    /// clean bench. Only the first workspace a fresh install seeds opens on a starter station.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<WorkspaceSnapshot>,
 }
