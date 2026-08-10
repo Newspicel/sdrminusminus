@@ -1268,3 +1268,138 @@ against.
   hang off them without rework
 - **Still no Playwright smoke flow** (PLAN §14). The pure transforms — dial arithmetic, view
   transform, axis ticks — carry unit tests; the composition above was verified by hand
+
+---
+
+## Decoders wave 2 — NAVTEX, ACARS, sub-GHz ✅
+
+The three decoder rows PLAN §13 Phase 2 still had open, minus WEFAX (which is a transport
+problem, not a DSP one — see below). Each is one module in `channels`, one settings struct and
+one event in `wire`, one reference modulator in `channels::testgen`, and one React view. The
+registry, the "add channel" menu, the decoder log, the CSV/JSON export and the MCP tools all
+picked them up without a line of per-decoder plumbing — which was the point of §8.
+
+### NAVTEX / SITOR-B (`crates/channels/src/navtex.rs`, PLAN §13 P2)
+100 baud FSK at a 170 Hz shift carrying CCIR 476 with mode-B time diversity (ITU-R M.540,
+M.625). Three layers over the discriminator:
+
+- **The alphabet detects.** CCIR 476 is a constant-ratio code — exactly four of seven bits are
+  mark — so a corrupted character is recognisable without a checksum. The chart is stored as
+  *CCIR code → ITA2 code*, so the alphabet itself stays defined once, in `rtty`, and NAVTEX
+  inherits the LTRS/FIGS tables RTTY already proves. A test transcribes all 35 code points from
+  the standard, checks the four-of-seven property across the whole 128-entry space, and asserts
+  the ITA2 side is a bijection onto codes 1–31 — a mistyped constant fails, it does not vanish.
+- **The diversity corrects.** Every character is sent twice, five character periods apart. The
+  decoder decides at the repeat slot, where both copies are in hand: the RX copy if it is legal,
+  else the DX copy, else the two soft-value sets summed and re-sliced — a character neither copy
+  carries on its own. `BitSync` gained `push_soft` for exactly that (the hard `push` is now a
+  one-line wrapper, and a test pins the two to the same slicing instants).
+- **The framing selects.** Only text between `ZCZC B1B2B3B4` and `NNNN` is emitted. A station
+  idles for minutes; logging everything sliced would bury the messages. A broadcast cut short is
+  emitted with `complete: false` rather than dropped.
+
+Phasing lock needs the REP/ALPHA pattern twice at exactly the slot spacing — one hit on noise is
+not proof at 100 baud. The B2 subject table is transcribed against ITU-R M.540 with the
+unassigned letters explicitly left unnamed.
+
+### ACARS (`crates/channels/src/acars.rs`, PLAN §13 P2)
+MSK at 2400 bit/s amplitude-modulated onto a VHF carrier, ARINC 618 block framing. The data
+rides on the carrier's amplitude, so the magnitude *is* the audio: envelope → DC block → mix the
+1200/2400 Hz pair down about its 1800 Hz centre and decimate by 2 → discriminator → one-symbol
+matched filter → bit clock → byte framing. At h = 0.5 the bit is carried by frequency alone, so
+no phase reference is needed, and a mirrored spectrum costs nothing — the sync character is
+recognised in both polarities and every later bit is corrected on the way in (`acarsdec`'s
+trick; a test decodes a conjugated transmission to the same message).
+
+Validation is strict and repairs nothing: odd parity on every character *and* the CRC-16 over
+the block, or it is dropped. An ACARS message is free text, and a plausible-but-wrong one is
+worse than a missing one. `dsp::fec` gained `crc16_ccitt` (reflected 0x1021, init 0, the
+KERMIT parameters) beside `crc16_x25`, both now sharing one register loop.
+
+Fields follow the standard's own names — mode, registration, ack, label, block id, and on
+downlinks the sequence number and flight number that prefix the text. An uplink carries neither,
+and a decoder that skipped that check would eat ten characters out of every uplink's text; that
+is its own test.
+
+### Sub-GHz OOK/FSK (`crates/channels/src/subghz.rs`, PLAN §8b, §13 P2)
+The Flipper "read Sub-GHz" experience. Two front ends produce the same keyed stream — OOK
+through an adaptive slicer on the envelope, FSK through a discriminator sliced against a tracked
+level and gated by the same carrier detector — and everything above is shared: debounced edge
+timing, a base-period estimate, and a classifier.
+
+- **250 kHz channel, 150 kHz wide by default.** These transmitters are SAW-controlled and sit
+  tens of kHz off nominal; a filter narrow enough to look correct would not hear them. `dsp`
+  gained `flat_bandwidth_hz` next to `resamplable_bandwidth_hz` for this: the alias limit is the
+  wider number, but a decoder measuring pulse widths off an envelope needs the *flat* band.
+- **No chip is named.** An EV1527's 24 data bits and a PT2262's 12 tri-state symbols are the
+  same pulse train, so `encoding` says `pwm` and a 24-bit frame carries both readings — address
+  and button, plus the tri-state string when every bit pair is a symbol a PT2262 can emit.
+  Manchester is recognised too; anything else comes back as raw edge timings, which is what
+  makes an unknown signal something you can still look at.
+- **Repeats collapse.** Every one of these devices transmits its payload several times per
+  press. Copies inside 500 ms become one event with a count, and a better-classified frame
+  supersedes a held one *only* while that one is still a single sighting — which is what stops a
+  capture that started mid-burst from logging its fragment.
+
+`KeyingSlicer` gained a `KeyingTiming` value (`MORSE` / `BURST`) instead of a second copy of
+itself: Morse elements are tens of milliseconds, remote symbols are hundreds of microseconds,
+and the trackers' time constants were the only difference. `one_pole_coeff` moved from a private
+`dsp` helper plus a copy in `pocsag` to one public primitive.
+
+### Wire (single source of truth, PLAN §4)
+`NavtexParams` / `AcarsParams` / `SubghzParams` and `NavtexMessage` / `AcarsMessage` /
+`SubghzFrame`, plus `SubghzModulation` and `SubghzEncoding`. The typecheck did the routing work:
+adding three `DecoderEvent` variants failed the build in `channelSettings.ts`, `decoderLog.ts`,
+`decoded.ts` and `ChannelsPanel.tsx` until each had a label, a summary, a station rule and a
+settings form — no hand-written TS anywhere.
+
+### Tests
+- **Channel unit tests, 221 in `channels`** — round trips, figures shifts, a 120 ms burst that
+  wipes one NAVTEX copy and is repaired from the other, a conjugated ACARS transmission, a
+  corrupted ACARS block dropped at four different offsets, a sub-GHz capture started mid-burst,
+  additive noise through the real channel filter, pure noise decoding to nothing, ragged block
+  splits matching one-shot decoding exactly, and retunes dropping what was in flight.
+- **Engine end-to-end** (`crates/engine/tests/decode.rs`): three new cases through
+  `device-virtual`, each at an offset so the DDC mixes and decimates. Sub-GHz is now the widest
+  channel in the suite — 250 kHz out of a 500 kHz device while still timing 320 µs edges.
+- **Fixtures**: `navtex_518_48k`, `acars_downlink_240k`, `subghz_ev1527_500k`, from the same
+  modulators, so a fixture can never drift from what the decoders are tested against.
+- **Web**: 11 new vitest cases over the view projections and the summary/station mirrors
+  that have to read identically to `DecoderEvent::summary` in the same table.
+
+### Verified live (browser, `device-virtual`)
+- [x] All three fixtures played through the running server: the decoder log filled with
+  `DA07 · Navigational warning · GALE WARNING GERMAN BIGHT`,
+  `D-AIBC · LH0400 · [H1] · SDR-- FIXTURE` and `24 bit 0A1B23 · addr 0A1B2 · btn 3 · ×5`
+- [x] The NAVTEX pane renders header, subject name and body; the sub-GHz pane renders
+  modulation · encoding · payload · base period · repeat count with the address/button reading
+  under it
+- [x] Settings forms: NAVTEX's invert, ACARS's bandwidth, sub-GHz's modulation / bandwidth /
+  min-pulse / frame-gap fields
+
+### Gates
+- [x] `cargo xtask check` green (fmt, clippy `-D warnings`, Soapy-free and native-driver builds,
+  `biome ci`, type-aware `oxlint`, `tsgo`, web build, zero codegen drift)
+- [x] `cargo xtask test` green — 744 Rust tests, 226 web tests
+
+### Known gaps (honest, not deferred silently)
+- **WEFAX is not built, and not for DSP reasons.** A fax page is an image; PLAN §5's binary frame
+  kinds are spectrum, audio and IQ, and a decoder-log row is typed JSON. Shipping it needs an
+  `IMAGE` frame kind, a server-side page store and a canvas panel — a transport decision that
+  deserves its own change rather than a base64 blob smuggled into the log. Recorded in PLAN §13
+  and §18
+- **No off-air proof for any of the three.** Every fixture is synthesized, which proves the
+  decoders against the *specification* and not against the world (PLAN §14). NAVTEX needs an HF
+  receiver at 518 kHz, ACARS a VHF session near an airport, sub-GHz a remote to press — all
+  three are bench sessions the owner can run against a release build, and none has happened yet
+- **ACARS repairs nothing.** `acarsdec` recovers blocks with up to three parity errors using a
+  syndrome table. Ours drops them. That trades sensitivity on a weak signal for never printing a
+  wrong message; the syndrome table is the obvious follow-up if field sessions show it matters
+- **Sub-GHz rolling codes are read, not analyzed.** A KeeLoq-style hopping remote decodes as a
+  66-bit PWM frame with no structure attached. Rolling-code *analysis* is TX-phase work behind
+  the §12a gate
+- **No sub-GHz protocol library.** rtl_433 knows hundreds of device-specific framings; we
+  classify the encoding and hand back the bits. The next step is a table of known payload
+  layouts (weather stations, TPMS), which is data, not DSP
+- **NAVTEX needs the header to be received.** A receiver that joins mid-broadcast keeps the text
+  but reports no station or serial, and the message is marked incomplete when the carrier drops

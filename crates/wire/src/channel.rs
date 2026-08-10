@@ -351,6 +351,87 @@ impl Default for MorseParams {
     }
 }
 
+/// NAVTEX is a single-purpose broadcast: 100 baud, 170 Hz shift, CCIR 476 (ITU-R M.540), so
+/// there is nothing to tune but the sideband the receiver happens to be on.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct NavtexParams {
+    /// Swap mark and space (equivalent to reversing the sideband).
+    #[serde(default)]
+    pub invert: bool,
+}
+
+fn default_acars_bandwidth_hz() -> f64 {
+    12_500.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AcarsParams {
+    #[serde(default = "default_acars_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+}
+
+impl Default for AcarsParams {
+    fn default() -> Self {
+        Self {
+            bandwidth_hz: default_acars_bandwidth_hz(),
+        }
+    }
+}
+
+/// How a sub-GHz device keys its carrier (PLAN §8b). The two need different front ends —
+/// an envelope detector versus a discriminator — but produce the same pulse-width stream, so
+/// everything above the detector is shared.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SubghzModulation {
+    /// On-off keying / ASK: garage remotes, doorbells, most 433 MHz sensors.
+    #[default]
+    Ook,
+    /// Two-level FSK: TPMS sensors and the newer weather stations.
+    Fsk,
+}
+
+fn default_subghz_bandwidth_hz() -> f64 {
+    150_000.0
+}
+
+fn default_subghz_min_pulse_us() -> u32 {
+    80
+}
+
+fn default_subghz_frame_gap_us() -> u32 {
+    5_000
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct SubghzParams {
+    #[serde(default)]
+    pub modulation: SubghzModulation,
+    /// Detection bandwidth in Hz. Wide by radio standards on purpose: a SAW-controlled remote
+    /// may sit tens of kHz off its nominal 433.92 MHz, and a filter narrow enough to be
+    /// "correct" would simply miss it.
+    #[serde(default = "default_subghz_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+    /// Shortest keying edge accepted, in µs. Anything briefer is a noise spike, not a symbol.
+    #[serde(default = "default_subghz_min_pulse_us")]
+    pub min_pulse_us: u32,
+    /// Silence that ends a frame, in µs. Must exceed the longest gap *inside* a frame — the
+    /// PT2262/EV1527 sync gap is ~31 short periods, around 10 ms at a 320 µs clock.
+    #[serde(default = "default_subghz_frame_gap_us")]
+    pub frame_gap_us: u32,
+}
+
+impl Default for SubghzParams {
+    fn default() -> Self {
+        Self {
+            modulation: SubghzModulation::default(),
+            bandwidth_hz: default_subghz_bandwidth_hz(),
+            min_pulse_us: default_subghz_min_pulse_us(),
+            frame_gap_us: default_subghz_frame_gap_us(),
+        }
+    }
+}
+
 /// Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
 /// discriminated union on `type`, and `{"type":"nfm","settings":{}}` deserializes with
 /// every field at its default.
@@ -367,6 +448,9 @@ pub enum ChannelParams {
     Aprs(AprsParams),
     Rtty(RttyParams),
     Morse(MorseParams),
+    Navtex(NavtexParams),
+    Acars(AcarsParams),
+    Subghz(SubghzParams),
 }
 
 impl ChannelParams {
@@ -384,6 +468,9 @@ impl ChannelParams {
             Self::Aprs(_) => "aprs",
             Self::Rtty(_) => "rtty",
             Self::Morse(_) => "morse",
+            Self::Navtex(_) => "navtex",
+            Self::Acars(_) => "acars",
+            Self::Subghz(_) => "subghz",
         }
     }
 }

@@ -5,24 +5,38 @@
 //! All of it is stateless integer arithmetic over GF(2) — no allocation, no locks — so a
 //! decoder may call it straight from the DSP thread.
 
-/// CRC-16/X-25 polynomial 0x1021 in its reflected form, for the LSB-first loop below.
-const X25_POLY: u16 = 0x8408;
+/// CRC-16 polynomial 0x1021 in its reflected form, for the LSB-first loops below.
+const CCITT_POLY_REFLECTED: u16 = 0x8408;
 
-/// CRC-16/X-25 (reflected 0x1021, init 0xFFFF, xorout 0xFFFF) — the AX.25 FCS and AIS CRC.
-#[must_use]
-pub fn crc16_x25(data: &[u8]) -> u16 {
-    let mut crc = 0xFFFF_u16;
+/// The reflected-0x1021 register update, shared by every CRC-16 here; the variants differ only
+/// in their initial value and whether the result is inverted.
+fn crc16_reflected(init: u16, data: &[u8]) -> u16 {
+    let mut crc = init;
     for &byte in data {
         crc ^= u16::from(byte);
         for _ in 0..8 {
             let lsb = crc & 1;
             crc >>= 1;
             if lsb != 0 {
-                crc ^= X25_POLY;
+                crc ^= CCITT_POLY_REFLECTED;
             }
         }
     }
-    !crc
+    crc
+}
+
+/// CRC-16/X-25 (reflected 0x1021, init 0xFFFF, xorout 0xFFFF) — the AX.25 FCS and AIS CRC.
+#[must_use]
+pub fn crc16_x25(data: &[u8]) -> u16 {
+    !crc16_reflected(0xFFFF, data)
+}
+
+/// CRC-16/KERMIT (reflected 0x1021, init 0, no final inversion) — the ACARS block check
+/// (ARINC 618 §4.3.4). Transmitted low byte first, so appending the two check bytes to the
+/// message leaves a zero remainder; that is how a receiver validates a block.
+#[must_use]
+pub fn crc16_ccitt(data: &[u8]) -> u16 {
+    crc16_reflected(0, data)
 }
 
 /// True when an HDLC frame's trailing little-endian 2-byte FCS matches its payload.
@@ -299,6 +313,28 @@ mod tests {
     #[test]
     fn crc16_x25_matches_catalogue_check_value() {
         assert_eq!(crc16_x25(b"123456789"), 0x906E);
+    }
+
+    #[test]
+    fn crc16_ccitt_matches_catalogue_check_value() {
+        assert_eq!(crc16_ccitt(b"123456789"), 0x2189);
+    }
+
+    /// The property the ACARS receiver depends on: running the check bytes through the same
+    /// register after the message leaves zero, so a decoder never has to reverse the order it
+    /// received them in.
+    #[test]
+    fn crc16_ccitt_check_bytes_leave_a_zero_remainder() {
+        let message = b"2.D-AIBC\x01H1B\x02HELLO\x03";
+        let mut with_check = message.to_vec();
+        with_check.extend_from_slice(&crc16_ccitt(message).to_le_bytes());
+        assert_eq!(crc16_ccitt(&with_check), 0);
+
+        for bit in 0..with_check.len() * 8 {
+            let mut corrupt = with_check.clone();
+            flip(&mut corrupt, bit);
+            assert_ne!(crc16_ccitt(&corrupt), 0, "bit {bit} slipped past the CRC");
+        }
     }
 
     #[test]

@@ -6,7 +6,16 @@ import type { ReactNode } from "react";
 import { BookmarksPanel } from "../components/BookmarksPanel";
 import { ChannelsPanel } from "../components/ChannelsPanel";
 import { DecoderLogPanel } from "../components/DecoderLogPanel";
-import { AprsView, PagerView, RdsView, TargetsView, TextView } from "../components/DecoderPanels";
+import {
+  AcarsView,
+  AprsView,
+  NavtexView,
+  PagerView,
+  RdsView,
+  SubghzView,
+  TargetsView,
+  TextView,
+} from "../components/DecoderPanels";
 import { MapPanel } from "../components/MapPanel";
 import { OpenRadio } from "../components/OpenRadio";
 import { PresetsPanel } from "../components/PresetsPanel";
@@ -19,7 +28,18 @@ import { useShell } from "./context";
 
 /// Channel types that emit decoder events. WFM is here because it carries RDS; the descriptor's
 /// `decoder_kind` says so, but the view choice is per channel type.
-const DECODER_KINDS = new Set(["wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse"]);
+const DECODER_KINDS = new Set([
+  "wfm",
+  "pocsag",
+  "adsb",
+  "ais",
+  "aprs",
+  "rtty",
+  "morse",
+  "navtex",
+  "acars",
+  "subghz",
+]);
 
 /** Every kind, in the order an "add panel" menu offers them. Keeping the list here (rather than
  * deriving it from the generated union, which erases at runtime) is what lets the reverse mapper
@@ -158,6 +178,9 @@ function DecodersPanel() {
             {kind === "aprs" && <AprsView scope={scope} />}
             {kind === "pocsag" && <PagerView scope={scope} />}
             {(kind === "rtty" || kind === "morse") && <TextView kind={kind} scope={scope} />}
+            {kind === "navtex" && <NavtexView scope={scope} />}
+            {kind === "acars" && <AcarsView scope={scope} />}
+            {kind === "subghz" && <SubghzView scope={scope} />}
           </section>
         );
       })}

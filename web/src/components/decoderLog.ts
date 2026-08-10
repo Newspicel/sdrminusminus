@@ -22,6 +22,9 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   rds: "RDS",
   rtty: "RTTY",
   morse: "Morse",
+  navtex: "NAVTEX",
+  acars: "ACARS",
+  subghz: "Sub-GHz",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -221,6 +224,28 @@ export function eventSummary(event: DecoderEvent): string {
     case "rtty":
     case "morse":
       return event.data.text;
+    case "navtex": {
+      const n = event.data;
+      const header =
+        n.station == null || n.subject == null || n.serial == null
+          ? null
+          : `${n.station}${n.subject}${String(n.serial).padStart(2, "0")}`;
+      return join([header, n.subject_name ?? null, n.text.replaceAll("\n", " ").trim()]);
+    }
+    case "acars": {
+      const a = event.data;
+      const text = a.text.replaceAll("\n", " ").trim();
+      return join([a.registration, a.flight?.trim() ?? null, `[${a.label}]`, text || null]);
+    }
+    case "subghz": {
+      const f = event.data;
+      return join([
+        f.bits === 0 ? `raw, ${(f.timings_us ?? []).length} edges` : `${f.bits} bit ${f.data}`,
+        f.address == null ? null : `addr ${hex5(f.address)}`,
+        f.button == null ? null : `btn ${f.button.toString(16).toUpperCase()}`,
+        f.repeats > 1 ? `\u00d7${f.repeats}` : null,
+      ]);
+    }
   }
 }
 
@@ -237,10 +262,26 @@ export function eventStation(event: DecoderEvent): string | null {
       return String(event.data.address);
     case "rds":
       return event.data.pi ?? null;
+    case "navtex":
+      return event.data.station ?? null;
+    case "acars":
+      return event.data.registration;
+    case "subghz": {
+      const f = event.data;
+      if (f.address != null) {
+        return hex5(f.address);
+      }
+      return f.data === "" ? null : f.data;
+    }
     case "rtty":
     case "morse":
       return null;
   }
+}
+
+/** A 20-bit EV1527 address, the five hex digits every remote is quoted by. */
+export function hex5(address: number): string {
+  return address.toString(16).toUpperCase().padStart(5, "0");
 }
 
 /** UTC, matching the RFC3339 the server stamps and exports — a log correlated against other

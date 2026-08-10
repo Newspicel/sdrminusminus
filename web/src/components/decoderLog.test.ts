@@ -279,3 +279,87 @@ describe("droppedNotice", () => {
     expect(droppedNotice(2, 12)).toBe("2 live frames dropped · 12 frames never reached the log");
   });
 });
+
+/** These three mirror `DecoderEvent::summary` in `crates/wire/src/decode.rs`; a live row and the
+ * stored row it becomes a second later must read identically in the same table. */
+describe("wave-2 summaries", () => {
+  it("renders a NAVTEX broadcast as header, subject and one line of text", () => {
+    expect(
+      eventSummary({
+        kind: "navtex",
+        data: {
+          station: "D",
+          subject: "A",
+          subject_name: "Navigational warning",
+          serial: 7,
+          text: "GALE WARNING\nGERMAN BIGHT",
+          errors_corrected: 0,
+          complete: true,
+        },
+      }),
+    ).toBe("DA07 · Navigational warning · GALE WARNING GERMAN BIGHT");
+  });
+
+  it("renders an ACARS block as aircraft, flight, label and text", () => {
+    const acars: DecoderEvent = {
+      kind: "acars",
+      data: {
+        mode: "2",
+        registration: "D-AIBC",
+        label: "H1",
+        block_id: "3",
+        downlink: true,
+        flight: "LH0400",
+        text: "REPORT OK",
+        more: false,
+      },
+    };
+    expect(eventSummary(acars)).toBe("D-AIBC · LH0400 · [H1] · REPORT OK");
+    expect(eventStation(acars)).toBe("D-AIBC");
+    expect(eventSummary({ ...acars, data: { ...acars.data, text: "" } })).toBe(
+      "D-AIBC · LH0400 · [H1]",
+    );
+  });
+
+  it("renders a sub-GHz frame, and a raw capture by its edge count", () => {
+    const frame: DecoderEvent = {
+      kind: "subghz",
+      data: {
+        modulation: "ook",
+        encoding: "pwm",
+        bits: 24,
+        data: "0A1B23",
+        address: 0x0_a1b2,
+        button: 3,
+        short_us: 320,
+        repeats: 6,
+      },
+    };
+    expect(eventSummary(frame)).toBe("24 bit 0A1B23 · addr 0A1B2 · btn 3 · ×6");
+    expect(eventStation(frame)).toBe("0A1B2");
+
+    const raw: DecoderEvent = {
+      kind: "subghz",
+      data: {
+        modulation: "fsk",
+        encoding: "raw",
+        bits: 0,
+        data: "",
+        short_us: 250,
+        repeats: 1,
+        timings_us: [320, 960, 320, 960],
+      },
+    };
+    expect(eventSummary(raw)).toBe("raw, 4 edges");
+    expect(eventStation(raw)).toBeNull();
+  });
+
+  it("gives the new kinds the names operators use for them", () => {
+    expect(kindLabel("navtex")).toBe("NAVTEX");
+    expect(kindLabel("acars")).toBe("ACARS");
+    expect(kindLabel("subghz")).toBe("Sub-GHz");
+    expect(DECODER_KINDS).toContain("navtex");
+    expect(DECODER_KINDS).toContain("acars");
+    expect(DECODER_KINDS).toContain("subghz");
+  });
+});

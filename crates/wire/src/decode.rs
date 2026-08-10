@@ -188,6 +188,139 @@ pub struct MorseText {
     pub wpm: f32,
 }
 
+/// One NAVTEX broadcast (PLAN §13: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
+/// parsed out because that is what a receiver filters on — station, subject and serial are how
+/// a ship decides whether it has already seen this message.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct NavtexMessage {
+    /// B1 — transmitting station within the NAVAREA.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station: Option<char>,
+    /// B2 — subject indicator.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<char>,
+    /// Plain-language meaning of [`NavtexMessage::subject`] (ITU-R M.540 Annex 2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_name: Option<String>,
+    /// B3B4 — serial number, 00–99, which a receiver uses to suppress repeats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial: Option<u8>,
+    pub text: String,
+    /// Characters the mode-B time diversity repaired from the repeat copy.
+    pub errors_corrected: u32,
+    /// True when the broadcast ended with `NNNN`; false when the carrier or the phasing was
+    /// lost and the partial text was flushed instead.
+    pub complete: bool,
+}
+
+impl NavtexMessage {
+    /// The `B1B2B3B4` group as broadcast, when the header was received.
+    #[must_use]
+    pub fn header(&self) -> Option<String> {
+        let (station, subject, serial) = (self.station?, self.subject?, self.serial?);
+        Some(format!("{station}{subject}{serial:02}"))
+    }
+
+    /// Plain-language meaning of a B2 subject indicator (ITU-R M.540 Annex 2). `None` for the
+    /// letters the standard leaves unassigned — naming those would invent authority the
+    /// broadcast does not carry.
+    #[must_use]
+    pub fn subject_name(subject: char) -> Option<&'static str> {
+        Some(match subject.to_ascii_uppercase() {
+            'A' => "Navigational warning",
+            'B' => "Meteorological warning",
+            'C' => "Ice report",
+            'D' => "Search and rescue / piracy",
+            'E' => "Meteorological forecast",
+            'F' => "Pilot service",
+            'G' => "AIS",
+            'H' => "LORAN",
+            'J' => "SATNAV",
+            'K' => "Other electronic navaid",
+            'L' => "Navigational warning (additional)",
+            'T' => "Test transmission",
+            'V' => "Notice to fishermen",
+            'W' => "Environmental",
+            'X' | 'Y' => "Special service",
+            'Z' => "No message on hand",
+            _ => return None,
+        })
+    }
+}
+
+/// One ACARS block (PLAN §13: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow
+/// the standard's, so a message here reads the same as in every other ACARS tool.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AcarsMessage {
+    /// Mode character — `2` is VHF category A.
+    pub mode: char,
+    /// Aircraft registration with the standard `.` padding removed.
+    pub registration: String,
+    /// Technical acknowledgement: the block being acknowledged, or `None` for a NAK.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ack: Option<char>,
+    /// Two-character label identifying the message type (`5Z`, `H1`, `_d` …).
+    pub label: String,
+    /// Block identifier. `0`–`9` marks a downlink (aircraft to ground).
+    pub block_id: char,
+    pub downlink: bool,
+    /// Message sequence number, on downlinks only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq_no: Option<String>,
+    /// Flight number, on downlinks only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flight: Option<String>,
+    pub text: String,
+    /// The block ended with ETB rather than ETX: another block of the same message follows.
+    pub more: bool,
+}
+
+/// What a decoded sub-GHz burst turned out to be (PLAN §8b).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SubghzEncoding {
+    /// Pulse-width coding: a short-long cell is one bit value, long-short the other. The
+    /// family PT2262/EV1527/Princeton and most cheap remotes speak. The chip is *not*
+    /// identified — an EV1527's 24 data bits and a PT2262's 12 tri-state symbols are the same
+    /// pulse train, so both readings are offered and the operator picks.
+    Pwm,
+    /// Manchester: each bit is a mid-cell transition.
+    Manchester,
+    /// Nothing matched; only the raw edge timings are reported.
+    #[default]
+    Raw,
+}
+
+/// One sub-GHz burst: a remote, a sensor, a TPMS. Repeats of the same payload inside a short
+/// window collapse into one frame with a count, because every one of these devices sends its
+/// payload several times and a log with eight identical rows is a worse log.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct SubghzFrame {
+    pub modulation: crate::channel::SubghzModulation,
+    pub encoding: SubghzEncoding,
+    /// Decoded payload length in bits; 0 for a raw capture.
+    pub bits: u32,
+    /// Payload as hex, MSB first, left-padded to whole bytes.
+    pub data: String,
+    /// EV1527 reading of a 24-bit payload: the 20-bit transmitter address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<u32>,
+    /// EV1527 reading of a 24-bit payload: the 4 button bits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub button: Option<u8>,
+    /// PT2262 reading: 12 tri-state symbols as `0`, `1` and `F`, when every bit pair is one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tri_state: Option<String>,
+    /// The base pulse period the frame was measured against, in µs.
+    pub short_us: u32,
+    /// How many times the identical payload arrived inside the collapse window.
+    pub repeats: u32,
+    /// Raw pulse/gap durations in µs, pulse first — what a Flipper shows for a signal it
+    /// cannot name. Truncated, so this is for inspection, not replay.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timings_us: Vec<u32>,
+}
+
 /// Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a
 /// discriminated union on `kind` that panels can exhaustively `switch` on, and so the log
 /// database can index on `kind` without parsing the blob.
@@ -201,6 +334,9 @@ pub enum DecoderEvent {
     Aprs(AprsPacket),
     Rtty(RttyText),
     Morse(MorseText),
+    Navtex(NavtexMessage),
+    Acars(AcarsMessage),
+    Subghz(SubghzFrame),
 }
 
 impl DecoderEvent {
@@ -215,6 +351,9 @@ impl DecoderEvent {
             Self::Aprs(_) => "aprs",
             Self::Rtty(_) => "rtty",
             Self::Morse(_) => "morse",
+            Self::Navtex(_) => "navtex",
+            Self::Acars(_) => "acars",
+            Self::Subghz(_) => "subghz",
         }
     }
 
@@ -272,6 +411,48 @@ impl DecoderEvent {
             Self::Aprs(p) => p.tnc2.clone(),
             Self::Rtty(t) => t.text.clone(),
             Self::Morse(m) => m.text.clone(),
+            Self::Navtex(n) => {
+                let mut parts = Vec::new();
+                if let Some(id) = n.header() {
+                    parts.push(id);
+                }
+                if let Some(subject) = &n.subject_name {
+                    parts.push(subject.clone());
+                }
+                parts.push(n.text.replace('\n', " ").trim().to_owned());
+                parts.retain(|p| !p.is_empty());
+                parts.join(" · ")
+            }
+            Self::Acars(a) => {
+                let mut parts = vec![a.registration.clone()];
+                if let Some(flight) = &a.flight {
+                    parts.push(flight.trim().to_owned());
+                }
+                parts.push(format!("[{}]", a.label));
+                let text = a.text.replace('\n', " ");
+                let text = text.trim();
+                if !text.is_empty() {
+                    parts.push(text.to_owned());
+                }
+                parts.join(" · ")
+            }
+            Self::Subghz(f) => {
+                let mut parts = vec![if f.bits == 0 {
+                    format!("raw, {} edges", f.timings_us.len())
+                } else {
+                    format!("{} bit {}", f.bits, f.data)
+                }];
+                if let Some(address) = f.address {
+                    parts.push(format!("addr {address:05X}"));
+                }
+                if let Some(button) = f.button {
+                    parts.push(format!("btn {button:X}"));
+                }
+                if f.repeats > 1 {
+                    parts.push(format!("×{}", f.repeats));
+                }
+                parts.join(" · ")
+            }
         }
     }
 
@@ -298,6 +479,16 @@ impl DecoderEvent {
             Self::Adsb(a) => Some(a.icao.clone()),
             Self::Ais(m) => Some(m.mmsi.to_string()),
             Self::Aprs(p) => Some(p.source.clone()),
+            // A NAVTEX station is identified by B1 alone only within its NAVAREA, but a
+            // receiver hears one area at a time, so B1 is the identity that matters here.
+            Self::Navtex(n) => n.station.map(String::from),
+            Self::Acars(a) => Some(a.registration.clone()),
+            // The transmitter's own address when the payload carries one; otherwise the
+            // payload itself, which is what an unidentified remote is known by.
+            Self::Subghz(f) => f
+                .address
+                .map(|a| format!("{a:05X}"))
+                .or_else(|| (!f.data.is_empty()).then(|| f.data.clone())),
             Self::Rtty(_) | Self::Morse(_) => None,
         }
     }
@@ -367,10 +558,91 @@ mod tests {
                 text: String::new(),
                 wpm: 0.0,
             }),
+            DecoderEvent::Navtex(NavtexMessage::default()),
+            DecoderEvent::Acars(AcarsMessage::default()),
+            DecoderEvent::Subghz(SubghzFrame::default()),
         ] {
             let json = serde_json::to_value(&ev).unwrap();
             assert_eq!(json["kind"], ev.kind());
         }
+    }
+
+    /// The B2 table is the only place a letter becomes a claim about what the broadcast is
+    /// for, so it is transcribed here against ITU-R M.540 rather than spot-checked — and the
+    /// unassigned letters must stay unnamed.
+    #[test]
+    fn navtex_subject_names_match_the_standard_table() {
+        const NAMED: [(char, &str); 16] = [
+            ('A', "Navigational warning"),
+            ('B', "Meteorological warning"),
+            ('C', "Ice report"),
+            ('D', "Search and rescue / piracy"),
+            ('E', "Meteorological forecast"),
+            ('F', "Pilot service"),
+            ('G', "AIS"),
+            ('H', "LORAN"),
+            ('J', "SATNAV"),
+            ('K', "Other electronic navaid"),
+            ('L', "Navigational warning (additional)"),
+            ('T', "Test transmission"),
+            ('V', "Notice to fishermen"),
+            ('W', "Environmental"),
+            ('X', "Special service"),
+            ('Y', "Special service"),
+        ];
+        for (subject, name) in NAMED {
+            assert_eq!(
+                NavtexMessage::subject_name(subject),
+                Some(name),
+                "{subject}"
+            );
+        }
+        assert_eq!(NavtexMessage::subject_name('Z'), Some("No message on hand"));
+        for unassigned in ['I', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'U'] {
+            assert_eq!(
+                NavtexMessage::subject_name(unassigned),
+                None,
+                "{unassigned} is unassigned and must stay unnamed"
+            );
+        }
+    }
+
+    #[test]
+    fn navtex_header_needs_the_whole_group() {
+        let mut msg = NavtexMessage {
+            station: Some('D'),
+            subject: Some('A'),
+            serial: Some(7),
+            ..NavtexMessage::default()
+        };
+        assert_eq!(msg.header().as_deref(), Some("DA07"));
+        msg.serial = None;
+        assert_eq!(msg.header(), None);
+    }
+
+    /// A raw sub-GHz capture carries no bits, so the summary must describe the capture rather
+    /// than print an empty payload.
+    #[test]
+    fn subghz_summary_describes_a_raw_capture() {
+        let raw = DecoderEvent::Subghz(SubghzFrame {
+            timings_us: vec![320, 960, 960, 320],
+            repeats: 1,
+            ..SubghzFrame::default()
+        });
+        assert_eq!(raw.summary(), "raw, 4 edges");
+        assert_eq!(raw.station(), None);
+
+        let decoded = DecoderEvent::Subghz(SubghzFrame {
+            encoding: SubghzEncoding::Pwm,
+            bits: 24,
+            data: "A1B2C3".to_owned(),
+            address: Some(0x0A1B2),
+            button: Some(3),
+            repeats: 4,
+            ..SubghzFrame::default()
+        });
+        assert_eq!(decoded.summary(), "24 bit A1B2C3 · addr 0A1B2 · btn 3 · ×4");
+        assert_eq!(decoded.station().as_deref(), Some("0A1B2"));
     }
 
     #[test]

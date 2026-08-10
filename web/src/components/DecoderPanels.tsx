@@ -6,6 +6,8 @@ import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf } from "../lib/types";
 import { BTN, FIELD } from "./controls";
 import {
+  acarsHeadline,
+  acarsTag,
   ageClass,
   aircraftRow,
   aprsMotion,
@@ -20,6 +22,8 @@ import {
   isAtBottom,
   latestWpm,
   matchesAddress,
+  navtexHeader,
+  navtexQuality,
   ptyLabel,
   rdsPicture,
   rdsQuality,
@@ -27,6 +31,9 @@ import {
   shipRow,
   sortTargets,
   stationsInScope,
+  subghzPayload,
+  subghzReadings,
+  subghzTiming,
   TARGET_MAX_AGE_MS,
   type TargetRow,
   type TargetSort,
@@ -439,4 +446,136 @@ export function AprsView({ scope = {} }: { scope?: DecoderScope }) {
 function useDecodedStoreAgeOut(): (nowMs: number) => void {
   const ageOut = useDecodedStore((s) => s.ageOut);
   return useCallback((nowMs: number) => ageOut(TARGET_MAX_AGE_MS, nowMs), [ageOut]);
+}
+
+export function NavtexView({ scope = {} }: { scope?: DecoderScope }) {
+  const records = recordsInScope(useDecodedKind("navtex"), scope);
+
+  if (records.length === 0) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>No NAVTEX broadcasts — a station may be idle for minutes.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={PANE}>
+      <div className="flex flex-col divide-y divide-line">
+        {records.map((r, i) => {
+          const m = r.event.data;
+          const header = navtexHeader(m);
+          const quality = navtexQuality(m);
+          return (
+            <article key={`${r.at}-${header ?? ""}-${i}`} className="flex flex-col gap-1 py-2">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="font-mono text-xs tabular-nums text-ink-dim">
+                  {formatClock(r.at)}
+                </span>
+                <span className="font-mono text-xs tabular-nums text-accent">{header ?? "—"}</span>
+                {m.subject_name != null && (
+                  <span className="text-xs text-ink-dim">{m.subject_name}</span>
+                )}
+                {quality !== "" && (
+                  <span className="font-mono text-[10px] tabular-nums text-danger">{quality}</span>
+                )}
+              </div>
+              <pre className="whitespace-pre-wrap break-words font-mono text-xs text-ink">
+                {m.text}
+              </pre>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function AcarsView({ scope = {} }: { scope?: DecoderScope }) {
+  const records = recordsInScope(useDecodedKind("acars"), scope);
+
+  if (records.length === 0) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>No ACARS blocks.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={PANE}>
+      <div className="flex flex-col divide-y divide-line">
+        {records.map((r, i) => {
+          const m = r.event.data;
+          return (
+            <article
+              key={`${r.at}-${m.registration}-${m.seq_no ?? ""}-${i}`}
+              className="flex flex-col gap-0.5 py-1"
+            >
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="font-mono text-xs tabular-nums text-ink-dim">
+                  {formatClock(r.at)}
+                </span>
+                <span className="font-mono text-xs text-accent">{acarsHeadline(m)}</span>
+                <span className="font-mono text-[10px] tabular-nums text-ink-dim">
+                  {acarsTag(m)}
+                </span>
+              </div>
+              {m.text !== "" && (
+                <pre className="whitespace-pre-wrap break-all pl-14 font-mono text-xs text-ink">
+                  {m.text}
+                </pre>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function SubghzView({ scope = {} }: { scope?: DecoderScope }) {
+  const records = recordsInScope(useDecodedKind("subghz"), scope);
+
+  if (records.length === 0) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>No sub-GHz bursts — press a remote.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={PANE}>
+      <div className="flex flex-col divide-y divide-line">
+        {records.map((r, i) => {
+          const f = r.event.data;
+          const readings = subghzReadings(f);
+          return (
+            <div key={`${r.at}-${f.data}-${i}`} className="flex flex-col gap-0.5 py-1">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="font-mono text-xs tabular-nums text-ink-dim">
+                  {formatClock(r.at)}
+                </span>
+                <span className="font-mono text-[10px] uppercase tracking-wider text-ink-dim">
+                  {f.modulation} · {f.encoding}
+                </span>
+                <span className="font-mono text-xs tabular-nums text-accent">
+                  {subghzPayload(f)}
+                </span>
+                <span className="font-mono text-[10px] tabular-nums text-ink-dim">
+                  {subghzTiming(f)}
+                </span>
+              </div>
+              {readings !== "" && (
+                <span className="pl-14 font-mono text-[10px] tabular-nums text-ink-dim">
+                  {readings}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

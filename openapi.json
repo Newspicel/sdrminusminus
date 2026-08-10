@@ -1576,6 +1576,77 @@
   },
   "components": {
     "schemas": {
+      "AcarsMessage": {
+        "type": "object",
+        "description": "One ACARS block (PLAN §13: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow\nthe standard's, so a message here reads the same as in every other ACARS tool.",
+        "required": [
+          "mode",
+          "registration",
+          "label",
+          "block_id",
+          "downlink",
+          "text",
+          "more"
+        ],
+        "properties": {
+          "ack": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Technical acknowledgement: the block being acknowledged, or `None` for a NAK."
+          },
+          "block_id": {
+            "type": "string",
+            "description": "Block identifier. `0`–`9` marks a downlink (aircraft to ground)."
+          },
+          "downlink": {
+            "type": "boolean"
+          },
+          "flight": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Flight number, on downlinks only."
+          },
+          "label": {
+            "type": "string",
+            "description": "Two-character label identifying the message type (`5Z`, `H1`, `_d` …)."
+          },
+          "mode": {
+            "type": "string",
+            "description": "Mode character — `2` is VHF category A."
+          },
+          "more": {
+            "type": "boolean",
+            "description": "The block ended with ETB rather than ETX: another block of the same message follows."
+          },
+          "registration": {
+            "type": "string",
+            "description": "Aircraft registration with the standard `.` padding removed."
+          },
+          "seq_no": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Message sequence number, on downlinks only."
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "AcarsParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "AdsbMessage": {
         "type": "object",
         "description": "One decoded Mode S / ADS-B frame (PLAN §13: preamble correlation + Mode S CRC).\nFields are `Option` because which ones a frame carries depends on its type code — a\nposition frame has no callsign, an identification frame has no altitude.",
@@ -2323,6 +2394,60 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/NavtexParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "navtex"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/AcarsParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "acars"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/SubghzParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "subghz"
+                ]
+              }
+            }
           }
         ],
         "description": "Type-discriminated demod parameters. Adjacently tagged so the generated TS is a\ndiscriminated union on `type`, and `{\"type\":\"nfm\",\"settings\":{}}` deserializes with\nevery field at its default."
@@ -2822,6 +2947,60 @@
                 "type": "string",
                 "enum": [
                   "morse"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/NavtexMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "navtex"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/AcarsMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "acars"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SubghzFrame"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "subghz"
                 ]
               }
             }
@@ -3427,6 +3606,70 @@
             "type": "number",
             "format": "float",
             "description": "Estimated sending speed in words per minute (PARIS standard)."
+          }
+        }
+      },
+      "NavtexMessage": {
+        "type": "object",
+        "description": "One NAVTEX broadcast (PLAN §13: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is\nparsed out because that is what a receiver filters on — station, subject and serial are how\na ship decides whether it has already seen this message.",
+        "required": [
+          "text",
+          "errors_corrected",
+          "complete"
+        ],
+        "properties": {
+          "complete": {
+            "type": "boolean",
+            "description": "True when the broadcast ended with `NNNN`; false when the carrier or the phasing was\nlost and the partial text was flushed instead."
+          },
+          "errors_corrected": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Characters the mode-B time diversity repaired from the repeat copy.",
+            "minimum": 0
+          },
+          "serial": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "B3B4 — serial number, 00–99, which a receiver uses to suppress repeats.",
+            "minimum": 0
+          },
+          "station": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "B1 — transmitting station within the NAVAREA."
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "B2 — subject indicator."
+          },
+          "subject_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Plain-language meaning of [`NavtexMessage::subject`] (ITU-R M.540 Annex 2)."
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "NavtexParams": {
+        "type": "object",
+        "description": "NAVTEX is a single-purpose broadcast: 100 baud, 170 Hz shift, CCIR 476 (ITU-R M.540), so\nthere is nothing to tune but the sideband the receiver happens to be on.",
+        "properties": {
+          "invert": {
+            "type": "boolean",
+            "description": "Swap mark and space (equivalent to reversing the sideband)."
           }
         }
       },
@@ -4620,6 +4863,124 @@
           "spectrum",
           "audio"
         ]
+      },
+      "SubghzEncoding": {
+        "type": "string",
+        "description": "What a decoded sub-GHz burst turned out to be (PLAN §8b).",
+        "enum": [
+          "pwm",
+          "manchester",
+          "raw"
+        ]
+      },
+      "SubghzFrame": {
+        "type": "object",
+        "description": "One sub-GHz burst: a remote, a sensor, a TPMS. Repeats of the same payload inside a short\nwindow collapse into one frame with a count, because every one of these devices sends its\npayload several times and a log with eight identical rows is a worse log.",
+        "required": [
+          "modulation",
+          "encoding",
+          "bits",
+          "data",
+          "short_us",
+          "repeats"
+        ],
+        "properties": {
+          "address": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "EV1527 reading of a 24-bit payload: the 20-bit transmitter address.",
+            "minimum": 0
+          },
+          "bits": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Decoded payload length in bits; 0 for a raw capture.",
+            "minimum": 0
+          },
+          "button": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "EV1527 reading of a 24-bit payload: the 4 button bits.",
+            "minimum": 0
+          },
+          "data": {
+            "type": "string",
+            "description": "Payload as hex, MSB first, left-padded to whole bytes."
+          },
+          "encoding": {
+            "$ref": "#/components/schemas/SubghzEncoding"
+          },
+          "modulation": {
+            "$ref": "#/components/schemas/SubghzModulation"
+          },
+          "repeats": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many times the identical payload arrived inside the collapse window.",
+            "minimum": 0
+          },
+          "short_us": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The base pulse period the frame was measured against, in µs.",
+            "minimum": 0
+          },
+          "timings_us": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Raw pulse/gap durations in µs, pulse first — what a Flipper shows for a signal it\ncannot name. Truncated, so this is for inspection, not replay."
+          },
+          "tri_state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PT2262 reading: 12 tri-state symbols as `0`, `1` and `F`, when every bit pair is one."
+          }
+        }
+      },
+      "SubghzModulation": {
+        "type": "string",
+        "description": "How a sub-GHz device keys its carrier (PLAN §8b). The two need different front ends —\nan envelope detector versus a discriminator — but produce the same pulse-width stream, so\neverything above the detector is shared.",
+        "enum": [
+          "ook",
+          "fsk"
+        ]
+      },
+      "SubghzParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Detection bandwidth in Hz. Wide by radio standards on purpose: a SAW-controlled remote\nmay sit tens of kHz off its nominal 433.92 MHz, and a filter narrow enough to be\n\"correct\" would simply miss it."
+          },
+          "frame_gap_us": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Silence that ends a frame, in µs. Must exceed the longest gap *inside* a frame — the\nPT2262/EV1527 sync gap is ~31 short periods, around 10 ms at a 320 µs clock.",
+            "minimum": 0
+          },
+          "min_pulse_us": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Shortest keying edge accepted, in µs. Anything briefer is a noise spike, not a symbol.",
+            "minimum": 0
+          },
+          "modulation": {
+            "$ref": "#/components/schemas/SubghzModulation"
+          }
+        }
       },
       "TabSpec": {
         "type": "object",

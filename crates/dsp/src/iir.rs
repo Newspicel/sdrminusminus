@@ -1,8 +1,11 @@
 //! Single-pole audio IIR helpers (PLAN §7): FM deemphasis and DC removal.
 
 /// Smoothing coefficient for `y += c·(x − y)` matching the analog RC time constant `tau_s`
-/// at `rate` (matched-z pole `e^(−1/(rate·tau))`).
-pub(crate) fn one_pole_coeff(rate: f64, tau_s: f64) -> f32 {
+/// at `rate` (matched-z pole `e^(−1/(rate·tau))`). Public because decoders that track a
+/// slicing level need the same smoother at a tau of their own choosing, and a second copy of
+/// two lines is a second thing to get wrong.
+#[must_use]
+pub fn one_pole_coeff(rate: f64, tau_s: f64) -> f32 {
     (1.0 - (-1.0 / (rate * tau_s)).exp()) as f32
 }
 

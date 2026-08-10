@@ -25,9 +25,9 @@ use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
-    AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, ChannelParams, ChannelSettings,
-    DecodedRecord, DecoderEvent, MorseParams, PocsagBaud, PocsagParams, RdsUpdate, RttyParams,
-    WfmParams,
+    AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, ChannelParams,
+    ChannelSettings, DecodedRecord, DecoderEvent, MorseParams, NavtexParams, PocsagBaud,
+    PocsagParams, RdsUpdate, RttyParams, SubghzEncoding, SubghzParams, WfmParams,
 };
 use tempfile::TempDir;
 
@@ -367,6 +367,130 @@ async fn morse_text_survives_the_ddc_and_reaches_the_decoded_stream() {
         "speed estimate {} wpm is not plausible for 20 wpm sending",
         text.wpm
     );
+}
+
+#[tokio::test]
+async fn navtex_broadcast_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = -3_000.0;
+
+    let mut iq = testgen::navtex::transmission(
+        "ZCZC DA07\r\nGALE WARNING\r\nGERMAN BIGHT\r\nNNNN",
+        AUDIO_DEVICE_RATE,
+    );
+    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+
+    let device = plant(dir.path(), "navtex", iq, AUDIO_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Navtex(NavtexParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Navtex(m) if m.complete),
+    )
+    .await;
+
+    let DecoderEvent::Navtex(message) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(message.station, Some('D'));
+    assert_eq!(
+        message.subject_name.as_deref(),
+        Some("Navigational warning")
+    );
+    assert_eq!(message.serial, Some(7));
+    assert_eq!(message.text, "GALE WARNING\nGERMAN BIGHT");
+}
+
+#[tokio::test]
+async fn acars_block_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = -40_000.0;
+
+    let block = testgen::acars::Block {
+        mode: '2',
+        registration: ".D-AIBC",
+        ack: '\x15',
+        label: "H1",
+        block_id: '3',
+        seq_no: Some("M01A"),
+        flight: Some("LH0400"),
+        text: "ENGINE E2E",
+        more: false,
+    };
+    let mut iq = testgen::acars::transmission(&block, NARROW_DEVICE_RATE);
+    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+
+    let device = plant(dir.path(), "acars", iq, NARROW_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Acars(AcarsParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Acars(_)),
+    )
+    .await;
+
+    let DecoderEvent::Acars(message) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(message.registration, "D-AIBC");
+    assert_eq!(message.label, "H1");
+    assert!(message.downlink);
+    assert_eq!(message.flight.as_deref(), Some("LH0400"));
+    assert_eq!(message.text, "ENGINE E2E");
+}
+
+/// The widest channel in the registry: 250 kHz out of a 500 kHz device, so the DDC decimates
+/// hard while the decoder is still timing 320 µs edges off the result.
+#[tokio::test]
+async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
+    const SUBGHZ_DEVICE_RATE: f64 = 500_000.0;
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = 100_000.0;
+
+    let remote = testgen::subghz::Pwm {
+        bits: (0..24)
+            .map(|i| 0x0A_1B_23u32 >> (23 - i) & 1 == 1)
+            .collect(),
+        short_us: 320,
+        long_multiple: 3,
+        sync_gap_multiple: 31,
+        repeats: 6,
+    };
+    let mut iq = testgen::subghz::pwm(&remote, SUBGHZ_DEVICE_RATE);
+    testgen::shift(&mut iq, offset_hz, SUBGHZ_DEVICE_RATE);
+
+    let device = plant(dir.path(), "subghz", iq, SUBGHZ_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Subghz(SubghzParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Subghz(f) if f.bits == 24),
+    )
+    .await;
+
+    let DecoderEvent::Subghz(frame) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(frame.encoding, SubghzEncoding::Pwm);
+    assert_eq!(frame.data, "0A1B23");
+    assert_eq!(frame.address, Some(0x0_A1B2));
+    assert_eq!(frame.button, Some(3));
+    assert!(frame.repeats > 1, "repeats collapsed to {}", frame.repeats);
 }
 
 /// A wideband channel on a device that would have to resample is refused with an actionable

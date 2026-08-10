@@ -209,6 +209,14 @@ impl BitSync {
 
     /// Feed one sample; returns the sliced bit at each symbol instant.
     pub fn push(&mut self, sample: f32) -> Option<bool> {
+        self.push_soft(sample).map(|v| v >= 0.0)
+    }
+
+    /// Feed one sample; returns the *unsliced* value at each symbol instant. Codes with their
+    /// own error detection (the SITOR constant-ratio alphabet) combine two soft copies of a
+    /// character to recover one that neither copy carries on its own — a decision the slicer
+    /// throws away.
+    pub fn push_soft(&mut self, sample: f32) -> Option<f32> {
         let positive = sample >= 0.0;
         if self.primed && positive != self.positive {
             self.phase += CROSSING_NUDGE * (0.5 - self.phase);
@@ -223,7 +231,7 @@ impl BitSync {
         }
         self.phase -= 1.0;
         self.since_symbol = 0;
-        Some(positive)
+        Some(sample)
     }
 
     /// Samples since the last symbol instant — lets a decoder detect a gap in the carrier.
@@ -402,6 +410,18 @@ mod tests {
             let end = rx.len().saturating_sub(1);
             settle < end && (settle..end).all(|j| j + d < tx.len() && rx[j] == tx[j + d])
         })
+    }
+
+    /// A soft-decision decoder and a hard-decision one must slice the same instants, or a
+    /// decoder mixing them would combine values from different bits.
+    #[test]
+    fn soft_slices_agree_with_hard_ones_instant_for_instant() {
+        let samples = nrz(&bit_pattern(200, 0x0bad_c0de));
+        let mut hard = BitSync::new(RATE, BAUD);
+        let mut soft = BitSync::new(RATE, BAUD);
+        for &s in &samples {
+            assert_eq!(hard.push(s), soft.push_soft(s).map(|v| v >= 0.0));
+        }
     }
 
     #[test]

@@ -189,26 +189,57 @@ impl Envelope {
     }
 }
 
-/// Peak rises with the envelope almost immediately but decays over several Morse elements, so
-/// a dot's amplitude still sets the reference during the space that follows it.
-const PEAK_RISE_S: f64 = 5e-3;
-const PEAK_FALL_S: f64 = 0.5;
-/// The floor mirrors it: it drops into a key-up gap within one gap, and only creeps back up
-/// over a band-noise timescale.
-const FLOOR_FALL_S: f64 = 20e-3;
-const FLOOR_RISE_S: f64 = 1.0;
 /// Hysteresis as a fraction of the peak-to-floor span, applied either side of the midpoint.
 const HYSTERESIS: f32 = 0.1;
 /// Below this peak-to-floor ratio the "signal" is indistinguishable from a noise envelope's own
 /// crest factor (~3 for a lightly smoothed one), so the slicer refuses to key at all.
 const MIN_SNR: f32 = 6.0;
-/// Seeding both trackers from zero would let the floor climb on its own (slow) constant while
-/// the peak snaps to the input, faking a full-scale signal for the first second. Instead they
-/// start together at the loudest sample of a warm-up window — long enough for an upstream
-/// envelope follower to settle, far shorter than a Morse element.
-const WARMUP_S: f64 = FLOOR_FALL_S;
 
-/// Adaptive on/off threshold for a keyed envelope (CW): tracks slow noise-floor and peak
+/// Tracker time constants for [`KeyingSlicer`]. They are the only thing that differs between
+/// keying at Morse speed and keying at remote-control speed, so they are a value rather than
+/// a second copy of the slicer.
+#[derive(Clone, Copy, Debug)]
+pub struct KeyingTiming {
+    /// Peak rises with the envelope almost immediately…
+    pub peak_rise_s: f64,
+    /// …and decays over several elements, so one element's amplitude still sets the reference
+    /// during the gap that follows it.
+    pub peak_fall_s: f64,
+    /// The floor mirrors it: it drops into a key-up gap within one gap…
+    pub floor_fall_s: f64,
+    /// …and only creeps back up over a band-noise timescale.
+    pub floor_rise_s: f64,
+    /// Seeding both trackers from zero would let the floor climb on its own (slow) constant
+    /// while the peak snaps to the input, faking a full-scale signal at startup. Instead they
+    /// start together at the loudest sample of this window — long enough for an upstream
+    /// envelope follower to settle, far shorter than one keyed element.
+    pub warmup_s: f64,
+}
+
+impl KeyingTiming {
+    /// Hand-sent CW: elements are tens of milliseconds and gaps between words are seconds.
+    pub const MORSE: Self = Self {
+        peak_rise_s: 5e-3,
+        peak_fall_s: 0.5,
+        floor_fall_s: 20e-3,
+        floor_rise_s: 1.0,
+        warmup_s: 20e-3,
+    };
+
+    /// Short-burst keying (sub-GHz remotes and sensors): symbols are hundreds of microseconds
+    /// and a whole transmission is over in tens of milliseconds, so every constant is three
+    /// orders of magnitude shorter — the peak still has to survive the ~10 ms sync gap inside
+    /// one frame.
+    pub const BURST: Self = Self {
+        peak_rise_s: 100e-6,
+        peak_fall_s: 50e-3,
+        floor_fall_s: 2e-3,
+        floor_rise_s: 100e-3,
+        warmup_s: 2e-3,
+    };
+}
+
+/// Adaptive on/off threshold for a keyed envelope (CW, OOK): tracks slow noise-floor and peak
 /// estimates and slices halfway between them, with hysteresis.
 #[derive(Clone, Debug)]
 pub struct KeyingSlicer {
@@ -224,18 +255,24 @@ pub struct KeyingSlicer {
 }
 
 impl KeyingSlicer {
+    /// A slicer timed for hand-sent CW.
     #[must_use]
     pub fn new(sample_rate: f64) -> Self {
+        Self::with_timing(sample_rate, KeyingTiming::MORSE)
+    }
+
+    #[must_use]
+    pub fn with_timing(sample_rate: f64, timing: KeyingTiming) -> Self {
         assert!(sample_rate > 0.0, "sample rate must be positive");
-        let warmup_samples = (WARMUP_S * sample_rate).round().max(1.0) as u32;
+        let warmup_samples = (timing.warmup_s * sample_rate).round().max(1.0) as u32;
         Self {
             peak: 0.0,
             floor: 0.0,
             warmup_samples,
-            peak_rise: one_pole_coeff(sample_rate, PEAK_RISE_S),
-            peak_fall: one_pole_coeff(sample_rate, PEAK_FALL_S),
-            floor_rise: one_pole_coeff(sample_rate, FLOOR_RISE_S),
-            floor_fall: one_pole_coeff(sample_rate, FLOOR_FALL_S),
+            peak_rise: one_pole_coeff(sample_rate, timing.peak_rise_s),
+            peak_fall: one_pole_coeff(sample_rate, timing.peak_fall_s),
+            floor_rise: one_pole_coeff(sample_rate, timing.floor_rise_s),
+            floor_fall: one_pole_coeff(sample_rate, timing.floor_fall_s),
             warmup: warmup_samples,
             key: false,
         }

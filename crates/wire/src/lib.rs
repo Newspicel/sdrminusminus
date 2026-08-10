@@ -18,13 +18,14 @@ pub mod workspace;
 pub mod ws;
 
 pub use channel::{
-    AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, ChannelDescriptor,
-    ChannelInfo, ChannelParams, ChannelSettings, MorseParams, NfmParams, PocsagBaud, PocsagParams,
-    RttyParams, RttyStopBits, Sideband, SsbParams, WfmParams,
+    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams,
+    ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, MorseParams, NavtexParams,
+    NfmParams, PocsagBaud, PocsagParams, RttyParams, RttyStopBits, Sideband, SsbParams,
+    SubghzModulation, SubghzParams, WfmParams,
 };
 pub use decode::{
-    AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, MorseText, PocsagMessage,
-    PocsagPayload, RdsUpdate, RttyText,
+    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, MorseText,
+    NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame,
 };
 pub use device::{
     Capabilities, DeviceInfo, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
@@ -183,7 +184,10 @@ mod contract_tests {
     /// documented defaults — the client sends exactly that when adding a channel.
     #[test]
     fn decoder_params_default_from_empty_settings() {
-        use channel::{AdsbParams, AisParams, AprsParams, MorseParams, PocsagParams, RttyParams};
+        use channel::{
+            AcarsParams, AdsbParams, AisParams, AprsParams, MorseParams, NavtexParams,
+            PocsagParams, RttyParams, SubghzParams,
+        };
         for (json, expected) in [
             (
                 r#"{"type":"pocsag","settings":{}}"#,
@@ -208,6 +212,18 @@ mod contract_tests {
             (
                 r#"{"type":"morse","settings":{}}"#,
                 ChannelParams::Morse(MorseParams::default()),
+            ),
+            (
+                r#"{"type":"navtex","settings":{}}"#,
+                ChannelParams::Navtex(NavtexParams::default()),
+            ),
+            (
+                r#"{"type":"acars","settings":{}}"#,
+                ChannelParams::Acars(AcarsParams::default()),
+            ),
+            (
+                r#"{"type":"subghz","settings":{}}"#,
+                ChannelParams::Subghz(SubghzParams::default()),
             ),
         ] {
             let parsed: ChannelParams = serde_json::from_str(json).unwrap();
