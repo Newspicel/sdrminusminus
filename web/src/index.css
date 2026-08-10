@@ -88,8 +88,7 @@
 
   /* Numbers are compared column-wise and change in place: proportional figures would make a
      live value jitter horizontally, which is layout instability the operator did not cause. */
-  .font-mono,
-  input[type="number"] {
+  .font-mono {
     font-variant-numeric: tabular-nums slashed-zero;
   }
 
@@ -111,9 +110,6 @@
     scrollbar-color: var(--color-line-strong) transparent;
   }
 
-  /* Native widgets follow the theme rather than the OS, so a light-theme select does not stay
-     dark inside a light bar. */
-  select,
   input,
   textarea,
   button {
@@ -182,14 +178,6 @@
 .dv-theme-sdrmm .dv-dockview,
 .dv-dockview {
   height: 100%;
-}
-
-/* Sliders are primary tuning controls; on touch screens widen the hit area to ≥40px
-   (DESIGN.md §4: the target floor is absolute). */
-@media (pointer: coarse) {
-  input[type="range"] {
-    min-height: 2.5rem;
-  }
 }
 
 /* Reduced motion is a contract: the only motion in the UI is ≤120ms colour and opacity, and

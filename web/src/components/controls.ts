@@ -78,3 +78,7 @@ export function segment(selected: boolean): string {
       : "text-ink-dim hover:bg-panel-2 hover:text-ink")
   );
 }
+
+/** A choice list for `Select` and `Segmented`. Typed off the value union at the call site, so a
+ * renamed or added wire variant breaks here instead of shipping an option the server rejects. */
+export type Options<T> = readonly { value: T; label: string }[];

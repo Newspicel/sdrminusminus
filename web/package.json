@@ -13,6 +13,7 @@
     "format": "biome check --write ."
   },
   "dependencies": {
+    "@base-ui/react": "^1.7.0",
     "@tanstack/react-query": "5.101.4",
     "dockview-react": "7.0.4",
     "maplibre-gl": "6.2.0",

@@ -23,6 +23,7 @@ import {
   toQuery,
 } from "./decoderLog";
 import { formatMhz } from "./format";
+import { Select } from "./Select";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const CLEAR_ARM_MS = 3000;
@@ -98,33 +99,28 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          className={FIELD}
+        <Select
+          label="Decoder"
           value={filter.kind}
-          onChange={(e) => patch({ kind: e.target.value })}
-          aria-label="Decoder"
-        >
-          <option value="">All decoders</option>
-          {kindOptions(entries).map((k) => (
-            <option key={k} value={k}>
-              {kindLabel(k)}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: "", label: "All decoders" },
+            ...kindOptions(entries).map((k) => ({ value: k, label: kindLabel(k) })),
+          ]}
+          onChange={(kind) => patch({ kind })}
+        />
 
-        <select
-          className={FIELD}
+        <Select
+          label="Device set"
           value={filter.deviceSet}
-          onChange={(e) => patch({ deviceSet: e.target.value })}
-          aria-label="Device set"
-        >
-          <option value="">All devices</option>
-          {deviceSetOptions(entries, deviceSets).map((id) => (
-            <option key={id} value={String(id)}>
-              Set {id}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: "", label: "All devices" },
+            ...deviceSetOptions(entries, deviceSets).map((id) => ({
+              value: String(id),
+              label: `Set ${id}`,
+            })),
+          ]}
+          onChange={(deviceSet) => patch({ deviceSet })}
+        />
 
         <input
           className={`${FIELD} min-w-0 flex-1 text-sm`}
@@ -134,18 +130,12 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
           aria-label="Search decoder log"
         />
 
-        <select
-          className={FIELD}
-          value={String(filter.limit)}
-          onChange={(e) => patch({ limit: Number(e.target.value) })}
-          aria-label="Row limit"
-        >
-          {LIMIT_OPTIONS.map((n) => (
-            <option key={n} value={String(n)}>
-              {n} rows
-            </option>
-          ))}
-        </select>
+        <Select
+          label="Row limit"
+          value={filter.limit}
+          options={LIMIT_OPTIONS.map((n) => ({ value: n, label: `${n} rows` }))}
+          onChange={(limit) => patch({ limit })}
+        />
 
         <button
           type="button"

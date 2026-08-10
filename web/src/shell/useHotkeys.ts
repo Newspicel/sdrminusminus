@@ -122,7 +122,8 @@ function isActivatable(target: EventTarget | null): boolean {
 }
 
 /** A field being typed into owns every key it receives, and so does a control that has already
- * claimed the same keys — `data-hotkeys="off"` is how the dial keeps its own arrows. */
+ * claimed the same keys — `data-hotkeys="off"` is how the dial keeps its own arrows, and how
+ * every Base UI control that reads arrows, Home/End or typeahead letters keeps theirs. */
 function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -131,7 +132,6 @@ function isTyping(target: EventTarget | null): boolean {
     target.isContentEditable ||
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement ||
     target.closest('[data-hotkeys="off"]') !== null
   );
 }
