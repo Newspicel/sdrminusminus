@@ -9,42 +9,49 @@ is a deliberate no. Within each section, shipped comes first.
 ## 1. Platform & deployment
 
 - **[shipped]** Client–server split — Rust server does all DSP/decoding, React client renders
-- **[shipped]** Server is authoritative — every client (desktop window, browsers, scripts) sees the same state and converges over one WebSocket
-- **[shipped]** One frontend, two hosts — served by the server for browser access, and bundled into the Tauri desktop app
-- **[shipped]** Desktop app spawns an embedded local server *or* connects to a remote one; saved remote connections
-- **[shipped]** Run modes — single local app on a laptop, or server on a Raspberry Pi with the client anywhere on the LAN
-- **[shipped]** Linux (x86_64 + aarch64) and macOS (arm64); Raspberry Pi 4 is the performance floor
-- **[shipped]** Release artifacts just run — no C radio library linked, nothing to install for the default hardware
-- **[shipped]** `sdrmm --doctor` — reports what hardware was found and what needs fixing (udev rules, vendor daemons)
-- **[shipped]** Headless binary, Tauri desktop bundles, multi-arch Docker image (`--device /dev/bus/usb`)
+- **[shipped]** Server is authoritative — every client (browser, desktop window, MCP agent) sees the same state and converges over one WebSocket
+- **[shipped]** One frontend, two hosts — served by the server for browser access, and bundled into the Tauri v2 desktop shell
+- **[shipped]** Desktop app spawns an embedded server on an ephemeral loopback port (loopback-only, unauthenticated by design)
+- **[shipped]** Linux (x86_64 + aarch64) and macOS (arm64) release tarballs, multi-arch ghcr.io image and Tauri bundles, all built by a tag-triggered workflow
+- **[shipped]** Release artifacts just run — `xtask dist` produces a ~25 MB binary linking only IOKit/CoreFoundation/libiconv/libSystem: no libusb, no libSoapySDR, no libopus, no libsqlite
+- **[shipped]** `sdrmm --doctor` and `GET /api/doctor` — compiled backends, devices found, Linux udev/USB permissions with the fix, database and recordings-path writability, one shared report so CLI and UI cannot disagree
+- **[shipped]** mdBook docs site + Pages deploy
+- **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
+- **[planned]** Signed/notarised macOS bundles — the workflow ships them unsigned until Apple secrets exist
+- **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one; the Docker image is likewise built only by the tag workflow, never here
 - **[skipped]** Windows
-- **[skipped]** Mobile/phone layouts — desktop-only assumptions (pointer, keyboard, laptop viewport) allowed everywhere; the phone-as-remote-control case is gone
+- **[skipped]** Mobile/phone layouts — every mobile path was deleted with the M6 shell; pointer, keyboard and laptop-class viewport are assumed everywhere
 
 ## 2. Device support
 
-- **[shipped]** RTL-SDR — native in-tree driver (RTL2832U + R82xx) over pure-Rust USB
-- **[shipped]** HackRF — native in-tree driver, both directions on the transport
-- **[shipped]** SoapySDR backend as optional extra coverage: airspy, airspyhf, bladeRF 1/2, FUNcube Pro(+), Fobos, LimeSDR, Perseus, PlutoSDR, SDRplay (v3), USRP, XTRX, Aaronia RTSA — availability varies by platform
-- **[shipped]** Virtual devices — file input, SigMF file input, test source / signal generator
-- **[shipped]** Auto-rendered device UI — frequency ranges, sample rates, named gain stages, antennas, bandwidths and typed extra settings come from the device's capability model; a new setting needs zero frontend work
-- **[shipped]** Native driver wins over Soapy for the same physical radio; duplicates collapsed by serial
-- **[shipped]** Stream reliability — in-place restart supervisor (~1–7 ms) and silent-stall detection before anything destructive happens
-- **[shipped]** PPM frequency correction
-- **[planned]** Direct sampling (HF via RTL-SDR)
+- **[shipped]** RTL-SDR — in-tree driver (RTL2832U registers, I²C bridge, R82xx tuner) over the shared pure-Rust USB transport. Verified on a Nooelec NESDR SMArt v5: enumerate, tune, rate, 29-step gain snapping, tuner AGC, bias-T, 45 s at 2.048 and 2.4 MS/s under 16 spinning threads with zero overruns and zero dropped transfers
+- **[shipped]** HackRF One — in-tree driver, both directions. Verified at 20 Msps with zero overruns, per-stage LNA (8 dB) / VGA (2 dB) gains checked against the radio's own noise floor rather than the API, amp and bias-T, off-grid gain requests snapped *and reported* at the snapped value
+- **[shipped]** PPM frequency correction — both halves (resampler registers and the tuner's crystal re-tune), verified against a real carrier at ±200 ppm
+- **[shipped]** SoapySDR backend as optional extra coverage — airspy, airspyhf, bladeRF 1/2, FUNcube Pro(+), Fobos, LimeSDR, Perseus, PlutoSDR, SDRplay (v3), USRP, XTRX, Aaronia RTSA. The contract is tested against fabricated capability data; no radio but RTL-SDR and HackRF has been attached
+- **[shipped]** Virtual devices — signal generator (tones, drifting sweep, noise, phase-continuous NFM/AM/WFM test carriers), file playback, SigMF file playback
+- **[shipped]** Auto-rendered device UI — frequency ranges, discrete or continuous sample rates, per-stage gains, antennas, bandwidths and typed extra settings all come from the capability model; a new setting needs zero frontend code
+- **[shipped]** Native drivers rank above Soapy in the serial merge; duplicates collapse by serial
+- **[shipped]** Hotplug detection by filtered re-enumeration + engine probe cross-check, with the fault path releasing the device so a replug can re-open it
+- **[shipped]** Auto-reconnect on replug — a faulted set whose radio re-enumerates is re-opened, its tuning re-applied and its channels rebuilt with ids, PCM identity and live audio subscriptions preserved
+- **[shipped]** Two-tier recovery — an in-place stream restart (measured 6.1–7.6 ms on the RTL-SDR, 0.8–1.2 ms on the HackRF, against ~1.6 s for a re-open) with a silent-stall detector on both radios, falling back to the engine's destructive fault path only when the restart budget is spent. Proven in three pieces (policy, transport, primitive); never yet driven by a genuinely halted pipe
+- **[shipped]** Soapy-free builds are a CI gate (`--no-default-features --features rtl-native,hackrf-native`)
+- **[planned]** Direct sampling (HF via RTL-SDR) — unblocked by owning the driver, not yet built
+- **[planned]** HackRF independent baseband-filter bandwidth and hardware sweep mode — currently rejected honestly rather than advertised and faked; Soapy covers them
 - **[planned]** rtl_tcp / SpyServer client device
 - **[planned]** KiwiSDR client device
 - **[planned]** Remote source/sink between sdr-- instances; local routing between device sets
 - **[planned]** Audio-input device (`cpal`) — soundcard as a receiver
-- **[planned]** rtl_tcp *server* (remote TCP sink) — serve your radio to other tools
+- **[planned]** rtl_tcp *server* (remote TCP sink)
 - **[skipped]** Android SDR driver input
 
 ## 3. Many radios at once & coherent arrays
 
-- **[shipped]** Unlimited simultaneous device sets — several radios open and running side by side
+- **[shipped]** Unlimited simultaneous device sets, each with its own DSP thread, channels and recorder; both radios have been run together on the bench
+- **[shipped]** Spatial identity for them — a device node names `backend + serial` (with a key tie-break only where a backend exposes no serial), and an absent radio is a visibly disconnected node, never a silent rebind
 - **[planned]** Cross-device features: a scanner spanning devices, multi-VOR fix, diversity
 - **[planned]** `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output
 - **[planned]** KrakenSDR support — via its Heimdall DAQ network stream first, direct hardware drive later
-- **[planned]** Generic synced bank — any N receivers on a shared reference clock (future multi-channel boards, USRP MIMO, phase-locked RTL/Airspy banks)
+- **[planned]** Generic synced bank — any N receivers on a shared reference clock
 - **[planned]** Network coherent source — aligned multi-lane IQ from another sdr-- node or a DAQ
 - **[planned]** Direction finding (MUSIC/ESPRIT) with bearings on the map; multi-station triangulation
 - **[planned]** Passive radar (range-Doppler)
@@ -54,221 +61,230 @@ is a deliberate no. Within each section, shipped comes first.
 
 ## 4. Spectrum, tuning & navigation
 
-- **[shipped]** Live spectrum + waterfall with averaging and peak hold, throttled per client
-- **[shipped]** Frequency manager: presets, bookmarks
-- **[shipped]** Frequency scanner — one dwell measures every target inside the passband; a running scan owns its device's tuning
-- **[shipped]** Wideband sweep (HackRF) driving the scanner
-- **[planned]** Frequency tracker / AFC — lock a channel onto a drifting signal
-- **[planned]** Channel power meter (RSSI + logging)
-- **[planned]** Heat map channel
+- **[shipped]** Live spectrum + waterfall (WebGL2, one shared context for every scope face, off-screen views skipped, zoom-adjusted DPR), per-connection throttling
+- **[shipped]** Several scope faces at once — spectrum subscriptions are refcounted per device set and the socket fans to a listener set
+- **[shipped]** Plot gestures — wheel zoom about the cursor as a fixed point, drag to pan, click to tune, double-click to re-centre, marker drag to move a channel, frequency and dB axes on a 1-2-5 ladder that refines as you zoom
+- **[shipped]** Max-hold, a draggable trace/waterfall split, and five luminance-monotone colormaps (magma, inferno, plasma, viridis, gray)
+- **[shipped]** Digit-scrollable frequency dial — ten place-value targets, wheel/arrows/typing/direct entry (`145.5`, `433800k`, `2.4g`), clamped to the radio's range
+- **[shipped]** Keyboard-first operation — tune, tune step, mode, squelch, audio, channel and view switching, with a `?` overlay rendering the same table the handler switches on
+- **[shipped]** Frequency manager: presets and bookmarks
+- **[shipped]** Frequency scanner — targets grouped into passband-sized tunings so one dwell measures every target in the passband, peak-hold over the dwell, post-retune settle and drain, hold-and-resume that parks a channel on the hit, and exclusive ownership of the set's centre frequency while it runs. Swept 88–108 MHz (201 targets) on both radios and held on real stations
+- **[planned]** Hardware-assisted wideband sweep — today's scanner sweeps by retuning; the HackRF's own sweep mode is not driven
 - **[planned]** Strongest-signal "close-call" finder
-- **[planned]** Signal-strength **hunt mode** — Geiger-style audio/visual feedback as you close on a transmitter (fox-hunting, rogue emitters)
-- **[planned]** 3D spectrogram view (WebGL)
-- **[planned]** Band occupancy analytics — long-term activity heatmaps from scanner and heat-map data
+- **[planned]** Signal-strength **hunt mode** — Geiger-style audio/visual feedback as you close on a transmitter
+- **[planned]** Percentile-anchored waterfall colour range — the range is the frame's own min…max today, so a high noise floor washes the display out
+- **[planned]** Server-side zoom — zooming re-frames bins that already arrived rather than resolving finer; the readout is honest about it
+- **[planned]** Pinch-zoom on touch pointers
+- **[planned]** 3D spectrogram view
+- **[planned]** Band occupancy analytics over time
 
 ## 5. Frequency-allocation database — "what is this frequency?"
+
+Nothing here is built; the dial and the plot were built so it can hang off them without rework.
 
 - **[planned]** Band-plan / allocation layer overlaid on the spectrum and searchable
 - **[planned]** Layered scopes, most-specific-wins: **World** (ITU Regions 1/2/3 + global services) → **Germany** (BNetzA Frequenzplan) → **US** (FCC), **UK** (Ofcom), EU CEPT and more as pluggable importers
 - **[planned]** Region chosen in settings or auto-selected from GPS
-- **[planned]** Band ruler under the spectrum with colored allocation blocks
-- **[planned]** Click-to-identify popover — service name, allocation, suggested mode, channel step, notes
-- **[planned]** Searchable **band explorer** ("show me marine VHF", "70 cm ham")
+- **[planned]** Band ruler with colored allocation blocks; click-to-identify popover (service, allocation, suggested mode, channel step, notes)
+- **[planned]** Searchable band explorer ("show me marine VHF", "70 cm ham")
 - **[planned]** One-click "tune here with the suggested mode"
-- **[planned]** Amateur band plans (IARU R1) as an overlay
-- **[planned]** User-extendable and override-able entries, layered over the shipped set
-- **[planned]** Re-runnable importers with per-row provenance (source, version, retrieval date)
+- **[planned]** Amateur band plans (IARU R1) overlay
+- **[planned]** User-extendable and override-able entries; re-runnable importers with per-row provenance
 - **[planned]** Community overlays, "band plan of the day"
 
 ## 6. Recording, capture & replay
 
-- **[shipped]** Device-level SigMF recorder (lossless), files on disk as the source of truth
-- **[shipped]** Recordings index, reconciled against the files
-- **[shipped]** Decoder log persisted server-side, queryable rather than scroll-back-only
-- **[shipped]** Decoder log export (CSV/JSON) as a plain download
-- **[planned]** Per-channel sinks — audio recording, baseband file (SigMF/raw), UDP out to external tools (multimon-ng, rtl_433 …)
-- **[planned]** RF replay-capture — record the exact IQ of a burst (garage remote, sensor), annotate and analyze it
-- **[planned]** **IQ time machine** — rolling per-device ring buffer, retro-record the last N seconds *after* you hear something
-- **[planned]** Inspectrum-style offline IQ viewer in the browser — zoomable spectrogram, cursors, symbol/measurement tools
-- **[planned]** Annotated recordings — label events on a capture's timeline
-- **[planned]** Recording scheduler + unattended satellite-pass automation
-- **[planned]** Wideband recording + offline re-channelization — record a band once, mine channels from it later
-- **[planned]** Session/replay sharing — recording + workspace + annotations as one openable bundle
+- **[shipped]** Device-level SigMF v1.2.6 recorder — lossless DSP-thread tap, crash-safe breadcrumb-then-atomic-finalize lifecycle, atomic stem claiming, sample-count-exact `start_sample`, centre retunes recorded as capture segments, ring overruns counted into the status
+- **[shipped]** Recordings finalized on device fault, set removal and process exit; a writer fault surfaces as a hard error instead of a silent drop
+- **[shipped]** Recordings browser — rate, duration, size, guarded delete, and Play as the ordinary device-open flow (a finalized recording probes as a device, so replay needed no new endpoints)
+- **[shipped]** Files on disk are the source of truth; the SQLite index reconciles against them, serialized against delete and stop
+- **[shipped]** Decoder log persisted server-side — indexed, composable filters (kind, set, time window, free text, limit), batched writer with a retry queue and periodic prune, and lag/overflow reported as a visible `dropped` count
+- **[shipped]** Decoder log export as a real CSV/JSON download with RFC4180 quoting
+- **[shipped]** Recorder as a node face, gated on its receiver running, with a live elapsed/size/overruns readout
+- **[planned]** Per-channel sinks — audio recording, baseband file, UDP out to external tools
+- **[planned]** RF replay-capture workflow — record a burst, annotate it, analyze it
+- **[planned]** **IQ time machine** — rolling ring buffer, retro-record the last N seconds after the fact
+- **[planned]** Inspectrum-style offline IQ viewer in the browser
+- **[planned]** Annotated recordings; recording scheduler + unattended satellite-pass automation
+- **[planned]** Wideband recording + offline re-channelization
+- **[planned]** Session/replay sharing as one openable bundle
 
 ## 7. UI, workspaces & onboarding
 
-- **[shipped]** Patch-graph canvas + pin-board rack — devices are labelled nodes, wires answer "which SDR is this?" spatially
-- **[shipped]** Stable device identity — nodes name a backend + serial; an absent device is a visibly disconnected node, never a silent rebind
-- **[shipped]** Workspaces ("stations") that apply **additively** — loading one opens the radios it names and creates the channels it draws, and never closes or deletes anyone else's work; survives a restart
-- **[shipped]** Canvas refuses invalid wiring — e.g. an ADS-B channel onto a 2.4 Msps receiver, using the same rate rule the engine enforces
-- **[shipped]** Generic schema-rendered settings forms for any channel without a dedicated panel
-- **[shipped]** Dedicated panels where they earn it (ADS-B table + map, RDS display, …)
-- **[shipped]** MapLibre map
-- **[planned]** Template gallery + first-run wizard + beginner band-plan explorer
-- **[planned]** "Sub-GHz workbench" template — OOK/FSK channel + capture + decoder log in one click
-- **[planned]** Map layers — sondes, satellites, beacons, MUF
-- **[planned]** Theme/skin system and a layout marketplace for shared workspaces
+- **[shipped]** Patch-graph canvas — every radio, channel, scope, map, speaker, log, recorder, export and scanner is a node; wiring is the UI; the palette and its ports are served from the server's catalog so a new node kind needs no frontend edit
+- **[shipped]** Node faces sized to their instrument, opened framed (`fitView`), active-on-click so the wheel tunes the dial *or* pans the patch but never both
+- **[shipped]** Pin-board rack (12×8) — pin a face, drag a boundary and neighbours give up exactly what it takes, drop a face on another and they trade places
+- **[shipped]** Right-click menu: pin, reset size, cut a wire, fit the patch
+- **[shipped]** Workspaces that apply **additively and idempotently** — loading a station opens the radios it names and creates the channels it draws, never closing or deleting anyone else's work; what it cannot satisfy is reported (`absent`, `refused` with the engine's reason) rather than skipped
+- **[shipped]** Revision-checked workspace writes with serialized edits, so an idle browser cannot overwrite the layout someone is arranging
+- **[shipped]** The canvas refuses invalid wiring where it is drawn — an ADS-B wire onto a 2.4 Msps receiver names the rate that works, using the same rule the engine enforces rather than a second copy of it
+- **[shipped]** A radio's left side is what is done *to* it — `control` in (the scanner owns the tuning, one wire), `tx` in (reserved, inert, refuses every wire with the server's own reason), `iq` out
+- **[shipped]** Template gallery — eight built-in stations (FM·RDS, airband, ADS-B, AIS, APRS, POCSAG, 2 m, marine VHF) with explainers, each validated to fit its own passband, re-applying replaces rather than stacks
+- **[shipped]** Library drawer for the things that are not nodes — presets, bookmarks, templates, recordings — scoped to the radios this patch binds
+- **[shipped]** Generic schema-rendered settings forms for anything without a dedicated face; decoder output renders on the channel's own face
+- **[shipped]** MapLibre map (OpenFreeMap, no API key) with a themed fallback, plotting only the decoders wired into it, GeoJSON updated on a throttled tick
+- **[shipped]** `DESIGN.md` as a binding rulebook — OKLCH role table, contrast measured in both themes, achromatic plot overlays, type/spacing/density/motion ladders
+- **[shipped]** Dark, light and auto themes (per browser, not synced — a theme belongs to the eye, not the station)
+- **[shipped]** Errors as a dismissible toast stack rather than a banner that shoves every panel down
+- **[shipped]** Playwright smoke flow (`xtask smoke`) driving the built UI against a real server
+- **[planned]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them
+- **[planned]** A first-run wizard — M5's shipped and was folded into empty states by the design pass; the canvas has no guided first run
+- **[planned]** Band-plan explorer (§5)
+- **[planned]** Node kinds whose backends do not exist yet: GPS source, UDP sink, WAV sink, and the `iq-tap`/`position` port types that go with them
+- **[planned]** A scope on a channel tap — a scope only takes a device today
+- **[planned]** Theme/skin system and a layout marketplace
 - **[planned]** Accessibility pass — screen-reader labels, high contrast, audio cues
-- **[planned]** Localization (DE/EN first), pairing with per-region frequency plans
-- **[skipped]** Big-frequency readout as a separate feature — it's just part of the normal UI
-- **[skipped]** Jog-dial controller — keyboard and scroll-wheel tuning cover it
+- **[planned]** Localization (DE/EN first)
 
 ## 8. Voice & analog channels
 
-- **[shipped]** AM
-- **[shipped]** NFM
-- **[shipped]** SSB
-- **[shipped]** WFM (mono)
-- **[shipped]** RDS — a parameter of the WFM channel, not a second channel type
-- **[planned]** WFM **stereo** — two-channel PCM/Opus/AudioWorklet path
+- **[shipped]** AM, NFM, SSB (USB/LSB), WFM mono — DDC → mode-aware complex channel filter → squelch → demod → 48 kHz PCM
+- **[shipped]** Squelch (power + hysteresis + hold, measured on the filtered channel so a threshold means the same thing across modes), AGC, de-emphasis, DC blocking
+- **[shipped]** Mode changed in place on a live channel, keeping audio subscribers
+- **[shipped]** RDS — 19 kHz pilot PLL → 3rd harmonic → symbol sync → differential decode → offset-word block sync; groups 0A/0B (PS, TP/TA/MS, AF), 2A/2B (RadioText), PTY; emitted only when a field changes. **It decodes the synthesized fixture completely and has never decoded off air** — six real stations on two radios produced nothing, reproduced deterministically from a committed-out 8 s capture; the leading (untested) hypothesis is the stereo L−R subcarrier sitting against 57 kHz
+- **[planned]** WFM **stereo** — the audio path becomes two-channel end to end (PCM, Opus, frame layout, worklet)
 - **[planned]** ATV (analog TV)
 - **[planned]** Notch and audio filters per channel
-- **[planned]** CTCSS/DCS detection on NFM
-- **[planned]** Selcall (CCIR/ZVEI)
+- **[planned]** CTCSS/DCS detection on NFM; Selcall (CCIR/ZVEI)
 
 ## 9. Digital voice
 
 - **[planned]** **DSD suite — DMR, D-Star, YSF, NXDN, P25, dPMR — default-on, voice included**
-- **[planned]** M17 (fully open protocol)
-- **[planned]** FreeDV (Codec2 modes + FDMDV modems)
-- **[planned]** Trunking following — decode the P25 / DMR Tier III control channel and auto-steer voice channels, multi-dongle aware
-- **[planned]** Hardware AMBE dongle/server support — optional, mbelib covers the software path
+- **[planned]** M17, FreeDV
+- **[planned]** Trunking following — P25 / DMR Tier III control channel decode with auto-steered voice channels
+- **[planned]** Hardware AMBE dongle/server support
 
 ## 10. Aviation & marine
 
-- **[shipped]** ADS-B + map — runs at whatever rate the receiver is set to (2–4 MHz), so any RTL-SDR works
-- **[shipped]** AIS + map
-- **[shipped]** ACARS — strict, repairs nothing: parity and the ARINC 618 CRC both pass or the block is dropped
-- **[shipped]** NAVTEX (SITOR-B) — emits only what sits between `ZCZC` and `NNNN`
-- **[planned]** VOR
-- **[planned]** VOR localizer — multi-VOR position fix on the map
-- **[planned]** ILS
-- **[planned]** DSC
+- **[shipped]** ADS-B + map — level-relative preamble correlation, Mode S CRC-24 with single-bit repair, DF17/18 only, identification, airborne/surface CPR position, velocity, Gillham and 25 ft altitude, bounded per-ICAO CPR cache
+- **[shipped]** ADS-B at **any receiver rate 2–4 MHz** — the decoder meets the radio instead of the radio meeting the decoder: per-chip half-chip boundaries, eight sub-sample phase tables arbitrated by the CRC, and overlap-weighted energy per half-chip. Measured 0% → 100% at 2.048 Msps off-grid and band-limited (98% at 34 dB SNR); 2.000 Msps keeps a physical half-sample blind spot that real 2.048 receivers do not have
+- **[shipped]** AIS + map — GMSK via discriminator and Gaussian matched filter, NRZI + HDLC + CRC-16/X-25, types 1/2/3/5/18/24, `!AIVDM` output
+- **[shipped]** ACARS — MSK on an AM carrier, mirrored-spectrum tolerant, strict validation: character parity *and* the ARINC 618 CRC both pass or the block is dropped, uplink/downlink field layouts distinguished
+- **[shipped]** NAVTEX / SITOR-B — CCIR 476 constant-ratio alphabet as a code→ITA2 map over the RTTY tables, mode-B time diversity repairing a character neither copy carries alone, `ZCZC`…`NNNN` framing so idle phasing never reaches the log
+- **[planned]** VOR, VOR localizer (multi-VOR fix), ILS, DSC
 - **[planned]** Inmarsat STD-C / AERO
-- **[planned]** VDL Mode 2 (D8PSK 31.5k, the ACARS successor)
-- **[planned]** HFDL, Iridium bursts
+- **[planned]** VDL Mode 2; HFDL; Iridium bursts
 - **[planned]** ADS-B / AIS log enrichment against offline aircraft and ship databases
+- **[planned]** **Off-air proof for all four shipped decoders** — every one is verified against its specification via an independently-written reference modulator, and none has yet decoded a real signal
 
 ## 11. Data, text & paging
 
-- **[shipped]** POCSAG paging
-- **[shipped]** RTTY
-- **[shipped]** Morse decoder
-- **[shipped]** AX.25 / APRS channel
-- **[planned]** Mic-E position encoding — the one AX.25 form still undecoded
+- **[shipped]** POCSAG — per-candidate-rate bit clocks where the rate that finds frame sync takes the lock, BCH corrections counted, numeric and alphanumeric bodies, 512/1200/2400 detected per transmission
+- **[shipped]** RTTY — ITA2 with LTRS/FIGS and unshift-on-space, start/stop framing with stop-bit rejection, 45.45/50/75 baud, 170/450/850 Hz shifts
+- **[shipped]** Morse — envelope + adaptive keying slicer, element/gap clustering that tracks sending speed, unknown sequences surface as `*` rather than vanishing, pure noise decodes to nothing
+- **[shipped]** APRS / AX.25 — AFSK1200 and 9600 G3RUH, SSIDs and the has-been-repeated flag, TNC2 line, uncompressed and base-91 compressed positions, course/speed, `/A=` altitude
+- **[planned]** Mic-E position encoding — the one AX.25 form still undecoded (it yields a valid packet with no position rather than a wrong one)
 - **[planned]** APRS *feature* — station/position collection, distinct from the channel
-- **[planned]** FLEX (and further pager formats), ERMES
-- **[planned]** CW skimmer — decode every CW signal in the passband at once
-- **[planned]** Tetrapol, STANAG modem identification, GSM downlink analysis (grgsm-style), OsmocomBB-style monitoring
+- **[planned]** FLEX and further pager formats, ERMES
+- **[planned]** CW skimmer — every CW signal in the passband at once
+- **[planned]** Tetrapol, STANAG modem ID, GSM downlink analysis, OsmocomBB-style monitoring
+- **[planned]** Off-air proof — as above, all four are specification-proven only
 
 ## 12. Sub-GHz, ISM & IoT
 
-- **[shipped]** **Generic sub-GHz OOK/ASK/FSK capture-and-decode channel** (315/433/868/915 MHz — garage doors, TPMS, weather stations, doorbells, key fobs): recognizes pulse-width (PT2262/EV1527/Princeton family) and Manchester encodings, logs frames, raw timing capture for unknown signals. Names no chip — a frame carries every reading that fits and the operator decides. Repeats inside 500 ms collapse into one counted event
-- **[planned]** ISM sensor suite (rtl_433-style: weather stations, TPMS, utility meters — top protocols); escape hatch is a UDP sink into the rtl_433 binary
-- **[planned]** ChirpChat / LoRa
-- **[planned]** Meshtastic (on the ChirpChat engine)
-- **[planned]** MeshCore
+- **[shipped]** **Generic sub-GHz OOK/ASK/FSK capture-and-decode channel** — 250 kHz channel 150 kHz flat by default (these transmitters sit tens of kHz off nominal), OOK through an adaptive envelope slicer and FSK through a discriminator against a tracked level, then shared debounced edge timing, base-period estimation and classification. Pulse-width and Manchester recognized; unknown signals come back as raw edge timings you can still look at
+- **[shipped]** No chip is named — a 24-bit frame carries both the EV1527 reading (address + button) and the PT2262 tri-state string where every bit pair is a legal symbol
+- **[shipped]** Repeats inside 500 ms collapse into one counted event, and a better-classified frame supersedes a held one only while that one is a single sighting — which is what stops a capture that started mid-burst from logging its fragment
+- **[planned]** Rolling-code *analysis* — a KeeLoq-style remote decodes today as a structureless 66-bit PWM frame; analysis is gated TX-phase work (§20)
+- **[planned]** Protocol library — the encoding is classified and the bits handed back; a table of known payload layouts (weather stations, TPMS, meters) is data work, not DSP
+- **[planned]** ISM sensor suite (rtl_433-style); escape hatch is a UDP sink into the rtl_433 binary
+- **[planned]** ChirpChat / LoRa, Meshtastic, MeshCore
 - **[planned]** End-of-Train (EOT) telemetry
-- **[planned]** Growing sub-GHz protocol library (Flipper-style)
 - **[planned]** LoRaWAN frame parsing
-- **[planned]** BLE advertisements, 2.4 GHz survey (HackRF), Wi-Fi channel occupancy (energy only)
+- **[planned]** BLE advertisements, 2.4 GHz survey, Wi-Fi channel occupancy (energy only)
+- **[planned]** Off-air proof — never yet tested against a real remote
 
 ## 13. Weather, satellite & imaging
 
-- **[planned]** NOAA APT
-- **[planned]** Meteor M-2 LRPT (QPSK, Viterbi + RS)
-- **[planned]** Radiosonde (RS41 …) + radiosonde map/log feature; later DFM, M10/M20, iMet
-- **[planned]** HF WEFAX — needs an `IMAGE` binary frame kind, a server-side page store and a canvas panel first
-- **[planned]** SSTV RX
-- **[planned]** APRS weather aggregation
+- **[planned]** NOAA APT; Meteor M-2 LRPT
+- **[planned]** Radiosonde (RS41 …) + map/log feature; later DFM, M10/M20, iMet
+- **[planned]** HF WEFAX — the DSP is the easy half; it needs an `IMAGE` binary frame kind, a server-side page store and a canvas panel first, which is a transport decision and not a decoder
+- **[planned]** SSTV RX; APRS weather aggregation
 
 ## 14. Broadcast & wideband digital
 
-- **[planned]** DAB / DAB+ (OFDM + Viterbi + RS, HE-AAC audio)
+- **[planned]** DAB / DAB+
 - **[planned]** DATV (DVB-S / S2)
 - **[planned]** TETRA
 - **[planned]** DRM30 / DRM+
 
 ## 15. Amateur & weak-signal
 
-- **[planned]** FT8 / FT4 (LDPC(174,91) + 8-GFSK)
-- **[planned]** PSK31 / PSK63
-- **[planned]** WSPR
+- **[planned]** FT8 / FT4
+- **[planned]** PSK31 / PSK63; WSPR
 - **[planned]** Radio clock (DCF77 / WWVB / MSF / JJY)
 
 ## 16. Analysis & measurement
 
-- **[planned]** Channel analyzer — scope, constellation
-- **[planned]** Demod analyzer — scope/spectrum on demodulated audio
-- **[planned]** Noise figure measurement
-- **[planned]** PER tester
-- **[planned]** SID monitor
-- **[planned]** Radio astronomy — integrating radiometer, spectral line
-- **[planned]** Star tracker
-- **[planned]** Sky map — celestial view, client-side render
-- **[planned]** **Signal-ID assistant** — snapshot spectrum/audio and match against a signal catalog (sigidwiki-style), later an ML classifier
-- **[planned]** GNSS educational decode — GPS L1 C/A acquisition + ephemeris (learning tool, not navigation)
+- **[planned]** Channel analyzer (scope, constellation) — also the prerequisite for wiring a scope to a channel tap
+- **[planned]** Demod analyzer; channel power meter; heat map channel
+- **[planned]** Noise figure; PER tester; SID monitor
+- **[planned]** Radio astronomy; star tracker; sky map
+- **[planned]** Signal-ID assistant — match a spectrum/audio snapshot against a signal catalog, later an ML classifier
+- **[planned]** GNSS educational decode
 
 ## 17. Audio processing
 
-- **[shipped]** Opus-encoded audio to the browser with jitter buffering and gesture unlock
-- **[planned]** Spectral noise reduction, noise blanker, auto-notch, AGC — available in **every** voice channel as advanced audio processing, not a separate channel type
-- **[planned]** Adaptive/auto DSP — auto-notch, auto-squelch, auto-gain, click/noise removal per mode
+- **[shipped]** Opus audio to the browser and desktop — per-channel encoder threads, WebCodecs fast path with a WASM fallback, AudioWorklet jitter buffer (100 ms target, underrun rebuffer, 400 ms drop-oldest), per-channel gain, gesture-unlocked context, auto-resubscribe on reconnect, timestamp-gap loss detection
+- **[shipped]** Speaker node — client-side mixing across every channel wired into it
+- **[planned]** Spectral noise reduction, noise blanker, auto-notch, AGC as advanced processing inside **every** voice channel rather than a separate channel type
+- **[planned]** Adaptive/auto DSP — auto-notch, auto-squelch, auto-gain, per-mode click and noise removal
 
 ## 18. Station services & hardware integration
 
-- **[planned]** Satellite tracker — TLE fetch, pass prediction, Doppler correction of linked channels
-- **[planned]** Rotator control (GS-232, rotctld)
-- **[planned]** rigctld-compatible rig control server
-- **[planned]** GPS position source (gpsd / NMEA serial) — live station position for maps and trackers, geotagged mobile heat map for drive-around coverage, automatic grid locator, geotagged recordings
-- **[planned]** NanoVNA integration over USB serial — antenna sweeps, SWR and Smith-chart panels, saved antenna profiles
-- **[planned]** Antenna tools — dipole / λ calculators
-- **[planned]** TinySA import, RTL-SDR-Blog / Airspy bias-T presets, Hamlib CAT control to slave a real radio
-- **[skipped]** LimeRFE-specific control (reachable via Soapy settings if ever)
+- **[planned]** Satellite tracker (TLE fetch, pass prediction, Doppler-corrected channels)
+- **[planned]** Rotator control (GS-232, rotctld); rigctld-compatible rig control server
+- **[planned]** GPS position source (gpsd / NMEA) — station position for maps and trackers, geotagged mobile heat map, auto grid locator, geotagged recordings
+- **[planned]** NanoVNA over USB serial — sweeps, SWR and Smith-chart panels, saved antenna profiles
+- **[planned]** Antenna calculators
+- **[planned]** Map layers — sondes, satellites, beacons, MUF
+- **[planned]** TinySA import, bias-T presets, Hamlib CAT control
 
 ## 19. API, automation & access
 
-- **[shipped]** REST control API with OpenAPI schema and generated typed client
-- **[shipped]** One WebSocket for state events (JSON) plus binary spectrum, audio and IQ-tap streams
-- **[shipped]** **MCP server** at `/mcp` (stateless streamable HTTP) — AI/agent control of the radio
-- **[shipped]** Optional single shared token over REST, WS and MCP alike; accepted as a Bearer header or `?token=`. Public: auth, OpenAPI schema and docs endpoints
-- **[shipped]** Default LAN-trusted posture (bind `0.0.0.0`, no auth), same as SDRangel/rtl_tcp; CORS locked to same-origin
-- **[shipped]** Config via `config.toml`, flags and env: port, bind address, token, paths, backend options
-- **[planned]** Python-and-friends scripting on the existing REST + MCP surface, with shipped recipes (scanner bots, "ping me when this callsign/ICAO appears")
+- **[shipped]** REST control API with OpenAPI schema, generated typed client, and a codegen-drift gate — no hand-written frontend DTOs anywhere
+- **[shipped]** One WebSocket: JSON state events plus binary spectrum, audio and decoder frames, with drop-oldest backpressure, per-connection throttling, and lag surfaced as a typed loss count instead of a silent gap
+- **[shipped]** **MCP server** at `/mcp` — `rmcp` streamable HTTP, stateless, 13 tools over the same engine calls REST uses (state, devices, channel types, open/close, tune, add/remove channel, scan, record, decoder-log query, spectrum snapshot), with channel settings built through the wire enum so no parallel settings model exists
+- **[shipped]** Optional shared token over REST, WS and MCP alike — Bearer header *or* `?token=` (the browser WS API cannot set headers), constant-time comparison, one middleware, and auth/OpenAPI/docs endpoints public because they describe the API's shape and never its data
+- **[shipped]** Default LAN-trusted posture (bind `0.0.0.0`, no auth), same-origin CORS
+- **[shipped]** Multi-client polish — connection count surfaced in the UI, decoder frames serialized once for the whole server, WS reconnect backoff 1 s → 30 s, a 401 forgetting a stale token and asking again
+- **[shipped]** Config via `config.toml`, flags and env (`SDRMM_TOKEN` so a token need not appear in the process list)
+- **[planned]** Scripting recipes on the existing REST + MCP surface (scanner bots, "ping me when this callsign appears")
 - **[planned]** Alerting/notifications — rule engine on decoder events → desktop, push, webhook
-- **[planned]** Plugin SDK via WASM (wasmtime) — third-party decoders and panels
-- **[planned]** Multi-user roles (viewer vs operator)
-- **[planned]** Cloud/remote fleet — one client managing several remote Pi nodes on a map of your receivers
-- **[planned]** Offline reference bundles — band plans, TLE snapshots, callsign prefixes, ISM protocol catalog, PMTiles maps for field use
-- **[skipped]** TLS termination — reverse-proxy or VPN it (Tailscale et al.)
+- **[planned]** Plugin SDK via WASM
+- **[planned]** Multi-user roles; remote fleet management across several Pi nodes
+- **[planned]** Offline reference bundles — band plans, TLE snapshots, callsign prefixes, PMTiles maps
+- **[skipped]** TLS termination — reverse-proxy or VPN it
 
 ## 20. Transmit & RF security research
 
-A general-purpose, legitimate transmit and RF-research toolkit. These are test instruments for
-*contained, authorized* assessment — direct-connect, dummy load or shielded — against devices
-you are authorized to test. 
+A general-purpose, legitimate transmit and RF-research toolkit, behind a default-off
+"controlled RF environment / authorized test" gate. Test instruments for *contained, authorized*
+assessment — direct-connect, dummy load or shielded — against devices you are authorized to
+test. No presets exist whose purpose is uncontrolled over-the-air disruption of third parties.
 
-- **[shipped]** Device-layer TX half — `Duplex`, `tx_start`, `TxStream`, implemented on the HackRF backend over a working bulk-OUT path with burst queueing and transmit VGA control
-- **[shipped]** TX unreachable from outside the device layer — every backend reports `tx_capable: false`, the transmit VGA is written to 0 dB on open, and no engine, server, MCP or UI path (nor any wire type) can key a transmitter
+- **[shipped]** The device abstraction carries TX both ways — `Duplex` (`RxOnly`/`TxOnly`/`Half`/`Full`) and `tx_start` → `TxStream`; RX-only backends inherit the defaults and change nothing
+- **[shipped]** The HackRF's transmit path — bulk-OUT queue of 16 on the shared transport, the firmware's zero-filled end-of-burst marker, transmit VGA control, half-duplex arbitration in both directions, and a transfer policy that deliberately never re-sends a failed transmit transfer
+- **[shipped]** It is unreachable from outside the device layer, by construction — `tx_capable: false` on every backend, transmit VGA written to 0 dB on open, no wire type through which a client could ask, no `engine`/`server`/MCP/UI caller. No node kind emits the `tx` port type, so no edge into it can validate, and a test fails the day one does
 - **[planned]** The authorized-use gate itself, and everything below it
-- **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air (generated tones, modulated test signals, captured or edited SigMF files)
-- **[planned]** Modulators paired with each demod (NFM/AM/SSB/WFM, digital modes) for two-way, beacon and test use on licensed bands
-- **[planned]** Sub-GHz capture → decode → replay of OOK/ASK/FSK
-- **[planned]** Fixed-code analysis and generation, including de Bruijn sequences
-- **[planned]** Rolling-code capture and implementation analysis (RollJam-style, against your own DUT — window, resync and counter flaws)
-- **[planned]** Interference / jam-susceptibility testing — configurable noise, sweep, CW or tone on a chosen band and bandwidth, into a contained link
-- **[planned]** Flood / spam / malformed-broadcast testing, including BLE-advertising-style floods, at a DUT over a contained link
-- **[planned]** Targeted protocol fuzzing — malformed and mutated frames at a specified DUT
-- **[planned]** Bench loopback — TX into your own RX to validate decoders
-- **[planned]** Offline frame workbench — decode, dissect, mutate, re-analyze captured frames; encoding identification
+- **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
+- **[planned]** Modulators paired with each demod, for two-way, beacon and test use on licensed bands
+- **[planned]** Sub-GHz capture → decode → replay; fixed-code analysis and generation including de Bruijn sequences; rolling-code capture and implementation analysis against your own DUT
+- **[planned]** Interference / jam-susceptibility testing into a contained link
+- **[planned]** Flood / spam / malformed-broadcast testing at a DUT over a contained link
+- **[planned]** Targeted protocol fuzzing
+- **[planned]** Bench loopback — TX into your own RX to validate decoders (note: this is the point at which the graph's no-cycle proof stops being sufficient)
+- **[planned]** Offline frame workbench — dissect, mutate, re-analyze captured frames; encoding identification
 - **[planned]** Simple PTT
 - **[planned]** Beam-steering CW modulator (TX MIMO)
 
 ## 21. Cross-cutting engine capabilities
 
-- **[shipped]** Any number of channels per device set, each with its own DDC, settings and panel
-- **[shipped]** Channels that need the radio's own rate (ADS-B) get the device's samples mixed to their offset, unresampled, at 2–4 MHz
-- **[shipped]** Typed decoder events on the wire, persisted by the server with reported drops rather than silent loss
-- **[shipped]** Per-connection throttling and decimation discipline so a Pi 4 stays the floor, not the ceiling
-- **[planned]** GPU spectrum path (wgpu) for very large FFTs or many channels on capable hosts
-- **[planned]** Diversity combine / noise cancelling with a reference antenna for HF QRM
+- **[shipped]** Any number of channels per device set, each with its own DDC, settings and face; hot path holds no locks and allocates nothing in steady state, settings arriving by command queue between blocks
+- **[shipped]** Channels that need the radio's own rate get its samples mixed to their offset and nothing else, with the rule (`exact_rate_only`, derived once) shipped on the wire so the UI and the engine cannot disagree
+- **[shipped]** A device rate change rebuilds every hosted channel with ids and audio subscriptions preserved; recording blocks a rate change rather than mixing rates under one SigMF header
+- **[shipped]** Typed decoder events leave the DSP plane through a bounded sink with counted drops, are wall-clock stamped off the hot path, and are persisted by the server rather than the engine
+- **[shipped]** Squelch feeds decoders duration-exact silence instead of splicing the stream — a decoder measures its bit clock in the time a skip would delete
+- **[shipped]** Golden-vector tests on every DSP primitive, reference modulators written independently of their decoders, and a fixture library regenerated rather than committed
+- **[planned]** GPU spectrum path (wgpu) for very large FFTs or many channels
+- **[planned]** Diversity combine / noise cancelling with a reference antenna
