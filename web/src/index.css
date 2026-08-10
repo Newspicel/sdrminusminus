@@ -1,42 +1,145 @@
 @import "tailwindcss";
 @import "dockview-react/dist/styles/dockview.css";
 
-/* Instrumentation palette (PLAN §10): dark-first, restrained neutrals, one accent, mono
-   numerals. No decorative gradients. */
+/* The instrument palette (DESIGN.md §2). Authored in OKLCH so the light theme is the same role
+   table re-anchored rather than a second set of hand-picked values, and so elevation is a
+   lightness step — on an L≈.2 ground a drop shadow cannot reach popover-grade edge contrast at
+   any alpha, so depth has to live in the surface itself.
+
+   `@theme` declares the roles to Tailwind (it needs them at build time to emit `bg-panel` and
+   friends); the values below are the dark theme. `:root[data-theme]` re-points the same
+   variables, which is why no component contains a colour decision. */
 @theme {
-  --color-bg: #0b0e14;
-  --color-panel: #121722;
-  --color-panel-2: #171e2b;
-  --color-line: #232c3d;
-  --color-ink: #c8d3e0;
-  --color-ink-dim: #7d8aa0;
-  --color-accent: #21b0b0;
-  --color-danger: #e0564b;
+  --color-bg: oklch(0.185 0.006 75);
+  --color-panel: oklch(0.225 0.007 75);
+  --color-panel-2: oklch(0.265 0.008 75);
+  --color-panel-3: oklch(0.305 0.009 75);
+  --color-line: oklch(0.34 0.008 75);
+  --color-line-strong: oklch(0.52 0.009 75);
+  --color-ink: oklch(0.92 0.008 80);
+  --color-ink-dim: oklch(0.7 0.01 80);
+  --color-ink-faint: oklch(0.6 0.01 80);
+  --color-accent: oklch(0.8 0.135 72);
+  --color-accent-dim: oklch(0.62 0.1 72);
+  --color-danger: oklch(0.7 0.16 27);
+  --color-ok: oklch(0.78 0.14 155);
+
+  /* The plot never inverts: it is a screen set into the panel, not paper. Its overlays are
+     achromatic because the colormap owns hue inside that rectangle — an isoluminant cursor over
+     a colormap is invisible, and a coloured one is a conjunction search. */
+  --color-plot-bg: oklch(0.16 0.008 75);
+  --color-plot-grid: oklch(0.55 0.006 80);
+  --color-plot-trace: oklch(0.93 0.02 85);
+  --color-plot-hold: oklch(0.62 0.015 85);
+  --color-plot-ink: oklch(0.97 0.01 85);
+  --color-plot-ink-dim: oklch(0.72 0.01 85);
 
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
+
+  /* Elevation 3 only (DESIGN.md §4): popovers and menus. A tight contact shadow plus a long
+     falloff, led by the 1px top highlight — light catching the upper edge is the physically
+     honest inverse of a shadow, and on an L≈.3 surface it does more of the work than either
+     dark layer can. */
+  --shadow-pop:
+    inset 0 1px 0 oklch(1 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.4), 0 8px 24px oklch(0 0 0 / 0.44);
 }
 
-html,
-body,
-#root {
-  height: 100%;
+/* Light is the §2 role table re-anchored: surfaces to L .92–1.0, ink to L .27–.53, accents
+   darkened and de-chromatised to stay legible on a light ground. The plot tokens are absent on
+   purpose — they are theme-independent. */
+@layer base {
+  :root[data-theme="light"] {
+    --color-bg: oklch(0.955 0.004 80);
+    --color-panel: oklch(0.985 0.003 80);
+    --color-panel-2: oklch(0.925 0.005 80);
+    --color-panel-3: oklch(1 0 0);
+    --color-line: oklch(0.865 0.006 80);
+    --color-line-strong: oklch(0.6 0.008 80);
+    --color-ink: oklch(0.27 0.012 75);
+    --color-ink-dim: oklch(0.47 0.012 75);
+    --color-ink-faint: oklch(0.53 0.012 75);
+    --color-accent: oklch(0.56 0.125 62);
+    --color-accent-dim: oklch(0.68 0.1 62);
+    --color-danger: oklch(0.51 0.19 27);
+    --color-ok: oklch(0.5 0.115 155);
+    --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.08), 0 8px 24px oklch(0 0 0 / 0.12);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    color-scheme: dark;
+  }
+
+  :root[data-theme="light"] body {
+    color-scheme: light;
+  }
+
+  /* Numbers are compared column-wise and change in place: proportional figures would make a
+     live value jitter horizontally, which is layout instability the operator did not cause. */
+  .font-mono,
+  input[type="number"] {
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
+  /* One ring, everywhere, `:focus-visible` only so a pointer click does not draw it. Never
+     removed — this is the whole keyboard layer's feedback. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-accent) 32%, transparent);
+  }
+
+  /* Chrome's default scrollbars are the one piece of the UI that ignores the palette. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  /* Native widgets follow the theme rather than the OS, so a light-theme select does not stay
+     dark inside a light bar. */
+  select,
+  input,
+  textarea,
+  button {
+    font: inherit;
+  }
 }
 
-body {
-  margin: 0;
-  background: var(--color-bg);
-  color: var(--color-ink);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
+@layer components {
+  /* The silkscreen voice (DESIGN.md §3): units, column heads, section labels. Never values. */
+  .legend {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.4;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--color-ink-faint);
+  }
 }
 
-/* The dock's instrumentation skin (PLAN §10): dockview reads these `--dv-*` variables off the
-   class its theme object names, so the palette above stays the single source of colour and its
-   stylesheet is never forked. Square corners, 1px separators, no decorative anything. */
+/* The dock's skin: dockview reads these `--dv-*` variables off the class its theme object
+   names, so the palette above stays the single source of colour and its stylesheet is never
+   forked. */
 .dv-theme-sdrmm {
   --dv-group-view-background-color: var(--color-bg);
   --dv-tabs-and-actions-container-background-color: var(--color-panel);
-  --dv-tabs-and-actions-container-height: 28px;
+  --dv-tabs-and-actions-container-height: 30px;
   --dv-tabs-and-actions-container-font-size: 11px;
   --dv-tab-font-size: 11px;
   --dv-tab-margin: 0;
@@ -45,28 +148,34 @@ body {
   --dv-sash-border-radius: 0px;
   --dv-spacing-padding: 0px;
 
-  --dv-activegroup-visiblepanel-tab-background-color: var(--color-panel-2);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--color-bg);
   --dv-activegroup-hiddenpanel-tab-background-color: var(--color-panel);
-  --dv-inactivegroup-visiblepanel-tab-background-color: var(--color-panel-2);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--color-bg);
   --dv-inactivegroup-hiddenpanel-tab-background-color: var(--color-panel);
-  --dv-activegroup-visiblepanel-tab-color: var(--color-accent);
-  --dv-activegroup-hiddenpanel-tab-color: var(--color-ink-dim);
-  --dv-inactivegroup-visiblepanel-tab-color: var(--color-ink);
-  --dv-inactivegroup-hiddenpanel-tab-color: var(--color-ink-dim);
+  --dv-activegroup-visiblepanel-tab-color: var(--color-ink);
+  --dv-activegroup-hiddenpanel-tab-color: var(--color-ink-faint);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--color-ink-dim);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--color-ink-faint);
 
   --dv-separator-border: var(--color-line);
   --dv-tab-divider-color: var(--color-line);
   --dv-sash-color: transparent;
   --dv-active-sash-color: var(--color-accent);
-  --dv-drag-over-background-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --dv-drag-over-background-color: color-mix(in oklab, var(--color-accent) 16%, transparent);
   --dv-drag-over-border-color: var(--color-accent);
-  --dv-floating-border: 1px solid var(--color-line);
-  --dv-floating-box-shadow: 0 8px 32px rgb(0 0 0 / 0.6);
-  --dv-floating-titlebar-background-color: var(--color-panel);
+  --dv-floating-border: 1px solid var(--color-line-strong);
+  --dv-floating-box-shadow: var(--shadow-pop);
+  --dv-floating-titlebar-background-color: var(--color-panel-3);
   --dv-icon-hover-background-color: var(--color-panel-2);
-  --dv-context-menu-background-color: var(--color-panel);
+  --dv-context-menu-background-color: var(--color-panel-3);
   --dv-context-menu-color: var(--color-ink);
-  --dv-scrollbar-background-color: var(--color-line);
+  --dv-scrollbar-background-color: var(--color-line-strong);
+}
+
+/* The active panel's tab is the only one that reads as selected; dockview has no variable for
+   the marker, so it is drawn here rather than by forking the stylesheet. */
+.dv-theme-sdrmm .dv-active-group .dv-tab.dv-active-tab {
+  box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
 /* The dock measures its own host; without a definite height it collapses inside a flex column. */
@@ -76,9 +185,20 @@ body {
 }
 
 /* Sliders are primary tuning controls; on touch screens widen the hit area to ≥40px
-   (PLAN §10: phone-usable). */
+   (DESIGN.md §4: the target floor is absolute). */
 @media (pointer: coarse) {
   input[type="range"] {
     min-height: 2.5rem;
+  }
+}
+
+/* Reduced motion is a contract: the only motion in the UI is ≤120ms colour and opacity, and
+   this removes even that. The waterfall is data, not animation, so it is untouched. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }

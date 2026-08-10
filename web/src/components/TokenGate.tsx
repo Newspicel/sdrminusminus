@@ -66,7 +66,7 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
           )}
         </div>
         <input
-          className={FIELD}
+          className={`${FIELD} w-full`}
           type="password"
           autoComplete="current-password"
           aria-label="Shared token"

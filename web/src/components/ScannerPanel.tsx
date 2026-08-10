@@ -5,8 +5,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { STATE_KEY, startScan, stopScan } from "../lib/api";
 import { useScannerStore } from "../lib/scanner";
+import { pushToast } from "../lib/toasts";
 import type { DeviceSet } from "../lib/types";
-import { BTN, FIELD } from "./controls";
+import { BTN, FIELD, LABEL } from "./controls";
 import {
   DEFAULT_RANGE,
   formatDb,
@@ -25,7 +26,6 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
   const [ranges, setRanges] = useState<RangeInput[]>([DEFAULT_RANGE]);
   const [thresholdDb, setThresholdDb] = useState("-55");
   const [holdChannel, setHoldChannel] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
 
   const status = liveStatus(active, pushed);
   const invalidate = (): void => void queryClient.invalidateQueries({ queryKey: STATE_KEY });
@@ -51,8 +51,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
         ...(hold === undefined ? {} : { hold_channel: hold }),
       });
     },
-    onSuccess: () => setError(null),
-    onError: (e) => setError(e.message),
+    onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
 
@@ -61,9 +60,8 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
     onSuccess: (_status, ds) => {
       // The pushed status outlives the scan; drop it or the panel keeps showing the last step.
       clearLive(ds);
-      setError(null);
     },
-    onError: (e) => setError(e.message),
+    onError: (e) => pushToast(e.message),
     onSettled: invalidate,
   });
 
@@ -73,7 +71,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
   const busy = startMut.isPending || stopMut.isPending;
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-3">
+    <div className="flex flex-col gap-2 p-3">
       {running ? (
         <div className="flex flex-col gap-1 rounded border border-line bg-panel-2 px-3 py-2">
           <div className="flex items-baseline justify-between gap-2">
@@ -101,23 +99,23 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
           {ranges.map((range, i) => (
             // The editor rows have no identity of their own; the index is the identity.
             // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional by definition
-            <div key={i} className="flex items-center gap-2">
+            <div key={i} className="flex flex-wrap items-center gap-2">
               <input
-                className={`${FIELD} w-0 min-w-0 flex-1`}
+                className={`${FIELD} w-24`}
                 inputMode="decimal"
                 aria-label={`Range ${i + 1} start (MHz)`}
                 value={range.startMhz}
                 onChange={(e) => updateRange(setRanges, i, { startMhz: e.target.value })}
               />
-              <span className="text-xs text-ink-dim">–</span>
+              <span className="text-ink-faint">–</span>
               <input
-                className={`${FIELD} w-0 min-w-0 flex-1`}
+                className={`${FIELD} w-24`}
                 inputMode="decimal"
                 aria-label={`Range ${i + 1} stop (MHz)`}
                 value={range.stopMhz}
                 onChange={(e) => updateRange(setRanges, i, { stopMhz: e.target.value })}
               />
-              <span className="text-xs text-ink-dim">MHz, step</span>
+              <span className="legend">MHz · step</span>
               <input
                 className={`${FIELD} w-20`}
                 inputMode="decimal"
@@ -125,7 +123,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
                 value={range.stepKhz}
                 onChange={(e) => updateRange(setRanges, i, { stepKhz: e.target.value })}
               />
-              <span className="text-xs text-ink-dim">kHz</span>
+              <span className="legend">kHz</span>
               {ranges.length > 1 && (
                 <button
                   type="button"
@@ -147,8 +145,8 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
             >
               Add range
             </button>
-            <label className="flex items-center gap-1 text-xs text-ink-dim">
-              threshold
+            <label className={LABEL}>
+              Threshold
               <input
                 className={`${FIELD} w-20`}
                 inputMode="decimal"
@@ -158,8 +156,8 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
               />
               dB
             </label>
-            <label className="flex items-center gap-1 text-xs text-ink-dim">
-              listen on
+            <label className={LABEL}>
+              Listen on
               <select
                 className={FIELD}
                 aria-label="Hold channel"
@@ -179,18 +177,6 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
             </span>
           </div>
         </>
-      )}
-
-      {error !== null && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
-          <span>Rejected: {error}</span>
-          <button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
-            dismiss
-          </button>
-        </div>
       )}
 
       <div className="flex gap-2">

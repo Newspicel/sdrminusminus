@@ -8,6 +8,7 @@ import { ChannelsPanel } from "../components/ChannelsPanel";
 import { DecoderLogPanel } from "../components/DecoderLogPanel";
 import { AprsView, PagerView, RdsView, TargetsView, TextView } from "../components/DecoderPanels";
 import { MapPanel } from "../components/MapPanel";
+import { OpenRadio } from "../components/OpenRadio";
 import { PresetsPanel } from "../components/PresetsPanel";
 import { RecordingsPanel } from "../components/RecordingsPanel";
 import { ScannerPanel } from "../components/ScannerPanel";
@@ -74,7 +75,7 @@ function Body({ children, scroll = true }: { children: ReactNode; scroll?: boole
 function NoDevice({ what }: { what: string }) {
   return (
     <Body>
-      <p className="px-4 py-3 text-sm text-ink-dim">Open a device to {what}.</p>
+      <p className="p-3 text-sm text-ink-dim">Open a device to {what}.</p>
     </Body>
   );
 }
@@ -90,6 +91,9 @@ function SpectrumPanel() {
         channels={shell.active?.channels ?? []}
         selectedChannel={shell.selectedChannel}
         onSelectChannel={shell.setSelectedChannel}
+        onTuneCenter={shell.tuneCenter}
+        onTuneChannel={shell.tuneChannel}
+        empty={<OpenRadio onOpened={shell.setActiveDs} />}
       />
     </Body>
   );
@@ -121,7 +125,7 @@ function DecodersPanel() {
   if (channels.length === 0) {
     return (
       <Body>
-        <p className="px-4 py-3 text-sm text-ink-dim">
+        <p className="p-3 text-sm text-ink-dim">
           {shell.active === null
             ? "Open a device and add a decoder channel."
             : "No decoder channel on this device set yet."}
@@ -143,7 +147,7 @@ function DecodersPanel() {
             <button
               type="button"
               onClick={() => shell.setSelectedChannel(channel.id)}
-              className={`flex min-h-10 w-full items-center border-b border-line bg-panel px-4 text-left text-xs font-semibold uppercase tracking-wider ${
+              className={`legend flex min-h-8 w-full items-center border-b border-line bg-panel-2 px-3 text-left ${
                 selected ? "text-accent" : "text-ink-dim"
               }`}
             >

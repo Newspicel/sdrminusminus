@@ -18,6 +18,10 @@ export interface Shell {
    * is cleared when the set changes rather than silently matching a different channel. */
   selectedChannel: number | null;
   setSelectedChannel: (channel: number | null) => void;
+  /** Tuning, routed through the shell's optimistic patch pipelines so a click on the spectrum,
+   * a keystroke and a channel row all take the same path. Clamped to the device's range. */
+  tuneCenter: (hz: number) => void;
+  tuneChannel: (channel: number, offsetHz: number) => void;
 }
 
 const ShellContext = createContext<Shell | null>(null);

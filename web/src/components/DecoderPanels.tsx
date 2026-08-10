@@ -32,7 +32,7 @@ import {
   type TargetSort,
 } from "./decoderViews";
 
-const PANE = "flex flex-col gap-2 px-4 py-3";
+const PANE = "flex flex-col gap-2 p-3";
 const CAPTION = "text-[10px] font-semibold uppercase tracking-wider text-ink-dim";
 const EMPTY = "text-sm text-ink-dim";
 const TH = "px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-dim";
