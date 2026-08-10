@@ -114,26 +114,37 @@ impl Tracks {
     }
 }
 
-/// Drop what has gone silent, then the oldest of what is left if this kind is still over its cap.
-/// Runs per insert on one kind only: sweeping every kind on every ADS-B frame would be the
-/// expensive half of a busy site's decode path.
+/// Hold one decoder kind to [`STATIONS_PER_KIND`]: drop what has gone silent, then the oldest of
+/// what is left if it is still over.
+///
+/// This runs inside the loop that feeds every connected client, once per decode, so the path that
+/// changes nothing must cost nothing — a count, no allocation, no sweep. Only a kind actually at
+/// its cap pays for the rest. Expiry is not on this path at all: [`Tracks::backlog_at`] filters by
+/// age as it reads, so a silent station is invisible from the moment it goes quiet whether or not
+/// anything has swept it out of the map yet.
 fn prune(
     stations: &mut HashMap<(&'static str, String), Station>,
     kind: &'static str,
     now: Instant,
 ) {
+    let of_kind = |stations: &HashMap<(&'static str, String), Station>| {
+        stations.keys().filter(|(held, _)| *held == kind).count()
+    };
+    if of_kind(stations) <= STATIONS_PER_KIND {
+        return;
+    }
     stations.retain(|_, station| now.duration_since(station.last_seen) < TTL);
-    let mut of_kind: Vec<(String, Instant)> = stations
-        .iter()
-        .filter(|((k, _), _)| *k == kind)
-        .map(|((_, id), station)| (id.clone(), station.last_seen))
-        .collect();
-    let excess = of_kind.len().saturating_sub(STATIONS_PER_KIND);
+    let excess = of_kind(stations).saturating_sub(STATIONS_PER_KIND);
     if excess == 0 {
         return;
     }
-    of_kind.sort_unstable_by_key(|(_, last_seen)| *last_seen);
-    for (id, _) in of_kind.into_iter().take(excess) {
+    let mut by_age: Vec<(String, Instant)> = stations
+        .iter()
+        .filter(|((held, _), _)| *held == kind)
+        .map(|((_, id), station)| (id.clone(), station.last_seen))
+        .collect();
+    by_age.sort_unstable_by_key(|(_, last_seen)| *last_seen);
+    for (id, _) in by_age.into_iter().take(excess) {
         stations.remove(&(kind, id));
     }
 }

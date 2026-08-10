@@ -35,16 +35,20 @@ fn main() -> anyhow::Result<()> {
             // settings autosave). Without a runtime in context they decline to start and never
             // get another chance — this shell is the one caller that does not go through
             // `serve()`, which builds its router inside one.
-            let runtime = tauri::async_runtime::handle();
-            let _entered = runtime.inner().enter();
-            let router = sdrmm_server::router(
-                engine,
-                store,
-                // Loopback-only and single-user: a token would gate the app against itself.
-                // Tokens matter for the *remote* connections the app saves, which are the
-                // other server's configuration, not this one's.
-                &sdrmm_server::ServerOptions::default(),
-            );
+            // Scoped to the one call that needs it: the guard makes this thread look like a
+            // runtime thread, and holding it across Tauri's own setup calls would be a bet on
+            // none of them blocking internally.
+            let router = {
+                let _entered = tauri::async_runtime::handle().inner().enter();
+                sdrmm_server::router(
+                    engine,
+                    store,
+                    // Loopback-only and single-user: a token would gate the app against itself.
+                    // Tokens matter for the *remote* connections the app saves, which are the
+                    // other server's configuration, not this one's.
+                    &sdrmm_server::ServerOptions::default(),
+                )
+            };
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = axum::serve(listener, router).await {
                     tracing::error!("embedded server exited: {e}");

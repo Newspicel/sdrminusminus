@@ -67,7 +67,11 @@ export interface DecodedState {
    *
    * Stations only — these records are already in the stored decoder log, and staging them as
    * frames too would show every one of them twice in a log panel that renders the stored page
-   * with a live tail on top. */
+   * with a live tail on top.
+   *
+   * A reconnect re-merges a backlog into stations that survived the disconnect, so `frames`
+   * counts a handful of records twice per reconnect. Left alone: it reads as "seen once vs.
+   * being tracked", and a target the server still remembers is exactly one being tracked. */
   hydrate: (records: readonly DecodedRecord[]) => void;
   reportLost: (count: number) => void;
   /** WS glue: wire once with `socket.addEventListener(useDecodedStore.getState().observe)` —
