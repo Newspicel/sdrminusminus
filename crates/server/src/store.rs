@@ -125,7 +125,7 @@ const MIGRATIONS: &[&str] = &[
     "
     -- M7, the canvas (CANVAS §8 phase ⑤). A stored M6 workspace is a tabs-and-dockview tree the
     -- patch model cannot express, so the rows go rather than a converter nobody would want: the
-    -- next open re-seeds the default station. Recorded in PLAN-CANVAS, not hidden.
+    -- next open re-seeds the default station.
     DELETE FROM workspaces;
     UPDATE active_workspace SET workspace_id = NULL;
     ALTER TABLE workspaces RENAME COLUMN tabs TO nodes;
