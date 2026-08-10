@@ -1161,3 +1161,110 @@ under *Verified live* below).
   restart re-reads a non-empty table), unbounded floating `x_frac`/`y_frac` (the only producer
   clamps, and dockview re-clamps on restore so the row self-heals), and a redundant assertion in
   a wire test
+
+---
+
+## The design pass — `DESIGN.md`, the top bar, the dial and the plot ✅
+
+PLAN §10 makes a design pass part of every UI milestone's definition of done, and M6 shipped the
+dock without one. Five rows of chrome stood between the operator and the plot; the plot itself
+could only be looked at; and the "large, digit-scrollable frequency readout" the plan names was a
+label. This closes that, and writes the rules down so the next pass has something to be checked
+against.
+
+### The rulebook
+- [x] **`DESIGN.md` is binding, like `CLAUDE.md`.** An OKLCH role table with both themes derived
+  from it (never a second hand-picked hex set), the type scale, the spacing and separation
+  ladders, the density floor, the motion budget, the keyboard map, and the spectrum's gesture
+  contract — all in numbers a reviewer can check. It also names what this pass deliberately does
+  not do
+- [x] **A palette that is a choice, not a default.** Warm graphite surfaces and one lamp-amber
+  accent — the anodized front panel the plan's "pro audio and lab equipment" reference points to
+  — replacing teal on blue-black, which is the generic dark-dashboard look. Contrast measured for
+  every role in both themes (dark: ink 14.7:1, ink-dim 7.0, ink-faint 4.7, accent 9.8; light:
+  13.2 / 6.0 / 4.6 / 4.2), and every accent gamut-checked in sRGB
+- [x] **The plot never inverts and its overlays are achromatic.** Inside the plot rectangle the
+  colormap owns hue, so cursors, markers and axis text separate by luminance and shape alone — an
+  isoluminant cursor over a colormap is invisible and a coloured one is a conjunction search. The
+  plot therefore has its own theme-independent token set
+- [x] **The light theme PLAN §10 promised**, as the same role table re-anchored: surfaces to
+  L .92–1.0, ink to L .27–.53, accents darkened and de-chromatised. Three states (auto / dark /
+  light) in `localStorage` — a theme belongs to the eye looking at the screen, not to the station,
+  so unlike workspaces it does not sync between clients
+
+### Two rows of chrome instead of five
+- [x] `TopBar.tsx` — the radio: dial, tune step, receiver popover, capture, link state. Nothing
+  that changes what you are *looking* at
+- [x] `TabBar.tsx` — the view: workspace menu, tab strip, add-panel, theme, shortcuts. Nothing
+  that changes what the radio is doing
+- [x] The device-settings strip became `RadioSettings` inside the receiver popover; the first-run
+  banner became `OpenRadio`, the spectrum's empty state (where someone with no radio open is
+  already looking, and costing nothing when one is); the workspace name/add/remove row became a
+  menu; the template gallery became the Channels panel's empty state
+- [x] **Errors are toasts, not a banner.** A banner that appears and disappears at the top of the
+  shell moves every panel under it, which is layout instability the operator did not cause. One
+  shared stack (`lib/toasts.ts`), one surface, dismissible and auto-expiring; five panels' private
+  "Rejected:" banners and `useDevicePatch`'s private error store all fold into it
+- [x] `useChannelPatch` extracted — three surfaces now edit channels (the panel, a dragged marker,
+  the keyboard) and all three go through one optimistic pipeline instead of the panel's private copy
+
+### The dial (PLAN §10's digit-scrollable readout)
+- [x] Ten place-value targets: wheel over a digit, ←/→ between them, ↑/↓ and PageUp/PageDown to
+  step, type digits over them, Enter or `f` for direct entry (`145.5`, `433800k`, `2.4g`). One
+  tab stop, roving focus, clamped to the device's range
+- [x] The arithmetic is `dial.ts` — 15 tests over place widths, leading-zero dimming, stepping,
+  digit writes, clamping and free-text parsing. The component only routes events
+
+### The plot answers gestures
+- [x] Frequency and dB axes on the 1-2-5 nice-number ladder, drawn from the frame's own metadata,
+  refining as the view zooms
+- [x] Wheel zoom about the cursor as a fixed point, drag to pan (4px slop before a click becomes a
+  drag), click to tune the selected channel (or the radio when none is selected), double-click to
+  re-centre, marker drag to move a channel, and zoom buttons that appear only on coarse pointers,
+  which have no wheel
+- [x] The view transform is `spectrumView.ts` — 16 tests including the fixed point surviving a
+  chain of wheel notches, edge clamping that does not change the zoom level mid-pan, and tick
+  refinement
+- [x] A draggable trace/waterfall split, max-hold, five colormaps (magma, inferno, plasma,
+  viridis, gray — all monotone in luminance; jet and its relatives are excluded on purpose), and
+  a per-column peak decimation so a narrow carrier is never sampled away
+- [x] **The waterfall advanced one row per backing-store pixel**, so on a 2× display every second
+  arriving row was dropped and the history took twice as long to reach the bottom. It is one row
+  per CSS pixel now, which is also what makes the scroll rate the frame rate
+
+### Keyboard (PLAN §10 "keyboard-first")
+- [x] Tune, tune step, mode, squelch, audio, channel and tab switching all bound, with the `?`
+  overlay rendering the same table the handler switches on — a shortcut nobody can find is not a
+  feature. Handlers stand down for text fields, for the dial (which claims the arrows itself), and
+  for the activation keys of a focused button
+
+### Verified live (browser, `device-virtual`)
+- [x] Wheel zoom holds the cursor's frequency still and refines the axis; the reset control
+  appears only once there is something to reset
+- [x] A click on a marker selects it and leaves its offset alone; a click on empty plot at 72%
+  moved the channel to exactly +528 kHz of a 2.4 MHz span
+- [x] `←` tuned one step, `]` walked the step ladder, `?` opened the overlay and `Esc` closed it;
+  Space over a focused button still presses the button
+- [x] Dark, light and auto themes; the phone breakpoint at 390×844 with no horizontal overflow
+
+### Gates
+- [x] `cargo xtask check` green (fmt, clippy `-D warnings`, Soapy-free and native-driver builds,
+  `biome ci`, type-aware `oxlint`, `tsgo`, web build, zero codegen drift)
+- [x] `cargo xtask test` green — 610 Rust tests, 210 web tests (31 of them new)
+
+### Known gaps (honest, not deferred silently)
+- **Pinch-zoom is not implemented.** A touch pointer pans by drag and zooms with the two buttons
+  the toolbar shows on coarse pointers; a two-finger pinch does nothing. It needs multi-pointer
+  tracking that cannot be verified in this environment
+- **Zoom magnifies, it does not resolve.** The server streams a fixed span, so zooming re-frames
+  bins that have already arrived. The readout discloses it by reporting the *visible* span rather
+  than the device's; a server-side zoom would be a protocol change
+- **One spectrum panel at a time**, unchanged from M6: `SdrSocket.onSpectrum` is still a single
+  handler, and the add-panel menu only offers kinds the tab lacks, which keeps it unreachable
+  rather than fixed
+- **Per-channel decoder panels and radio-pinned panels** stay out, for the same reason M6 left
+  them out: both need identity that survives an engine restart, which is a server change
+- **The band-plan explorer** (PLAN §8a) is still open. The dial and the plot are built so it can
+  hang off them without rework
+- **Still no Playwright smoke flow** (PLAN §14). The pure transforms — dial arithmetic, view
+  transform, axis ticks — carry unit tests; the composition above was verified by hand

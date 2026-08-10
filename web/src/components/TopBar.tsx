@@ -63,9 +63,11 @@ export function TopBar({
   };
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-panel pr-2 pl-3">
+    // `overflow-hidden` is the phone guard: without it a bar that cannot fit widens the
+    // document and every panel below it scrolls sideways.
+    <header className="flex h-14 shrink-0 items-center gap-3 overflow-hidden border-b border-line bg-panel pr-2 pl-3">
       <span
-        className="font-mono text-sm font-semibold tracking-tight text-accent"
+        className="font-mono text-sm font-semibold tracking-tight text-accent max-md:hidden"
         title="sdr-- — software-defined radio"
       >
         sdr--
@@ -80,8 +82,15 @@ export function TopBar({
         </>
       )}
 
-      <div className="ml-auto flex items-center gap-2">
-        {active !== null && <RecordControl active={active} />}
+      <div className="ml-auto flex min-w-0 items-center gap-2">
+        {/* Only the live readout earns a place in the bar; starting and stopping is a receiver
+            action, so it lives with the receiver's other controls. */}
+        {active?.recording != null && (
+          <RecordingReadout
+            status={active.recording}
+            sampleRate={active.settings.sample_rate ?? 0}
+          />
+        )}
         <RadioMenu active={active} deviceSets={deviceSets} onSelect={onSelect} />
         <LinkState connected={connected} clients={clients} />
       </div>
@@ -167,7 +176,7 @@ function RadioMenu({
     <Popover
       align="end"
       width="w-96"
-      triggerClass={`${CHIP} max-w-64 ${faulted ? "border-danger text-danger" : ""}`}
+      triggerClass={`${CHIP} max-w-64 max-md:max-w-28 ${faulted ? "border-danger text-danger" : ""}`}
       label={
         <>
           <span className="truncate">{active?.device.label ?? "Open receiver"}</span>
@@ -199,6 +208,11 @@ function RadioMenu({
                 </p>
               )}
               <RadioSettings active={active} />
+
+              <div className="flex items-center justify-between border-t border-line pt-3">
+                <span className="legend">Capture</span>
+                <RecordControl active={active} />
+              </div>
 
               {deviceSets.length > 1 && (
                 <div className="flex flex-col gap-1 border-t border-line pt-3">

@@ -264,7 +264,7 @@ shortcut nobody can find is not a feature.
 | `1`–`9` | switch to that tab |
 | `,` `.` | previous / next channel |
 | `?` | shortcut overlay |
-| `Esc` | close the overlay / popover, or reset the spectrum view |
+| `Esc` | close an overlay or a menu (the plot carries its own reset) |
 
 ---
 
