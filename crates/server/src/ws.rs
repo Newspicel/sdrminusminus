@@ -8,7 +8,6 @@
 use std::{
     collections::HashMap,
     sync::{Arc, atomic},
-    time::{Duration, Instant},
 };
 
 use axum::{
@@ -360,33 +359,49 @@ fn spawn_decoded(
     })
 }
 
-/// Paces admissions to `fps` with an accumulating deadline: each admitted frame advances the
-/// deadline by exactly one period (clamped to `now` so no send-debt builds up while the
-/// producer is slower than requested). A reset-to-now throttle would round the delivered
-/// period up to a whole producer hop whenever arrivals are block-quantized, systematically
-/// under-delivering (30 requested → ~20 delivered); this delivers min(producer, fps).
+/// Paces admissions to `fps` on the *producer's* sample clock, never on arrival time.
+///
+/// Snapshots do not reach this task evenly: the DSP thread drains a whole USB block at once, so
+/// several frames are broadcast within the same millisecond and then nothing arrives for tens of
+/// milliseconds. Any wall-clock deadline admits whatever lands first in a burst and drops the
+/// rest of it, delivering the *burst* rate rather than the frame rate — measured at 3.5 fps out
+/// of a ~10 fps producer with 30 requested. Each snapshot carries the sample position it was
+/// taken at, which is the cadence the operator actually sees, and is immune to how the frames
+/// were delivered.
+///
+/// The deadline accumulates by exactly one period per admission and is clamped forward to the
+/// frame just admitted, so no send-debt builds up while the producer is slower than requested:
+/// this delivers min(producer, fps).
 struct FrameThrottle {
-    next_deadline: Instant,
-    min_interval: Duration,
+    fps: f64,
+    /// Sample position the next admitted frame must reach.
+    next: u64,
+    /// Last position seen, so a capture restart can be told from a late frame.
+    last: u64,
 }
 
 impl FrameThrottle {
-    fn new(fps: u16, start: Instant) -> Self {
+    fn new(fps: u16) -> Self {
         Self {
-            next_deadline: start,
-            min_interval: Duration::from_secs_f64(1.0 / f64::from(fps)),
+            fps: f64::from(fps),
+            next: 0,
+            last: 0,
         }
     }
 
-    fn admit(&mut self, now: Instant) -> bool {
-        if now < self.next_deadline {
+    /// `timestamp` is the snapshot's sample position, `sample_rate` its span in Hz.
+    fn admit(&mut self, timestamp: u64, sample_rate: f32) -> bool {
+        // A restarted capture rewinds the sample clock to zero; without re-anchoring, the
+        // deadline would sit in the old stream's future and the display would never resume.
+        if timestamp < self.last {
+            self.next = timestamp;
+        }
+        self.last = timestamp;
+        if timestamp < self.next {
             return false;
         }
-        self.next_deadline = self
-            .next_deadline
-            .checked_add(self.min_interval)
-            .unwrap_or(now)
-            .max(now);
+        let period = (f64::from(sample_rate) / self.fps).max(1.0) as u64;
+        self.next = self.next.saturating_add(period).max(timestamp);
         true
     }
 }
@@ -407,12 +422,12 @@ fn spawn_spectrum(
     tokio::spawn(async move {
         let mut dec = vec![0f32; bins];
         let mut quant = vec![0u8; bins];
-        let mut throttle = FrameThrottle::new(fps, Instant::now());
+        let mut throttle = FrameThrottle::new(fps);
 
         loop {
             match rx.recv().await {
                 Ok(snap) => {
-                    if !throttle.admit(Instant::now()) {
+                    if !throttle.admit(snap.timestamp, snap.span_hz) {
                         continue;
                     }
 
@@ -528,7 +543,10 @@ fn encode_event(ev: &ServerEvent) -> Utf8Bytes {
 
 #[cfg(test)]
 mod tests {
-    use std::future::IntoFuture;
+    use std::{
+        future::IntoFuture,
+        time::{Duration, Instant},
+    };
 
     use sdrmm_wire::{ChannelParams, ChannelSettings, NfmParams};
     use tokio::time::timeout;
@@ -775,30 +793,58 @@ mod tests {
         assert_eq!(alloc_audio_id(&mut next, |_| true), None);
     }
 
-    /// A 30 Hz producer whose snapshots surface at 25 ms block boundaries arrives in a
-    /// 25/25/50 ms pattern; the reset-to-now throttle this replaces delivered ~20 fps at a
-    /// requested 30 because any arrival short of a full period was dropped.
+    /// The producer emits every `rate / 30` samples whatever the wall clock does. Requesting at
+    /// or above that must deliver every frame, and below it must decimate exactly — this is the
+    /// whole point of pacing on the sample clock, and the arrival pattern never enters into it.
     #[test]
-    fn throttle_delivers_requested_fps_despite_block_quantized_arrivals() {
-        let start = Instant::now();
-        let pattern_ms = [25u64, 25, 50];
+    fn throttle_paces_on_the_sample_clock_not_on_arrival() {
+        const RATE: f32 = 2_000_000.0;
+        let hop = (RATE / 30.0) as u64;
         for (fps, expected) in [(30u16, 300i64), (20, 200), (10, 100), (60, 300)] {
-            let mut throttle = FrameThrottle::new(fps, start);
-            let mut t = Duration::ZERO;
+            let mut throttle = FrameThrottle::new(fps);
             let mut admitted: i64 = 0;
-            let mut i = 0;
-            while t < Duration::from_secs(10) {
-                if throttle.admit(start + t) {
+            for i in 0..300 {
+                if throttle.admit(i * hop, RATE) {
                     admitted += 1;
                 }
-                t += Duration::from_millis(pattern_ms[i % pattern_ms.len()]);
-                i += 1;
             }
             assert!(
                 (admitted - expected).abs() <= 3,
                 "fps {fps}: delivered {admitted}, wanted ~{expected}"
             );
         }
+    }
+
+    /// The regression this replaced a wall-clock throttle for: a USB block carries several hops,
+    /// so the frames it produces are broadcast back to back. Every one of them must still be
+    /// admitted at the requested rate.
+    #[test]
+    fn throttle_admits_a_whole_burst_of_frames() {
+        const RATE: f32 = 2_000_000.0;
+        let hop = (RATE / 30.0) as u64;
+        let mut throttle = FrameThrottle::new(30);
+        let mut admitted = 0;
+        // Eight hops per block, ten blocks: 80 frames arriving in ten bursts.
+        for i in 0..80u64 {
+            if throttle.admit(i * hop, RATE) {
+                admitted += 1;
+            }
+        }
+        assert_eq!(admitted, 80, "a burst must not be collapsed to one frame");
+    }
+
+    /// A replugged device restarts its sample clock at zero; the stream has to resume rather
+    /// than wait out the old capture's deadline.
+    #[test]
+    fn throttle_reanchors_when_the_capture_restarts() {
+        const RATE: f32 = 2_000_000.0;
+        let hop = (RATE / 30.0) as u64;
+        let mut throttle = FrameThrottle::new(30);
+        for i in 0..100u64 {
+            throttle.admit(i * hop, RATE);
+        }
+        assert!(throttle.admit(0, RATE), "the restarted stream must resume");
+        assert!(throttle.admit(hop, RATE));
     }
 
     /// Regression for drop-newest backpressure: with a stalled writer, the newest frame must

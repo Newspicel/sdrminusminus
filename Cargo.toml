@@ -134,3 +134,38 @@ unsafe_op_in_unsafe_fn = "warn"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+# `cargo xtask dev` runs the dev profile, and an unoptimized DSP plane is not merely slow — it
+# is wrong. Measured against a 2 MS/s RTL-SDR, the debug build saturated a core, overran the
+# capture ring by 1.4 M samples/s (~70% of the stream discarded) and dropped the spectrum tap
+# from 30 fps to ~10. Real-time code has to be built as real-time code even while developing.
+#
+# Only the signal path is optimized: `server`, `wire` and the app crates are edited many times
+# an hour and stay at opt-level 0 so their rebuilds stay in seconds. `debug-assertions` are
+# untouched, so every overflow and slice check still fires.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.sdrmm-dsp]
+opt-level = 3
+
+[profile.dev.package.sdrmm-channels]
+opt-level = 3
+
+[profile.dev.package.sdrmm-engine]
+opt-level = 3
+
+[profile.dev.package.sdrmm-usb-stream]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-rtlsdr]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-hackrf]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-virtual]
+opt-level = 3
+
+[profile.dev.package.sdrmm-recorder]
+opt-level = 3
