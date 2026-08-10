@@ -2244,7 +2244,7 @@
           },
           "exact_rate_only": {
             "type": "boolean",
-            "description": "The type occupies its whole channel rate, so it runs only with the device tuned to\nexactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18;\nADS-B is the one such mode). Reported so the canvas can refuse the wire where the\noperator draws it, naming the rate that works, instead of letting the engine reject it\nafter the fact. Defaults to `false`, which is every other type."
+            "description": "The type occupies its whole channel rate, so it runs only with the device tuned to\nexactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18).\nReported so the canvas can refuse the wire where the operator draws it, naming the rate\nthat works, instead of letting the engine reject it after the fact. Defaults to `false`,\nwhich is every type that leaves a guard band."
           },
           "has_audio": {
             "type": "boolean",
@@ -2258,6 +2258,14 @@
           "name": {
             "type": "string",
             "description": "Display name, e.g. `\"NFM\"`, `\"WFM (mono)\"`."
+          },
+          "native_rate_max_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B is the one such type (PLAN §18, amended): a 0.5 µs pulse is a single sample at\n2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder\nmeets the radio at its rate instead. Mutually exclusive with `exact_rate_only`."
           },
           "type_id": {
             "type": "string",

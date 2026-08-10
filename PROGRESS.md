@@ -1628,14 +1628,35 @@ canvas found. `cargo xtask check` + `cargo xtask test` + `cargo xtask smoke` gre
 - [x] A new workspace starts empty, and the UI calls them workspaces — only the seeded first one
   opens on a starter station
 
+### ADS-B meets the radio at its own rate ✅
+The rule that said "set the device to exactly 2 Msps" cost the commonest ADS-B receiver there
+is: no RTL-SDR can produce 2.000 Msps, its nearest rate is 2.048, and the refusal named a number
+the radio did not have. Nothing decoded, so the map stayed empty.
+
+- [x] **The fix is not a wider DDC**, which `PLAN §18` had assumed it would be. Measured first:
+  the signal generated at 2.048 Msps decodes nothing through the production DDC *and* nothing
+  through an unfiltered linear interpolation. At 2 Msps a 0.5 µs pulse **is one sample**, so any
+  rate change splits it across two and both halves of every comparison come out equal
+- [x] **`native_rate_max_hz`**: a channel that reads the device's own samples, mixed to its
+  offset and not resampled. The engine builds its DDC with output = input (an NCO and nothing
+  else) and hands the decoder the device rate; `input_rate_hz` becomes the bottom of a range
+- [x] **The decoder is rate-flexible**: half-chip boundaries are computed per chip
+  (`ceil(j × per_chip)`, the chip a sample's own instant falls in) rather than stepped, and each
+  window takes its peak. At 2 Msps that is bit-identical to what it did before, which is what the
+  222 existing tests hold it to; at 2.048 a half-chip is 1.024 samples and at 2.4 it is 1.2
+- [x] Tested at 2.000, 2.048, 2.4, 2.56 and 4.0 Msps as a unit, and end to end through the engine
+  at 2.048 — capture, mixing-only DDC, decoder, decoded stream
+- [x] **A ceiling, not a limit**: 4 Msps, because the scan costs a magnitude per sample and the
+  Pi 4 is the budget floor. Above it the channel is refused with the range named — the user's
+  HackRF sitting at 10 MHz is exactly that case
+- [x] The canvas follows: the wire fault reads "needs 2.000–4.000 MHz", and the face's button
+  offers the lowest rate *that radio actually has* inside the range instead of a number it cannot
+  produce
+
 ### Still open
-- **ADS-B still needs the device at exactly 2 Msps**, which no RTL-SDR can produce (2.048 is its
-  nearest). Confirmed empirically, not assumed: the signal generated at 2.048 Msps and pushed
-  through the production DDC decodes nothing, and so does a naive unfiltered resample — a 0.5 µs
-  pulse is *one sample* at 2 Msps, so any rate change splits it across two. The fix is a
-  decoder that runs at the device rate with fractional samples per bit (what dump1090 does at
-  2.4 Msps), which needs a channel that opts out of the DDC's rate conversion — a feature, not a
-  constant. Until then the map stays empty on an RTL-SDR, because nothing decodes
+- **Not yet proven off-air.** The chain is tested at every rate a receiver offers, as a unit and
+  through the engine, but the RTL-SDR here heard no aircraft in the minute it was pointed at
+  1090 MHz — which says something about the antenna on it, not about the decoder
 - **The waterfall washes out.** Its colour range is the frame's own min…max, so a noise floor at
   −40 dB in a −93…−13 dB range lands two thirds up the colormap and everything is bright. A
   percentile-anchored range is the fix

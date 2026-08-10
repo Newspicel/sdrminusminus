@@ -1,6 +1,15 @@
 //! ADS-B / Mode S decoder (PLAN §13 P2): 1090 MHz PPM at 1 Mbit/s, preamble correlation
-//! and the Mode S CRC-24. The channel runs at exactly 2 samples per bit, which makes the
-//! 8 µs preamble 16 samples and every bit a clean two-half comparison.
+//! and the Mode S CRC-24. A bit is two half-chips of 0.5 µs and a 1 is energy in the first of
+//! them, so the whole decoder is a comparison between two windows.
+//!
+//! **It runs at the device's own rate** (`native_rate_max_hz`), which is the one thing this
+//! decoder cannot compromise on: at 2 Msps a 0.5 µs pulse *is a single sample*, so any rate
+//! conversion splits it across two, and both halves of every comparison come out the same.
+//! Measured, not assumed — through the production DDC and through an unfiltered interpolation,
+//! a 2.048 Msps signal resampled to 2.000 decodes nothing at all. So the decoder meets the radio
+//! at its rate instead: a half-chip is 1.024 samples on an RTL-SDR, 1.2 on a 2.4 Msps one, and
+//! the window boundaries are rounded per chip rather than stepped by a constant. dump1090 does
+//! the same thing for 2.4 Msps, one hard-coded rate at a time.
 //!
 //! Only DF17/DF18 extended squitters are accepted. Every other downlink format overlays the
 //! aircraft address (or the interrogator id) on the parity, so a zero syndrome is not
@@ -16,19 +25,74 @@ use sdrmm_wire::{
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-/// 2 Msps: 1 bit = 1 µs = 2 samples.
+/// The lowest device rate that carries the signal: two samples per bit, one per half-chip.
+/// Below it a half-chip can hold no sample at all and the modulation is simply not there.
 pub(crate) const INPUT_RATE_HZ: f64 = 2_000_000.0;
+/// The highest. Every sample above this buys nothing a slicer can use, and the scan costs a
+/// magnitude per sample on the DSP thread — the Pi 4 is the budget floor (PLAN §1), and the
+/// rates a receiver actually offers for 1090 (2.048, 2.4, 2.56, 2.88, 3.2 Msps) all fit under it.
+pub(crate) const MAX_INPUT_RATE_HZ: f64 = 4_000_000.0;
 
-const SAMPLES_PER_BIT: usize = 2;
+/// Half-chip: 0.5 µs, the resolution the whole waveform is defined on.
+const CHIP_S: f64 = 0.5e-6;
 /// 8 µs preamble with 0.5 µs pulses at 0.0, 1.0, 3.5 and 4.5 µs (ICAO Annex 10 Vol IV
-/// §3.1.2.3.1) — samples 0, 2, 7, 9 of a 16-sample window.
-const PREAMBLE_SAMPLES: usize = 16;
+/// §3.1.2.3.1) — half-chips 0, 2, 7 and 9 of sixteen.
+const PREAMBLE_CHIPS: usize = 16;
+const PREAMBLE_PULSES: [usize; 4] = [0, 2, 7, 9];
+const PREAMBLE_GAPS: [usize; 12] = [1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14, 15];
 const SHORT_BYTES: usize = 7;
 const LONG_BYTES: usize = 14;
-const LONG_FRAME_SAMPLES: usize = PREAMBLE_SAMPLES + LONG_BYTES * 8 * SAMPLES_PER_BIT;
+/// Half-chips in a long frame: the preamble plus two per bit.
+const LONG_FRAME_CHIPS: usize = PREAMBLE_CHIPS + LONG_BYTES * 8 * 2;
 /// Largest ratio tolerated between the strongest and weakest preamble pulse. A real preamble
 /// is four equal pulses; one noise spike plus three background samples is not one.
 const PULSE_SPREAD: f32 = 4.0;
+
+/// Where each half-chip of a long frame starts, in samples from the frame's first one.
+///
+/// Computed per chip and not stepped by a constant: at 2.048 Msps a half-chip is 1.024 samples,
+/// so a fixed stride would drift a whole sample by the end of a 120 µs frame and slice the last
+/// bits against the wrong halves. A sample belongs to the chip its own instant falls in, which
+/// makes the first index of chip `j` the *ceiling* of `j × per_chip` — some chips then hold two
+/// samples and the rest one. Rounding instead would put a sample in the chip before its own,
+/// which at 2.048 Msps is every second bit sliced against the wrong half.
+struct Timing {
+    /// `LONG_FRAME_CHIPS + 1` boundaries, so chip `j` is `edges[j]..edges[j + 1]`.
+    edges: Vec<usize>,
+}
+
+impl Timing {
+    fn new(input_rate: f64) -> Self {
+        let per_chip = input_rate * CHIP_S;
+        Self {
+            edges: (0..=LONG_FRAME_CHIPS)
+                .map(|chip| (chip as f64 * per_chip).ceil() as usize)
+                .collect(),
+        }
+    }
+
+    fn edge(&self, chip: usize) -> usize {
+        self.edges.get(chip).copied().unwrap_or(0)
+    }
+
+    fn frame_samples(&self) -> usize {
+        self.edge(LONG_FRAME_CHIPS)
+    }
+
+    /// Peak magnitude in half-chip `chip` of a window starting at a frame's first sample.
+    ///
+    /// The peak, not the mean: a window is one sample at 2 Msps and two at 4, and a window that
+    /// happens to straddle the end of a pulse would have its energy averaged away by the silence
+    /// beside it — which is the same thing that makes resampling fatal here.
+    fn chip(&self, window: &[f32], chip: usize) -> f32 {
+        window
+            .get(self.edge(chip)..self.edge(chip + 1))
+            .unwrap_or_default()
+            .iter()
+            .copied()
+            .fold(0.0, f32::max)
+    }
+}
 
 /// Bit offsets into a long frame (DO-260B §2.2.3): DF(5) CA(3) AA(24) ME(56) PI(24).
 const ICAO_OFFSET_BITS: usize = 8;
@@ -49,8 +113,9 @@ const CPR_SCALE: f64 = 131_072.0;
 /// antenna inventing addresses) cannot grow this without bound.
 const CPR_CACHE_LEN: usize = 64;
 /// An even/odd pair may only be solved globally while both frames are fresh: DO-260B
-/// §2.2.3.2.6.5 allows 10 s, beyond which the aircraft has flown out of its own zone.
-const CPR_PAIR_MAX_AGE_SAMPLES: u64 = (10.0 * INPUT_RATE_HZ) as u64;
+/// §2.2.3.2.6.5 allows 10 s, beyond which the aircraft has flown out of its own zone. Held in
+/// seconds because the sample clock is the device's now, not a constant.
+const CPR_PAIR_MAX_AGE_S: f64 = 10.0;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "adsb".to_owned(),
@@ -59,6 +124,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     input_rate_hz: INPUT_RATE_HZ,
     has_audio: false,
     decoder_kind: Some("adsb".to_owned()),
+    native_rate_max_hz: Some(MAX_INPUT_RATE_HZ),
     ..ChannelDescriptor::default()
 });
 
@@ -91,6 +157,11 @@ impl Aircraft {
 pub struct AdsbChannel {
     crc_fix: bool,
     reference: Option<(f64, f64)>,
+    /// Half-chip boundaries at this radio's rate — the decoder runs at whatever the device
+    /// gives it (see the module header).
+    timing: Timing,
+    /// How far apart two CPR frames may be and still solve globally, in samples at this rate.
+    cpr_pair_max_age: u64,
     /// Sample magnitudes: the tail of the previous block followed by the current one.
     mag: Vec<f32>,
     /// Absolute stream index of `mag[0]`.
@@ -147,16 +218,15 @@ pub(crate) fn channel_filter() -> ChannelFilter {
 /// Preamble correlation over one 16-sample window. The accept threshold is derived from the
 /// pulses themselves — receive levels differ by tens of dB between an overhead aircraft and
 /// one at the horizon, so no fixed level can gate this.
-fn preamble_ok(w: &[f32; PREAMBLE_SAMPLES]) -> bool {
+fn preamble_ok(timing: &Timing, window: &[f32]) -> bool {
+    let chip = |index: usize| timing.chip(window, index);
     // Cheapest discriminator first: noise fails one of these four most of the time, which is
     // what keeps the per-sample cost near the magnitude computation itself.
-    if !(w[0] > w[1] && w[2] > w[3] && w[7] > w[8] && w[9] > w[10]) {
+    if !(chip(0) > chip(1) && chip(2) > chip(3) && chip(7) > chip(8) && chip(9) > chip(10)) {
         return false;
     }
-    let pulses = [w[0], w[2], w[7], w[9]];
-    let gaps = [
-        w[1], w[3], w[4], w[5], w[6], w[8], w[10], w[11], w[12], w[13], w[14], w[15],
-    ];
+    let pulses = PREAMBLE_PULSES.map(chip);
+    let gaps = PREAMBLE_GAPS.map(chip);
     let mean = pulses.iter().sum::<f32>() * 0.25;
     if mean <= 0.0 {
         return false;
@@ -170,12 +240,15 @@ fn preamble_ok(w: &[f32; PREAMBLE_SAMPLES]) -> bool {
     weakest > threshold && gaps.iter().all(|&g| g < threshold)
 }
 
-/// PPM slicing: a 1 is energy in the first half of the bit, a 0 in the second.
-fn slice_bits(body: &[f32], frame: &mut [u8; LONG_BYTES]) {
-    let (bytes, _) = body.as_chunks::<{ SAMPLES_PER_BIT * 8 }>();
-    for (byte, samples) in frame.iter_mut().zip(bytes) {
+/// PPM slicing: a 1 is energy in the first half of the bit, a 0 in the second. `window` starts
+/// at the frame's first sample, so the body's half-chips are numbered from the preamble's end.
+fn slice_bits(timing: &Timing, window: &[f32], frame: &mut [u8; LONG_BYTES]) {
+    for (index, byte) in frame.iter_mut().enumerate() {
         let mut value = 0u8;
-        for &[first, second] in samples.as_chunks::<SAMPLES_PER_BIT>().0 {
+        for bit in 0..8 {
+            let chip = PREAMBLE_CHIPS + (index * 8 + bit) * 2;
+            let first = timing.chip(window, chip);
+            let second = timing.chip(window, chip + 1);
             value = value << 1 | u8::from(first > second);
         }
         *byte = value;
@@ -465,7 +538,7 @@ impl AdsbChannel {
         let (Some(even), Some(odd_fix)) = (entry.even, entry.odd) else {
             return None;
         };
-        (even.at.abs_diff(odd_fix.at) <= CPR_PAIR_MAX_AGE_SAMPLES)
+        (even.at.abs_diff(odd_fix.at) <= self.cpr_pair_max_age)
             .then(|| cpr_global(&even, &odd_fix, odd))
             .flatten()
     }
@@ -539,12 +612,12 @@ impl AdsbChannel {
     /// Try to decode a frame starting at `at` in [`Self::mag`], returning the samples it
     /// consumed. `None` means "not a frame here" and the scan advances one sample.
     fn try_frame(&mut self, at: usize, out: &mut ChannelOutputs) -> Option<usize> {
-        let window = self.mag.get(at..at + LONG_FRAME_SAMPLES)?;
-        if !preamble_ok(window.first_chunk()?) {
+        let window = self.mag.get(at..at + self.timing.frame_samples())?;
+        if !preamble_ok(&self.timing, window) {
             return None;
         }
         let mut frame = [0u8; LONG_BYTES];
-        slice_bits(window.get(PREAMBLE_SAMPLES..)?, &mut frame);
+        slice_bits(&self.timing, window, &mut frame);
 
         let long = frame.first()? >> 3 >= 16;
         let bytes = frame.get_mut(..if long { LONG_BYTES } else { SHORT_BYTES })?;
@@ -559,7 +632,7 @@ impl AdsbChannel {
         if df != 17 && df != 18 {
             return None;
         }
-        let consumed = PREAMBLE_SAMPLES + bytes.len() * 8 * SAMPLES_PER_BIT;
+        let consumed = self.timing.edge(PREAMBLE_CHIPS + bytes.len() * 8 * 2);
         let message = self.message(bytes, df, self.stream_pos + at as u64);
         out.events.push(DecoderEvent::Adsb(message));
         Some(consumed)
@@ -578,6 +651,8 @@ impl ChannelRx for AdsbChannel {
         Ok(Self {
             crc_fix: p.crc_fix,
             reference: p.ref_lat.zip(p.ref_lon),
+            timing: Timing::new(ctx.input_rate),
+            cpr_pair_max_age: (CPR_PAIR_MAX_AGE_S * ctx.input_rate) as u64,
             mag: Vec::new(),
             stream_pos: 0,
             cpr: Vec::with_capacity(CPR_CACHE_LEN),
@@ -599,15 +674,16 @@ impl ChannelRx for AdsbChannel {
         self.mag
             .extend(iq.iter().map(|s| s.re.mul_add(s.re, s.im * s.im).sqrt()));
 
+        let frame_samples = self.timing.frame_samples();
         let mut at = 0;
-        while at + LONG_FRAME_SAMPLES <= self.mag.len() {
+        while at + frame_samples <= self.mag.len() {
             at += self.try_frame(at, out).unwrap_or(1);
         }
 
         // Keep everything a frame could still start in. Only offsets with a full frame behind
         // them are scanned, and those are exactly the ones dropped here, so results never
         // depend on where the host cut the block — and no frame is emitted twice.
-        let keep = self.mag.len().saturating_sub(LONG_FRAME_SAMPLES - 1);
+        let keep = self.mag.len().saturating_sub(frame_samples - 1);
         self.mag.drain(..keep);
         self.stream_pos += keep as u64;
     }
@@ -694,6 +770,53 @@ mod tests {
     fn only(messages: Vec<AdsbMessage>) -> AdsbMessage {
         assert_eq!(messages.len(), 1, "{messages:?}");
         messages.into_iter().next().unwrap()
+    }
+
+    /// The rule PLAN §18 wrote — "ADS-B needs the device at exactly 2 Msps" — cost the commonest
+    /// ADS-B receiver there is: no RTL-SDR can produce 2.000 Msps, and its nearest rate is 2.048.
+    /// The decoder runs at the radio's rate now, so these are the rates a real one offers.
+    #[test]
+    fn decodes_at_every_rate_a_receiver_actually_offers() {
+        for rate in [
+            INPUT_RATE_HZ,
+            2_048_000.0,
+            2_400_000.0,
+            2_560_000.0,
+            MAX_INPUT_RATE_HZ,
+        ] {
+            let frames = [
+                squitter(0x3C_6444, me_identification("DLH123")),
+                squitter(0x3C_6444, me_airborne_position(38_000, LAT, LON, false)),
+            ];
+            let iq = transmission(&frames, GAP_US, LEVEL, rate);
+            let mut chan = AdsbChannel::new(
+                ChannelCtx { input_rate: rate },
+                adsb_params(AdsbParams::default()),
+            )
+            .expect("channel");
+            let messages = feed(&mut chan, &iq, &[4_096]);
+            let calls: Vec<_> = messages.iter().filter_map(|m| m.callsign.clone()).collect();
+            assert_eq!(calls, vec!["DLH123"], "at {rate} Hz: {messages:?}");
+            assert!(
+                messages.iter().any(|m| m.altitude_ft == Some(38_000)),
+                "at {rate} Hz: {messages:?}"
+            );
+        }
+    }
+
+    /// The range is the contract, and a rate outside it is refused rather than decoded badly.
+    #[test]
+    fn refuses_a_rate_the_slicer_cannot_work_at() {
+        for rate in [1_000_000.0, INPUT_RATE_HZ - 1.0, MAX_INPUT_RATE_HZ + 1.0] {
+            assert!(
+                AdsbChannel::new(
+                    ChannelCtx { input_rate: rate },
+                    adsb_params(AdsbParams::default())
+                )
+                .is_err(),
+                "{rate} Hz must be refused"
+            );
+        }
     }
 
     #[test]
@@ -1003,20 +1126,15 @@ mod tests {
     #[test]
     fn a_stale_even_odd_pair_is_not_paired() {
         let mut chan = channel(AdsbParams::default());
+        // The window is ten seconds of *this radio's* samples, so the test asks the channel
+        // rather than a constant — at 2.4 Msps the same ten seconds is a different number.
+        let stale = chan.cpr_pair_max_age;
         let even = published("8D40621D58C382D690C8AC");
         let odd = published("8D40621D58C386435CC412");
         assert!(chan.message(&even, 17, 0).lat.is_none());
-        assert!(
-            chan.message(&odd, 17, CPR_PAIR_MAX_AGE_SAMPLES + 1)
-                .lat
-                .is_none()
-        );
+        assert!(chan.message(&odd, 17, stale + 1).lat.is_none());
         // Fresh again once a new even frame arrives.
-        assert!(
-            chan.message(&even, 17, CPR_PAIR_MAX_AGE_SAMPLES + 2)
-                .lat
-                .is_some()
-        );
+        assert!(chan.message(&even, 17, stale + 2).lat.is_some());
         assert_eq!(chan.cpr.first().map(|a| a.icao), Some(0x40_621D));
     }
 

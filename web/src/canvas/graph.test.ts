@@ -90,7 +90,8 @@ const TYPES: ChannelDescriptor[] = [
     input_rate_hz: 2_000_000,
     has_audio: false,
     decoder_kind: "adsb",
-    exact_rate_only: true,
+    exact_rate_only: false,
+    native_rate_max_hz: 4_000_000,
   },
 ];
 
@@ -179,9 +180,9 @@ describe("connectionRefusal", () => {
     );
   });
 
-  /// PLAN §18: the wideband rule is a fault *on* the wire, not a refusal of it — the rate is one
+  /// PLAN §18: the rate rule is a fault *on* the wire, not a refusal of it — the rate is one
   /// setting away, and the face at the end of the wire offers that setting.
-  it("allows a wideband channel on the wrong rate and marks the wire instead", () => {
+  it("allows a wideband channel on a rate outside its range and marks the wire instead", () => {
     const graph = {
       ...station(),
       nodes: [
@@ -189,15 +190,17 @@ describe("connectionRefusal", () => {
         node("adsb", { kind: "channel", data: { channel_type: "adsb" } }),
       ],
     };
-    const wrong = { ...context, bound: boundAt(2_400_000) };
+    // Past the top of the range: ADS-B reads the radio's own samples, and above 4 Msps there is
+    // nothing left for its slicer to gain.
+    const wrong = { ...context, bound: boundAt(10_000_000) };
     expect(connectionRefusal(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
 
     // Short enough to sit on a wire; the face at its end carries the explanation.
     expect(edgeWarning(wrong, graph, port("dev", "iq"), port("adsb", "iq"))).toBe(
-      "needs 2.000 MHz",
+      "needs 2.000–4.000 MHz",
     );
 
-    const right = { ...context, bound: boundAt(2_000_000) };
+    const right = { ...context, bound: boundAt(2_048_000) };
     expect(edgeWarning(right, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();
     // An unbound receiver has no rate to be wrong about yet.
     expect(edgeWarning(context, graph, port("dev", "iq"), port("adsb", "iq"))).toBeNull();

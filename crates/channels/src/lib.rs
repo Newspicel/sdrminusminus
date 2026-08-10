@@ -292,6 +292,11 @@ pub fn descriptors() -> Vec<ChannelDescriptor> {
 /// occupying its full output rate leaves the DDC no guard band, so no resampled path can carry
 /// it. ADS-B is the one such mode today.
 fn exact_rate_only(descriptor: &ChannelDescriptor) -> bool {
+    // A native-rate type never meets a resampling DDC at all: it is handed the device's own
+    // samples, so the guard band this asks about is not in its path.
+    if descriptor.native_rate_max_hz.is_some() {
+        return false;
+    }
     let Some(params) = ChannelParams::default_for(&descriptor.type_id) else {
         return false;
     };
@@ -316,6 +321,17 @@ pub(crate) fn check_input_rate(
     ctx: ChannelCtx,
     descriptor: &ChannelDescriptor,
 ) -> Result<(), ChannelError> {
+    // A native-rate channel is handed the device's own samples, so what it checks is a range.
+    if let Some((low, high)) = descriptor.native_rate_range() {
+        return if (low..=high).contains(&ctx.input_rate) {
+            Ok(())
+        } else {
+            Err(ChannelError::InvalidSettings(format!(
+                "{} runs at {low}–{high} Hz, engine supplied {} Hz",
+                descriptor.type_id, ctx.input_rate
+            )))
+        };
+    }
     if ctx.input_rate == descriptor.input_rate_hz {
         Ok(())
     } else {
@@ -411,17 +427,25 @@ mod tests {
         }
     }
 
-    /// The flag the canvas refuses a wire on (PLAN §18): it must name exactly the modes the
-    /// engine's admission check would reject at a resampled rate, which today is ADS-B alone.
+    /// The two rate rules the canvas draws (PLAN §18, amended). ADS-B is the one type handed the
+    /// device's own samples, and *because* it is, no type is exact-rate any more: the flag and
+    /// the range are mutually exclusive, and a type claiming both would leave the canvas telling
+    /// the operator to set a rate the engine then refuses.
     #[test]
-    fn only_adsb_needs_the_device_at_its_own_rate() {
+    fn only_adsb_runs_at_the_device_rate_and_nothing_is_exact_rate() {
         for d in descriptors() {
             assert_eq!(
-                d.exact_rate_only,
-                d.type_id == "adsb",
-                "{} exact-rate flag",
+                d.native_rate_range(),
+                (d.type_id == "adsb").then_some((2_000_000.0, 4_000_000.0)),
+                "{} native rate range",
                 d.type_id
             );
+            assert!(
+                !(d.exact_rate_only && d.native_rate_max_hz.is_some()),
+                "{} claims both rate rules",
+                d.type_id
+            );
+            assert!(!d.exact_rate_only, "{} exact-rate flag", d.type_id);
         }
     }
 

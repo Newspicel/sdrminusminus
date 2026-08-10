@@ -709,10 +709,10 @@ export interface components {
             decoder_kind?: string | null;
             /**
              * @description The type occupies its whole channel rate, so it runs only with the device tuned to
-             *     exactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18;
-             *     ADS-B is the one such mode). Reported so the canvas can refuse the wire where the
-             *     operator draws it, naming the rate that works, instead of letting the engine reject it
-             *     after the fact. Defaults to `false`, which is every other type.
+             *     exactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18).
+             *     Reported so the canvas can refuse the wire where the operator draws it, naming the rate
+             *     that works, instead of letting the engine reject it after the fact. Defaults to `false`,
+             *     which is every type that leaves a guard band.
              */
             exact_rate_only?: boolean;
             /**
@@ -728,6 +728,17 @@ export interface components {
             input_rate_hz: number;
             /** @description Display name, e.g. `"NFM"`, `"WFM (mono)"`. */
             name: string;
+            /**
+             * Format: double
+             * @description Set when the channel is handed the device's **own** samples — mixed to its offset, never
+             *     resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
+             *     highest, so a receiver is set anywhere in that range rather than to one exact number.
+             *
+             *     ADS-B is the one such type (PLAN §18, amended): a 0.5 µs pulse is a single sample at
+             *     2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
+             *     meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
+             */
+            native_rate_max_hz?: number | null;
             /** @description Stable type id, e.g. `"nfm"`, `"am"`, `"ssb"`, `"wfm"`. */
             type_id: string;
         };

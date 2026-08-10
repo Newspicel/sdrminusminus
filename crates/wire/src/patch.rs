@@ -793,6 +793,7 @@ mod tests {
                 has_audio: true,
                 decoder_kind: None,
                 exact_rate_only: false,
+                native_rate_max_hz: None,
             },
             ChannelDescriptor {
                 type_id: "adsb".to_owned(),
@@ -801,7 +802,8 @@ mod tests {
                 input_rate_hz: 2_000_000.0,
                 has_audio: false,
                 decoder_kind: Some("adsb".to_owned()),
-                exact_rate_only: true,
+                exact_rate_only: false,
+                native_rate_max_hz: Some(4_000_000.0),
             },
         ]
     }
