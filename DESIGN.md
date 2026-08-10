@@ -4,6 +4,13 @@ This file is binding the way `CLAUDE.md` is binding. `PLAN.md` §10 says *what* 
 be; this says *how it looks and behaves*, in numbers a reviewer can check. If a change needs a
 value that is not here, add it here in the same change.
 
+> **Direction change (M7, `PLAN-CANVAS.md`):** the client is being rebuilt canvas-first and
+> this file will be rewritten around that direction in `CANVAS §8` phase ② — the anodized
+> single-accent chrome and every mobile rule are superseded. Until the rewrite lands, what
+> still binds is the physics, not the paint: the contrast floors (§2), the plot-ink and
+> colormap rules, mono/tabular numerals (§3), and "nothing moves that the operator did not
+> move."
+
 The reference points are the ones §10 names: bench instruments and pro audio, not landing pages.
 Everything below follows from three commitments.
 
