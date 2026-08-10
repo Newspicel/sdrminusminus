@@ -5,10 +5,11 @@
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use sdrmm_engine::Engine;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("info,sdrmm=debug")
         .init();
@@ -51,7 +52,7 @@ fn main() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while running sdr-- desktop")
+        .context("failed to start sdr-- desktop")?
         .run(|app, event| {
             // Tauri exits the process without unwinding `main`, so `Engine`'s drop never
             // runs on its own: tear down here or a live recording dies as an unlisted
@@ -62,4 +63,5 @@ fn main() {
                 engine.shutdown();
             }
         });
+    Ok(())
 }
