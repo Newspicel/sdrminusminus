@@ -15,15 +15,19 @@ import type {
 } from "../lib/types";
 import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
 import type { SdrSocket } from "../lib/ws";
+import { Checkbox } from "./Checkbox";
 import {
   type ChannelParamsOf,
   channelDecoderKind,
   channelHasAudio,
   defaultChannelSettings,
 } from "./channelSettings";
-import { BTN, BTN_DANGER, BTN_PRIMARY, BTN_QUIET, FIELD, LABEL, segment } from "./controls";
+import { BTN, BTN_DANGER, BTN_PRIMARY, BTN_QUIET, LABEL, type Options, segment } from "./controls";
 import { formatKhz, formatSignedKhz } from "./format";
-import { NumberField } from "./NumberField";
+import { NumberField, OptionalNumberField } from "./NumberField";
+import { Segmented } from "./Segmented";
+import { Select, withCurrent } from "./Select";
+import { Slider } from "./Slider";
 import { TemplatesPanel } from "./TemplatesPanel";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
@@ -32,8 +36,6 @@ const DEFAULT_SQUELCH_DB = -60;
 
 // Choice lists for the wire enums, typed off the generated union so a renamed or added variant
 // breaks here instead of shipping an option the server rejects.
-type Options<T extends string> = readonly { value: T; label: string }[];
-
 const SIDEBANDS: Options<NonNullable<ChannelParamsOf<"ssb">["sideband"]>> = [
   { value: "usb", label: "USB" },
   { value: "lsb", label: "LSB" },
@@ -57,8 +59,20 @@ const RTTY_STOP_BITS: Options<NonNullable<ChannelParamsOf<"rtty">["stop_bits"]>>
   { value: "one_and_half", label: "1.5" },
   { value: "two", label: "2" },
 ];
-const RTTY_BAUDS = [45.45, 50, 75];
-const RTTY_SHIFTS_HZ = [170, 450, 850];
+const DEEMPHASIS_US: Options<number> = [
+  { value: 50, label: "50 µs" },
+  { value: 75, label: "75 µs" },
+];
+const RTTY_BAUDS: Options<number> = [
+  { value: 45.45, label: "45.45" },
+  { value: 50, label: "50" },
+  { value: 75, label: "75" },
+];
+const RTTY_SHIFTS_HZ: Options<number> = [
+  { value: 170, label: "170" },
+  { value: 450, label: "450" },
+  { value: 850, label: "850" },
+];
 
 export function ChannelsPanel({
   socket,
@@ -99,18 +113,13 @@ export function ChannelsPanel({
       <div className="flex flex-wrap items-center gap-2">
         <label className={LABEL}>
           <span className="legend">Add</span>
-          <select
-            className={`${FIELD} w-40`}
+          <Select
+            label="Channel type"
+            className="w-40"
             value={newType}
-            onChange={(e) => setNewType(e.target.value)}
-            aria-label="Channel type"
-          >
-            {(types.data?.types ?? []).map((t) => (
-              <option key={t.type_id} value={t.type_id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+            options={(types.data?.types ?? []).map((t) => ({ value: t.type_id, label: t.name }))}
+            onChange={setNewType}
+          />
         </label>
         <button
           type="button"
@@ -230,15 +239,14 @@ function ChannelRow({
             >
               {engaged ? "Stop" : "Play"}
             </button>
-            <input
-              type="range"
-              className="w-20 accent-accent"
+            <Slider
+              label={`${name} volume`}
+              className="w-20"
               min={0}
               max={1}
               step={0.02}
               value={audio.volume}
-              onChange={(e) => audio.setVolume(Number(e.target.value))}
-              aria-label={`${name} volume`}
+              onChange={audio.setVolume}
             />
           </>
         )}
@@ -279,12 +287,10 @@ function ChannelRow({
         </div>
 
         <label className={LABEL}>
-          <input
-            type="checkbox"
-            className="size-4 accent-accent"
+          <Checkbox
             checked={squelchDb !== null}
-            onChange={(e) => {
-              if (e.target.checked) {
+            onChange={(on) => {
+              if (on) {
                 onEdit({ squelch_db: offSquelchDb });
               } else {
                 setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
@@ -296,15 +302,14 @@ function ChannelRow({
           <span className="legend">Squelch</span>
           {squelchDb !== null && (
             <>
-              <input
-                type="range"
-                className="w-24 accent-accent"
+              <Slider
+                label="Squelch threshold (dB)"
+                className="w-24"
                 min={-120}
                 max={0}
                 step={1}
                 value={squelchSlider.pending ?? squelchDb}
-                onChange={(e) => squelchSlider.change(Number(e.target.value))}
-                aria-label="Squelch threshold (dB)"
+                onChange={squelchSlider.change}
               />
               <span className="w-12 text-right font-mono text-xs text-ink tabular-nums">
                 {(squelchSlider.pending ?? squelchDb).toFixed(0)}
@@ -437,20 +442,14 @@ function ModeControls({
         <>
           <label className={LABEL}>
             De-emphasis
-            <select
-              className={FIELD}
+            <Select
+              label="De-emphasis (µs)"
               value={params.settings.deemphasis_us ?? 50}
-              onChange={(e) =>
-                onParams({
-                  type: "wfm",
-                  settings: { ...params.settings, deemphasis_us: Number(e.target.value) },
-                })
+              options={DEEMPHASIS_US}
+              onChange={(deemphasis_us) =>
+                onParams({ type: "wfm", settings: { ...params.settings, deemphasis_us } })
               }
-              aria-label="De-emphasis (µs)"
-            >
-              <option value={50}>50 µs</option>
-              <option value={75}>75 µs</option>
-            </select>
+            />
           </label>
           <Toggle
             label="RDS"
@@ -464,7 +463,7 @@ function ModeControls({
         <>
           <label className={LABEL}>
             Baud
-            <OptionSelect
+            <Select
               label="POCSAG baud"
               value={params.settings.baud ?? "auto"}
               options={POCSAG_BAUDS}
@@ -530,7 +529,7 @@ function ModeControls({
         <>
           <label className={LABEL}>
             Mode
-            <OptionSelect
+            <Select
               label="APRS mode"
               value={params.settings.mode ?? "afsk1200"}
               options={APRS_MODES}
@@ -585,7 +584,7 @@ function ModeControls({
           </span>
           <label className={LABEL}>
             Stop
-            <OptionSelect
+            <Select
               label="RTTY stop bits"
               value={params.settings.stop_bits ?? "one_and_half"}
               options={RTTY_STOP_BITS}
@@ -657,28 +656,15 @@ function BandwidthSelect({
   onCommit,
 }: {
   valueHz: number;
-  optionsHz: number[];
+  optionsHz: readonly number[];
   onCommit: (hz: number) => void;
 }) {
-  return (
-    <select
-      className={FIELD}
-      value={valueHz}
-      onChange={(e) => onCommit(Number(e.target.value))}
-      aria-label="Channel bandwidth"
-    >
-      {/* A preset can carry an off-list bandwidth; render it as selectable so the select
-          doesn't lie (same rule as the device BW select). */}
-      {!optionsHz.includes(valueHz) && (
-        <option value={valueHz}>{formatKhz(valueHz)} (current)</option>
-      )}
-      {optionsHz.map((hz) => (
-        <option key={hz} value={hz}>
-          {formatKhz(hz)}
-        </option>
-      ))}
-    </select>
+  const options = withCurrent(
+    valueHz,
+    optionsHz.map((hz) => ({ value: hz, label: formatKhz(hz) })),
+    formatKhz,
   );
+  return <Select label="Channel bandwidth" value={valueHz} options={options} onChange={onCommit} />;
 }
 
 function Toggle({
@@ -692,87 +678,14 @@ function Toggle({
 }) {
   return (
     <label className={LABEL}>
-      <input
-        type="checkbox"
-        className="accent-accent"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
+      <Checkbox checked={checked} onChange={onChange} />
       {label}
     </label>
   );
 }
 
-// Matching the option back by value keeps the enum's generated string literal type — the DOM
-// only ever hands back `string`.
-function OptionSelect<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: Options<T>;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <select
-      className={FIELD}
-      value={value}
-      aria-label={label}
-      onChange={(e) => {
-        const picked = options.find((o) => o.value === e.target.value);
-        if (picked) {
-          onChange(picked.value);
-        }
-      }}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function Segmented<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: Options<T>;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div
-      className="flex overflow-hidden rounded border border-line"
-      role="group"
-      aria-label={label}
-    >
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          className={`px-2.5 py-1 font-mono text-sm transition-colors max-md:min-h-10 ${
-            value === o.value ? "bg-panel-2 text-accent" : "text-ink-dim hover:text-ink"
-          }`}
-          aria-pressed={value === o.value}
-          onClick={() => onChange(o.value)}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 // The presets are what operators actually use; the field stays free so an off-list value is
-// still reachable (and an incoming one is still shown).
+// still reachable (and an incoming one is still shown, with no preset marked).
 function PresetNumberField({
   label,
   value,
@@ -784,7 +697,7 @@ function PresetNumberField({
 }: {
   label: string;
   value: number;
-  presets: readonly number[];
+  presets: Options<number>;
   min: number;
   max: number;
   step: number;
@@ -792,25 +705,7 @@ function PresetNumberField({
 }) {
   return (
     <span className="flex items-center gap-1">
-      <div
-        className="flex overflow-hidden rounded border border-line"
-        role="group"
-        aria-label={`${label} presets`}
-      >
-        {presets.map((preset) => (
-          <button
-            key={preset}
-            type="button"
-            className={`px-2 py-1 font-mono text-sm tabular-nums transition-colors max-md:min-h-10 ${
-              value === preset ? "bg-panel-2 text-accent" : "text-ink-dim hover:text-ink"
-            }`}
-            aria-pressed={value === preset}
-            onClick={() => onCommit(preset)}
-          >
-            {preset}
-          </button>
-        ))}
-      </div>
+      <Segmented label={`${label} presets`} value={value} options={presets} onChange={onCommit} />
       <NumberField
         label={label}
         value={value}
@@ -820,72 +715,6 @@ function PresetNumberField({
         onCommit={onCommit}
       />
     </span>
-  );
-}
-
-// `NumberField` cannot express "cleared", and for these settings an empty field is a real value
-// (auto) rather than a rejected edit — otherwise there is no way back to auto once a speed is set.
-function OptionalNumberField({
-  label,
-  placeholder,
-  value,
-  min,
-  max,
-  step,
-  onCommit,
-}: {
-  label: string;
-  placeholder: string;
-  value: number | null;
-  min: number;
-  max: number;
-  step: number;
-  onCommit: (value: number | null) => void;
-}) {
-  const [text, setText] = useState<string | null>(null);
-
-  const commit = (): void => {
-    if (text === null) {
-      return;
-    }
-    setText(null);
-    if (text.trim() === "") {
-      if (value !== null) {
-        onCommit(null);
-      }
-      return;
-    }
-    const entered = Number(text);
-    if (!Number.isFinite(entered)) {
-      return;
-    }
-    const clamped = Math.min(max, Math.max(min, entered));
-    if (clamped !== value) {
-      onCommit(clamped);
-    }
-  };
-
-  return (
-    <input
-      type="number"
-      inputMode="decimal"
-      className={`${FIELD} w-20 tabular-nums`}
-      aria-label={label}
-      placeholder={placeholder}
-      value={text ?? (value === null ? "" : String(value))}
-      min={min}
-      max={max}
-      step={step}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          commit();
-        } else if (e.key === "Escape") {
-          setText(null);
-        }
-      }}
-    />
   );
 }
 
@@ -900,42 +729,22 @@ function AdsbReference({
   lon: number | null;
   onCommit: (lat: number | null, lon: number | null) => void;
 }) {
-  const [draft, setDraft] = useState<{ lat: string; lon: string } | null>(null);
+  const [draft, setDraft] = useState<Reference | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
-  const shown = draft ?? {
-    lat: lat === null ? "" : String(lat),
-    lon: lon === null ? "" : String(lon),
-  };
-  const cleared = shown.lat.trim() === "" && shown.lon.trim() === "";
-  const parsed = {
-    lat: Number(shown.lat),
-    lon: Number(shown.lon),
-  };
-  const valid =
-    cleared ||
-    (Number.isFinite(parsed.lat) &&
-      Math.abs(parsed.lat) <= 90 &&
-      shown.lat.trim() !== "" &&
-      Number.isFinite(parsed.lon) &&
-      Math.abs(parsed.lon) <= 180 &&
-      shown.lon.trim() !== "");
+  const shown = draft ?? { lat, lon };
+  // The fields clamp to their own range, so the only invalid state left is half-filled.
+  const valid = (shown.lat === null) === (shown.lon === null);
 
-  const edit = (next: { lat: string; lon: string }): void => {
-    setDraft(next);
-  };
-  const commit = (): void => {
-    if (draft === null || !valid) {
+  // Called when either field commits: the pair is what is patched, so a half-filled draft is
+  // simply kept on screen until the other half arrives.
+  const commit = (next: Reference): void => {
+    if ((next.lat === null) !== (next.lon === null)) {
+      setDraft(next);
       return;
     }
     setDraft(null);
-    if (cleared) {
-      if (lat !== null || lon !== null) {
-        onCommit(null, null);
-      }
-      return;
-    }
-    if (parsed.lat !== lat || parsed.lon !== lon) {
-      onCommit(parsed.lat, parsed.lon);
+    if (next.lat !== lat || next.lon !== lon) {
+      onCommit(next.lat, next.lon);
     }
   };
 
@@ -959,28 +768,28 @@ function AdsbReference({
   return (
     <span className="flex flex-wrap items-center gap-1">
       <span className="text-sm text-ink-dim">Ref</span>
-      {(["lat", "lon"] as const).map((axis) => (
-        <input
-          key={axis}
-          type="number"
-          inputMode="decimal"
-          className={`${FIELD} w-24 tabular-nums ${valid ? "" : "border-danger"}`}
-          aria-label={axis === "lat" ? "Reference latitude" : "Reference longitude"}
-          aria-invalid={!valid}
-          placeholder={axis}
-          value={shown[axis]}
-          step={0.00001}
-          onChange={(e) => edit({ ...shown, [axis]: e.target.value })}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              commit();
-            } else if (e.key === "Escape") {
-              setDraft(null);
-            }
-          }}
-        />
-      ))}
+      <OptionalNumberField
+        label="Reference latitude"
+        placeholder="lat"
+        className="w-24"
+        value={shown.lat}
+        min={-90}
+        max={90}
+        step={REFERENCE_STEP}
+        invalid={!valid}
+        onCommit={(next) => commit({ ...shown, lat: next })}
+      />
+      <OptionalNumberField
+        label="Reference longitude"
+        placeholder="lon"
+        className="w-24"
+        value={shown.lon}
+        min={-180}
+        max={180}
+        step={REFERENCE_STEP}
+        invalid={!valid}
+        onCommit={(next) => commit({ ...shown, lon: next })}
+      />
       <button type="button" className={BTN} onClick={locate}>
         Use my location
       </button>
@@ -989,3 +798,12 @@ function AdsbReference({
     </span>
   );
 }
+
+interface Reference {
+  lat: number | null;
+  lon: number | null;
+}
+
+/** ~1 m at the equator — finer than the decoder's local-position solution needs, and the
+ * precision the field is allowed to display (`fractionDigits`). */
+const REFERENCE_STEP = 0.00001;

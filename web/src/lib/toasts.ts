@@ -1,46 +1,35 @@
 // Every failure the operator must see, in one place (DESIGN.md §5). A banner row at the top of
 // the shell moved every panel underneath it whenever the server refused something; a toast
 // stack reports the same fact without the layout the operator did not ask for.
-import { create } from "zustand";
+//
+// The manager lives outside React so the socket and mutation handlers can queue from anywhere;
+// `Toasts` is only its renderer.
+import { Toast } from "@base-ui/react/toast";
 
 export type Tone = "error" | "info";
 
-export interface Toast {
-  id: number;
-  message: string;
-  tone: Tone;
-  /** Bumped when the same message repeats, so the card restarts its timer rather than stacking
-   * duplicates of one server that is refusing everything. */
+export interface ToastData {
+  /** How many times this message has repeated while its card was on screen. */
   repeats: number;
 }
 
-interface ToastStore {
-  toasts: readonly Toast[];
-  push: (message: string, tone?: Tone) => void;
-  dismiss: (id: number) => void;
-}
+export const toastManager = Toast.createToastManager<ToastData>();
 
-let nextId = 1;
+/** Live cards only: cleared on removal so a failure that comes back after the stack emptied
+ * starts counting again rather than resuming an old tally. */
+const repeats = new Map<string, number>();
 
-export const useToasts = create<ToastStore>((set) => ({
-  toasts: [],
-  push: (message, tone = "error") =>
-    set((state) => {
-      const existing = state.toasts.find((t) => t.message === message && t.tone === tone);
-      if (existing !== undefined) {
-        return {
-          toasts: state.toasts.map((t) =>
-            t.id === existing.id ? { ...t, repeats: t.repeats + 1 } : t,
-          ),
-        };
-      }
-      // Oldest first out: a burst of failures must not push the newest off the screen.
-      return { toasts: [...state.toasts, { id: nextId++, message, tone, repeats: 0 }].slice(-4) };
-    }),
-  dismiss: (id) => set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) })),
-}));
-
-/** For non-React callers (mutation handlers, the socket) — same store, no hook. */
 export function pushToast(message: string, tone: Tone = "error"): void {
-  useToasts.getState().push(message, tone);
+  // The message is the identity. Adding under an existing id updates the card in place and
+  // restarts its timer, so one server refusing everything gets a counter, not a stack.
+  const id = `${tone}:${message}`;
+  const seen = (repeats.get(id) ?? -1) + 1;
+  repeats.set(id, seen);
+  toastManager.add({
+    id,
+    type: tone,
+    title: message,
+    data: { repeats: seen },
+    onRemove: () => repeats.delete(id),
+  });
 }

@@ -256,7 +256,7 @@ export function App() {
           </ShellProvider>
         )}
 
-        {showShortcuts && <Shortcuts onClose={() => setShowShortcuts(false)} />}
+        <Shortcuts open={showShortcuts} onOpenChange={setShowShortcuts} />
         <Toasts />
       </div>
     </TokenGate>

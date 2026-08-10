@@ -8,6 +8,7 @@ import { useScannerStore } from "../lib/scanner";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet } from "../lib/types";
 import { BTN, FIELD, LABEL } from "./controls";
+import { Select } from "./Select";
 import {
   DEFAULT_RANGE,
   formatDb,
@@ -158,19 +159,18 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
             </label>
             <label className={LABEL}>
               Listen on
-              <select
-                className={FIELD}
-                aria-label="Hold channel"
+              <Select
+                label="Hold channel"
                 value={holdChannel}
-                onChange={(e) => setHoldChannel(e.target.value)}
-              >
-                <option value="">nothing</option>
-                {holdCandidates(active).map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    channel {c.id} ({c.settings.params.type})
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "", label: "nothing" },
+                  ...holdCandidates(active).map((c) => ({
+                    value: String(c.id),
+                    label: `channel ${c.id} (${c.settings.params.type})`,
+                  })),
+                ]}
+                onChange={setHoldChannel}
+              />
             </label>
             <span className="font-mono text-[10px] text-ink-dim">
               {typeof parsed === "string" ? parsed : `${count} targets`}

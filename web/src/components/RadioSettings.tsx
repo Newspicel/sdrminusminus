@@ -4,12 +4,16 @@
 // the radio popover — these are consulted, not watched (DESIGN.md §5).
 import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
-import { FIELD } from "./controls";
+import { Checkbox } from "./Checkbox";
 import { formatHz } from "./format";
 import { NumberField } from "./NumberField";
+import { Select, withCurrent } from "./Select";
+import { Slider } from "./Slider";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
 const ROW = "grid grid-cols-[4.5rem_1fr] items-center gap-3";
+
+const formatMsps = (hz: number): string => `${(hz / 1e6).toFixed(3)} MS/s`;
 
 export function RadioSettings({ active }: { active: DeviceSet }) {
   const { applyPatch } = useDevicePatch();
@@ -17,31 +21,24 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
   const settings = active.settings;
   const sampleRate = settings.sample_rate ?? 0;
   const rateRange = caps.sample_rate_range;
-
-  // The device may report a bandwidth between the discrete capability points; without an option
-  // for it the browser would show the first option as a lie and make it unselectable.
-  const offListBandwidth =
-    settings.bandwidth != null && !caps.bandwidths.includes(settings.bandwidth)
-      ? settings.bandwidth
-      : null;
+  const bandwidth = settings.bandwidth ?? caps.bandwidths[0] ?? 0;
 
   return (
     <div className="flex flex-col gap-2">
       <div className={ROW}>
         <span className="legend">Rate</span>
         {caps.sample_rates.length > 0 ? (
-          <select
-            className={`${FIELD} w-full`}
+          <Select
+            label="Sample rate"
+            className="w-full"
             value={sampleRate}
-            aria-label="Sample rate"
-            onChange={(e) => applyPatch(active.id, { sample_rate: Number(e.target.value) })}
-          >
-            {caps.sample_rates.map((rate) => (
-              <option key={rate} value={rate}>
-                {(rate / 1e6).toFixed(3)} MS/s
-              </option>
-            ))}
-          </select>
+            options={withCurrent(
+              sampleRate,
+              caps.sample_rates.map((rate) => ({ value: rate, label: formatMsps(rate) })),
+              formatMsps,
+            )}
+            onChange={(sample_rate) => applyPatch(active.id, { sample_rate })}
+          />
         ) : (
           <span className="flex items-center gap-2">
             <NumberField
@@ -61,39 +58,30 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
       {caps.bandwidths.length > 0 && (
         <div className={ROW}>
           <span className="legend">Filter</span>
-          <select
-            className={`${FIELD} w-full`}
-            value={settings.bandwidth ?? caps.bandwidths[0]}
-            aria-label="Analog bandwidth"
-            onChange={(e) => applyPatch(active.id, { bandwidth: Number(e.target.value) })}
-          >
-            {offListBandwidth != null && (
-              <option value={offListBandwidth}>{formatHz(offListBandwidth)} (current)</option>
+          <Select
+            label="Analog bandwidth"
+            className="w-full"
+            value={bandwidth}
+            options={withCurrent(
+              bandwidth,
+              caps.bandwidths.map((hz) => ({ value: hz, label: formatHz(hz) })),
+              formatHz,
             )}
-            {caps.bandwidths.map((bandwidth) => (
-              <option key={bandwidth} value={bandwidth}>
-                {formatHz(bandwidth)}
-              </option>
-            ))}
-          </select>
+            onChange={(hz) => applyPatch(active.id, { bandwidth: hz })}
+          />
         </div>
       )}
 
       {caps.antennas.length > 1 && (
         <div className={ROW}>
           <span className="legend">Antenna</span>
-          <select
-            className={`${FIELD} w-full`}
-            value={settings.antenna ?? caps.antennas[0]}
-            aria-label="Antenna"
-            onChange={(e) => applyPatch(active.id, { antenna: e.target.value })}
-          >
-            {caps.antennas.map((antenna) => (
-              <option key={antenna} value={antenna}>
-                {antenna}
-              </option>
-            ))}
-          </select>
+          <Select
+            label="Antenna"
+            className="w-full"
+            value={settings.antenna ?? caps.antennas[0] ?? ""}
+            options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
+            onChange={(antenna) => applyPatch(active.id, { antenna })}
+          />
         </div>
       )}
 
@@ -144,15 +132,14 @@ function GainControl({
     <div className={ROW}>
       <span className="legend">{stage.name}</span>
       <span className="flex items-center gap-2">
-        <input
-          type="range"
-          className="min-w-0 flex-1 accent-accent"
+        <Slider
+          label={`${stage.name} gain (dB)`}
+          className="min-w-0 flex-1"
           min={stage.range.min}
           max={stage.range.max}
           step={stage.range.step ?? 0.1}
           value={shown}
-          onChange={(e) => change(Number(e.target.value))}
-          aria-label={`${stage.name} gain (dB)`}
+          onChange={change}
         />
         <span className="w-14 shrink-0 text-right font-mono text-xs text-ink">
           {shown.toFixed(1)} <span className="text-ink-faint">dB</span>
@@ -176,31 +163,26 @@ function ExtraControl({
       return (
         <div className={ROW}>
           <span className="legend">{setting.name}</span>
-          <input
-            type="checkbox"
-            className="size-4 accent-accent justify-self-start"
-            aria-label={setting.name}
-            checked={typeof raw === "boolean" ? raw : setting.default}
-            onChange={(e) => onCommit(e.target.checked)}
-          />
+          <span className="justify-self-start">
+            <Checkbox
+              label={setting.name}
+              checked={typeof raw === "boolean" ? raw : setting.default}
+              onChange={onCommit}
+            />
+          </span>
         </div>
       );
     case "enum":
       return (
         <div className={ROW}>
           <span className="legend">{setting.name}</span>
-          <select
-            className={`${FIELD} w-full`}
-            aria-label={setting.name}
+          <Select
+            label={setting.name}
+            className="w-full"
             value={typeof raw === "string" ? raw : setting.default}
-            onChange={(e) => onCommit(e.target.value)}
-          >
-            {setting.options.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+            options={setting.options.map((option) => ({ value: option, label: option }))}
+            onChange={onCommit}
+          />
         </div>
       );
     case "range":
