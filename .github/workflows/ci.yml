@@ -68,6 +68,16 @@ jobs:
         run: pnpm --dir web exec playwright install --with-deps chromium
       - name: cargo xtask smoke
         run: cargo xtask smoke
+      # `retain-on-failure` (web/playwright.config.ts) already writes a trace and a page snapshot
+      # per failed test; without this they die with the runner, and a browser failure that only
+      # happens on CI is then a stack trace with nothing behind it.
+      - name: keep the smoke trace
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-trace
+          path: web/test-results
+          retention-days: 7
 
   desktop:
     name: Desktop shell (ubuntu)
