@@ -759,7 +759,7 @@ export interface components {
              * @description IQ rate the demod expects from the DDC, in Hz.
              */
             input_rate_hz: number;
-            /** @description Display name, e.g. `"NFM"`, `"WFM (mono)"`. */
+            /** @description Display name, e.g. `"NFM"`, `"WFM (broadcast)"`. */
             name: string;
             /**
              * Format: double
@@ -2297,6 +2297,11 @@ export interface components {
              *     it costs a second demod chain on the same channel.
              */
             rds?: boolean;
+            /**
+             * @description Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.
+             *     A station without a 19 kHz pilot still plays: L and R carry the same mono programme.
+             */
+            stereo?: boolean;
         };
         /** @description `GET /api/workspaces/{id}` — the row plus its workspace. */
         WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {

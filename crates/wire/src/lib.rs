@@ -234,6 +234,7 @@ mod contract_tests {
             ChannelParams::Wfm(WfmParams {
                 deemphasis_us: 75.0,
                 rds: false,
+                stereo: true,
             })
         );
     }

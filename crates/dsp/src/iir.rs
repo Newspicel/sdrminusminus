@@ -1,4 +1,9 @@
-//! Single-pole audio IIR helpers (PLAN §7): FM deemphasis and DC removal.
+//! Single-pole IIR helpers (PLAN §7): FM deemphasis, DC removal, and the complex baseband
+//! smoother a mixed-down carrier is extracted with.
+
+use std::f64::consts::TAU;
+
+use num_complex::Complex;
 
 /// Smoothing coefficient for `y += c·(x − y)` matching the analog RC time constant `tau_s`
 /// at `rate` (matched-z pole `e^(−1/(rate·tau))`). Public because decoders that track a
@@ -39,6 +44,57 @@ impl Deemphasis {
     }
 }
 
+/// Cascaded single-pole complex lowpass, one `y += c·(x − y)` section per stage. The
+/// coefficients are real, so the response is symmetric about DC: a carrier mixed exactly to
+/// baseband passes with no phase shift at all — which is what a phase detector reading the
+/// output depends on — while its neighbours roll off `stages`·6 dB per octave.
+///
+/// This is the cheap alternative to an FIR for a *very* narrow band at a high rate: the FM
+/// pilot needs a ~400 Hz corner at 240 kHz, which no realisable FIR reaches without decimating
+/// first, and decimating would cost the sample-accurate phase the reference is rebuilt from.
+#[derive(Clone, Debug)]
+pub struct ComplexOnePole {
+    stages: Vec<Complex<f32>>,
+    coeff: f32,
+}
+
+impl ComplexOnePole {
+    /// `cutoff_hz` is the −3 dB corner of a single stage; the cascade's own corner is lower.
+    #[must_use]
+    pub fn new(rate: f64, cutoff_hz: f64, stages: usize) -> Self {
+        assert!(
+            rate > 0.0 && cutoff_hz > 0.0 && stages > 0,
+            "rate, cutoff and stage count must be positive"
+        );
+        Self {
+            stages: vec![Complex::new(0.0, 0.0); stages],
+            coeff: one_pole_coeff(rate, 1.0 / (TAU * cutoff_hz)),
+        }
+    }
+
+    /// Advance one sample. A non-finite input is dropped rather than latched into the
+    /// recursion — the per-sample counterpart of the per-block healing above.
+    #[must_use]
+    pub fn process(&mut self, sample: Complex<f32>) -> Complex<f32> {
+        let mut v = if sample.re.is_finite() && sample.im.is_finite() {
+            sample
+        } else {
+            Complex::new(0.0, 0.0)
+        };
+        for stage in &mut self.stages {
+            *stage += (v - *stage) * self.coeff;
+            v = *stage;
+        }
+        v
+    }
+
+    pub fn reset(&mut self) {
+        for stage in &mut self.stages {
+            *stage = Complex::new(0.0, 0.0);
+        }
+    }
+}
+
 /// DC blocker `y[n] = x[n] − x[n−1] + a·y[n−1]`. The 0.995 pole puts the corner near
 /// fs/1500 (~32 Hz at 48 kHz) — inaudible, but it kills demodulator DC offsets.
 #[derive(Clone, Debug, Default)]
@@ -75,7 +131,7 @@ mod tests {
     use std::f32::consts::FRAC_1_SQRT_2;
 
     use super::*;
-    use crate::testutil::{real_tone, rms_r};
+    use crate::testutil::{complex_tone, real_tone, rms_c, rms_r};
 
     fn deemphasis_gain(rate: f64, tau_us: f32, freq_hz: f64) -> f32 {
         let mut filter = Deemphasis::new(rate, tau_us);
@@ -133,6 +189,64 @@ mod tests {
         assert!(tone.iter().all(|v| v.is_finite()), "state still poisoned");
         let gain = rms_r(&tone[4_800..]) / FRAC_1_SQRT_2;
         assert!((0.891..1.122).contains(&gain), "post-recovery gain {gain}");
+    }
+
+    /// Settled response of a `stages`-deep cascade to a complex tone at `freq_norm`.
+    fn cascade_gain(freq_norm: f64, stages: usize) -> f32 {
+        let mut filter = ComplexOnePole::new(1.0, CUTOFF_NORM, stages);
+        let input = complex_tone(freq_norm, 200_000);
+        let out: Vec<Complex<f32>> = input.iter().map(|&s| filter.process(s)).collect();
+        rms_c(&out[out.len() / 2..])
+    }
+
+    /// −3 dB corner of one stage, normalized to the sample rate.
+    const CUTOFF_NORM: f64 = 0.001;
+
+    #[test]
+    fn complex_one_pole_matches_the_analytic_single_pole_response() {
+        // |H(f)| = (1 + (f/fc)²)^(−stages/2), the cascade of identical RC sections.
+        for (freq_norm, stages) in [(CUTOFF_NORM, 1), (10.0 * CUTOFF_NORM, 1), (0.01, 3)] {
+            let ratio = freq_norm / CUTOFF_NORM;
+            let expected = (1.0 + ratio * ratio).powf(-(stages as f64) / 2.0) as f32;
+            let gain = cascade_gain(freq_norm, stages);
+            assert!(
+                (gain - expected).abs() < 0.1 * expected.max(1e-3),
+                "{stages} stages at {ratio}·fc: gain {gain}, expected {expected}"
+            );
+        }
+    }
+
+    /// Real coefficients ⇒ a mirror-image tone is treated identically, and DC passes untouched
+    /// in both magnitude *and* phase — the stereo pilot reference is rebuilt from that phase.
+    #[test]
+    fn complex_one_pole_is_symmetric_about_dc_and_passes_it_unrotated() {
+        let above = cascade_gain(0.005, 3);
+        let below = cascade_gain(-0.005, 3);
+        assert!((above - below).abs() < 1e-4, "{above} vs {below}");
+
+        let mut filter = ComplexOnePole::new(1.0, CUTOFF_NORM, 3);
+        let dc = Complex::new(0.6f32, -0.8);
+        let mut out = Complex::new(0.0, 0.0);
+        for _ in 0..20_000 {
+            out = filter.process(dc);
+        }
+        assert!(
+            (out - dc).norm() < 1e-3,
+            "dc settled to {out}, expected {dc}"
+        );
+    }
+
+    #[test]
+    fn complex_one_pole_recovers_after_non_finite_sample() {
+        let mut filter = ComplexOnePole::new(1.0, CUTOFF_NORM, 2);
+        let _ = filter.process(Complex::new(f32::NAN, 0.0));
+        let _ = filter.process(Complex::new(0.0, f32::INFINITY));
+        let mut out = Complex::new(0.0, 0.0);
+        for _ in 0..20_000 {
+            out = filter.process(Complex::new(1.0, 0.0));
+        }
+        assert!(out.re.is_finite() && out.im.is_finite(), "state poisoned");
+        assert!((out.re - 1.0).abs() < 1e-3, "post-recovery gain {}", out.re);
     }
 
     #[test]

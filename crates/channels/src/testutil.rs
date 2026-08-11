@@ -87,6 +87,15 @@ pub(crate) fn run_ragged(chan: &mut dyn ChannelRx, iq: &[Complex<f32>]) -> Vec<f
     audio
 }
 
+/// Split interleaved two-channel PCM into its left and right halves.
+pub(crate) fn split_stereo(pcm: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    assert_eq!(pcm.len() % 2, 0, "interleaved stereo needs whole frames");
+    (
+        pcm.iter().step_by(2).copied().collect(),
+        pcm.iter().skip(1).step_by(2).copied().collect(),
+    )
+}
+
 /// Deterministic uniform complex noise in roughly `±amp` (xorshift32, like `sdrmm-dsp`'s).
 pub(crate) fn complex_noise(seed: u32, amp: f32, len: usize) -> Vec<Complex<f32>> {
     let mut state = seed | 1;

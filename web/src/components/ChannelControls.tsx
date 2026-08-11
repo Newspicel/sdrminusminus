@@ -253,6 +253,13 @@ function ModeControls({
             />
           </label>
           <Toggle
+            label="Stereo"
+            checked={params.settings.stereo ?? true}
+            onChange={(stereo) =>
+              onParams({ type: "wfm", settings: { ...params.settings, stereo } })
+            }
+          />
+          <Toggle
             label="RDS"
             checked={params.settings.rds ?? false}
             onChange={(rds) => onParams({ type: "wfm", settings: { ...params.settings, rds } })}

@@ -29,8 +29,6 @@ const OUT_CHANNEL_CAP: usize = 256;
 const MIN_BINS: usize = 16;
 const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
-/// `ch_layout` header byte for mono audio frames (PLAN §5 frame layout).
-const CH_LAYOUT_MONO: u8 = 1;
 /// Audio stream ids live in `AUDIO_ID_BASE..=u16::MAX` and spectrum ids in `0..AUDIO_ID_BASE`, so
 /// the two can never collide on one connection.
 ///
@@ -572,7 +570,8 @@ fn spawn_spectrum(
 }
 
 /// Per-subscription task: forward the channel's Opus packets as binary [`AudioFrame`]s
-/// (mono, PLAN §9) with the same drop-oldest backpressure as [`spawn_spectrum`].
+/// (PLAN §9) with the same drop-oldest backpressure as [`spawn_spectrum`]. The channel layout
+/// comes from the packet: a channel may switch between mono and stereo mid-stream.
 fn spawn_audio(
     stream_id: u16,
     mut rx: broadcast::Receiver<AudioPacket>,
@@ -586,7 +585,7 @@ fn spawn_audio(
                         stream_id,
                         seq: packet.seq,
                         timestamp: packet.timestamp,
-                        ch_layout: CH_LAYOUT_MONO,
+                        ch_layout: packet.channels,
                         opus: &packet.opus,
                     }
                     .encode();
@@ -1081,6 +1080,7 @@ mod tests {
             tx.send(AudioPacket {
                 seq,
                 timestamp: u64::from(seq) * 960,
+                channels: 1,
                 opus: Arc::from(&[0u8; 4][..]),
             })
             .expect("send");
@@ -1131,6 +1131,36 @@ mod tests {
             seqs.len() < last_seq as usize + 1,
             "stale backlog was not shed: {seqs:?}"
         );
+    }
+
+    /// The layout byte is the packet's own, not a constant: a channel that switches to stereo
+    /// mid-stream (WFM's stereo toggle) has to be announced frame by frame, or the client
+    /// keeps decoding the new packets with the old channel count.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn audio_frames_carry_each_packets_channel_layout() {
+        let (tx, rx) = broadcast::channel::<AudioPacket>(4);
+        let (out_tx, mut out_rx) = mpsc::channel::<Message>(4);
+        let task = spawn_audio(AUDIO_ID_BASE, rx, out_tx);
+
+        for (seq, channels) in [(0u32, 1u8), (1, 2)] {
+            tx.send(AudioPacket {
+                seq,
+                timestamp: u64::from(seq) * 960,
+                channels,
+                opus: Arc::from(&[0u8; 4][..]),
+            })
+            .expect("send");
+            let Ok(Some(Message::Binary(buf))) = timeout(WAIT, out_rx.recv()).await else {
+                panic!("no audio frame for seq {seq}");
+            };
+            // Byte 16 is `ch_layout`, straight after the 16-byte header (wire::frame).
+            assert_eq!(buf[16], channels, "layout of packet {seq}");
+        }
+
+        drop(tx);
+        // Drain the StreamStopped the closed broadcast produces so the task can finish.
+        let _ = timeout(WAIT, out_rx.recv()).await;
+        task.await.expect("forwarder task");
     }
 
     /// Connections are counted for every client and released on disconnect, and each change

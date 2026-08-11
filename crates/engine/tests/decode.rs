@@ -632,6 +632,7 @@ async fn rds_station_survives_the_ddc_and_reaches_the_decoded_stream() {
             params: ChannelParams::Wfm(WfmParams {
                 deemphasis_us: 50.0,
                 rds: true,
+                stereo: false,
             }),
         },
         |event| matches!(event, DecoderEvent::Rds(u) if u.ps.is_some()),
@@ -692,6 +693,7 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
         params: ChannelParams::Wfm(WfmParams {
             deemphasis_us: 50.0,
             rds: true,
+            stereo: false,
         }),
     };
 

@@ -17,12 +17,14 @@
 //!   u16 n
 //!   u8[n] bins          (quantized magnitude over [db_min, db_max])
 //! AUDIO_OPUS payload:
-//!   u8  ch_layout       (1 = mono)
+//!   u8  ch_layout       (1 = mono, 2 = stereo — the packet's own Opus channel count)
 //!   u8[] opus           (one Opus packet, to end of frame)
 //! ```
 //!
-//! AUDIO_OPUS timestamps count 48 kHz-domain samples since the channel's audio started
-//! (PLAN §9: demods emit 48 kHz PCM before Opus encoding).
+//! AUDIO_OPUS timestamps count 48 kHz-domain sample *frames* since the channel's audio started
+//! (PLAN §9: demods emit 48 kHz PCM before Opus encoding), so a layout change does not disturb
+//! the clock a client detects loss on. `ch_layout` travels per frame because a channel may
+//! switch layout mid-stream (WFM stereo toggled on a live channel).
 
 /// Protocol version in every frame header. Bump on any layout change.
 pub const PROTOCOL_VERSION: u8 = 1;
@@ -98,9 +100,9 @@ impl SpectrumFrame<'_> {
 pub struct AudioFrame<'a> {
     pub stream_id: u16,
     pub seq: u32,
-    /// 48 kHz-domain sample count since the channel's audio started.
+    /// 48 kHz-domain sample-frame count since the channel's audio started.
     pub timestamp: u64,
-    /// Channel layout; 1 = mono.
+    /// Channel layout of this packet; 1 = mono, 2 = stereo (interleaved L, R).
     pub ch_layout: u8,
     pub opus: &'a [u8],
 }
@@ -190,26 +192,30 @@ mod tests {
         (ver, kind, stream_id, seq, timestamp, ch_layout, opus)
     }
 
+    /// Both layouts travel through the same fixed offsets: only the `ch_layout` byte differs,
+    /// so a stereo frame must not shift the opus payload by so much as a byte.
     #[test]
-    fn audio_roundtrip() {
+    fn audio_roundtrip_in_both_layouts() {
         let opus: Vec<u8> = (0..96u8).map(|i| i.wrapping_mul(3)).collect();
-        let frame = AudioFrame {
-            stream_id: 3,
-            seq: 512,
-            timestamp: 96_000,
-            ch_layout: 1,
-            opus: &opus,
-        };
-        let buf = frame.encode();
-        assert_eq!(buf.len(), frame.encoded_len());
+        for ch_layout in [1u8, 2] {
+            let frame = AudioFrame {
+                stream_id: 3,
+                seq: 512,
+                timestamp: 96_000,
+                ch_layout,
+                opus: &opus,
+            };
+            let buf = frame.encode();
+            assert_eq!(buf.len(), frame.encoded_len());
 
-        let (ver, kind, sid, seq, ts, layout, out) = decode_audio(&buf);
-        assert_eq!(ver, PROTOCOL_VERSION);
-        assert_eq!(kind, FrameKind::AudioOpus);
-        assert_eq!(sid, 3);
-        assert_eq!(seq, 512);
-        assert_eq!(ts, 96_000);
-        assert_eq!(layout, 1);
-        assert_eq!(out, opus);
+            let (ver, kind, sid, seq, ts, layout, out) = decode_audio(&buf);
+            assert_eq!(ver, PROTOCOL_VERSION);
+            assert_eq!(kind, FrameKind::AudioOpus);
+            assert_eq!(sid, 3);
+            assert_eq!(seq, 512);
+            assert_eq!(ts, 96_000);
+            assert_eq!(layout, ch_layout);
+            assert_eq!(out, opus);
+        }
     }
 }

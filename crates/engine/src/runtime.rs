@@ -144,11 +144,14 @@ pub(crate) struct ChannelHost {
     outputs: ChannelOutputs,
     scratch: Vec<Complex<f32>>,
     filtered: Vec<Complex<f32>>,
-    /// Audio samples per channel-rate IQ sample, with a running remainder so squelched
+    /// Audio frames per channel-rate IQ sample, with a running remainder so squelched
     /// zero-fill stays duration-accurate (WFM decimates 5:1 inside the demod).
     pcm_per_input: f64,
     zero_carry: f64,
-    /// 48 kHz-domain position of the channel's next PCM sample. Shared through the
+    /// Interleave of the channel's audio, from its params: what the demod writes when it runs
+    /// and what the squelched zero-fill has to match.
+    audio_channels: u8,
+    /// 48 kHz-domain position of the channel's next PCM *frame*. Shared through the
     /// channel's audio identity so stamps stay continuous across pipeline rebuilds; only
     /// the DSP thread advances it (hosts are swapped, never concurrent), so `Relaxed`
     /// suffices — the stamps consumers act on travel inside the messages themselves.
@@ -207,6 +210,7 @@ impl ChannelHost {
             filtered: Vec::new(),
             pcm_per_input: f64::from(AUDIO_RATE) / input_rate,
             zero_carry: 0.0,
+            audio_channels: sdrmm_channels::audio_channels(&settings.params),
             pcm_pos,
             pcm_tx,
             offset_hz: settings.offset_hz,
@@ -245,11 +249,11 @@ impl ChannelHost {
                 // (short internal critical section, bounded channel, no syscalls) per
                 // ~25 ms block, and no other thread ever holds that lock across blocking
                 // work — the DSP thread cannot stall on it.
-                let stamp = self
-                    .pcm_pos
-                    .fetch_add(self.outputs.audio_pcm.len() as u64, Ordering::Relaxed);
+                let frames = self.outputs.audio_pcm.len() / usize::from(self.audio_channels);
+                let stamp = self.pcm_pos.fetch_add(frames as u64, Ordering::Relaxed);
                 let _ = self.pcm_tx.send(PcmBlock {
-                    start_sample: stamp,
+                    start_frame: stamp,
+                    channels: self.audio_channels,
                     payload: PcmPayload::Samples(Arc::from(self.outputs.audio_pcm.as_slice())),
                 });
             }
@@ -274,14 +278,15 @@ impl ChannelHost {
                 }
             }
             // A closed gate still emits (zeroed) audio so client jitter buffers stay alive;
-            // silence travels as a bare length, so this path allocates nothing.
+            // silence travels as a bare frame count, so this path allocates nothing.
             self.zero_carry += self.filtered.len() as f64 * self.pcm_per_input;
             let zeros = self.zero_carry as usize;
             if zeros > 0 {
                 self.zero_carry -= zeros as f64;
                 let stamp = self.pcm_pos.fetch_add(zeros as u64, Ordering::Relaxed);
                 let _ = self.pcm_tx.send(PcmBlock {
-                    start_sample: stamp,
+                    start_frame: stamp,
+                    channels: self.audio_channels,
                     payload: PcmPayload::Silence(zeros),
                 });
             }
@@ -307,8 +312,13 @@ impl ChannelHost {
                 }
             }
         }
+        let channels = sdrmm_channels::audio_channels(&settings.params);
         if let Err(e) = self.rx.apply(settings) {
             tracing::error!(error = %e, "validated channel settings rejected on dsp thread");
+        } else {
+            // Only once the demod has taken the settings: the interleave the squelched
+            // zero-fill claims must be the one the channel is now actually producing.
+            self.audio_channels = channels;
         }
     }
 }
@@ -772,14 +782,14 @@ mod tests {
             !blocks.is_empty(),
             "closed gate must still emit keep-alive fill"
         );
-        let settled = blocks.iter().filter(|b| b.start_sample >= settle);
+        let settled = blocks.iter().filter(|b| b.start_frame >= settle);
         let mut seen = 0usize;
         for block in settled {
             seen += 1;
             assert!(
                 matches!(block.payload, PcmPayload::Silence(_)),
                 "{what}: gate open on out-of-channel energy at stamp {}",
-                block.start_sample
+                block.start_frame
             );
         }
         assert!(seen > 0, "no settled blocks to judge");
@@ -877,12 +887,12 @@ mod tests {
         let mut expected = 0u64;
         let mut seen = 0usize;
         while let Ok(block) = rx.try_recv() {
-            assert_eq!(block.start_sample, expected, "stamp gap at block {seen}");
-            let len = match &block.payload {
-                PcmPayload::Samples(s) => s.len(),
+            assert_eq!(block.start_frame, expected, "stamp gap at block {seen}");
+            let frames = match &block.payload {
+                PcmPayload::Samples(s) => s.len() / usize::from(block.channels),
                 PcmPayload::Silence(n) => *n,
             };
-            expected += len as u64;
+            expected += frames as u64;
             seen += 1;
         }
         assert_eq!(

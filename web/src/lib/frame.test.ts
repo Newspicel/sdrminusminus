@@ -32,10 +32,10 @@ function spectrumBuffer(bins: Uint8Array): ArrayBuffer {
   return buf;
 }
 
-function audioBuffer(opus: Uint8Array): ArrayBuffer {
+function audioBuffer(opus: Uint8Array, chLayout = 1): ArrayBuffer {
   const buf = new ArrayBuffer(16 + 1 + opus.length);
   const view = header(buf, FRAME_KIND_AUDIO_OPUS, 3, 512, 96_000n);
-  view.setUint8(16, 1);
+  view.setUint8(16, chLayout);
   new Uint8Array(buf, 17).set(opus);
   return buf;
 }
@@ -90,6 +90,13 @@ describe("decodeAudio", () => {
     expect(frame?.seq).toBe(512);
     expect(frame?.timestamp).toBe(96_000n);
     expect(frame?.chLayout).toBe(1);
+    expect(Array.from(frame?.opus ?? [])).toEqual(Array.from(opus));
+  });
+
+  it("reads the stereo layout without shifting the payload", () => {
+    const opus = Uint8Array.from([9, 8, 7]);
+    const frame = decodeAudio(audioBuffer(opus, 2));
+    expect(frame?.chLayout).toBe(2);
     expect(Array.from(frame?.opus ?? [])).toEqual(Array.from(opus));
   });
 

@@ -121,7 +121,7 @@ async fn a_channel_on_stream_2_hears_stream_2_and_not_stream_0() {
 
     let on_stream_0 = engine.add_channel(ds, 0, nfm(offset, Some(-20.0))).unwrap();
     let mut rx = engine.subscribe_audio(ds, on_stream_0).unwrap();
-    let level = rms(&settle_then_collect_second(&mut rx).await);
+    let level = rms(&settle_then_collect_second(&mut rx).await[0]);
     assert!(
         level < 0.01,
         "stream 0 carries no signal at stream 2's offset, yet audio rms is {level}"

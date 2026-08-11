@@ -1,6 +1,6 @@
 //! `sdrmm-channels` — the `ChannelRx` plugin surface (PLAN §8). Depends only on `dsp` + `wire`.
 //! Phase-1 analog demodulators plus the wave-1 and wave-2 data decoders (PLAN §13): NFM, AM,
-//! SSB, WFM mono (+RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse, NAVTEX, ACARS, sub-GHz. Each mode is one module whose
+//! SSB, WFM (stereo + RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse, NAVTEX, ACARS, sub-GHz. Each mode is one module whose
 //! descriptor and constructor sit in the same [`REGISTRY`] row, so the "add channel" UI and
 //! `create` dispatch cannot drift apart.
 
@@ -46,8 +46,20 @@ pub use ssb::{SsbChannel, SsbTx};
 pub use subghz::SubghzChannel;
 pub use wfm::WfmChannel;
 
-/// Every channel emits mono PCM at this rate; the engine's audio path is sized against it.
+/// Every channel emits PCM at this rate; the engine's audio path is sized against it.
 pub const AUDIO_RATE: u32 = 48_000;
+
+/// How many interleaved channels this mode's audio comes out as — WFM in stereo is the one
+/// two-channel mode. The engine builds its Opus encoder from this rather than from what a
+/// block happens to contain, so a squelched channel emits silence in the right layout; a mode
+/// whose `process` disagreed with it would interleave garbage.
+#[must_use]
+pub fn audio_channels(params: &ChannelParams) -> u8 {
+    match params {
+        ChannelParams::Wfm(p) if p.stereo => 2,
+        _ => 1,
+    }
+}
 
 /// Opus integer-API decoders (and the browser DAC) hard-clip PCM beyond ±1.0, so every demod
 /// bounds its final output here — overshoot (open-squelch FM noise, over-deviated carriers)
@@ -160,7 +172,8 @@ pub struct ChannelCtx {
 /// low-rate IQ taps for the analyzer (PLAN §8). Buffers are reused across calls by the host.
 #[derive(Default)]
 pub struct ChannelOutputs {
-    /// Interleaved/mono PCM plus its sample rate, when the channel produced audio this block.
+    /// PCM plus its sample rate, when the channel produced audio this block. Interleaved at
+    /// [`audio_channels`] for the channel's params — a whole number of sample frames.
     pub audio_pcm: Vec<f32>,
     pub audio_rate: u32,
     /// Typed decoder frames produced this block (PLAN §5). The host stamps them with time and
@@ -533,6 +546,42 @@ mod tests {
                 d.has_audio,
                 matches!(d.type_id.as_str(), "nfm" | "am" | "ssb" | "wfm"),
                 "{} audio flag does not match its mode class",
+                d.type_id
+            );
+        }
+    }
+
+    /// [`audio_channels`] is what the engine sizes its Opus encoder and its squelched
+    /// zero-fill from, so it has to be what the demodulator actually writes: a mode whose
+    /// interleave disagreed would show up here as half — or double — the frames its rate
+    /// implies, and would reach a listener as chipmunk audio, not as a wrong channel count.
+    #[test]
+    fn audio_channels_matches_the_frames_each_mode_produces() {
+        const LEN: usize = 96_000;
+        for d in descriptors().into_iter().filter(|d| d.has_audio) {
+            let params = default_params(&d.type_id);
+            let channels = usize::from(audio_channels(&params));
+            let ctx = ChannelCtx {
+                input_rate: d.input_rate_hz,
+            };
+            let mut chan = create(ctx, &settings(params)).expect("builds");
+            let audio = crate::testutil::run_ragged(
+                chan.as_mut(),
+                &crate::testutil::complex_noise(7, 0.5, LEN),
+            );
+            assert_eq!(
+                audio.len() % channels,
+                0,
+                "{} emitted a partial sample frame",
+                d.type_id
+            );
+            let frames = audio.len() / channels;
+            // Filter warm-up is the only shortfall allowed: no mode's group delay reaches
+            // 200 output frames at these tap counts.
+            let expected = (LEN as f64 * f64::from(AUDIO_RATE) / d.input_rate_hz) as usize;
+            assert!(
+                frames <= expected && expected - frames < 200,
+                "{} produced {frames} frames of {channels}-channel audio, expected ~{expected}",
                 d.type_id
             );
         }
