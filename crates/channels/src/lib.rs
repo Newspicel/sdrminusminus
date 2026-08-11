@@ -18,6 +18,7 @@ mod rds;
 mod rtty;
 mod ssb;
 mod subghz;
+pub mod tone_squelch;
 mod tx;
 mod wfm;
 
@@ -34,7 +35,7 @@ pub use acars::AcarsChannel;
 pub use adsb::AdsbChannel;
 pub use ais::AisChannelRx;
 pub use am::{AmChannel, AmTx};
-pub use aprs::{AprsChannel, AprsTx};
+pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
 pub use atv::AtvChannel;
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
@@ -223,6 +224,20 @@ pub trait ChannelRx: Send {
     /// Retunes arrive here rather than through [`ChannelRx::apply`], which the host does not
     /// call for an offset-only change.
     fn retuned(&mut self) {}
+
+    /// Whether the host must keep feeding this channel while the squelch is closed.
+    ///
+    /// A decoder measures time in the samples it has processed — its bit clock, its element
+    /// timing, its inter-frame gaps — so skipping the gated span would splice those spans out
+    /// of a stream that never had a gap in it. `true`, the default, is right for every one of
+    /// them, and the host reads it only for the types that emit events at all.
+    ///
+    /// A channel whose events describe something *inside* a carrier says otherwise when it has
+    /// nothing to describe: there is no subaudible tone under a closed squelch, and running
+    /// the demodulator on silence to find that out is what the squelch exists to avoid.
+    fn needs_gated_input(&self) -> bool {
+        true
+    }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs);
 }
@@ -550,7 +565,8 @@ mod tests {
             assert_eq!(d.input_rate_hz, rate, "{}", d.type_id);
             assert!(!d.name.is_empty(), "{}", d.type_id);
             // Every channel type must be useful for something: audio, decoded frames, or a
-            // picture (WFM+RDS is the only current "both" of the first two).
+            // picture. Several do more than one — WFM decodes RDS beside its audio, NFM the
+            // subaudible tone under it.
             assert!(
                 d.has_audio || d.decoder_kind.is_some() || d.has_video,
                 "{} produces neither audio, decoder events nor video",
@@ -657,7 +673,8 @@ mod tests {
     fn occupied_band_tracks_params_and_sideband() {
         assert_eq!(
             occupied_band(&ChannelParams::Nfm(NfmParams {
-                bandwidth_hz: 25_000.0
+                bandwidth_hz: 25_000.0,
+                ..NfmParams::default()
             })),
             (-12_500.0, 12_500.0)
         );
@@ -724,6 +741,7 @@ mod tests {
         for params in [
             ChannelParams::Nfm(NfmParams {
                 bandwidth_hz: f64::NAN,
+                ..NfmParams::default()
             }),
             ChannelParams::Am(AmParams {
                 bandwidth_hz: 0.0,

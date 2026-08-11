@@ -16,14 +16,22 @@
 //! (see [`Timing`]). dump1090 hard-codes the same two ideas for 2.4 Msps; this is the
 //! any-rate form of them.
 //!
-//! Only DF17/DF18 extended squitters are accepted. Every other downlink format overlays the
-//! aircraft address (or the interrogator id) on the parity, so a zero syndrome is not
-//! evidence that the frame is real — accepting them off-air would mean inventing aircraft.
+//! Which downlink formats are accepted is a question about *proof of identity*, not about
+//! parsing. DF17/18 extended squitters carry the address in the clear under a bare parity, so
+//! a clean frame proves itself outright. DF4/5/20/21 roll-call replies carry no address at
+//! all — it is only keyed onto the parity — so every 24-bit value reads as a valid frame and
+//! decoding one off-air unconditionally would mean inventing aircraft out of noise.
+//!
+//! So a roll-call reply is decoded only when the address recovered from its parity belongs to
+//! an aircraft a self-proving frame put on the air in the last [`ROLL_CALL_MAX_AGE_S`]
+//! seconds. That is what makes Mode S worth having here: an aircraft with a transponder but no
+//! ADS-B is heard through its all-call replies (DF11) and answers interrogations with altitude
+//! (DF4/20) and squawk (DF5/21), none of which an extended-squitter-only decoder ever sees.
 
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{bits_be, mode_s_fix_single_bit, mode_s_syndrome};
+use sdrmm_dsp::{bits_be, mode_s_fix_single_bit, mode_s_overlay};
 use sdrmm_wire::{
     AdsbMessage, AdsbParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
 };
@@ -152,6 +160,32 @@ impl Timing {
 const ICAO_OFFSET_BITS: usize = 8;
 const ME_OFFSET_BITS: usize = 32;
 
+/// The 3 bits after DF are the capability of an all-call reply (ICAO Annex 10 Vol IV
+/// §3.1.2.5.2.2.1) and the flight status of a surveillance reply (§3.1.2.6.5.1) — the same
+/// three bits, two unrelated meanings, hence two names for the one offset.
+const CAPABILITY_OFFSET_BITS: usize = 5;
+const FLIGHT_STATUS_OFFSET_BITS: usize = 5;
+/// A surveillance reply's header is DF(5) FS(3) DR(5) UM(6), and the 13-bit AC (DF4/20) or ID
+/// (DF5/21) field follows it. The Comm-B message field of a DF20/21 starts where an extended
+/// squitter's ME field does — both follow 32 header bits.
+const REPLY_FIELD_OFFSET_BITS: usize = 19;
+const MB_OFFSET_BITS: usize = ME_OFFSET_BITS;
+
+/// BDS 2,0 — "aircraft identification" — is the one Comm-B register worth sniffing for here:
+/// it holds the same 8-character callsign an extended squitter sends, for aircraft that never
+/// send one (DO-181E §2.2.19.1.12).
+const BDS_IDENTIFICATION: u64 = 0x20;
+
+/// Legal PI values in an all-call reply: bits 1–17 are zero and only the 3-bit code label and
+/// the 4-bit interrogator code remain (ICAO Annex 10 Vol IV §3.1.2.3.2.1.4).
+const ALL_CALL_PI_MAX: u32 = 0x7F;
+
+/// How long a self-proving frame vouches for its address. An aircraft in range sends all-call
+/// replies at every antenna sweep and extended squitters twice a second, so a minute is many
+/// missed frames — while an address that has gone quiet for one stops admitting replies that
+/// nothing else can attribute.
+const ROLL_CALL_MAX_AGE_S: f64 = 60.0;
+
 /// 6-bit identification charset (DO-260B §2.2.3.2.5.2): index 0 and the reserved ranges are
 /// `#`, 32 is a space.
 const IDENT_CHARSET: &[u8; 64] =
@@ -194,7 +228,12 @@ struct Aircraft {
     icao: u32,
     even: Option<CprFix>,
     odd: Option<CprFix>,
+    /// Stream position of the most recent accepted frame — the cache's eviction key.
     last: u64,
+    /// Stream position of the most recent frame that *proved* this address, which is a
+    /// stronger thing than having heard it: only a frame carrying the address in the clear
+    /// may vouch for a reply that carries it nowhere but on the parity.
+    proven: Option<u64>,
 }
 
 impl Aircraft {
@@ -204,6 +243,7 @@ impl Aircraft {
             even: None,
             odd: None,
             last: at,
+            proven: None,
         }
     }
 }
@@ -218,6 +258,8 @@ pub struct AdsbChannel {
     frame_span: usize,
     /// How far apart two CPR frames may be and still solve globally, in samples at this rate.
     cpr_pair_max_age: u64,
+    /// How long a proved address vouches for a roll-call reply, in samples at this rate.
+    roll_call_max_age: u64,
     /// Sample magnitudes: the tail of the previous block followed by the current one.
     mag: Vec<f32>,
     /// Absolute stream index of `mag[0]`.
@@ -381,14 +423,76 @@ fn gillham_altitude(ac12: u32) -> Option<i32> {
     (steps >= -12).then_some(steps * 100)
 }
 
-fn callsign(frame: &[u8]) -> Option<String> {
+/// 13-bit AC field of a DF4/DF20 altitude reply (ICAO Annex 10 Vol IV §3.1.2.6.5.4). It is the
+/// extended squitter's 12-bit field with an M bit inserted after A4: M clear means feet, and
+/// the Q bit below it then selects the 25 ft or Gillham encoding exactly as it does there.
+fn surveillance_altitude(ac13: u32) -> Option<i32> {
+    // All zero is "no altitude information", and the metric encoding M marks is not defined by
+    // the standard — reporting either as an altitude would be inventing one.
+    if ac13 == 0 || ac13 & 0x0040 != 0 {
+        return None;
+    }
+    barometric_altitude((ac13 & 0x1F80) >> 1 | (ac13 & 0x003F))
+}
+
+/// 13-bit ID field of a DF5/DF21 identity reply as the four octal digits a controller reads
+/// (ICAO Annex 10 Vol IV §3.1.2.6.7.1). Field order is C1 A1 C2 A2 C4 A4 X B1 D1 B2 D2 B4 D4,
+/// and each digit's bits are named for their weight, so the layout is an interleave rather
+/// than four consecutive triples.
+fn squawk(id13: u32) -> String {
+    let bit = |index: u32| (id13 >> (12 - index)) & 1;
+    let digit = |four: u32, two: u32, one: u32| bit(four) << 2 | bit(two) << 1 | bit(one);
+    let (a, b, c, d) = (
+        digit(5, 3, 1),
+        digit(11, 9, 7),
+        digit(4, 2, 0),
+        digit(12, 10, 8),
+    );
+    format!("{a}{b}{c}{d}")
+}
+
+/// Flight status of a surveillance reply, as the airborne/on-ground answer it contains
+/// (ICAO Annex 10 Vol IV §3.1.2.6.5.1). Codes 4 and 5 report the SPI ident pulse and say
+/// nothing about the air/ground state, so they leave it unknown rather than guessing.
+fn flight_status_on_ground(fs: u64) -> Option<bool> {
+    (fs <= 3).then_some(fs == 1 || fs == 3)
+}
+
+/// Capability field of an all-call reply (ICAO Annex 10 Vol IV §3.1.2.5.2.2.1): 4 and 5 are a
+/// level-2+ transponder declaring itself on the ground and airborne; 6 means it can be either
+/// and 0–3 say nothing.
+fn capability_on_ground(ca: u64) -> Option<bool> {
+    match ca {
+        4 => Some(true),
+        5 => Some(false),
+        _ => None,
+    }
+}
+
+/// The 8 six-bit characters starting at `offset_bits`, trailing pad removed. Both the extended
+/// squitter's identification field and the Comm-B identification register spell a callsign this
+/// way, at different offsets in different frames.
+fn callsign(frame: &[u8], offset_bits: usize) -> Option<String> {
     let mut text = String::with_capacity(8);
     for i in 0..8 {
-        let code = bits_be(frame, ME_OFFSET_BITS + 8 + i * 6, 6) as usize;
+        let code = bits_be(frame, offset_bits + i * 6, 6) as usize;
         text.push(char::from(*IDENT_CHARSET.get(code)?));
     }
     let trimmed = text.trim_end();
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// Callsign from a DF20/DF21 Comm-B reply, when its MB field reads as BDS 2,0.
+///
+/// A Comm-B register says nowhere which register it is, so this is a guess, checked twice: the
+/// leading octet must be the register's own code, and all 8 characters must be defined ones.
+/// A `#` means some other register was read as this one and the callsign would be an artefact.
+fn comm_b_callsign(frame: &[u8]) -> Option<String> {
+    if bits_be(frame, MB_OFFSET_BITS, 8) != BDS_IDENTIFICATION {
+        return None;
+    }
+    let text = callsign(frame, MB_OFFSET_BITS + 8)?;
+    (!text.contains('#')).then_some(text)
 }
 
 /// Airborne velocity, TC 19 subtypes 1 and 2 (DO-260B §2.2.3.2.6.1). Subtypes 3/4 report
@@ -570,6 +674,26 @@ fn cpr_local(fix: &CprFix, odd: bool, ref_lat: f64, ref_lon: f64, zone: f64) -> 
     Some((lat, lon))
 }
 
+/// The AA field: the aircraft address as DF11/17/18 transmit it, in the clear.
+fn clear_address(frame: &[u8]) -> u32 {
+    bits_be(frame, ICAO_OFFSET_BITS, 24) as u32
+}
+
+/// A DF4/5/20/21 reply to a ground interrogation. The 13-bit field after the header is an
+/// altitude in the altitude formats and an identity code in the identity ones; the Comm-B
+/// formats carry 56 further bits whose register the frame does not name.
+fn surveillance_reply(frame: &[u8], df: u8, msg: &mut AdsbMessage) {
+    msg.on_ground = flight_status_on_ground(bits_be(frame, FLIGHT_STATUS_OFFSET_BITS, 3));
+    let field = bits_be(frame, REPLY_FIELD_OFFSET_BITS, 13) as u32;
+    match df {
+        4 | 20 => msg.altitude_ft = surveillance_altitude(field),
+        _ => msg.squawk = Some(squawk(field)),
+    }
+    if matches!(df, 20 | 21) {
+        msg.callsign = comm_b_callsign(frame);
+    }
+}
+
 impl AdsbChannel {
     /// Cache slot for `icao`, evicting the least recently heard aircraft when full.
     fn slot(&mut self, icao: u32, at: u64) -> Option<&mut Aircraft> {
@@ -635,29 +759,66 @@ impl AdsbChannel {
         }
     }
 
-    fn message(&mut self, frame: &[u8], df: u8, at: u64) -> AdsbMessage {
-        let icao = bits_be(frame, ICAO_OFFSET_BITS, 24) as u32;
-        let type_code = bits_be(frame, ME_OFFSET_BITS, 5) as u8;
+    /// Note that `icao` was heard, and — for a frame carrying it in the clear — that it was
+    /// proved. Only the latter admits roll-call replies (see [`AdsbChannel::vouched`]).
+    fn observe(&mut self, icao: u32, at: u64, proved: bool) {
+        let Some(entry) = self.slot(icao, at) else {
+            return;
+        };
+        entry.last = at;
+        if proved {
+            entry.proven = Some(at);
+        }
+    }
+
+    /// Whether a frame recent enough to vouch for a roll-call reply has proved `icao`.
+    ///
+    /// A reply refreshes `last` — it is evidence the aircraft is still there, and the cache
+    /// should not evict it — but never `proven`: proof of identity does not decay into
+    /// hearsay, or one lucky parity match would keep a bogus address alive forever.
+    fn vouched(&self, icao: u32, at: u64) -> bool {
+        self.cpr.iter().any(|a| {
+            a.icao == icao
+                && a.proven
+                    .is_some_and(|t| at.abs_diff(t) <= self.roll_call_max_age)
+        })
+    }
+
+    fn message(&mut self, frame: &[u8], df: u8, icao: u32, at: u64) -> AdsbMessage {
         let mut msg = AdsbMessage {
             icao: format!("{icao:06X}"),
             df,
-            type_code: Some(type_code),
             raw: hex_upper(frame),
             ..AdsbMessage::default()
         };
+        match df {
+            17 | 18 => self.extended_squitter(frame, icao, at, &mut msg),
+            11 => {
+                msg.on_ground = capability_on_ground(bits_be(frame, CAPABILITY_OFFSET_BITS, 3));
+            }
+            _ => surveillance_reply(frame, df, &mut msg),
+        }
+        msg
+    }
+
+    /// The ME field of an extended squitter: what the aircraft chose to broadcast about
+    /// itself, selected by the 5-bit type code.
+    fn extended_squitter(&mut self, frame: &[u8], icao: u32, at: u64, msg: &mut AdsbMessage) {
+        let type_code = bits_be(frame, ME_OFFSET_BITS, 5) as u8;
+        msg.type_code = Some(type_code);
         let altitude = || bits_be(frame, ME_OFFSET_BITS + 8, 12) as u32;
         match type_code {
-            1..=4 => msg.callsign = callsign(frame),
+            1..=4 => msg.callsign = callsign(frame, ME_OFFSET_BITS + 8),
             5..=8 => {
                 msg.on_ground = Some(true);
-                self.fill_position(frame, icao, at, SURFACE_ZONE_DEG, &mut msg);
+                self.fill_position(frame, icao, at, SURFACE_ZONE_DEG, msg);
             }
             9..=18 => {
                 msg.on_ground = Some(false);
                 msg.altitude_ft = barometric_altitude(altitude());
-                self.fill_position(frame, icao, at, AIRBORNE_ZONE_DEG, &mut msg);
+                self.fill_position(frame, icao, at, AIRBORNE_ZONE_DEG, msg);
             }
-            19 => velocity(frame, &mut msg),
+            19 => velocity(frame, msg),
             // The type code selects the altitude *source* (GNSS height above the ellipsoid
             // rather than barometric), not its encoding: the AC12 field is the same Q-bit /
             // Gillham code in feet. Reading it as metres is the mode-s.org interpretation
@@ -667,17 +828,53 @@ impl AdsbChannel {
             20..=22 => {
                 msg.on_ground = Some(false);
                 msg.altitude_ft = barometric_altitude(altitude());
-                self.fill_position(frame, icao, at, AIRBORNE_ZONE_DEG, &mut msg);
+                self.fill_position(frame, icao, at, AIRBORNE_ZONE_DEG, msg);
             }
             _ => {}
         }
-        msg
+    }
+
+    /// Who sent this frame, and whether the frame itself is proof of it.
+    ///
+    /// `None` rejects the frame. Every accept here is a claim that an aircraft exists, so each
+    /// downlink format is admitted on the strength of its own parity and nothing weaker:
+    ///
+    /// - DF17/18 transmit their parity bare, so a clean frame is a 1-in-16-million coincidence
+    ///   away from certain, and the address sits in the clear beside it.
+    /// - DF11 keys the interrogator identifier onto the parity, leaving 17 bits bare. The
+    ///   address is still in the clear, and the residual 1-in-131-072 is what buys the aircraft
+    ///   that never send an extended squitter at all.
+    /// - DF4/5/20/21 key the *address* onto the parity, so the frame proves nothing by itself:
+    ///   every value reads as valid, and the recovered address has to have been proved
+    ///   already by one of the formats above.
+    fn attribute(&self, frame: &mut [u8], df: u8, at: u64) -> Option<(u32, bool)> {
+        match df {
+            17 | 18 => {
+                if mode_s_overlay(frame)? != 0 {
+                    // A flipped bit inside DF picks the wrong frame length, so the syndrome
+                    // cannot close over the right byte count: such frames are dropped, never
+                    // mis-repaired. Repair is for bare parity only — on an overlaid one it
+                    // would "fix" a real frame into a different aircraft's.
+                    if !self.crc_fix || mode_s_fix_single_bit(frame).is_none() {
+                        return None;
+                    }
+                }
+                Some((clear_address(frame), true))
+            }
+            11 => (mode_s_overlay(frame)? <= ALL_CALL_PI_MAX).then(|| (clear_address(frame), true)),
+            4 | 5 | 20 | 21 => {
+                let icao = mode_s_overlay(frame)?;
+                self.vouched(icao, at).then_some((icao, false))
+            }
+            _ => None,
+        }
     }
 
     /// Try to decode a frame starting at `at` in [`Self::mag`], returning the samples it
-    /// consumed. Every phase table gets its chance and the first CRC pass wins; `None` means
-    /// "not a frame here at any phase" and the scan advances one sample.
+    /// consumed. Every phase table gets its chance and the first accepted frame wins; `None`
+    /// means "not a frame here at any phase" and the scan advances one sample.
     fn try_frame(&mut self, at: usize, out: &mut ChannelOutputs) -> Option<usize> {
+        let stamp = self.stream_pos + at as u64;
         let mut hit = None;
         for timing in &self.timings {
             let Some(window) = self.mag.get(at..at + timing.frame_samples()) else {
@@ -689,27 +886,27 @@ impl AdsbChannel {
             let mut frame = [0u8; LONG_BYTES];
             slice_bits(timing, window, &mut frame);
 
-            let long = frame.first().is_some_and(|&b| b >> 3 >= 16);
-            let len = if long { LONG_BYTES } else { SHORT_BYTES };
+            let df = frame.first().map_or(0, |&b| b >> 3);
+            let len = if df >= 16 { LONG_BYTES } else { SHORT_BYTES };
             let Some(bytes) = frame.get_mut(..len) else {
                 continue;
             };
-            if mode_s_syndrome(bytes) != 0 {
-                // A flipped bit inside DF picks the wrong frame length, so the syndrome cannot
-                // close over the right byte count: such frames are dropped, never mis-repaired.
-                if !self.crc_fix || mode_s_fix_single_bit(bytes).is_none() {
-                    continue;
-                }
-            }
-            let df = bytes.first().map_or(0, |&b| b >> 3);
-            if df != 17 && df != 18 {
+            let Some((icao, proved)) = self.attribute(bytes, df, stamp) else {
                 continue;
-            }
-            hit = Some((frame, len, df, timing.start(PREAMBLE_CHIPS + len * 8 * 2)));
+            };
+            hit = Some((
+                frame,
+                len,
+                df,
+                icao,
+                proved,
+                timing.start(PREAMBLE_CHIPS + len * 8 * 2),
+            ));
             break;
         }
-        let (frame, len, df, consumed) = hit?;
-        let message = self.message(frame.get(..len)?, df, self.stream_pos + at as u64);
+        let (frame, len, df, icao, proved, consumed) = hit?;
+        self.observe(icao, stamp, proved);
+        let message = self.message(frame.get(..len)?, df, icao, stamp);
         out.events.push(DecoderEvent::Adsb(message));
         Some(consumed)
     }
@@ -732,6 +929,7 @@ impl ChannelRx for AdsbChannel {
             timings,
             frame_span,
             cpr_pair_max_age: (CPR_PAIR_MAX_AGE_S * ctx.input_rate) as u64,
+            roll_call_max_age: (ROLL_CALL_MAX_AGE_S * ctx.input_rate) as u64,
             mag: Vec::new(),
             stream_pos: 0,
             cpr: Vec::with_capacity(CPR_CACHE_LEN),
@@ -763,6 +961,13 @@ impl ChannelRx for AdsbChannel {
         // the longest phase table) behind them are scanned, and those are exactly the ones
         // dropped here, so results never depend on where the host cut the block — and no
         // frame is emitted twice.
+        //
+        // The window is the *long* frame's for every candidate, so a short reply (DF4/5/11)
+        // waits for a long frame's worth of samples — 232 µs — before the scan reaches it.
+        // On a live stream that is latency and nothing else; a capture that ends inside those
+        // 232 µs loses its last short frame. Decoding one earlier means scanning positions
+        // that a later block would have to be stopped from re-scanning, which is a watermark
+        // this decoder does not carry.
         let keep = self.mag.len().saturating_sub(frame_span - 1);
         self.mag.drain(..keep);
         self.stream_pos += keep as u64;
@@ -780,9 +985,10 @@ mod tests {
         testgen::{
             add_noise,
             adsb::{
-                me_airborne_position, me_airborne_position_gnss, me_identification,
-                me_surface_position, me_velocity, position_me_raw, squitter, transmission,
-                transmission_at_phase,
+                all_call_reply, altitude_reply, comm_b_altitude_reply, comm_b_identity_reply,
+                identity_reply, mb_identification, me_airborne_position, me_airborne_position_gnss,
+                me_identification, me_surface_position, me_velocity, position_me_raw, squitter,
+                transmission, transmission_at_phase,
             },
         },
         testutil::settings,
@@ -1253,11 +1459,246 @@ mod tests {
         let stale = chan.cpr_pair_max_age;
         let even = published("8D40621D58C382D690C8AC");
         let odd = published("8D40621D58C386435CC412");
-        assert!(chan.message(&even, 17, 0).lat.is_none());
-        assert!(chan.message(&odd, 17, stale + 1).lat.is_none());
+        let icao = 0x40_621D;
+        assert!(chan.message(&even, 17, icao, 0).lat.is_none());
+        assert!(chan.message(&odd, 17, icao, stale + 1).lat.is_none());
         // Fresh again once a new even frame arrives.
-        assert!(chan.message(&even, 17, stale + 2).lat.is_some());
+        assert!(chan.message(&even, 17, icao, stale + 2).lat.is_some());
         assert_eq!(chan.cpr.first().map(|a| a.icao), Some(0x40_621D));
+    }
+
+    // ── Mode S beyond the extended squitter ────────────────────────────────────────────────
+
+    /// A proving frame, so the roll-call replies under test have an address to be attributed
+    /// to. Everything after it in the same transmission is inside the vouching window.
+    fn proof(icao: u32) -> Vec<u8> {
+        squitter(icao, me_identification("DLH123"))
+    }
+
+    /// A short frame is only scanned once a long frame's worth of samples sits behind it (see
+    /// [`AdsbChannel::process`]), so a transmission ending on one leaves that much room —
+    /// otherwise "decoded nothing" would mean "the scan never got there".
+    fn decode_replies(p: AdsbParams, frames: &[Vec<u8>]) -> Vec<AdsbMessage> {
+        let iq = transmission(frames, 300.0, LEVEL, INPUT_RATE_HZ);
+        feed(&mut channel(p), &iq, &[4_096])
+    }
+
+    /// An all-call reply is self-proving — the address rides in the clear — so it needs no
+    /// help, and it is the only thing a Mode S aircraft that never squitters volunteers.
+    #[test]
+    fn an_all_call_reply_reports_the_aircraft_and_its_air_ground_state() {
+        for (capability, on_ground) in [(4, Some(true)), (5, Some(false)), (6, None), (0, None)] {
+            let msg = only(decode_replies(
+                AdsbParams::default(),
+                &[all_call_reply(0x3C_6444, capability, 0)],
+            ));
+            assert_eq!(msg.df, 11);
+            assert_eq!(msg.icao, "3C6444");
+            assert_eq!(msg.on_ground, on_ground, "capability {capability}");
+            // DF11 has no ME field, so claiming a type code would be reading the address as one.
+            assert_eq!(msg.type_code, None);
+        }
+    }
+
+    /// The interrogator identifier is keyed onto an all-call reply's parity, so the bits it
+    /// occupies are not evidence — but everything above them still is.
+    #[test]
+    fn an_all_call_reply_survives_its_interrogator_identifier() {
+        for interrogator in [0, 1, 15, ALL_CALL_PI_MAX] {
+            let msg = only(decode_replies(
+                AdsbParams::default(),
+                &[all_call_reply(0x40_621D, 5, interrogator)],
+            ));
+            assert_eq!(msg.icao, "40621D", "interrogator {interrogator}");
+        }
+        // Past the field the standard defines, the frame is indistinguishable from noise that
+        // happened to slice into 56 bits.
+        assert!(
+            decode_replies(
+                AdsbParams::default(),
+                &[all_call_reply(0x40_621D, 5, ALL_CALL_PI_MAX + 1)]
+            )
+            .is_empty()
+        );
+    }
+
+    /// The rule the whole roll-call path rests on. A DF4/5/20/21 reply carries its address
+    /// nowhere but on the parity, so *every* one of them checks out against *some* address —
+    /// decoding one unvouched would put an aircraft on the map that was never on the air.
+    #[test]
+    fn a_roll_call_reply_is_dropped_until_something_proves_the_address() {
+        let icao = 0x3C_6444;
+        let reply = altitude_reply(icao, 36_000, 0);
+
+        assert!(
+            decode_replies(AdsbParams::default(), std::slice::from_ref(&reply)).is_empty(),
+            "an unvouched reply must not become an aircraft"
+        );
+
+        let msgs = decode_replies(AdsbParams::default(), &[proof(icao), reply]);
+        assert_eq!(msgs.len(), 2, "{msgs:?}");
+        assert_eq!(msgs[1].df, 4);
+        assert_eq!(msgs[1].icao, "3C6444");
+        assert_eq!(msgs[1].altitude_ft, Some(36_000));
+    }
+
+    /// Proof expires: an address last seen in the clear a minute ago no longer vouches for a
+    /// reply that nothing else can attribute.
+    #[test]
+    fn proof_of_an_address_goes_stale() {
+        let mut chan = channel(AdsbParams::default());
+        let window = chan.roll_call_max_age;
+        chan.observe(0x3C_6444, 0, true);
+        assert!(chan.vouched(0x3C_6444, window));
+        assert!(!chan.vouched(0x3C_6444, window + 1));
+
+        // A reply refreshes the cache entry but not the proof — otherwise one lucky parity
+        // match would keep an address alive on the strength of frames that prove nothing.
+        chan.observe(0x3C_6444, window, false);
+        assert!(!chan.vouched(0x3C_6444, window + 1));
+    }
+
+    /// Noise cannot become an aircraft, and once one *is* on the whitelist it must not become
+    /// that aircraft's replies either: every 24-bit value is a legal roll-call address, so all
+    /// that stands between noise and a fabricated altitude is the preamble gate and the chance
+    /// of the recovered address being the one address that was proved.
+    #[test]
+    fn noise_does_not_become_replies_from_an_aircraft_already_known() {
+        let mut chan = channel(AdsbParams::default());
+        chan.observe(0x3C_6444, 0, true);
+        let mut iq = vec![Complex::new(0.0f32, 0.0); 4_000_000];
+        add_noise(&mut iq, 0x5EED_4321, 1.0);
+        assert!(feed(&mut chan, &iq, &[65_536]).is_empty());
+    }
+
+    /// Squawk is four octal digits interleaved bit by bit across the field; check the whole
+    /// code space rather than the three emergency codes everyone remembers.
+    #[test]
+    fn every_squawk_round_trips_through_an_identity_reply() {
+        let icao = 0x3C_6444;
+        let mut chan = channel(AdsbParams::default());
+        chan.observe(icao, 0, true);
+        for code in 0..4_096u32 {
+            let text = format!(
+                "{}{}{}{}",
+                code >> 9 & 7,
+                code >> 6 & 7,
+                code >> 3 & 7,
+                code & 7
+            );
+            let frame = identity_reply(icao, &text, 0);
+            let msg = chan.message(&frame, 5, icao, 0);
+            assert_eq!(msg.squawk.as_deref(), Some(text.as_str()));
+            assert_eq!(
+                msg.altitude_ft, None,
+                "an identity reply carries no altitude"
+            );
+        }
+    }
+
+    /// The AC13 field is the squitter's AC12 with an M bit wedged into it, so the same Q-bit
+    /// and Gillham paths have to come out of a different bit layout.
+    #[test]
+    fn a_surveillance_altitude_reply_decodes_on_both_sides_of_the_q_bit() {
+        let icao = 0x3C_6444;
+        let mut chan = channel(AdsbParams::default());
+        chan.observe(icao, 0, true);
+        for alt_ft in [-1_000, 0, 725, 36_000, 50_175, 50_200, 62_000] {
+            let frame = altitude_reply(icao, alt_ft, 0);
+            assert_eq!(
+                chan.message(&frame, 4, icao, 0).altitude_ft,
+                Some(alt_ft),
+                "{alt_ft} ft"
+            );
+        }
+        // An all-zero field is "no altitude information", not sea level.
+        assert_eq!(surveillance_altitude(0), None);
+        // M set selects metric units, whose encoding the standard leaves undefined.
+        assert_eq!(surveillance_altitude(0x0040 | 0x0010 | 0x0020), None);
+    }
+
+    /// Flight status is the only air/ground answer a surveillance reply carries, and two of
+    /// its codes report the ident pulse instead of answering at all.
+    #[test]
+    fn flight_status_answers_air_ground_only_when_it_says_so() {
+        let icao = 0x3C_6444;
+        let mut chan = channel(AdsbParams::default());
+        chan.observe(icao, 0, true);
+        for (fs, on_ground) in [
+            (0, Some(false)),
+            (1, Some(true)),
+            (2, Some(false)),
+            (3, Some(true)),
+            (4, None),
+            (5, None),
+        ] {
+            let frame = altitude_reply(icao, 5_000, fs);
+            assert_eq!(
+                chan.message(&frame, 4, icao, 0).on_ground,
+                on_ground,
+                "flight status {fs}"
+            );
+        }
+    }
+
+    /// Comm-B replies carry the surveillance field *and* 56 bits of register. BDS 2,0 is the
+    /// one worth reading: it is where an aircraft with no extended squitter puts its callsign.
+    #[test]
+    fn comm_b_replies_carry_the_surveillance_field_and_a_bds20_callsign() {
+        let icao = 0x40_621D;
+        let msgs = decode(
+            AdsbParams::default(),
+            &[
+                proof(icao),
+                comm_b_altitude_reply(icao, 24_000, 0, mb_identification("KLM1023")),
+                comm_b_identity_reply(icao, "7421", 1, mb_identification("KLM1023")),
+            ],
+        );
+        assert_eq!(msgs.len(), 3, "{msgs:?}");
+        let [_, altitude, identity] = &msgs[..] else {
+            unreachable!()
+        };
+        assert_eq!(altitude.df, 20);
+        assert_eq!(altitude.altitude_ft, Some(24_000));
+        assert_eq!(altitude.callsign.as_deref(), Some("KLM1023"));
+        assert_eq!(altitude.on_ground, Some(false));
+        assert_eq!(identity.df, 21);
+        assert_eq!(identity.squawk.as_deref(), Some("7421"));
+        assert_eq!(identity.callsign.as_deref(), Some("KLM1023"));
+        assert_eq!(identity.on_ground, Some(true));
+    }
+
+    /// A Comm-B register does not say which register it is, so reading one as BDS 2,0 is a
+    /// guess — and a guess that would otherwise turn any register into a plausible callsign.
+    #[test]
+    fn a_register_that_is_not_bds20_yields_no_callsign() {
+        let icao = 0x3C_6444;
+        let mut chan = channel(AdsbParams::default());
+        chan.observe(icao, 0, true);
+
+        // BDS 4,0 (selected vertical intention): a different code entirely.
+        let mut other = mb_identification("KLM1023");
+        other[0] = 0x40;
+        assert_eq!(
+            chan.message(&other_reply(icao, other), 20, icao, 0)
+                .callsign,
+            None
+        );
+
+        // The right code over characters the charset leaves undefined — the `#` the decoder
+        // must refuse rather than print.
+        let mut undefined = [0u8; 7];
+        undefined[0] = 0x20;
+        undefined[1] = 0xFF;
+        assert_eq!(
+            chan.message(&other_reply(icao, undefined), 20, icao, 0)
+                .callsign,
+            None
+        );
+    }
+
+    fn other_reply(icao: u32, mb: [u8; 7]) -> Vec<u8> {
+        comm_b_altitude_reply(icao, 10_000, 0, mb)
     }
 
     /// The NL table is 58 hand-typed constants; check every one of them against the closed

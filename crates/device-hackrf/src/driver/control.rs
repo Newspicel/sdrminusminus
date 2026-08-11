@@ -100,6 +100,19 @@ impl VendorControlRequest {
         )
     }
 
+    /// Arm the firmware's sweep. Like the bandwidth request the 32-bit argument — here the
+    /// bytes captured per tuning — straddles `wValue`/`wIndex`, while the range list travels as
+    /// the data stage; the firmware reads the range count back out of the transfer *length*, so
+    /// the payload must be exactly `9 + 4 × ranges` bytes.
+    pub(crate) fn init_sweep(bytes_per_tuning: u32, payload: Vec<u8>) -> Self {
+        Self::out_request(
+            VendorRequest::InitSweep,
+            bytes_per_tuning as u16,
+            (bytes_per_tuning >> 16) as u16,
+            payload,
+        )
+    }
+
     pub(crate) fn set_lna_gain(gain_db: u8) -> Self {
         Self::in_request(VendorRequest::SetLnaGain, 0, u16::from(gain_db), 1)
     }
@@ -282,6 +295,19 @@ mod tests {
         let request = VendorControlRequest::set_baseband_bandwidth(20_000_000);
         assert_eq!(request.value, 20_000_000_u32 as u16);
         assert_eq!(request.index, (20_000_000_u32 >> 16) as u16);
+    }
+
+    /// The dwell straddles the two 16-bit control fields the same way the bandwidth does, and
+    /// the payload is passed through untouched — the firmware counts ranges from its length.
+    #[test]
+    fn init_sweep_splits_the_dwell_and_carries_the_range_list() {
+        let payload = vec![0xaa; 13];
+        let request = VendorControlRequest::init_sweep(0x0004_0000, payload.clone());
+        assert_eq!(request.request, VendorRequest::InitSweep);
+        assert_eq!(request.value, 0x0000);
+        assert_eq!(request.index, 0x0004);
+        assert_eq!(request.data, payload);
+        assert_eq!(request.length, 13);
     }
 
     #[test]

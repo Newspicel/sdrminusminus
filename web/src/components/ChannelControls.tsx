@@ -41,6 +41,40 @@ const APRS_MODES: Options<NonNullable<ChannelParamsOf<"aprs">["mode"]>> = [
   { value: "afsk1200", label: "AFSK 1200" },
   { value: "g3ruh9600", label: "G3RUH 9600" },
 ];
+const NFM_TONE_MODES: Options<NonNullable<ChannelParamsOf<"nfm">["tone_mode"]>> = [
+  { value: "off", label: "Off" },
+  { value: "detect", label: "Detect" },
+  { value: "ctcss", label: "CTCSS" },
+  { value: "dcs", label: "DCS" },
+];
+// The 50 standard CTCSS tones and the 83 standard DCS codes, as a radio's own code lists. The
+// server refuses anything outside them (it is what the detector searches), so an entry that
+// drifted from `channels::tone_squelch` fails loudly the first time it is picked.
+const CTCSS_TONES_HZ = [
+  67.0, 69.3, 71.9, 74.4, 77.0, 79.7, 82.5, 85.4, 88.5, 91.5, 94.8, 97.4, 100.0, 103.5, 107.2,
+  110.9, 114.8, 118.8, 123.0, 127.3, 131.8, 136.5, 141.3, 146.2, 151.4, 156.7, 159.8, 162.2, 165.5,
+  167.9, 171.3, 173.8, 177.3, 179.9, 183.5, 186.2, 189.9, 192.8, 196.6, 199.5, 203.5, 206.5, 210.7,
+  218.1, 225.7, 229.1, 233.6, 241.8, 250.3, 254.1,
+];
+const DCS_CODES = [
+  23, 25, 26, 31, 32, 43, 47, 51, 54, 65, 71, 72, 73, 74, 114, 115, 116, 125, 131, 132, 134, 143,
+  152, 155, 156, 162, 165, 172, 174, 205, 223, 226, 243, 244, 245, 251, 261, 263, 265, 271, 306,
+  311, 315, 331, 343, 346, 351, 364, 365, 371, 411, 412, 413, 423, 431, 432, 445, 464, 465, 466,
+  503, 506, 516, 532, 546, 565, 606, 612, 624, 627, 631, 632, 654, 662, 664, 703, 712, 723, 731,
+  732, 734, 743, 754,
+];
+// The tone and code a radio ships set to, so switching to a gating mode is one click rather
+// than two: 88.5 Hz and 023 are the most-used of each list.
+const CTCSS_DEFAULT_HZ = 88.5;
+const DCS_DEFAULT_CODE = 23;
+const CTCSS_OPTIONS: Options<number> = CTCSS_TONES_HZ.map((hz) => ({
+  value: hz,
+  label: `${hz.toFixed(1)} Hz`,
+}));
+const DCS_OPTIONS: Options<number> = DCS_CODES.map((code) => ({
+  value: code,
+  label: String(code).padStart(3, "0"),
+}));
 const RTTY_STOP_BITS: Options<NonNullable<ChannelParamsOf<"rtty">["stop_bits"]>> = [
   { value: "one", label: "1" },
   { value: "one_and_half", label: "1.5" },
@@ -181,19 +215,62 @@ function ModeControls({
   onParams: (params: ChannelParams) => void;
 }) {
   switch (params.type) {
-    case "nfm":
+    case "nfm": {
+      const mode = params.settings.tone_mode ?? "off";
+      const set = (settings: ChannelParamsOf<"nfm">) => onParams({ type: "nfm", settings });
       return (
-        <label className={LABEL}>
-          BW
-          <BandwidthSelect
-            valueHz={params.settings.bandwidth_hz ?? 12_500}
-            optionsHz={[12_500, 25_000]}
-            onCommit={(bandwidth_hz) =>
-              onParams({ type: "nfm", settings: { ...params.settings, bandwidth_hz } })
-            }
-          />
-        </label>
+        <>
+          <label className={LABEL}>
+            BW
+            <BandwidthSelect
+              valueHz={params.settings.bandwidth_hz ?? 12_500}
+              optionsHz={[12_500, 25_000]}
+              onCommit={(bandwidth_hz) => set({ ...params.settings, bandwidth_hz })}
+            />
+          </label>
+          <label className={LABEL}>
+            Tone
+            <Select
+              label="Tone squelch"
+              value={mode}
+              options={NFM_TONE_MODES}
+              // Switching to a gating mode without a tone chosen would be settings the server
+              // refuses, so the first standard tone and code stand in until one is picked.
+              onChange={(tone_mode) =>
+                set({
+                  ...params.settings,
+                  tone_mode,
+                  ctcss_hz: params.settings.ctcss_hz ?? CTCSS_DEFAULT_HZ,
+                  dcs_code: params.settings.dcs_code ?? DCS_DEFAULT_CODE,
+                })
+              }
+            />
+          </label>
+          {mode === "ctcss" && (
+            <label className={LABEL}>
+              CTCSS
+              <Select
+                label="CTCSS tone"
+                value={params.settings.ctcss_hz ?? CTCSS_DEFAULT_HZ}
+                options={CTCSS_OPTIONS}
+                onChange={(ctcss_hz) => set({ ...params.settings, ctcss_hz })}
+              />
+            </label>
+          )}
+          {mode === "dcs" && (
+            <label className={LABEL}>
+              DCS
+              <Select
+                label="DCS code"
+                value={params.settings.dcs_code ?? DCS_DEFAULT_CODE}
+                options={DCS_OPTIONS}
+                onChange={(dcs_code) => set({ ...params.settings, dcs_code })}
+              />
+            </label>
+          )}
+        </>
       );
+    }
     case "am":
       return (
         <>

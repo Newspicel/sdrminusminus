@@ -178,8 +178,10 @@ pub(crate) struct ChannelHost {
     /// stamped with the absolute frequency they were heard on.
     offset_hz: f64,
     decoded: DecodedSink,
-    /// Whether this channel emits decoder frames, which decides what a closed squelch may do
-    /// to it (see [`ChannelHost::process`]).
+    /// Whether the type emits decoder frames at all; `emits_events` is this narrowed by what
+    /// the channel says it needs, and is recomputed whenever its settings change.
+    decodes: bool,
+    /// Whether a closed squelch must still feed this channel (see [`ChannelHost::process`]).
     emits_events: bool,
     /// Zero-filled stand-in handed to a decoder while the gate is closed; reused, so the
     /// substitution costs no allocation in steady state.
@@ -209,6 +211,8 @@ impl ChannelHost {
             .map_err(|e| ChannelError::InvalidSettings(e.to_string()))?;
         let filter = sdrmm_channels::channel_filter(&settings.params)?;
         let rx = sdrmm_channels::create(ChannelCtx { input_rate }, settings)?;
+        let decodes = descriptor.decoder_kind.is_some();
+        let emits_events = decodes && rx.needs_gated_input();
         Ok(Box::new(Self {
             ddc,
             filter,
@@ -231,7 +235,8 @@ impl ChannelHost {
             video_seq: 0,
             offset_hz: settings.offset_hz,
             decoded,
-            emits_events: descriptor.decoder_kind.is_some(),
+            decodes,
+            emits_events,
             gated: Vec::new(),
         }))
     }
@@ -355,6 +360,9 @@ impl ChannelHost {
         if let Err(e) = self.rx.apply(settings) {
             tracing::error!(error = %e, "validated channel settings rejected on dsp thread");
         }
+        // Settings decide it: an NFM channel needs the gated span only once it has been given
+        // a tone mode, and stops needing it again when that is turned off.
+        self.emits_events = self.decodes && self.rx.needs_gated_input();
     }
 }
 

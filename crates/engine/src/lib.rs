@@ -3669,6 +3669,7 @@ mod tests {
             squelch_db: None,
             params: ChannelParams::Nfm(NfmParams {
                 bandwidth_hz: 25_000.0,
+                ..NfmParams::default()
             }),
         };
 

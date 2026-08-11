@@ -10,8 +10,14 @@ the roof and a browser on the couch run the identical UI.
 
 ## Quickstart
 
-Tagged releases publish `sdrmm` tarballs (linux x86_64/aarch64, macOS arm64), a multi-arch
-container image at `ghcr.io/newspicel/sdrminusminus` and desktop bundles.
+Tagged releases publish `sdrmm` archives (Linux x86_64/aarch64, macOS arm64/x86_64, Windows
+x86_64), a multi-arch container image at `ghcr.io/newspicel/sdrminusminus`, and desktop
+installers (`.dmg`, `.deb`, `.AppImage`, `.msi`, `.exe`).
+
+The same artifacts are built nightly from `main` and published to the rolling
+[`nightly`](https://github.com/Newspicel/sdrminusminus/releases/tag/nightly) prerelease
+(`ghcr.io/newspicel/sdrminusminus:nightly`), on the nights `main` actually moved. Unstable by
+definition — its version is the build date, `YY.M.D`.
 
 To build it yourself you need the pinned nightly Rust toolchain (`rust-toolchain.toml` —
 `rustup` installs it on the first build), Node 24 and pnpm 11. SoapySDR is only needed for the
@@ -41,11 +47,14 @@ on <http://localhost:5173>, proxying `/api` and the WebSocket to the server.
 |---|---|
 | `cargo xtask dev` | Server + Vite dev server with HMR |
 | `cargo xtask codegen` | Regenerate `openapi.json` + `web/src/generated` (run after changing `crates/wire`) |
-| `cargo xtask check` | The full gate: fmt, clippy `-D warnings`, Soapy-free build, the release-shaped native build, `biome ci`, type-aware `oxlint`, `tsgo`, web build, codegen-drift |
+| `cargo xtask check` | The full gate, ordered cheapest-first: fmt, `biome ci`, type-aware `oxlint`, `tsgo`, clippy `-D warnings`, Soapy-free build, the release-shaped native build, web build, codegen-drift |
 | `cargo xtask test` | Rust + web test suites (uses `device-virtual`, no hardware) |
+| `cargo xtask smoke` | The Playwright browser flow against the real binary (needs `pnpm --dir web exec playwright install chromium`) |
 | `cargo xtask audit` | Check the dependency graph against RustSec (`deny.toml`; needs `cargo install --locked cargo-deny`) |
 | `cargo xtask fixtures` | Regenerate the synthesized SigMF decoder fixtures in `fixtures/` |
-| `cargo xtask dist [--target <triple>]` | Build the self-contained release binary (web build, then `--no-default-features --features rtl-native,hackrf-native`) into `dist/` |
+| `cargo xtask dist [--target <triple>]` | The release archive for that target into `dist/` — exactly what the release pipeline uploads |
+| `cargo xtask desktop [--bundles <list>]` | The Tauri shell: compile gate by default, installers with `--bundles` (needs `cargo install --locked tauri-cli`) |
+| `cargo xtask set-version <semver>` | Stamp a release version across the workspace; the release pipeline runs this from the tag |
 
 ## Documentation
 
