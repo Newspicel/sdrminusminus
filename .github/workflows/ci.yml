@@ -1,5 +1,6 @@
-# CI mirrors the local gate 1:1 (CLAUDE.md): `cargo xtask check` + `cargo xtask test`. It lands
-# at M0 and grows each milestone (PLAN §15). No hardware — everything runs on `device-virtual`.
+# CI mirrors the local gate 1:1 (CLAUDE.md): every job here is an `xtask` subcommand a developer
+# can run unchanged — `check`, `test`, `smoke`, `audit`. It lands at M0 and grows each milestone
+# (PLAN §15). No hardware — everything runs on `device-virtual`.
 name: CI
 
 on:
@@ -33,6 +34,8 @@ jobs:
       # Installs the pinned nightly + rustfmt/clippy from rust-toolchain.toml.
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu
       - name: cargo xtask check
         run: cargo xtask check
       - name: cargo xtask test
@@ -43,6 +46,28 @@ jobs:
         run: pnpm --dir web exec playwright install --with-deps chromium
       - name: cargo xtask smoke
         run: cargo xtask smoke
+
+  advisories:
+    name: Dependency advisories (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # `cargo xtask` links libSoapySDR through sdrmm-server's default features, same as above.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsoapysdr-dev
+      - run: rustup show
+      # Restore-only on the gate's cache: this job builds the same xtask binary and has nothing
+      # of its own worth storing.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu
+          save-if: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      # Its own job, not a step in the gate: a new advisory lands on RustSec's schedule, not on
+      # ours, and that must not read as "this pull request broke the build".
+      - name: cargo xtask audit
+        run: cargo xtask audit
 
   rust-macos:
     name: Rust tests (macos-arm64)
