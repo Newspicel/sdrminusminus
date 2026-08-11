@@ -44,3 +44,5 @@
 - Desktop-only
 - Follow DESIGN.md for Design Principles
 - Licensing stance: GPL projects (SDRangel, SDR++, DSDcc…) are fair game for algorithms, parameters, and behavior to copy as this is a private Project.
+
+Always update the Feature list at the End.
