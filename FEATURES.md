@@ -149,7 +149,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 
 ## 9. Digital voice
 
-- **[planned]** **DSD suite — DMR, D-Star, YSF, NXDN, P25, dPMR — default-on, voice included**
+- **[planned]** DMR, D-Star, YSF, NXDN, P25, dPMR
 - **[planned]** M17, FreeDV
 - **[planned]** Trunking following — P25 / DMR Tier III control channel decode with auto-steered voice channels
 - **[planned]** Hardware AMBE dongle/server support
