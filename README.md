@@ -8,21 +8,6 @@ touches a sample of IQ. The same frontend ships two ways: as a Tauri desktop app
 the server in-process, and as static assets served by the server itself, so a Raspberry Pi on
 the roof and a browser on the couch run the identical UI.
 
-Every wire type is defined once, in Rust (`crates/wire`), and the TypeScript is generated
-from the resulting OpenAPI document. There are no hand-written frontend DTOs.
-
-`PLAN.md` is the source of truth for architecture and scope; `PROGRESS.md` records what is
-actually built.
-
-## Hardware
-
-| Device | How |
-|---|---|
-| RTL-SDR | Native pure-Rust backend (tuner gain table, bias tee, tuner AGC), or SoapySDR |
-| HackRF | Native pure-Rust backend (per-stage LNA/VGA gain, RF amp, antenna power), or SoapySDR |
-| Airspy, SDRplay, LimeSDR, PlutoSDR, BladeRF, USRP, … | SoapySDR, wherever a Soapy module exists |
-| Recordings and the built-in signal generator | `device-virtual`, always compiled in, no hardware needed |
-
 ## Quickstart
 
 Tagged releases publish `sdrmm` tarballs (linux x86_64/aarch64, macOS arm64), a multi-arch
