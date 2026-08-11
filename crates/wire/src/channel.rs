@@ -535,5 +535,9 @@ pub struct ChannelSettings {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelInfo {
     pub id: u32,
+    /// Which of the device's receive streams feeds this channel. Defaults to 0 because a peer
+    /// that predates multi-stream devices names no stream and means the only one its radio has.
+    #[serde(default)]
+    pub stream: u32,
     pub settings: ChannelSettings,
 }

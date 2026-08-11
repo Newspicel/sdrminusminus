@@ -10,8 +10,19 @@ import { createContext, type ReactNode, useContext } from "react";
 import { ICON_BTN } from "../../components/controls";
 import { pushToast } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
-import { useStationContext } from "../context";
-import { isPinned, NODE_MIN_SIZE, pin, portsOf, pruneRack, removeNode, unpin } from "../graph";
+import { useWorkspaceContext } from "../context";
+import {
+  isPinned,
+  nodeMinSize,
+  PORT_STEP_PX,
+  PORT_TOP_PX,
+  pin,
+  portLabel,
+  portsOf,
+  pruneRack,
+  removeNode,
+  unpin,
+} from "../graph";
 import { closeEngineObjects } from "../remove";
 
 /**
@@ -42,11 +53,6 @@ const Active = createContext(true);
 export function useFaceActive(): boolean {
   return useContext(Active);
 }
-
-/** Vertical space the header takes, so ports can be spread down the body only. */
-const HEADER_PX = 26;
-/** Distance between stacked ports on one side. */
-const PORT_STEP_PX = 22;
 
 const CATEGORY_STRIP: Record<NodeCategory, string> = {
   source: "bg-cat-source",
@@ -101,18 +107,20 @@ export function NodeShell({
   actions,
   children,
 }: NodeShellProps) {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   const surface = useContext(Surface);
   const remove = useRemoveNode(node);
-  const ports = surface === "canvas" ? portsOf(station.context, node) : [];
-  const pinned = isPinned(station.rack, node.id);
-  const selected = station.selected === node.id;
+  const ports = surface === "canvas" ? portsOf(workspace.context, workspace.graph, node) : [];
+  const pinned = isPinned(workspace.rack, node.id);
+  const selected = workspace.selected === node.id;
   const active = surface === "rack" || selected;
-  const minimum = NODE_MIN_SIZE[node.kind];
+  // The floor follows the port count: a multi-stream radio stacks an output per stream, and a
+  // face shrunk past its lowest port clips the handle a wire needs.
+  const minimum = nodeMinSize(node.kind, ports);
 
   return (
     <div
-      className={`flex h-full min-h-0 w-full flex-col overflow-hidden border bg-panel ${
+      className={`relative flex h-full min-h-0 w-full flex-col border bg-panel ${
         selected ? "border-accent" : "border-line"
       } ${live ? "" : "opacity-60"}`}
     >
@@ -139,7 +147,7 @@ export function NodeShell({
             title={pinned ? "Unpin from the rack" : "Pin to the rack"}
             className={`${ICON_BTN} size-5 ${pinned ? "text-accent" : "text-ink-faint"}`}
             onClick={() =>
-              station.edit((snapshot) => ({
+              workspace.edit((snapshot) => ({
                 ...snapshot,
                 rack: pinned
                   ? unpin(snapshot.rack ?? {}, node.id)
@@ -179,7 +187,8 @@ export function NodeShell({
         <PortHandle
           key={`${port.direction}:${port.name}`}
           port={port}
-          offset={HEADER_PX + PORT_STEP_PX * indexOnSide(ports, index)}
+          label={portLabel(port.name, ports)}
+          offset={PORT_TOP_PX + PORT_STEP_PX * indexOnSide(ports, index)}
         />
       ))}
     </div>
@@ -189,11 +198,11 @@ export function NodeShell({
 /** The face's own ✕. The engine call goes first (`closeEngineObjects`); only once it has landed
  * does the node leave the patch. */
 function useRemoveNode(node: PatchNode): () => void {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   const drop = useMutation({
-    mutationFn: () => closeEngineObjects(station, [node.id]),
+    mutationFn: () => closeEngineObjects(workspace, [node.id]),
     onSuccess: () =>
-      station.edit((snapshot) => {
+      workspace.edit((snapshot) => {
         const graph = removeNode(snapshot.graph, node.id);
         return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
       }),
@@ -209,20 +218,51 @@ function indexOnSide(ports: readonly PortSpec[], index: number): number {
   return ports.slice(0, index).filter((port) => port.direction === side).length;
 }
 
-function PortHandle({ port, offset }: { port: PortSpec; offset: number }) {
+function PortHandle({
+  port,
+  label,
+  offset,
+}: {
+  port: PortSpec;
+  /** What the port is called on screen; the wire name stays `port.name` (`portLabel`). */
+  label: string;
+  offset: number;
+}) {
   const out = port.direction === "out";
+  const description =
+    port.note == null ? `${label} (${port.port_type})` : `${label} — ${port.note}`;
   return (
-    <Handle
-      id={port.name}
-      type={out ? "source" : "target"}
-      position={out ? Position.Right : Position.Left}
-      style={{ top: offset }}
-      // The label is the accessible name and the hover title: hue alone never says what a wire
-      // carries (DESIGN.md §2). A port that refuses everything carries the server's reason for it
-      // — the operator finds out by pointing at it, not by dragging a wire at it.
-      title={port.note == null ? `${port.name} (${port.port_type})` : `${port.name} — ${port.note}`}
-      className={`!size-2.5 ${PORT_PAINT[port.port_type]} ${PORT_SHAPE[port.port_type]}`}
-    />
+    <>
+      <Handle
+        id={port.name}
+        type={out ? "source" : "target"}
+        position={out ? Position.Right : Position.Left}
+        style={{ top: offset }}
+        // Hue alone never says what a wire carries (DESIGN.md §2). A port that refuses everything
+        // carries the server's reason for it — the operator finds out by pointing at it, not by
+        // dragging a wire at it.
+        title={description}
+        aria-label={`${out ? "output" : "input"} ${description}`}
+        className={`!size-2.5 ${PORT_PAINT[port.port_type]} ${PORT_SHAPE[port.port_type]}`}
+      />
+      {/* DESIGN.md §2: hue + marker shape + a *text* label, because with colour removed the graph
+          must still be unambiguous.
+          Outside the face rather than inset: a label over the body sits on whatever the instrument
+          draws there, and a gutter wide enough for the longest port name would cost every face
+          that much width. Level with its own handle, so the eye pairs the two without counting
+          rows — and stacked over the wires rather than under them, on the canvas ground, so a
+          connection running beneath stays readable. Inert, so a drag beginning here still belongs
+          to the handle. */}
+      <span
+        aria-hidden
+        style={{ top: offset }}
+        className={`legend pointer-events-none absolute z-10 -translate-y-1/2 rounded-xs bg-bg/85 px-1 whitespace-nowrap select-none text-ink-faint ${
+          out ? "left-full ml-1" : "right-full mr-1"
+        }`}
+      >
+        {label}
+      </span>
+    </>
   );
 }
 

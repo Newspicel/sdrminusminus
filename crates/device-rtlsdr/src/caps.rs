@@ -2,9 +2,10 @@
 //! model (PLAN §6), plus the pre-flight validation `apply` runs before touching hardware. No
 //! I/O here, so every mapping is unit-testable against fabricated descriptors and gain tables.
 
-use sdrmm_device::DeviceError;
+use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, DeviceInfo, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
+    Capabilities, DeviceInfo, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage,
+    GainValue, Range, StreamScope,
 };
 
 use crate::{
@@ -117,18 +118,25 @@ pub(crate) fn device_infos(descriptors: &[DeviceDescriptor]) -> Vec<DeviceInfo> 
                 (Some(name), None) | (None, Some(name)) => name.clone(),
                 (None, None) => "RTL-SDR".to_string(),
             };
+            // The descriptor already carries the board, and the tuner range and rate menu are
+            // the board's — so the picker can tell whether a template fits without claiming the
+            // dongle. The gain table is the unit's and is read when it opens, which is exactly
+            // what a profile leaves out.
+            let profile = Some(capabilities(d.board_variant, &[]).profile());
             match serial {
                 Some(serial) => DeviceInfo {
                     driver: DRIVER_ID.to_string(),
                     key: serial.clone(),
                     label: format!("{model} {serial}"),
                     serial: Some(serial.clone()),
+                    profile,
                 },
                 None => DeviceInfo {
                     driver: DRIVER_ID.to_string(),
                     key: location.clone(),
                     label: format!("{model} ({location})"),
                     serial: None,
+                    profile,
                 },
             }
         })
@@ -179,7 +187,10 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         // dongle. `BANDWIDTH_MAX_HZ` still bounds what `apply` will write.
         bandwidths: Vec::new(),
         extra: extra_settings(),
-        tx_capable: false,
+        duplex: Duplex::RxOnly,
+        rx_streams: 1,
+        tx_streams: 0,
+        per_stream: StreamScope::default(),
     }
 }
 
@@ -232,6 +243,7 @@ pub(crate) fn validate(
     current: &DeviceSettings,
     table: &[i32],
 ) -> Result<Plan, DeviceError> {
+    check_stream_settings(delta, caps)?;
     let mut plan = Plan::default();
 
     if let Some(f) = delta.center_hz {
@@ -468,7 +480,8 @@ mod tests {
         assert_eq!(caps.sample_rate_range, None);
         assert_eq!(caps.antennas, vec!["RX".to_string()]);
         assert!(caps.bandwidths.is_empty());
-        assert!(!caps.tx_capable);
+        assert_eq!(caps.duplex, Duplex::RxOnly);
+        assert_eq!(caps.rx_streams, 1);
         assert_eq!(caps.gains.len(), 1);
         assert_eq!(caps.gains[0].name, "TUNER");
         assert_eq!(caps.gains[0].range.min, 0.0);
@@ -867,5 +880,28 @@ mod tests {
             plan_for(&DeviceSettings::default()).unwrap(),
             Plan::default()
         );
+    }
+
+    /// An RTL-SDR has one stream and declares nothing per-stream, so any `streams` entry is a
+    /// refusal naming the entry — never a silent drop into reported settings.
+    #[test]
+    fn validate_refuses_per_stream_overrides() {
+        let delta = DeviceSettings {
+            streams: vec![sdrmm_wire::StreamSettings {
+                stream: 0,
+                gains: vec![GainValue {
+                    stage: TUNER_STAGE.to_string(),
+                    value_db: 20.7,
+                }],
+                ..sdrmm_wire::StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        match plan_for(&delta) {
+            Err(DeviceError::Unsupported(message)) => {
+                assert!(message.contains("streams[0]"), "{message}");
+            }
+            other => panic!("a streams entry must be Unsupported, got {other:?}"),
+        }
     }
 }

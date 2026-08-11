@@ -25,6 +25,11 @@ pub enum DeviceSetStatus {
 pub struct RecordingStatus {
     /// Recording stem: file name without directory or `.sigmf-*` extension.
     pub file: String,
+    /// Which of the device's receive streams is being recorded. Defaults to 0 because a
+    /// status from before multi-stream devices names no stream and means the only one its
+    /// radio had.
+    #[serde(default)]
+    pub stream: u32,
     /// RFC3339 UTC.
     pub started_at: String,
     /// Samples written to the `.sigmf-data` file so far.

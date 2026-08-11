@@ -2,9 +2,10 @@
 //! runs before touching hardware. Nothing here does USB I/O, so every mapping and every
 //! rejection path is unit-testable without a radio (PLAN §14: no hardware in CI, ever).
 
-use sdrmm_device::DeviceError;
+use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
+    Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
+    StreamScope,
 };
 
 use crate::driver::Config;
@@ -90,7 +91,10 @@ pub(crate) fn capabilities() -> Capabilities {
                 default: false,
             },
         ],
-        tx_capable: false,
+        duplex: Duplex::Half,
+        rx_streams: 1,
+        tx_streams: 1,
+        per_stream: StreamScope::default(),
     }
 }
 
@@ -139,6 +143,7 @@ pub(crate) fn validate(
     delta: &DeviceSettings,
     caps: &Capabilities,
 ) -> Result<Applied, DeviceError> {
+    check_stream_settings(delta, caps)?;
     let mut applied = Applied::default();
 
     if let Some(hz) = delta.center_hz {
@@ -264,6 +269,7 @@ pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
                 value: config.bias_tee_enabled.into(),
             },
         ],
+        streams: Vec::new(),
     }
 }
 
@@ -342,7 +348,8 @@ mod tests {
             caps.extra.iter().map(extra_name).collect::<Vec<_>>(),
             vec!["amp", "bias_tee"]
         );
-        assert!(!caps.tx_capable);
+        // The radio has a send side; PLAN §12a is what keeps anything from using it.
+        assert_eq!(caps.duplex, Duplex::Half);
     }
 
     #[test]
@@ -596,6 +603,26 @@ mod tests {
             validate(&DeviceSettings::default(), &capabilities()).unwrap(),
             Applied::default()
         );
+    }
+
+    /// A HackRF has one receive stream and declares nothing per-stream, so any `streams` entry
+    /// is a refusal naming the entry — never a silent drop into reported settings.
+    #[test]
+    fn validate_refuses_per_stream_overrides() {
+        let delta = DeviceSettings {
+            streams: vec![sdrmm_wire::StreamSettings {
+                stream: 0,
+                center_hz: Some(433_920_000.0),
+                ..sdrmm_wire::StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        match validate(&delta, &capabilities()) {
+            Err(DeviceError::Unsupported(message)) => {
+                assert!(message.contains("streams[0]"), "{message}");
+            }
+            other => panic!("a streams entry must be Unsupported, got {other:?}"),
+        }
     }
 
     #[test]

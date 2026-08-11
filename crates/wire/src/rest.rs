@@ -26,6 +26,11 @@ pub struct CreateDeviceSetRequest {
 /// `POST /api/devicesets/{ds}/channels` — add a channel to a device set.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreateChannelRequest {
+    /// Which of the device's receive streams the channel taps. Defaults to 0 so a client that
+    /// predates multi-stream devices keeps meaning the only stream its radio has; out of range
+    /// is a bad request naming the count, never a silent fallback.
+    #[serde(default)]
+    pub stream: u32,
     pub settings: ChannelSettings,
 }
 
@@ -100,6 +105,10 @@ pub struct CreateBookmarkRequest {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordRequest {
     pub action: RecordAction,
+    /// Which receive stream a start records — one recording per set, on a named stream.
+    /// Defaults to 0, the only stream a single-stream radio has.
+    #[serde(default)]
+    pub stream: u32,
 }
 
 /// What a [`RecordRequest`] should do.
@@ -212,7 +221,7 @@ pub struct DeletedCount {
     pub deleted: u64,
 }
 
-/// One built-in station template (PLAN §10: the template gallery). Read-only and
+/// One built-in workspace template (PLAN §10: the template gallery). Read-only and
 /// device-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry
 /// applies to whatever hardware is open, provided the device can tune it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -235,9 +244,84 @@ pub struct TemplateInfo {
     /// The patch the template draws into the active workspace (CANVAS §8 phase ④): a receiver,
     /// the channels above, their wiring and the faces to operate them. Its channel nodes are the
     /// `channels` list in order, so the n-th node binds the n-th channel the apply creates. A
-    /// template that names no patch leaves the station alone.
+    /// template that names no patch leaves the workspace alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patch: Option<crate::patch::PatchGraph>,
+    /// Which direction the radio has to have. Every built-in template receives; the field is
+    /// here because "what kind of radio does this need" is the question the picker asks, and a
+    /// transmit template must not be offered on a receiver the day one exists.
+    #[serde(default = "receive")]
+    pub direction: crate::device::Direction,
+    /// Whether `sample_rate` is the only rate that works, rather than a starting point. ADS-B
+    /// fills its whole 2 MHz channel, so a resampled one decodes nothing (PLAN §18) — a radio
+    /// whose rate menu misses 2 Msps cannot run it at all, while an FM template is happy at
+    /// anything wide enough.
+    #[serde(default)]
+    pub exact_rate: bool,
+    /// Devices this template can actually run on, as `driver:key` handles — the server's answer,
+    /// computed against each probed radio's [`crate::DeviceProfile`], so the gallery offers a
+    /// device only when the template fits it.
+    ///
+    /// A radio whose driver reports no profile is *included*: unknown is not the same as
+    /// unsuitable, and hiding a device because its backend cannot answer cheaply would make the
+    /// picker lie. Empty on the static table; filled in per request.
+    ///
+    /// Always serialized, unlike the other quiet fields: "no attached radio can run this" is a
+    /// real answer the gallery has to render, and eliding it would make it arrive as the absence
+    /// that means "nobody asked".
+    #[serde(default)]
+    pub supported_devices: Vec<String>,
+}
+
+/// Templates receive unless they say otherwise — the direction a stored or peer-sent entry that
+/// predates the field describes.
+const fn receive() -> crate::device::Direction {
+    crate::device::Direction::Rx
+}
+
+/// How far a rate may sit from a template's nominal one and still count, when the template does
+/// not demand an exact match. Wide enough to accept a 2.048 Msps dongle for a 2.4 Msps template,
+/// which is the same radio doing the same job.
+const RATE_TOLERANCE: f64 = 0.25;
+
+impl TemplateInfo {
+    /// Why this radio cannot run the template, or `None` if it can.
+    ///
+    /// One implementation, in `wire`, because both sides need the answer and two copies would
+    /// drift: the server evaluates it against every probed radio to fill
+    /// [`supported_devices`](Self::supported_devices), and the client renders the reason.
+    ///
+    /// Conservative on purpose — a profile that advertises nothing is not refused. The engine
+    /// still validates on apply; this is what keeps the operator from being offered a template
+    /// that will fail.
+    #[must_use]
+    pub fn unmet_by(&self, profile: &crate::device::DeviceProfile) -> Option<String> {
+        if !profile.duplex.supports(self.direction) {
+            return Some(format!("this radio does not {}", self.direction));
+        }
+        if !profile.reaches(self.min_freq_hz) || !profile.reaches(self.max_freq_hz) {
+            return Some(format!(
+                "needs {:.3}–{:.3} MHz, outside this radio's tuning range",
+                self.min_freq_hz / 1e6,
+                self.max_freq_hz / 1e6
+            ));
+        }
+        let tolerance = if self.exact_rate { 0.0 } else { RATE_TOLERANCE };
+        if !profile.runs_at(self.sample_rate, tolerance) {
+            return Some(if self.exact_rate {
+                format!(
+                    "needs exactly {:.3} Msps, which this radio does not offer",
+                    self.sample_rate / 1e6
+                )
+            } else {
+                format!(
+                    "needs about {:.3} Msps, which this radio does not offer",
+                    self.sample_rate / 1e6
+                )
+            });
+        }
+        None
+    }
 }
 
 /// `GET /api/templates`.
@@ -285,4 +369,115 @@ pub struct ApiError {
     pub error: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device::{Capabilities, DeviceProfile, Duplex, Range, StreamScope};
+
+    fn profile(freq: Vec<Range>, rates: Vec<f64>, duplex: Duplex) -> DeviceProfile {
+        Capabilities {
+            freq_ranges: freq,
+            sample_rates: rates,
+            sample_rate_range: None,
+            gains: Vec::new(),
+            antennas: Vec::new(),
+            bandwidths: Vec::new(),
+            extra: Vec::new(),
+            duplex,
+            rx_streams: 1,
+            tx_streams: 0,
+            per_stream: StreamScope::default(),
+        }
+        .profile()
+    }
+
+    fn range(min: f64, max: f64) -> Range {
+        Range {
+            min,
+            max,
+            step: None,
+        }
+    }
+
+    fn template(min_freq_hz: f64, max_freq_hz: f64, sample_rate: f64) -> TemplateInfo {
+        TemplateInfo {
+            id: "t".to_string(),
+            name: "T".to_string(),
+            description: String::new(),
+            explainer: String::new(),
+            center_hz: min_freq_hz,
+            sample_rate,
+            channels: Vec::new(),
+            min_freq_hz,
+            max_freq_hz,
+            patch: None,
+            direction: crate::device::Direction::Rx,
+            exact_rate: false,
+            supported_devices: Vec::new(),
+        }
+    }
+
+    /// An RTL-SDR reaches 1090 MHz and an HF-only radio does not; the reason names the span, so
+    /// the gallery can say why rather than just greying the card out.
+    #[test]
+    fn a_template_out_of_a_radios_tuning_range_is_refused_with_the_span() {
+        let adsb = template(1_090e6, 1_090e6, 2e6);
+        let dongle = profile(vec![range(24e6, 1.766e9)], vec![2e6, 2.4e6], Duplex::RxOnly);
+        assert_eq!(adsb.unmet_by(&dongle), None);
+
+        let hf = profile(vec![range(0.0, 30e6)], vec![2e6], Duplex::RxOnly);
+        let reason = adsb.unmet_by(&hf).expect("out of range");
+        assert!(reason.contains("1090.000"), "{reason}");
+    }
+
+    /// ADS-B fills its whole channel, so 2.048 Msps is not "close enough" — while an FM template
+    /// at a nominal 2.4 Msps is happy on the same dongle.
+    #[test]
+    fn an_exact_rate_template_refuses_a_neighbouring_rate() {
+        let dongle = profile(vec![range(24e6, 1.766e9)], vec![2.048e6], Duplex::RxOnly);
+
+        let mut adsb = template(1_090e6, 1_090e6, 2e6);
+        adsb.exact_rate = true;
+        let reason = adsb.unmet_by(&dongle).expect("2.048 is not 2.000");
+        assert!(reason.contains("exactly"), "{reason}");
+
+        let fm = template(98e6, 98e6, 2.4e6);
+        assert_eq!(fm.unmet_by(&dongle), None, "a nominal rate tolerates 2.048");
+    }
+
+    #[test]
+    fn a_transmit_template_is_refused_on_a_receiver() {
+        let mut beacon = template(144e6, 144e6, 1e6);
+        beacon.direction = crate::device::Direction::Tx;
+
+        let receiver = profile(vec![range(24e6, 1.766e9)], vec![1e6], Duplex::RxOnly);
+        let reason = beacon.unmet_by(&receiver).expect("a receiver cannot send");
+        assert!(reason.contains("transmitting"), "{reason}");
+
+        let transceiver = profile(vec![range(1e6, 6e9)], vec![1e6], Duplex::Half);
+        assert_eq!(beacon.unmet_by(&transceiver), None);
+    }
+
+    /// A radio that advertises nothing is not refused: the virtual devices report no ranges, and
+    /// a filter that hid them would hide the only radio CI has.
+    #[test]
+    fn a_radio_that_advertises_nothing_is_not_refused() {
+        let unknown = profile(Vec::new(), Vec::new(), Duplex::RxOnly);
+        assert_eq!(template(1_090e6, 1_090e6, 2e6).unmet_by(&unknown), None);
+    }
+
+    /// The field is new; a peer that predates it describes a receive template at a nominal rate.
+    #[test]
+    fn an_older_template_payload_reads_as_receive() {
+        let parsed: TemplateInfo = serde_json::from_str(
+            r#"{"id":"t","name":"T","description":"","explainer":"","center_hz":98e6,
+                "sample_rate":2.4e6,"channels":[],"min_freq_hz":98e6,"max_freq_hz":98e6}"#,
+        )
+        .expect("a template from before the direction field");
+        assert_eq!(parsed.direction, crate::device::Direction::Rx);
+        assert!(!parsed.exact_rate);
+        assert!(parsed.supported_devices.is_empty());
+    }
 }

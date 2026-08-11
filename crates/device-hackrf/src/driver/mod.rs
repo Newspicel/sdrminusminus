@@ -11,7 +11,7 @@
 //! radio that has the same constraint, and this layer only carries out what it is told. Transmit
 //! reaches `SdrDevice::tx_start` and stops there: PLAN §12a gates every application-level TX
 //! feature behind an explicit authorized-use switch that has not been built, so `Capabilities`
-//! still reports `tx_capable: false` and no engine, server or UI path calls it.
+//! is gated behind that switch and no engine, server or UI path calls it.
 
 mod commands;
 mod config;

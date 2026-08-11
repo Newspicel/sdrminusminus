@@ -13,7 +13,7 @@ The reference points are the ones `PLAN` §10 names, now joined by the ones `CAN
 instruments, pro audio, and a modular rack — not landing pages, and not GRC. Everything below
 follows from three commitments.
 
-1. **The patch is the instrument.** The station is a graph the operator laid out, and the
+1. **The patch is the instrument.** The workspace is a graph the operator laid out, and the
    layout *is* the answer to "which radio is this?". Node chrome is the bezel around a face:
    quiet, dense, and out of the way.
 2. **Colour is a budget spent on data.** A hue only appears where it carries meaning. Inside a
@@ -128,7 +128,8 @@ it is: `iq`'s own circle, going the other way, **left unfilled because nothing f
 kind emits that type, so the port refuses every wire and says so in its hover title. It earns a row
 here rather than waiting, because the device node's shape is what tells an operator a radio has a
 send side at all — and it says that per *radio*, not per node kind: the input is drawn only where
-`tx_capable` is true (`PortCondition::DeviceIsTxCapable`), so an RTL-SDR node has two ports and a
+the radio has a transmit side (`PortCondition::DeviceIsTxCapable`, read off `Capabilities.duplex`),
+so an RTL-SDR node has two ports and a
 transceiver has three. A receiver never shows a socket its hardware does not have. `iq-tap`
 (decimated channel IQ) and `position` (GPS) get no such reservation and stay out until their
 features land: nothing is holding a place for them.
@@ -162,7 +163,7 @@ never outshouts a tuned control.
   mode on a receiver at the wrong rate (`PLAN §18`). It is a fault and not a refusal because the
   rate is one setting away: the operator meant to put that decoder on that radio, and the face
   at the end of the wire says why in full and offers the setting as a button. Refusing the
-  connection would have made the patch unable to express an intention the station can satisfy.
+  connection would have made the patch unable to express an intention the workspace can satisfy.
 
 ### Category strip
 
@@ -212,7 +213,7 @@ rate and no arriving row is ever skipped.
 ### Theme
 
 Three states: `system` (default), `dark`, `light`. Stored in `localStorage` — a theme is a
-property of the eye looking at the screen, not of the station, so unlike workspaces it does not
+property of the eye looking at the screen, not of the workspace, so unlike the patch itself it does not
 sync between clients.
 
 ---
@@ -325,7 +326,7 @@ selected node must stay legible as the same node.
 attached, or a channel whose receiver is missing, renders at **opacity .6**, with every control
 that would command hardware disabled, and its subtitle says which radio it wants. Its wires stay
 drawn at full strength and its settings stay stored; it is **never silently rebound** to another
-radio. Absence is a state of the station, not a fault: it takes no `danger` hue, no toast and no
+radio. Absence is a state of the workspace, not a fault: it takes no `danger` hue, no toast and no
 badge. The dimming plus the subtitle is the whole report.
 
 **A face that cannot say anything at 220 × 140 is too big a face.** Give it a summary state at
@@ -337,7 +338,7 @@ minimum size and its detail above that, or split it into two nodes.
 
 The face is the instrument, and it is the only control surface — there is no settings dialog
 behind it (`CANVAS §1`). Signature: `XFace({ node }: { node: PatchNode })`, wrapped in
-`NodeShell`, with live state read from the station context and never from props.
+`NodeShell`, with live state read from the workspace context and never from props.
 
 **Gesture ownership.** Inside the face rectangle the instrument owns the wheel and the drag: a
 scope zooms about the cursor, a dial digit steps, a slider drags. The canvas pans and
@@ -352,7 +353,7 @@ its own size — a plot, a map, a canvas.
 
 **Pinning adds a surface; it never removes one** (`CANVAS §5`). A pinned face renders in the
 rack *and* keeps its place on the canvas: a node that turned into a placeholder left a hole
-where the operator had put an instrument, and made the patch a worse picture of the station for
+where the operator had put an instrument, and made the patch a worse picture of the workspace for
 having operated it. The patch and the rack are alternate views, so only one is mounted at a
 time.
 
@@ -554,7 +555,7 @@ Named so they are not mistaken for oversights.
   drawn on the radios that have one; the send half of the face behind it — power, keying, the
   on-air indicator, the authorized-use gate — is not designed. (The question this entry used to
   carry alongside it is answered: per-radio gating of the port. The claim that a static catalog
-  cannot say `tx_capable` was the wrong shape of answer — the catalog does not have to *say* it,
+  cannot say a bare transmit flag was the wrong shape of answer — the catalog does not have to *say* it,
   only to state that the port depends on it, which is what it already did for a channel's
   conditional outputs. The port table now carries `PortCondition::DeviceIsTxCapable` and the
   client resolves it against the binding, so an unbound or receive-only node has no transmit

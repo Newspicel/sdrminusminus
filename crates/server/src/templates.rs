@@ -1,4 +1,4 @@
-//! Built-in station templates (PLAN §10, M5): one click configures the device and its
+//! Built-in workspace templates (PLAN §10, M5): one click configures the device and its
 //! channels for a known activity, with a short "what am I looking at" explainer.
 //!
 //! Templates are a static table, not seeded rows: they ship with the binary, so a seeded
@@ -34,6 +34,8 @@ struct Entry {
     /// node face, so an `events` wire is only drawn for the things that *aggregate* several
     /// decoders — the map and the stored log.
     shape: Shape,
+    /// Whether `sample_rate` is the only rate that decodes, rather than a comfortable one.
+    exact_rate: bool,
 }
 
 /// The two-and-a-half shapes every template falls into.
@@ -52,7 +54,7 @@ const COLUMN: f32 = 400.0;
 /// Vertical step between stacked channel nodes.
 const ROW: f32 = 240.0;
 
-/// Draw the template's station: one receiver, a scope, its channels, and the faces its shape
+/// Draw the template's workspace: one receiver, a scope, its channels, and the faces its shape
 /// implies. Positions are authored so a merged template reads as a column of channels hanging
 /// off one radio (`WorkspaceSnapshot::merge_patch` offsets the whole block downward).
 fn patch(shape: Shape, channels: &[Channel]) -> PatchGraph {
@@ -137,6 +139,7 @@ static TEMPLATES: &[Entry] = &[
             })
         })],
         shape: Shape::Listen,
+        exact_rate: false,
     },
     Entry {
         id: "airband",
@@ -151,6 +154,7 @@ static TEMPLATES: &[Entry] = &[
         sample_rate: 2_400_000.0,
         channels: &[(118_100_000.0, || ChannelParams::Am(AmParams::default()))],
         shape: Shape::Listen,
+        exact_rate: false,
     },
     Entry {
         id: "adsb",
@@ -158,16 +162,19 @@ static TEMPLATES: &[Entry] = &[
         description: "1090 MHz aircraft positions on the map.",
         explainer: "Aircraft broadcast their identity, altitude, speed and position on \
                     1090 MHz. Reception is line-of-sight, so range depends on antenna height \
-                    far more than on gain. The device must run at exactly 2 Msps — ADS-B \
-                    fills its whole channel, and a resampled one decodes nothing.",
-        // ADS-B occupies its entire 2 MHz channel, so the device rate must equal the channel
-        // rate exactly or the engine refuses the channel (PLAN §18, M4 decision).
+                    far more than on gain. ADS-B is handed the device's own samples, so the \
+                    radio has to run at 2 Msps or above.",
         center_hz: 1_090_000_000.0,
         sample_rate: 2_000_000.0,
         channels: &[(1_090_000_000.0, || {
             ChannelParams::Adsb(AdsbParams::default())
         })],
         shape: Shape::Map,
+        // Not exact, despite reading like it: ADS-B takes the device's own samples over a
+        // *range* (2–4 Msps, `ChannelDescriptor::native_rate_range`), and PLAN §18 was amended
+        // so no channel type is exact-rate any more. Demanding 2.000 exactly would refuse every
+        // RTL-SDR, whose advertised menu jumps 1.92 → 2.048.
+        exact_rate: false,
     },
     Entry {
         id: "ais",
@@ -187,6 +194,7 @@ static TEMPLATES: &[Entry] = &[
             }),
         ],
         shape: Shape::Map,
+        exact_rate: false,
     },
     Entry {
         id: "aprs",
@@ -199,6 +207,7 @@ static TEMPLATES: &[Entry] = &[
         sample_rate: 1_024_000.0,
         channels: &[(144_800_000.0, || ChannelParams::Aprs(AprsParams::default()))],
         shape: Shape::Map,
+        exact_rate: false,
     },
     Entry {
         id: "pagers",
@@ -214,6 +223,7 @@ static TEMPLATES: &[Entry] = &[
             ChannelParams::Pocsag(PocsagParams::default())
         })],
         shape: Shape::Log,
+        exact_rate: false,
     },
     Entry {
         id: "ham-2m",
@@ -226,6 +236,7 @@ static TEMPLATES: &[Entry] = &[
         sample_rate: 1_024_000.0,
         channels: &[(145_700_000.0, || ChannelParams::Nfm(NfmParams::default()))],
         shape: Shape::Listen,
+        exact_rate: false,
     },
     Entry {
         id: "marine-vhf",
@@ -238,6 +249,7 @@ static TEMPLATES: &[Entry] = &[
         sample_rate: 1_024_000.0,
         channels: &[(156_800_000.0, || ChannelParams::Nfm(NfmParams::default()))],
         shape: Shape::Listen,
+        exact_rate: false,
     },
 ];
 
@@ -272,6 +284,12 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                     min_freq_hz: min.min(entry.center_hz),
                     max_freq_hz: max.max(entry.center_hz),
                     patch: Some(patch(entry.shape, entry.channels)),
+                    // Every built-in template receives. The field exists so the day a transmit
+                    // one does not, the picker refuses a receiver rather than offering it.
+                    direction: sdrmm_wire::Direction::Rx,
+                    exact_rate: entry.exact_rate,
+                    // The handler fills this in against the radios actually attached.
+                    supported_devices: Vec::new(),
                 }
             })
             .collect()
@@ -338,16 +356,20 @@ mod tests {
     fn adsb_template_runs_the_device_at_the_channel_rate() {
         let adsb = get("adsb").expect("adsb template");
         assert_eq!(adsb.sample_rate, 2_000_000.0);
+        // *Not* exact: the rule is a range, and an RTL-SDR advertises 1.92 and 2.048 with
+        // nothing between. Pinned because demanding an exact rate here refuses the commonest
+        // ADS-B receiver there is, on both the picker and the apply guard.
+        assert!(!adsb.exact_rate);
         assert_eq!(adsb.channels.len(), 1);
         assert_eq!(adsb.channels[0].offset_hz, 0.0);
     }
 
-    /// A template's patch is merged into the live station, so one that fails validation would be
+    /// A template's patch is merged into the live workspace, so one that fails validation would be
     /// discovered only when someone clicks Apply. Validating against the *registry* is what
     /// catches the authoring mistake that matters: wiring an `audio` port on a decoder that has
     /// none, or a channel type this build does not ship.
     #[test]
-    fn every_template_patch_is_a_valid_station() {
+    fn every_template_patch_is_a_valid_workspace() {
         let descriptors = sdrmm_engine::Engine::new(None).channel_types();
         for template in all() {
             let patch = template.patch.clone().expect("templates carry a patch");
@@ -355,9 +377,9 @@ mod tests {
                 .validate_against(&descriptors)
                 .unwrap_or_else(|e| panic!("{}: {e}", template.id));
 
-            let mut station = WorkspaceSnapshot::station_default();
-            station.merge_patch(&patch, &format!("template:{}:", template.id), None);
-            station
+            let mut workspace = WorkspaceSnapshot::starter();
+            workspace.merge_patch(&patch, &format!("template:{}:", template.id), None);
+            workspace
                 .validate()
                 .unwrap_or_else(|e| panic!("{} merged: {e}", template.id));
         }
@@ -372,8 +394,13 @@ mod tests {
             let patch = template.patch.clone().expect("templates carry a patch");
             let drawn: Vec<&str> = patch
                 .channels_of("dev")
-                .filter_map(|node| match &node.body {
-                    NodeBody::Channel(channel) => Some(channel.channel_type.as_str()),
+                .filter_map(|(node, stream)| match &node.body {
+                    NodeBody::Channel(channel) => {
+                        // Binding is by (type, stream); templates wire the bare `iq` port, so a
+                        // non-zero stream here would bind their nodes to nothing.
+                        assert_eq!(stream, 0, "{} wires a non-zero stream", template.id);
+                        Some(channel.channel_type.as_str())
+                    }
                     _ => None,
                 })
                 .collect();

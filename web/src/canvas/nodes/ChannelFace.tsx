@@ -12,29 +12,35 @@ import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { DecoderView } from "../../components/DecoderPanels";
 import { formatMhz, formatSignedKhz } from "../../components/format";
 import type { DeviceSet, PatchNode } from "../../lib/types";
-import { useDevicePatch } from "../../lib/useDevicePatch";
-import { sourcesOf, targetsOf } from "../binding";
-import { deviceSetOf, useStationContext } from "../context";
+import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
+import { iqSourceOf, targetsOf } from "../binding";
+import { deviceSetOf, useWorkspaceContext } from "../context";
 import { FaceBody, NodeShell } from "./NodeShell";
 
 export function ChannelFace({ node }: { node: PatchNode }) {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   // The node registry mounts this face for channel nodes only; the guard is what narrows `data`.
   if (node.kind !== "channel") {
     return null;
   }
 
   const typeId = node.data.channel_type;
-  const descriptor = station.context.channelTypes.find((type) => type.type_id === typeId);
+  const descriptor = workspace.context.channelTypes.find((type) => type.type_id === typeId);
   const name = descriptor?.name ?? typeId.toUpperCase();
-  const set = deviceSetOf(station, node.id);
-  const channel = station.channels.get(node.id) ?? null;
+  const set = deviceSetOf(workspace, node.id);
+  const channel = workspace.channels.get(node.id) ?? null;
   // Wired and bound are different states: a wire to a radio that is unplugged is kept, and the
   // face says which of the two is missing rather than offering a fix that cannot work (CANVAS §3).
-  const wired = sourcesOf(station.graph, node.id, "iq").length > 0;
-  // Where the channel actually is: the radio's centre plus the offset, falling back to the
-  // offset alone while the radio reports no centre.
-  const centerHz = set?.settings.center_hz ?? null;
+  const source = iqSourceOf(workspace.graph, node.id);
+  const wired = source !== null;
+  // Where the channel actually is: *its lane's* centre plus the offset — on a radio whose
+  // streams tune apart, the device-wide centre would file this channel under a frequency it is
+  // not on — falling back to the offset alone while the radio reports no centre.
+  const centerHz =
+    set === null
+      ? null
+      : (forStream(set.settings, source?.stream ?? 0, set.capabilities.per_stream).center_hz ??
+        null);
   const offsetHz = channel?.settings.offset_hz ?? 0;
   const readout = centerHz === null ? formatSignedKhz(offsetHz) : formatMhz(centerHz + offsetHz);
   const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
@@ -43,7 +49,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   // that demodulates sound into nothing has to say so somewhere, and this is where it is looked
   // for.
   const audioUnwired =
-    channelHasAudio(descriptor) && targetsOf(station.graph, node.id, "audio").length === 0;
+    channelHasAudio(descriptor) && targetsOf(workspace.graph, node.id, "audio").length === 0;
 
   return (
     <NodeShell
@@ -64,7 +70,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
           <RateMismatch name={name} set={set} wanted={wantedRate} />
         )}
         {channel === null || set === null ? (
-          <Unbound wired={wired} open={set !== null} onApply={station.apply} />
+          <Unbound wired={wired} open={set !== null} onApply={workspace.apply} />
         ) : (
           <>
             <ChannelControls

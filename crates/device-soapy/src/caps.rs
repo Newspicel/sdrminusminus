@@ -2,7 +2,7 @@
 //! plus the pre-flight validation `apply` runs before touching the device. No I/O here, so
 //! every mapping is unit-testable with fabricated `soapysdr::Range`s (public fields).
 
-use sdrmm_device::DeviceError;
+use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{Capabilities, DeviceSettings, ExtraSetting, Range};
 
 pub(crate) fn freq_ranges(ranges: &[soapysdr::Range]) -> Vec<Range> {
@@ -121,6 +121,7 @@ pub(crate) fn validate(
     caps: &Capabilities,
     ppm_supported: bool,
 ) -> Result<Vec<(String, String)>, DeviceError> {
+    check_stream_settings(delta, caps)?;
     if let Some(f) = delta.center_hz
         && !caps.freq_ranges.is_empty()
         && !caps.freq_ranges.iter().any(|r| r.min <= f && f <= r.max)
@@ -201,7 +202,7 @@ pub(crate) fn read_back_confirms(written: &str, echoed: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{ExtraValue, GainStage, GainValue};
+    use sdrmm_wire::{Duplex, ExtraValue, GainStage, GainValue};
 
     use super::*;
 
@@ -351,7 +352,10 @@ mod tests {
             antennas: vec!["RX".to_string()],
             bandwidths: Vec::new(),
             extra: extra_settings("rtlsdr"),
-            tx_capable: false,
+            duplex: Duplex::RxOnly,
+            rx_streams: 1,
+            tx_streams: 0,
+            per_stream: sdrmm_wire::StreamScope::default(),
         }
     }
 
@@ -514,6 +518,26 @@ mod tests {
             validate(&delta, &caps(), true),
             Err(DeviceError::Unsupported(_))
         ));
+    }
+
+    /// The Soapy path drives one stream and declares nothing per-stream, so any `streams`
+    /// entry is a refusal naming the entry — never a silent drop into reported settings.
+    #[test]
+    fn validate_refuses_per_stream_overrides() {
+        let delta = DeviceSettings {
+            streams: vec![sdrmm_wire::StreamSettings {
+                stream: 0,
+                antenna: Some("RX".to_string()),
+                ..sdrmm_wire::StreamSettings::default()
+            }],
+            ..DeviceSettings::default()
+        };
+        match validate(&delta, &caps(), true) {
+            Err(DeviceError::Unsupported(message)) => {
+                assert!(message.contains("streams[0]"), "{message}");
+            }
+            other => panic!("a streams entry must be Unsupported, got {other:?}"),
+        }
     }
 
     #[test]

@@ -7,73 +7,14 @@
 //!
 //! Pure: no I/O, no device, no clock. The *mechanics* of pointing a radio one way stay in its
 //! backend, because they differ; deciding whether it is allowed to does not.
+//!
+//! [`Duplex`] and [`Direction`] themselves live in `sdrmm-wire`: what a radio *is* is something
+//! the device picker, a workspace template and the canvas all have to see, and a shape the
+//! client renders belongs on the wire (PLAN §2). Only the arbitration is here.
+
+use sdrmm_wire::{Direction, Duplex};
 
 use crate::DeviceError;
-
-/// One signal direction.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Direction {
-    /// Radio to host.
-    Rx,
-    /// Host to radio.
-    Tx,
-}
-
-impl Direction {
-    /// The other one.
-    #[must_use]
-    pub const fn opposite(self) -> Self {
-        match self {
-            Self::Rx => Self::Tx,
-            Self::Tx => Self::Rx,
-        }
-    }
-}
-
-impl std::fmt::Display for Direction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Rx => "receiving",
-            Self::Tx => "transmitting",
-        })
-    }
-}
-
-/// What a radio's hardware can do, and whether it can do it at once.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum Duplex {
-    /// Receive only: RTL-SDR, and every backend with no transmitter (virtual, playback, the
-    /// Soapy path as this project drives it). The default, so a backend that says nothing
-    /// cannot accidentally advertise a transmitter.
-    #[default]
-    RxOnly,
-    /// Transmit only: a bench signal generator with no receive path.
-    TxOnly,
-    /// Both, one at a time: the HackRF, whose LPC transceiver mode selects a single data path,
-    /// so changing direction means stopping the other first.
-    Half,
-    /// Both at once: USRP, LimeSDR, PlutoSDR, bladeRF.
-    Full,
-}
-
-impl Duplex {
-    /// Whether the hardware has this direction at all.
-    #[must_use]
-    pub const fn supports(self, direction: Direction) -> bool {
-        match (self, direction) {
-            (Self::RxOnly, Direction::Rx)
-            | (Self::TxOnly, Direction::Tx)
-            | (Self::Half | Self::Full, _) => true,
-            (Self::RxOnly, Direction::Tx) | (Self::TxOnly, Direction::Rx) => false,
-        }
-    }
-
-    /// Whether both directions can be live together.
-    #[must_use]
-    pub const fn simultaneous(self) -> bool {
-        matches!(self, Self::Full)
-    }
-}
 
 /// Which directions are claimed right now, and the rule that decides whether one more may be.
 ///

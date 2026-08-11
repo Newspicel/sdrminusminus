@@ -26,27 +26,27 @@ import type {
   RecordAction,
   RecordingStatus,
 } from "../../lib/types";
-import { inputsOf } from "../binding";
-import { deviceSetOf, useStationContext } from "../context";
+import { inputsOf, iqSourceOf } from "../binding";
+import { deviceSetOf, useWorkspaceContext } from "../context";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 /** One channel wired into a sink, resolved to the engine objects behind it. */
 type Input = { node: string; deviceSet: number; channel: ChannelInfo };
 
 function useInputs(node: string, port: string): Input[] {
-  const station = useStationContext();
-  return inputsOf(station.graph, node, port, station.devices, station.channels);
+  const workspace = useWorkspaceContext();
+  return inputsOf(workspace.graph, node, port, workspace.devices, workspace.channels);
 }
 
 /** What the decoders wired into a sink emit. The wire is the filter, which is the whole reason
  * the map and the export are nodes rather than menu items (CANVAS §1). */
 function useWiredKinds(inputs: readonly Input[]): string[] {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   return [
     ...new Set(
       inputs.flatMap((input) => {
         const type = input.channel.settings.params.type;
-        return station.context.channelTypes.find((t) => t.type_id === type)?.decoder_kind ?? [];
+        return workspace.context.channelTypes.find((t) => t.type_id === type)?.decoder_kind ?? [];
       }),
     ),
   ];
@@ -76,9 +76,9 @@ export function SpeakerFace({ node }: { node: PatchNode }) {
 }
 
 function AudioInput({ input }: { input: Input }) {
-  const station = useStationContext();
-  const audio = useChannelAudio(station.socket, input.deviceSet, input.channel.id);
-  const label = station.graph.nodes.find((n) => n.id === input.node)?.label;
+  const workspace = useWorkspaceContext();
+  const audio = useChannelAudio(workspace.socket, input.deviceSet, input.channel.id);
+  const label = workspace.graph.nodes.find((n) => n.id === input.node)?.label;
   return (
     <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">
       <div className="flex items-center gap-2">
@@ -176,7 +176,7 @@ function Plot({
 }
 
 export function DecoderLogFace({ node }: { node: PatchNode }) {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
   return (
     <NodeShell
@@ -186,7 +186,7 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
     >
       <FaceBody scroll={false}>
-        <DecoderLogPanel deviceSets={station.deviceSets} />
+        <DecoderLogPanel deviceSets={workspace.deviceSets} />
       </FaceBody>
     </NodeShell>
   );
@@ -238,8 +238,11 @@ export function ExportFace({ node }: { node: PatchNode }) {
 
 /** The device-level SigMF recorder (PLAN §5), drawn as the sink it is. */
 export function RecorderFace({ node }: { node: PatchNode }) {
-  const station = useStationContext();
-  const set = deviceSetOf(station, node.id);
+  const workspace = useWorkspaceContext();
+  const set = deviceSetOf(workspace, node.id);
+  // The lane this recorder's own wire names: wired to `iq3`, it must record stream 2, not the
+  // radio's first.
+  const stream = iqSourceOf(workspace.graph, node.id)?.stream ?? 0;
   return (
     <NodeShell
       node={node}
@@ -252,7 +255,7 @@ export function RecorderFace({ node }: { node: PatchNode }) {
         {set === null ? (
           <FaceEmpty>Wire a device's IQ out to record it.</FaceEmpty>
         ) : (
-          <RecordControl set={set} />
+          <RecordControl set={set} stream={stream} />
         )}
       </FaceBody>
     </NodeShell>
@@ -261,9 +264,9 @@ export function RecorderFace({ node }: { node: PatchNode }) {
 
 /** `deriveRecordControl` owns the two rules this face must not restate: a start needs a running
  * radio, and a faulted recording still reads as recording until it is explicitly stopped. */
-function RecordControl({ set }: { set: DeviceSet }) {
+function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
   const record = useMutation({
-    mutationFn: (action: RecordAction) => recordDeviceSet(set.id, action),
+    mutationFn: (action: RecordAction) => recordDeviceSet(set.id, action, stream),
     onError: (error: Error) => pushToast(error.message),
   });
   const control = deriveRecordControl(set);
@@ -335,8 +338,8 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
  * says in words. It consumes nothing; the sweep reads the device set the engine already gave it.
  */
 export function ScannerFace({ node }: { node: PatchNode }) {
-  const station = useStationContext();
-  const set = deviceSetOf(station, node.id);
+  const workspace = useWorkspaceContext();
+  const set = deviceSetOf(workspace, node.id);
   // `DeviceSet.scanner` is absent when no sweep is running, so its presence *is* the ownership.
   const scanning = set?.scanner != null;
   return (

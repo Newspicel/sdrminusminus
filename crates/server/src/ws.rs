@@ -31,9 +31,16 @@ const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
 /// `ch_layout` header byte for mono audio frames (PLAN §5 frame layout).
 const CH_LAYOUT_MONO: u8 = 1;
-/// Audio stream ids live in `AUDIO_ID_BASE..=u16::MAX`; spectrum stream ids are device-set
-/// ids and must stay below it, so the two can never collide on one connection.
+/// Audio stream ids live in `AUDIO_ID_BASE..=u16::MAX` and spectrum ids in `0..AUDIO_ID_BASE`, so
+/// the two can never collide on one connection.
+///
+/// A spectrum id used to *be* the device-set id, which a multi-stream radio broke: several lanes
+/// of one set can be watched at once, and they need ids of their own to be told apart. Both kinds
+/// are now allocated per connection and reported in the `…StreamStarted` event that answers the
+/// subscribe.
 const AUDIO_ID_BASE: u16 = 0x8000;
+/// First spectrum id. Ids run `SPECTRUM_ID_BASE..AUDIO_ID_BASE`.
+const SPECTRUM_ID_BASE: u16 = 0;
 
 pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
@@ -123,7 +130,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let events = spawn_events(event_rx, out_tx.clone());
     let decoded = spawn_decoded(decoded_rx, out_tx.clone());
 
-    let mut spectra: HashMap<u32, tokio::task::JoinHandle<()>> = HashMap::new();
+    // Keyed by (device set, receive stream): two scopes on two lanes of one radio are the point
+    // of a multi-stream device, so a subscribe on one lane must not replace another's.
+    let mut spectra: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
+    let mut next_spectrum_id: u16 = SPECTRUM_ID_BASE;
     // Audio streams keyed by (device_set, channel); resubscribing replaces the running task.
     let mut audio: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
     let mut next_audio_id: u16 = AUDIO_ID_BASE;
@@ -137,45 +147,68 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         device_set,
                         fps,
                         bins,
+                        stream,
                     }) => {
-                        // The spectrum stream_id is the device-set id; refuse ids that would
-                        // land in the reserved audio range rather than silently alias.
-                        if device_set >= u32::from(AUDIO_ID_BASE) {
-                            let err = ServerEvent::Error {
-                                message: format!("device set {device_set} exceeds stream id range"),
-                            };
-                            let _ = out_tx.send(text_event(&err)).await;
-                            continue;
-                        }
                         // subscribe_spectrum takes the per-set runtime mutex, which
                         // patch/remove hold across device I/O and thread joins — blocking
                         // pool, like every hardware-reaching call in rest.rs.
                         let subscribe = {
                             let engine = engine.clone();
                             tokio::task::spawn_blocking(move || {
-                                engine.subscribe_spectrum(device_set)
+                                engine.subscribe_spectrum(device_set, stream)
                             })
                             .await
                         };
                         match flatten_join(subscribe) {
                             Ok(rx) => {
-                                if let Some(old) = spectra.remove(&device_set) {
+                                // Re-subscribing this same lane replaces it, and the old id stops
+                                // loudly first so the client can drop its sink — the audio arm's
+                                // no-silent-termination rule. Other lanes of this set are
+                                // untouched.
+                                if let Some((old_id, old)) = spectra.remove(&(device_set, stream)) {
                                     old.abort();
+                                    let stopped = ServerEvent::StreamStopped {
+                                        stream_id: old_id,
+                                        kind: StreamKind::Spectrum,
+                                    };
+                                    let _ = out_tx.send(text_event(&stopped)).await;
                                 }
-                                let started = ServerEvent::StreamStarted {
-                                    stream_id: device_set as u16,
-                                    device_set,
-                                };
-                                let _ = out_tx.send(text_event(&started)).await;
-                                let task = spawn_spectrum(
-                                    device_set,
-                                    fps,
-                                    bins,
-                                    rx,
-                                    out_tx.clone(),
-                                    engine.clone(),
-                                );
-                                spectra.insert(device_set, task);
+                                let live = |id: u16| spectra.values().any(|(sid, _)| *sid == id);
+                                match alloc_stream_id(
+                                    &mut next_spectrum_id,
+                                    SPECTRUM_ID_BASE..=AUDIO_ID_BASE - 1,
+                                    live,
+                                ) {
+                                    Some(stream_id) => {
+                                        let started = ServerEvent::StreamStarted {
+                                            stream_id,
+                                            device_set,
+                                            stream,
+                                        };
+                                        let _ = out_tx.send(text_event(&started)).await;
+                                        let task = spawn_spectrum(
+                                            SpectrumLane {
+                                                stream_id,
+                                                device_set,
+                                                stream,
+                                            },
+                                            fps,
+                                            bins,
+                                            rx,
+                                            out_tx.clone(),
+                                            engine.clone(),
+                                        );
+                                        spectra.insert((device_set, stream), (stream_id, task));
+                                    }
+                                    None => {
+                                        let err = ServerEvent::Error {
+                                            message: "no free spectrum stream ids on this \
+                                                      connection"
+                                                .to_string(),
+                                        };
+                                        let _ = out_tx.send(text_event(&err)).await;
+                                    }
+                                }
                             }
                             Err(message) => {
                                 let _ = out_tx
@@ -184,11 +217,11 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             }
                         }
                     }
-                    Ok(ClientCommand::UnsubscribeSpectrum { device_set }) => {
-                        if let Some(task) = spectra.remove(&device_set) {
+                    Ok(ClientCommand::UnsubscribeSpectrum { device_set, stream }) => {
+                        if let Some((stream_id, task)) = spectra.remove(&(device_set, stream)) {
                             task.abort();
                             let stopped = ServerEvent::StreamStopped {
-                                stream_id: device_set as u16,
+                                stream_id,
                                 kind: StreamKind::Spectrum,
                             };
                             let _ = out_tx.send(text_event(&stopped)).await;
@@ -219,7 +252,11 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     let _ = out_tx.send(text_event(&stopped)).await;
                                 }
                                 let live = |id: u16| audio.values().any(|(sid, _)| *sid == id);
-                                match alloc_audio_id(&mut next_audio_id, live) {
+                                match alloc_stream_id(
+                                    &mut next_audio_id,
+                                    AUDIO_ID_BASE..=u16::MAX,
+                                    live,
+                                ) {
                                     Some(stream_id) => {
                                         let started = ServerEvent::AudioStreamStarted {
                                             stream_id,
@@ -272,7 +309,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         }
     }
 
-    for (_, task) in spectra {
+    for (_, (_, task)) in spectra {
         task.abort();
     }
     for (_, (_, task)) in audio {
@@ -301,14 +338,23 @@ fn flatten_join<T>(
     }
 }
 
-/// Allocate the next audio stream id from `AUDIO_ID_BASE..=u16::MAX`, wrapping within that
-/// range and skipping ids still bound to a live stream on this connection, so a long-lived
-/// socket can never hand a live id to a second stream. `None` only if all 32768 ids are live.
-fn alloc_audio_id(next: &mut u16, in_use: impl Fn(u16) -> bool) -> Option<u16> {
-    for _ in AUDIO_ID_BASE..=u16::MAX {
+/// Allocate the next stream id from `range`, wrapping within it and skipping ids still bound to a
+/// live stream on this connection, so a long-lived socket can never hand a live id to a second
+/// stream. `None` only once every id in the range is live.
+///
+/// One allocator for both kinds: spectrum and audio draw from disjoint ranges (see
+/// [`AUDIO_ID_BASE`]) but the rule is identical, and two copies of it would be two places for the
+/// wrap to be wrong.
+fn alloc_stream_id(
+    next: &mut u16,
+    range: std::ops::RangeInclusive<u16>,
+    in_use: impl Fn(u16) -> bool,
+) -> Option<u16> {
+    let (first, last) = (*range.start(), *range.end());
+    for _ in first..=last {
         let candidate = *next;
-        *next = if candidate == u16::MAX {
-            AUDIO_ID_BASE
+        *next = if candidate == last {
+            first
         } else {
             candidate + 1
         };
@@ -428,14 +474,33 @@ impl FrameThrottle {
 
 /// Per-subscription task: throttle to `fps`, decimate to `bins`, quantize over the adaptive dB
 /// window, and emit a binary [`SpectrumFrame`] (PLAN §9).
+/// Which lane a spectrum task is carrying, and under which wire id.
+///
+/// One value rather than three parameters: the id is allocated per connection while `(ds, stream)`
+/// names the engine lane, and passing them separately is how a resubscribe ends up reattaching the
+/// wrong pair.
+#[derive(Clone, Copy)]
+struct SpectrumLane {
+    /// Per-connection id the client demuxes frames on.
+    stream_id: u16,
+    device_set: u32,
+    /// Receive stream within the device set.
+    stream: u32,
+}
+
 fn spawn_spectrum(
-    ds: u32,
+    lane: SpectrumLane,
     fps: u16,
     bins: u16,
     mut rx: broadcast::Receiver<SpectrumSnapshot>,
     out_tx: mpsc::Sender<Message>,
     engine: Arc<Engine>,
 ) -> tokio::task::JoinHandle<()> {
+    let SpectrumLane {
+        stream_id,
+        device_set: ds,
+        stream,
+    } = lane;
     let fps = fps.clamp(1, MAX_FPS);
     let bins = (bins as usize).clamp(MIN_BINS, MAX_BINS);
 
@@ -456,7 +521,7 @@ fn spawn_spectrum(
                     quantize_db(&dec, db_min, db_max, &mut quant);
 
                     let frame = SpectrumFrame {
-                        stream_id: ds as u16,
+                        stream_id,
                         seq: snap.seq,
                         timestamp: snap.timestamp,
                         center_hz: snap.center_hz,
@@ -482,17 +547,20 @@ fn spawn_spectrum(
                     // removed, or auto-reconnect (PLAN §16 M5) replaced its whole runtime
                     // after a replug. Re-subscribing distinguishes them — a set that came
                     // back hands out a receiver on the new runtime and the stream resumes,
-                    // and only a set that is really gone gets the stop event.
+                    // and only a set that is really gone gets the stop event. On the *same*
+                    // lane: falling back to stream 0 here would silently switch every
+                    // non-zero-stream waterfall on a replug.
                     let engine = engine.clone();
                     let resubscribed =
-                        tokio::task::spawn_blocking(move || engine.subscribe_spectrum(ds)).await;
+                        tokio::task::spawn_blocking(move || engine.subscribe_spectrum(ds, stream))
+                            .await;
                     if let Ok(Ok(fresh)) = resubscribed {
                         rx = fresh;
                         continue;
                     }
                     // No silent termination (CLAUDE.md); one-shot control message, so await it.
                     let stopped = ServerEvent::StreamStopped {
-                        stream_id: ds as u16,
+                        stream_id,
                         kind: StreamKind::Spectrum,
                     };
                     let _ = out_tx.send(text_event(&stopped)).await;
@@ -659,6 +727,87 @@ mod tests {
         }
     }
 
+    /// Two scopes on two lanes of one radio is the whole point of a multi-stream device, so the
+    /// two subscriptions must coexist: distinct ids, independent frames, and unsubscribing one
+    /// leaving the other running. A spectrum id used to *be* the device-set id, which made the
+    /// second subscribe replace the first and made unsubscribe ambiguous.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn two_lanes_of_one_radio_stream_independently() {
+        let engine = test_engine();
+        let ds = engine
+            .create_device_set("virtual:array4")
+            .expect("the four-stream virtual array");
+        let mut ws = connect(engine).await;
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Hello { .. }
+        ));
+
+        let mut subscribe = async |stream: u32| {
+            send(
+                &mut ws,
+                &ClientCommand::SubscribeSpectrum {
+                    device_set: ds,
+                    fps: 30,
+                    bins: 64,
+                    stream,
+                },
+            )
+            .await;
+            loop {
+                // Frames for an already-running lane interleave with this lane's answer.
+                if let ServerEvent::StreamStarted {
+                    stream_id,
+                    device_set,
+                    stream: lane,
+                } = next_event(&mut ws).await
+                {
+                    assert_eq!(device_set, ds);
+                    assert_eq!(lane, stream);
+                    return stream_id;
+                }
+            }
+        };
+        let lane0 = subscribe(0).await;
+        let lane2 = subscribe(2).await;
+        assert_ne!(lane0, lane2, "each lane needs an id of its own to demux on");
+
+        // Both lanes deliver, which they cannot do if one replaced the other.
+        let mut seen = std::collections::HashSet::new();
+        while seen.len() < 2 {
+            let (kind, stream_id) = next_frame_header(&mut ws).await;
+            assert_eq!(kind, sdrmm_wire::FrameKind::Spectrum as u8);
+            assert!(stream_id == lane0 || stream_id == lane2, "{stream_id}");
+            seen.insert(stream_id);
+        }
+
+        send(
+            &mut ws,
+            &ClientCommand::UnsubscribeSpectrum {
+                device_set: ds,
+                stream: 0,
+            },
+        )
+        .await;
+        loop {
+            if let ServerEvent::StreamStopped { stream_id, kind } = next_event(&mut ws).await {
+                assert_eq!(stream_id, lane0, "only the named lane stops");
+                assert_eq!(kind, StreamKind::Spectrum);
+                break;
+            }
+        }
+
+        // The surviving lane is still delivering: unsubscribing one scope must not silence the
+        // other, which keying by device set alone did.
+        for _ in 0..8 {
+            let (_, stream_id) = next_frame_header(&mut ws).await;
+            if stream_id == lane2 {
+                return;
+            }
+        }
+        panic!("the other lane stopped when its neighbour unsubscribed");
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn spectrum_lifecycle_reports_kind_and_streams_frames() {
         let engine = test_engine();
@@ -678,31 +827,40 @@ mod tests {
                 device_set: ds,
                 fps: 30,
                 bins: 64,
+                stream: 0,
+            },
+        )
+        .await;
+        // The id is allocated per connection, so the frames and the stop event are matched
+        // against what StreamStarted handed out — not against the device-set id, which stopped
+        // being the stream id when one radio could have several lanes watched at once.
+        let allocated = match next_event(&mut ws).await {
+            ServerEvent::StreamStarted {
+                stream_id,
+                device_set,
+                stream,
+            } => {
+                assert_eq!(device_set, ds);
+                assert_eq!(stream, 0);
+                stream_id
+            }
+            other => panic!("expected StreamStarted, got {other:?}"),
+        };
+        let (kind, stream_id) = next_frame_header(&mut ws).await;
+        assert_eq!(kind, sdrmm_wire::FrameKind::Spectrum as u8);
+        assert_eq!(stream_id, allocated);
+
+        send(
+            &mut ws,
+            &ClientCommand::UnsubscribeSpectrum {
+                device_set: ds,
+                stream: 0,
             },
         )
         .await;
         match next_event(&mut ws).await {
-            ServerEvent::StreamStarted {
-                stream_id,
-                device_set,
-            } => {
-                assert_eq!(u32::from(stream_id), ds);
-                assert_eq!(device_set, ds);
-            }
-            other => panic!("expected StreamStarted, got {other:?}"),
-        }
-        let (kind, stream_id) = next_frame_header(&mut ws).await;
-        assert_eq!(kind, sdrmm_wire::FrameKind::Spectrum as u8);
-        assert_eq!(u32::from(stream_id), ds);
-
-        send(
-            &mut ws,
-            &ClientCommand::UnsubscribeSpectrum { device_set: ds },
-        )
-        .await;
-        match next_event(&mut ws).await {
             ServerEvent::StreamStopped { stream_id, kind } => {
-                assert_eq!(u32::from(stream_id), ds);
+                assert_eq!(stream_id, allocated);
                 assert_eq!(kind, StreamKind::Spectrum);
             }
             other => panic!("expected StreamStopped, got {other:?}"),
@@ -715,6 +873,7 @@ mod tests {
                 device_set: u32::from(AUDIO_ID_BASE),
                 fps: 30,
                 bins: 64,
+                stream: 0,
             },
         )
         .await;
@@ -724,13 +883,48 @@ mod tests {
         ));
     }
 
+    /// The lane is the client's to name: a stream this radio does not have must come back as
+    /// an engine refusal, which only happens if the subscribe carries the stream it asked for
+    /// instead of quietly landing on lane 0.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn spectrum_subscribe_routes_the_named_stream_to_the_engine() {
+        let engine = test_engine();
+        let ds = engine
+            .create_device_set("virtual:siggen")
+            .expect("device set");
+        let mut ws = connect(engine).await;
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Hello { .. }
+        ));
+
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeSpectrum {
+                device_set: ds,
+                fps: 30,
+                bins: 64,
+                stream: 7,
+            },
+        )
+        .await;
+        match next_event(&mut ws).await {
+            ServerEvent::Error { message } => {
+                assert!(message.contains("rx streams"), "unhelpful: {message}");
+            }
+            other => panic!("expected an engine refusal, got {other:?}"),
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn audio_ids_disjoint_from_spectrum_and_duplicate_subscribe_stops_old() {
         let engine = test_engine();
         let ds = engine
             .create_device_set("virtual:siggen")
             .expect("device set");
-        let ch = engine.add_channel(ds, nfm_channel(0.0)).expect("channel");
+        let ch = engine
+            .add_channel(ds, 0, nfm_channel(0.0))
+            .expect("channel");
         let mut ws = connect(engine).await;
 
         assert!(matches!(
@@ -798,19 +992,25 @@ mod tests {
         let mut next = AUDIO_ID_BASE;
         let live = [AUDIO_ID_BASE, AUDIO_ID_BASE + 1];
         assert_eq!(
-            alloc_audio_id(&mut next, |id| live.contains(&id)),
+            alloc_stream_id(&mut next, AUDIO_ID_BASE..=u16::MAX, |id| live.contains(&id)),
             Some(AUDIO_ID_BASE + 2)
         );
 
         let mut next = u16::MAX;
-        assert_eq!(alloc_audio_id(&mut next, |_| false), Some(u16::MAX));
+        assert_eq!(
+            alloc_stream_id(&mut next, AUDIO_ID_BASE..=u16::MAX, |_| false),
+            Some(u16::MAX)
+        );
         assert_eq!(
             next, AUDIO_ID_BASE,
             "must wrap into the audio range, not to 0"
         );
 
         let mut next = AUDIO_ID_BASE;
-        assert_eq!(alloc_audio_id(&mut next, |_| true), None);
+        assert_eq!(
+            alloc_stream_id(&mut next, AUDIO_ID_BASE..=u16::MAX, |_| true),
+            None
+        );
     }
 
     /// The producer emits every `rate / 30` samples whatever the wall clock does. Requesting at
@@ -994,6 +1194,7 @@ mod tests {
                 device_set: ds,
                 fps: 30,
                 bins: 64,
+                stream: 0,
             },
         )
         .await;
@@ -1058,6 +1259,7 @@ mod tests {
                 key: "faulting".to_string(),
                 label: "Faulting mock".to_string(),
                 serial: None,
+                profile: None,
             }]
         }
 
@@ -1074,7 +1276,10 @@ mod tests {
                     antennas: Vec::new(),
                     bandwidths: Vec::new(),
                     extra: Vec::new(),
-                    tx_capable: false,
+                    duplex: sdrmm_wire::Duplex::RxOnly,
+                    rx_streams: 1,
+                    tx_streams: 0,
+                    per_stream: sdrmm_wire::StreamScope::default(),
                 },
                 settings: sdrmm_wire::DeviceSettings::default(),
                 die: self.die.clone(),
@@ -1111,8 +1316,9 @@ mod tests {
 
         fn rx_start(
             &mut self,
-            mut sink: sdrmm_device::RxSink,
+            sinks: Vec<sdrmm_device::RxSink>,
         ) -> Result<(), sdrmm_device::DeviceError> {
+            let mut sink = sdrmm_device::single_rx_sink(sinks)?;
             let die = self.die.clone();
             let stop = self.stop.clone();
             self.worker = Some(std::thread::spawn(move || {

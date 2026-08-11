@@ -19,16 +19,17 @@ use sdrmm_wire::{
     DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, NodeBody,
     PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal, PresetInfo, PresetSnapshot,
     RecordAction, RecordRequest, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest,
-    ScannerStatus, ServerEvent, StateScope, StateSnapshot, StationState, TemplateInfo,
-    TemplatesResponse, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot,
+    ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse,
+    UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
     WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::{
-    AppState, station,
+    AppState,
     store::{RecordingRow, Store, StoreError},
+    workspace,
 };
 
 /// The `PresetSnapshot` schema version this build writes and applies.
@@ -300,7 +301,8 @@ async fn create_channel(
     Json(req): Json<CreateChannelRequest>,
 ) -> Result<Json<CreatedId>, AppError> {
     let engine = state.engine.clone();
-    let id = tokio::task::spawn_blocking(move || engine.add_channel(ds, req.settings)).await??;
+    let id = tokio::task::spawn_blocking(move || engine.add_channel(ds, req.stream, req.settings))
+        .await??;
     Ok(Json(CreatedId { id }))
 }
 
@@ -497,7 +499,9 @@ fn apply_configuration(
     })?;
     let total_new = channels.len();
     for (done, settings) in channels.into_iter().enumerate() {
-        engine.add_channel(ds, settings).map_err(|e| {
+        // Stream 0 by construction: a preset snapshot carries no stream, and templates wire
+        // `iq` — the bare stream-0 port — in their patches.
+        engine.add_channel(ds, 0, settings).map_err(|e| {
             AppError::from(e).with_detail(format!(
                 "{what} partially applied: existing channels removed, device settings \
                  applied, {done} of {total_new} {what} channels added"
@@ -617,7 +621,7 @@ async fn record_device_set(
     let status = tokio::task::spawn_blocking(move || -> Result<RecordingStatus, AppError> {
         match req.action {
             RecordAction::Start => {
-                engine.start_recording(ds)?;
+                engine.start_recording(ds, req.stream)?;
                 engine
                     .snapshot()
                     .device_sets
@@ -649,6 +653,7 @@ async fn record_device_set(
                     .map_or_else(|| finalized.stem.display().to_string(), str::to_string);
                 Ok(RecordingStatus {
                     file,
+                    stream: finalized.stream,
                     started_at: finalized.started_at,
                     samples: finalized.samples,
                     bytes: finalized.bytes,
@@ -977,14 +982,40 @@ async fn scan_device_set(
     get, path = "/api/templates",
     responses((
         status = 200,
-        description = "Built-in station templates (read-only; presets are the writable kind)",
+        description = "Built-in workspace templates (read-only; presets are the writable kind)",
         body = TemplatesResponse,
     )),
 )]
-async fn list_templates() -> Json<TemplatesResponse> {
-    Json(TemplatesResponse {
-        templates: crate::templates::all().to_vec(),
-    })
+async fn list_templates(
+    State(state): State<AppState>,
+) -> Result<Json<TemplatesResponse>, AppError> {
+    // Answered here rather than by the client: the rule is one function in `wire`
+    // (`TemplateInfo::unmet_by`), and evaluating it server-side is what keeps there from being a
+    // second copy of it in TypeScript (CLAUDE.md non-negotiable #1's reasoning).
+    //
+    // Blocking, like every other caller of `probe_devices`: a probe enumerates USB.
+    let engine = state.engine.clone();
+    let probed = tokio::task::spawn_blocking(move || engine.probe_devices()).await?;
+    let templates = crate::templates::all()
+        .iter()
+        .map(|template| TemplateInfo {
+            supported_devices: probed
+                .iter()
+                .filter(|device| {
+                    // A driver that cannot answer without opening the radio (Soapy) reports no
+                    // profile. Unknown is offered, not hidden: the alternative is a picker that
+                    // silently omits the operator's only radio.
+                    device
+                        .profile
+                        .as_ref()
+                        .is_none_or(|profile| template.unmet_by(profile).is_none())
+                })
+                .map(DeviceInfo::id)
+                .collect(),
+            ..template.clone()
+        })
+        .collect();
+    Ok(Json(TemplatesResponse { templates }))
 }
 
 #[utoipa::path(
@@ -1019,6 +1050,18 @@ async fn apply_template(
     };
     let channels = template.channels.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        // Before `apply_configuration`, which deletes the set's existing channels before it
+        // retunes: a refusal after that point would leave the operator with a wiped device set
+        // and an error, which is worse than the mismatch it was reporting.
+        let open = engine.snapshot();
+        if let Some(set) = open.device_sets.iter().find(|set| set.id == req.device_set)
+            && let Some(reason) = template.unmet_by(&set.capabilities.profile())
+        {
+            return Err(AppError::bad_request(format!(
+                "{} cannot run this template: {reason}",
+                set.device.label
+            )));
+        }
         apply_configuration(&engine, req.device_set, settings, channels, "template")?;
         apply_template_patch(&engine, &store, template, req.device_set)
     })
@@ -1026,13 +1069,13 @@ async fn apply_template(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Draw the template's patch into the active station (CANVAS §8 phase ④). Node ids are
+/// Draw the template's patch into the active workspace (CANVAS §8 phase ④). Node ids are
 /// namespaced by the template, so applying one twice replaces its own block instead of stacking
 /// copies of it, and the device it names is the set the channels were just created on — the
 /// patch wires into an existing node for that radio rather than drawing a second box for it.
 ///
 /// The device configuration has already been applied when this runs, and it is the part the
-/// user asked for: a station that cannot take the patch (no workspace active, or another client
+/// user asked for: a workspace that cannot take the patch (no workspace active, or another client
 /// just rewrote it) must not turn a successful apply into an error. The failure is swallowed
 /// here and only here.
 fn apply_template_patch(
@@ -1073,35 +1116,35 @@ fn apply_template_patch(
     }
 }
 
-/// Bring the engine up to what a station draws (CANVAS §2): open the radios its device nodes
+/// Bring the engine up to what a workspace draws (CANVAS §2): open the radios its device nodes
 /// name, and add the channels hanging off them.
 ///
 /// **Additive and idempotent, on purpose.** It never closes a device set and never deletes a
 /// channel: removing a node is its own gesture with its own endpoint, and a reconciler that also
 /// deleted would turn "this workspace has fewer nodes than the engine has channels" — which is
 /// the normal state when a second client adds one — into "close that operator's radio". Applying
-/// the same station twice is therefore a no-op, which is what makes it safe to call on load.
+/// the same workspace twice is therefore a no-op, which is what makes it safe to call on load.
 ///
 /// Bindings are computed here and never stored (CANVAS §3): a device node claims the first
 /// unclaimed set or attached radio its [`sdrmm_wire::DeviceRef`] matches, in stored node order,
 /// so serial-less clones bind at most one node each and the assignment is stable across runs.
 ///
-/// `saved` is where those nodes were last tuned ([`crate::station`]). A radio this apply *opens*
+/// `saved` is where those nodes were last tuned ([`crate::workspace`]). A radio this apply *opens*
 /// is handed its settings back before its channels are added, and a channel node is created with
 /// the offset, squelch and params it last had rather than its type's defaults — which is the
-/// difference between a station that survives a restart and one that comes back neutral (PLAN §7).
-fn apply_station(
+/// difference between a workspace that survives a restart and one that comes back neutral (PLAN §7).
+fn bring_up(
     engine: &sdrmm_engine::Engine,
     snapshot: &WorkspaceSnapshot,
-    saved: &StationState,
+    saved: &WorkspaceState,
 ) -> Result<PatchApplyReport, AppError> {
     let mut report = PatchApplyReport::default();
     let mut state = engine.snapshot();
 
     // Radios already open bind as they are. Their settings are deliberately left alone: apply is
     // additive, and re-tuning a running set to yesterday's frequency because a second browser
-    // loaded the station is the same mistake as closing it.
-    for (node, device_set) in station::bind_devices(&snapshot.graph, &state) {
+    // loaded the workspace is the same mistake as closing it.
+    for (node, device_set) in workspace::bind_devices(&snapshot.graph, &state) {
         report.bound.push(PatchBinding { node, device_set });
     }
 
@@ -1135,7 +1178,7 @@ fn apply_station(
                     report.opened += 1;
                     // Before any channel is added, because the saved sample rate is what decides
                     // whether the wideband channels below are even legal (PLAN §21).
-                    if let Err(reason) = station::restore_device(engine, id, &node.id, saved) {
+                    if let Err(reason) = workspace::restore_device(engine, id, &node.id, saved) {
                         report.refused.push(PatchRefusal {
                             node: node.id.clone(),
                             reason,
@@ -1164,26 +1207,28 @@ fn apply_station(
         else {
             continue;
         };
-        // Channel nodes bind by type in stored order, so "how many of this type are missing" is
-        // the whole diff — and a channel someone else added over MCP already satisfies a node
-        // instead of being duplicated.
-        let mut live: Vec<&str> = set
+        // Channel nodes bind by (type, stream) in stored order, so "how many of this kind are
+        // missing" is the whole diff — and a channel someone else added over MCP already
+        // satisfies a node instead of being duplicated. The stream is part of the key: a node
+        // on `iq` and one of the same type on `iq3` are different taps of the radio, and
+        // matching by type alone would satisfy one with the other's channel.
+        let mut live: Vec<(&str, u32)> = set
             .channels
             .iter()
-            .map(|channel| channel.settings.params.type_id())
+            .map(|channel| (channel.settings.params.type_id(), channel.stream))
             .collect();
-        for node in snapshot.graph.channels_of(&binding.node) {
+        for (node, stream) in snapshot.graph.channels_of(&binding.node) {
             let NodeBody::Channel(channel) = &node.body else {
                 continue;
             };
-            if let Some(at) = live
-                .iter()
-                .position(|type_id| *type_id == channel.channel_type)
-            {
+            if let Some(at) = live.iter().position(|(type_id, live_stream)| {
+                *type_id == channel.channel_type && *live_stream == stream
+            }) {
                 live.remove(at);
                 continue;
             }
-            let Some(settings) = station::channel_settings(&node.id, &channel.channel_type, saved)
+            let Some(settings) =
+                workspace::channel_settings(&node.id, &channel.channel_type, saved)
             else {
                 report.refused.push(PatchRefusal {
                     node: node.id.clone(),
@@ -1192,9 +1237,11 @@ fn apply_station(
                 continue;
             };
             // A refusal here is normally the wideband rule (PLAN §18: ADS-B needs the device at
-            // exactly 2 Msps), which is a true statement about the station and belongs in front
-            // of the operator — not a reason to abandon the rest of the patch.
-            if let Err(err) = engine.add_channel(set.id, settings) {
+            // exactly 2 Msps) or a wire naming a stream this radio does not have (a workspace
+            // drawn against a 4-stream radio, reopened on fewer) — both true statements about
+            // the workspace that belong in front of the operator, never a silent move to
+            // stream 0 and not a reason to abandon the rest of the patch.
+            if let Err(err) = engine.add_channel(set.id, stream, settings) {
                 report.refused.push(PatchRefusal {
                     node: node.id.clone(),
                     reason: err.to_string(),
@@ -1319,11 +1366,25 @@ async fn delete_workspace(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let engine = state.engine.clone();
-    let store = state.store.clone();
+    let state = state.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        store.delete_workspace(id)?;
-        engine.emit_scope(StateScope::Workspaces);
+        let _serialized = state
+            .apply_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Deleting the *active* workspace promotes another one, which is a switch by another
+        // name: without the same reconcile the deleted workspace's radios would keep running
+        // under a workspace that never drew them, and nothing left would name them to close
+        // them. Deleting any other workspace changes no hardware, so it reconciles nothing —
+        // a radio opened outside the patch is not this endpoint's to take away.
+        let before = state.store.active_workspace_id()?;
+        let after = state.store.delete_workspace(id)?;
+        if let Some(promoted) = after.filter(|promoted| Some(*promoted) != before) {
+            let detail = state.store.workspace(promoted)?;
+            let saved = state.store.workspace_state(promoted)?;
+            workspace::reconcile(&state, &detail.snapshot.graph, &saved);
+        }
+        state.engine.emit_scope(StateScope::Workspaces);
         Ok(())
     })
     .await??;
@@ -1334,7 +1395,13 @@ async fn delete_workspace(
     post, path = "/api/workspaces/{id}/activate",
     params(("id" = i64, Path, description = "Workspace id")),
     responses(
-        (status = 204, description = "Workspace activated for every client"),
+        (
+            status = 204,
+            description = "Workspace activated for every client. The hardware is reconciled to \
+                           it: radios this workspace does not name are closed, channels it does \
+                           not draw are dropped, and the radios it keeps are put back where it \
+                           was left. Apply opens the rest",
+        ),
         (status = 400, description = "Invalid path parameter", body = ApiError),
         (status = 404, description = "Workspace not found", body = ApiError),
     ),
@@ -1343,11 +1410,34 @@ async fn activate_workspace(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let engine = state.engine.clone();
-    let store = state.store.clone();
+    let state = state.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        store.activate_workspace(id)?;
-        engine.emit_scope(StateScope::Workspaces);
+        // The same gate apply takes. Activation closes radios and apply opens them, and the
+        // client runs one straight after the other: unserialized, a switch could close the set
+        // the previous workspace's apply had just opened, or two clients switching at once could
+        // each reconcile against state the other was still changing.
+        let _serialized = state
+            .apply_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Before the active row moves, not after: the autosave task writes against whichever
+        // workspace is active when it fires, so a switch inside its debounce window would file
+        // the outgoing workspace's last few turns of the dial under the incoming one.
+        if let Err(err) = workspace::save_active(&state) {
+            tracing::warn!(%err, "could not save the outgoing workspace before the switch");
+        }
+        state.store.activate_workspace(id)?;
+        let detail = state.store.workspace(id)?;
+        let saved = state.store.workspace_state(id)?;
+        let report = workspace::reconcile(&state, &detail.snapshot.graph, &saved);
+        tracing::info!(
+            workspace = id,
+            closed = report.closed,
+            channels = report.dropped_channels,
+            scans = report.stopped_scans,
+            "activated"
+        );
+        state.engine.emit_scope(StateScope::Workspaces);
         Ok(())
     })
     .await??;
@@ -1360,7 +1450,7 @@ async fn activate_workspace(
     responses(
         (
             status = 200,
-            description = "The station was brought up: radios opened, channels added, and what \
+            description = "The workspace was brought up: radios opened, channels added, and what \
                            could not be satisfied. Additive and idempotent — nothing is closed \
                            or deleted, so calling it twice changes nothing",
             body = PatchApplyReport,
@@ -1381,7 +1471,7 @@ async fn apply_workspace(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let workspace = store.workspace(id)?;
-        apply_station(&engine, &workspace.snapshot, &store.station_state(id)?)
+        bring_up(&engine, &workspace.snapshot, &store.workspace_state(id)?)
     })
     .await??;
     Ok(Json(report))

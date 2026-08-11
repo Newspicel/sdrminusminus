@@ -2,11 +2,19 @@
 //
 // Bindings are computed, never stored: engine ids are allocated per run and reused, so a stored
 // one would silently attach a node to whichever radio opened first. This mirrors
-// `apply_station` in `crates/server/src/rest.rs` and `DeviceRef::matches` in
+// `bring_up` in `crates/server/src/rest.rs` and `DeviceRef::matches` in
 // `crates/wire/src/patch.rs` — the same two rules, so the face the canvas draws is the channel
 // the server's apply would have created. Both sides carry tests; if one changes, both change.
 
-import type { ChannelInfo, DeviceInfo, DeviceRef, DeviceSet, PatchGraph } from "../lib/types";
+import type {
+  ChannelInfo,
+  DeviceInfo,
+  DeviceRef,
+  DeviceSet,
+  PatchGraph,
+  PatchNodeOf,
+} from "../lib/types";
+import { portStream } from "./graph";
 
 /** The reference that names this discovered device (mirrors `DeviceRef::from_info`). */
 export function deviceRefOf(info: DeviceInfo): DeviceRef {
@@ -18,6 +26,20 @@ export function deviceRefOf(info: DeviceInfo): DeviceRef {
 
 /** Whether `info` is the device this reference names (mirrors `DeviceRef::matches`): serial when
  * the driver exposes one, else the key, else a backend with a single serial-less device. */
+/** The durable reference that names the device a `driver:key` handle addresses.
+ *
+ * Split on the *first* colon only, exactly as `DeviceRegistry::open` does: a playback device's
+ * key is `file:<path>` and contains colons of its own, and splitting on all of them yields a ref
+ * that matches nothing. The key is always carried — a `{backend: "virtual"}` with no key matches
+ * any serial-less virtual device, which is to say the signal generator. */
+export function refFromDeviceId(id: string): DeviceRef | null {
+  const at = id.indexOf(":");
+  if (at <= 0 || at === id.length - 1) {
+    return null;
+  }
+  return { backend: id.slice(0, at), key: id.slice(at + 1) };
+}
+
 export function refMatches(reference: DeviceRef, info: DeviceInfo): boolean {
   if (reference.backend !== info.driver) {
     return false;
@@ -63,12 +85,14 @@ export function bindChannels(
   const bound = new Map<string, ChannelInfo>();
   for (const [deviceNode, set] of devices) {
     const free = [...set.channels];
-    for (const node of channelNodesOf(graph, deviceNode)) {
-      if (node.kind !== "channel") {
-        continue;
-      }
+    for (const { node, stream } of channelNodesOf(graph, deviceNode)) {
+      // The stream is part of the key, exactly as in the server's apply: matched on type alone,
+      // a node wired to `iq3` could claim the stream-0 channel of its type — and removing it
+      // would then delete that channel while its own kept running.
       const at = free.findIndex(
-        (channel) => channel.settings.params.type === node.data.channel_type,
+        (channel) =>
+          channel.settings.params.type === node.data.channel_type &&
+          (channel.stream ?? 0) === stream,
       );
       if (at >= 0) {
         const [channel] = free.splice(at, 1);
@@ -96,23 +120,51 @@ export function unboundChannels(
 ): ChannelInfo[] {
   const shown = new Set(
     channelNodesOf(graph, deviceNode)
-      .map((node) => bound.get(node.id)?.id)
+      .map(({ node }) => bound.get(node.id)?.id)
       .filter((id) => id !== undefined),
   );
   return set.channels.filter((channel) => !shown.has(channel.id));
 }
 
-/** Channel nodes taking IQ from a device node, in stored order (mirrors `PatchGraph::channels_of`). */
-export function channelNodesOf(graph: PatchGraph, deviceNode: string) {
-  const edges = graph.edges ?? [];
-  return graph.nodes.filter(
-    (node) =>
-      node.kind === "channel" &&
-      edges.some(
-        (edge) =>
-          edge.to.node === node.id && edge.to.port === "iq" && edge.from.node === deviceNode,
-      ),
-  );
+/**
+ * The IQ wire into `node`: which node feeds it and which receive stream the device end of the
+ * wire names — `iq` is stream 0, `iq3` is stream 2 (the `port_stream` resolution in
+ * `PatchGraph::channels_of`). `null` while nothing feeds it. Every place that follows an IQ wire
+ * resolves it here, so none can read the device end as the bare `iq` and land on stream 0.
+ */
+export function iqSourceOf(
+  graph: PatchGraph,
+  node: string,
+): { source: string; stream: number } | null {
+  for (const edge of graph.edges ?? []) {
+    if (edge.to.node !== node || edge.to.port !== "iq") {
+      continue;
+    }
+    const stream = portStream("iq", edge.from.port);
+    if (stream !== null) {
+      return { source: edge.from.node, stream };
+    }
+  }
+  return null;
+}
+
+/** Channel nodes taking IQ from a device node, in stored order, with the stream each one's wire
+ * names (mirrors `PatchGraph::channels_of`). */
+export function channelNodesOf(
+  graph: PatchGraph,
+  deviceNode: string,
+): { node: PatchNodeOf<"channel">; stream: number }[] {
+  const wired: { node: PatchNodeOf<"channel">; stream: number }[] = [];
+  for (const node of graph.nodes) {
+    if (node.kind !== "channel") {
+      continue;
+    }
+    const input = iqSourceOf(graph, node.id);
+    if (input !== null && input.source === deviceNode) {
+      wired.push({ node, stream: input.stream });
+    }
+  }
+  return wired;
 }
 
 /**
@@ -126,17 +178,14 @@ export function deviceNodeOf(graph: PatchGraph, node: string): string | null {
   if (graph.nodes.find((candidate) => candidate.id === node)?.kind === "device") {
     return node;
   }
-  const edges = graph.edges ?? [];
   const devices = new Set(
     graph.nodes.filter((candidate) => candidate.kind === "device").map((candidate) => candidate.id),
   );
-  const upstream = edges.find(
-    (edge) => edge.to.node === node && edge.to.port === "iq" && devices.has(edge.from.node),
-  );
-  if (upstream !== undefined) {
-    return upstream.from.node;
+  const upstream = iqSourceOf(graph, node);
+  if (upstream !== null && devices.has(upstream.source)) {
+    return upstream.source;
   }
-  const driven = edges.find(
+  const driven = (graph.edges ?? []).find(
     (edge) => edge.from.node === node && edge.from.port === "control" && devices.has(edge.to.node),
   );
   return driven?.to.node ?? null;
@@ -171,7 +220,7 @@ export function inputsOf(
     if (channel === undefined) {
       continue;
     }
-    const owner = sourcesOf(graph, source, "iq")[0];
+    const owner = iqSourceOf(graph, source)?.source;
     const set = owner === undefined ? undefined : devices.get(owner);
     if (set !== undefined) {
       out.push({ node: source, deviceSet: set.id, channel });

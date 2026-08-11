@@ -7,6 +7,8 @@ import {
   deviceNodeOf,
   deviceRefOf,
   inputsOf,
+  iqSourceOf,
+  refFromDeviceId,
   refMatches,
   unboundChannels,
 } from "./binding";
@@ -15,8 +17,8 @@ function info(overrides: Partial<DeviceInfo>): DeviceInfo {
   return { driver: "rtlsdr", key: "0", label: "RTL-SDR", ...overrides };
 }
 
-function channel(id: number, type: string): ChannelInfo {
-  return { id, settings: { offset_hz: 0, params: { type, settings: {} } as never } };
+function channel(id: number, type: string, stream = 0): ChannelInfo {
+  return { id, stream, settings: { offset_hz: 0, params: { type, settings: {} } as never } };
 }
 
 function set(id: number, device: DeviceInfo, channels: ChannelInfo[] = []): DeviceSet {
@@ -29,7 +31,7 @@ function set(id: number, device: DeviceInfo, channels: ChannelInfo[] = []): Devi
       gains: [],
       antennas: [],
       bandwidths: [],
-      tx_capable: false,
+      duplex: "rx_only",
     },
     settings: {},
     status: "running",
@@ -42,7 +44,7 @@ function node(id: string, body: Partial<PatchNode> & Pick<PatchNode, "kind">): P
   return { id, position: { x: 0, y: 0 }, ...body } as PatchNode;
 }
 
-// The rules mirrored here are `DeviceRef::matches` and `apply_station`; these cases are the same
+// The rules mirrored here are `DeviceRef::matches` and `bring_up`; these cases are the same
 // ones `device_refs_match_by_serial_then_key_then_singleton` pins in Rust.
 describe("device references", () => {
   it("prefers the serial, falls back to the key, and accepts a singleton backend", () => {
@@ -168,7 +170,7 @@ describe("binding", () => {
 
   it("walks the wires a sink consumes", () => {
     const g = graph();
-    expect(channelNodesOf(g, "dev").map((n) => n.id)).toEqual(["nfm", "am"]);
+    expect(channelNodesOf(g, "dev").map((wired) => wired.node.id)).toEqual(["nfm", "am"]);
     const devices = bindDevices(g, [set(1, rtl, [channel(9, "nfm")])]);
     const channels = bindChannels(g, devices);
     expect(inputsOf(g, "spk", "audio", devices, channels)).toEqual([
@@ -176,5 +178,102 @@ describe("binding", () => {
     ]);
     // A wire from a channel with no engine channel behind it contributes nothing to play.
     expect(inputsOf(g, "spk", "audio", devices, new Map())).toEqual([]);
+  });
+
+  // Two lanes of one radio: the wire names the stream (`iq` is 0, `iq3` is 2), and everything
+  // that follows an IQ wire must land on the lane it names rather than defaulting to the first.
+  describe("multi-stream wires", () => {
+    function lanes(): PatchGraph {
+      return {
+        nodes: [
+          node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+          node("low", { kind: "channel", data: { channel_type: "nfm" } }),
+          node("high", { kind: "channel", data: { channel_type: "nfm" } }),
+          node("spk", { kind: "speaker" }),
+        ],
+        edges: [
+          { from: { node: "dev", port: "iq" }, to: { node: "low", port: "iq" } },
+          { from: { node: "dev", port: "iq3" }, to: { node: "high", port: "iq" } },
+          { from: { node: "high", port: "audio" }, to: { node: "spk", port: "audio" } },
+        ],
+      };
+    }
+
+    it("reads the stream off the device end of the wire", () => {
+      expect(iqSourceOf(lanes(), "high")).toEqual({ source: "dev", stream: 2 });
+      expect(iqSourceOf(lanes(), "low")).toEqual({ source: "dev", stream: 0 });
+      expect(iqSourceOf(lanes(), "dev")).toBeNull();
+      expect(channelNodesOf(lanes(), "dev").map(({ node: n, stream }) => [n.id, stream])).toEqual([
+        ["low", 0],
+        ["high", 2],
+      ]);
+    });
+
+    it("binds by type *and* stream so lanes of one radio cannot swap channels", () => {
+      // Engine order deliberately reversed from node order: matched on type alone, "low" would
+      // claim the stream-2 channel — and removing it would then delete the wrong lane's channel
+      // while its own kept running.
+      const live = set(1, rtl, [channel(5, "nfm", 2), channel(6, "nfm")]);
+      const devices = bindDevices(lanes(), [live]);
+      const channels = bindChannels(lanes(), devices);
+      expect(channels.get("low")?.id).toBe(6);
+      expect(channels.get("high")?.id).toBe(5);
+      // Only the stream-0 channel exists yet: the node on the other lane stays unbound rather
+      // than claiming it.
+      const partial = bindChannels(
+        lanes(),
+        bindDevices(lanes(), [set(1, rtl, [channel(6, "nfm")])]),
+      );
+      expect(partial.get("low")?.id).toBe(6);
+      expect(partial.has("high")).toBe(false);
+    });
+
+    it("resolves the radio behind a node wired past stream 0", () => {
+      const devices = bindDevices(lanes(), [set(1, rtl, [channel(5, "nfm", 2)])]);
+      expect(deviceNodeOf(lanes(), "high")).toBe("dev");
+      const channels = bindChannels(lanes(), devices);
+      expect(inputsOf(lanes(), "spk", "audio", devices, channels)).toEqual([
+        { node: "high", deviceSet: 1, channel: channel(5, "nfm", 2) },
+      ]);
+    });
+  });
+});
+
+// A recording's `device_id` is `virtual:file:<absolute stem>`, so the key carries colons of its
+// own — and a ref that drops the key matches any serial-less virtual device, which is to say the
+// signal generator. These are the two ways this parse goes silently wrong.
+describe("refFromDeviceId", () => {
+  it("splits on the first colon so a file key survives", () => {
+    expect(refFromDeviceId("virtual:file:/data/rec/airband-2026")).toEqual({
+      backend: "virtual",
+      key: "file:/data/rec/airband-2026",
+    });
+    expect(refFromDeviceId("rtlsdr:00000001")).toEqual({
+      backend: "rtlsdr",
+      key: "00000001",
+    });
+  });
+
+  it("round-trips a recording onto the device it names, and not onto the siggen", () => {
+    const recording = refFromDeviceId("virtual:file:/data/rec/airband");
+    expect(recording).not.toBeNull();
+    if (recording === null) {
+      throw new Error("parsed");
+    }
+    const playback: DeviceInfo = {
+      driver: "virtual",
+      key: "file:/data/rec/airband",
+      label: "airband (recording)",
+    };
+    const siggen: DeviceInfo = { driver: "virtual", key: "siggen", label: "Signal Generator" };
+    expect(refMatches(recording, playback)).toBe(true);
+    expect(refMatches(recording, siggen)).toBe(false);
+  });
+
+  it("refuses a handle with no key rather than producing one that matches anything", () => {
+    expect(refFromDeviceId("virtual")).toBeNull();
+    expect(refFromDeviceId("virtual:")).toBeNull();
+    expect(refFromDeviceId(":siggen")).toBeNull();
+    expect(refFromDeviceId("")).toBeNull();
   });
 });

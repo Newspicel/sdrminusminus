@@ -40,8 +40,9 @@ import { token } from "../../lib/tokens";
 import type { ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
-import { channelNodesOf, sourcesOf } from "../binding";
-import { deviceSetOf, useStationContext } from "../context";
+import { channelNodesOf, iqSourceOf } from "../binding";
+import { deviceSetOf, useWorkspaceContext } from "../context";
+import { tuneDelta } from "./DeviceFace";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 /** Below this a pointer gesture is a click, not a pan (DESIGN.md §9). */
@@ -74,9 +75,9 @@ interface Gesture {
 }
 
 export function ScopeFace({ node }: { node: PatchNode }) {
-  const station = useStationContext();
-  const set = deviceSetOf(station, node.id);
-  const wired = sourcesOf(station.graph, node.id, "iq").length > 0;
+  const workspace = useWorkspaceContext();
+  const set = deviceSetOf(workspace, node.id);
+  const source = iqSourceOf(workspace.graph, node.id);
 
   return (
     <NodeShell
@@ -89,22 +90,28 @@ export function ScopeFace({ node }: { node: PatchNode }) {
       <FaceBody scroll={false}>
         {set === null ? (
           <FaceEmpty>
-            {wired
+            {source !== null
               ? "The radio this scope watches is not attached. The wire is kept."
               : "Wire a device's IQ out to watch its spectrum."}
           </FaceEmpty>
         ) : (
-          // Keyed on the radio: another device set is another span, and markers, max hold and
-          // the waterfall's history must never be carried across two of them.
-          <Spectrum key={set.id} node={node} set={set} />
+          // Keyed on the radio *and* the lane its wire names: another device set — or another
+          // stream of the same one — is another span, and markers, max hold and the waterfall's
+          // history must never be carried across two of them.
+          <Spectrum
+            key={`${set.id}:${source?.stream ?? 0}`}
+            node={node}
+            set={set}
+            stream={source?.stream ?? 0}
+          />
         )}
       </FaceBody>
     </NodeShell>
   );
 }
 
-function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
-  const station = useStationContext();
+function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stream: number }) {
+  const workspace = useWorkspaceContext();
   const { applyPatch } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
   const active = useFaceActive();
@@ -137,32 +144,36 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
   // Engine channel id → the node whose face tunes it. Built by following the wires rather than
   // by matching ids, because a channel id is only unique within its device set.
   const faces = new Map<number, string>();
-  const deviceNode = sourcesOf(station.graph, node.id, "iq")[0];
+  const deviceNode = iqSourceOf(workspace.graph, node.id)?.source;
   if (deviceNode !== undefined) {
-    for (const channelNode of channelNodesOf(station.graph, deviceNode)) {
-      const channel = station.channels.get(channelNode.id);
+    for (const { node: channelNode } of channelNodesOf(workspace.graph, deviceNode)) {
+      const channel = workspace.channels.get(channelNode.id);
       if (channel !== undefined) {
         faces.set(channel.id, channelNode.id);
       }
     }
   }
 
-  // The channel a click tunes. The station's selection wins while it names a channel on this
+  // The channel a click tunes. The workspace's selection wins while it names a channel on this
   // radio; otherwise the last marker picked here stands — clicking the plot also selects the
   // scope node, and that must not silently switch the click from the channel to the receiver.
-  const stationChannel = [...faces].find(([, id]) => id === station.selected)?.[0] ?? null;
+  const workspaceChannel = [...faces].find(([, id]) => id === workspace.selected)?.[0] ?? null;
   const selectedChannel =
-    stationChannel ?? (set.channels.some((channel) => channel.id === picked) ? picked : null);
+    workspaceChannel ?? (set.channels.some((channel) => channel.id === picked) ? picked : null);
 
   const selectChannel = (channel: number): void => {
     setPicked(channel);
     const face = faces.get(channel);
     if (face !== undefined) {
-      station.select(face);
+      workspace.select(face);
     }
   };
 
-  const tuneCenter = (hz: number): void => applyPatch(set.id, { center_hz: hz });
+  // The frame's centre is the *lane's* (the readout binds to it directly), so a click computed
+  // from it must retune the same lane: on a radio whose streams tune apart, a radio-wide patch
+  // here would move every unoverridden lane — and not this one, if it holds an override.
+  const tuneCenter = (hz: number): void =>
+    applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
   const tuneChannel = (channel: number, offsetHz: number): void =>
     applyEdit(set.id, channel, { offset_hz: offsetHz });
 
@@ -200,10 +211,11 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
   }, [view]);
 
   // The hub refcounts the subscription and re-sends it after a reconnect, so two scopes on one
-  // radio cost one stream and neither can stop the other's.
+  // radio cost one stream and neither can stop the other's. The lane is the one this scope's
+  // own IQ wire names, not always the radio's first.
   useEffect(() => {
     let count = 0;
-    return spectrumHub.subscribe(set.id, (frame) => {
+    return spectrumHub.subscribe(set.id, stream, (frame) => {
       frameRef.current = frame;
       rendererRef.current?.pushRow(frame.bins);
       accumulateHold(holdRef, frame.bins, holdRequested.current);
@@ -219,7 +231,7 @@ function Spectrum({ node, set }: { node: PatchNode; set: DeviceSet }) {
         });
       }
     });
-  }, [set.id]);
+  }, [set.id, stream]);
 
   // Drawing is driven by animation frames rather than by arriving data: a pan or a zoom must
   // repaint the trace even while the radio is between frames.

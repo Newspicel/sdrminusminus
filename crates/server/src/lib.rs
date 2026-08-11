@@ -31,10 +31,10 @@ mod decoderlog;
 pub mod doctor;
 mod mcp;
 mod rest;
-mod station;
 mod store;
 mod templates;
 mod tracks;
+mod workspace;
 mod ws;
 
 pub use store::{Store, StoreError};
@@ -67,7 +67,7 @@ pub(crate) struct AppState {
     /// Serializes `POST /api/workspaces/{id}/apply`. Apply decides what to open by comparing the
     /// patch against a probe and the current state, so two of them interleaving both see "no set
     /// for this radio" and both open it — a second streaming device set that apply, being
-    /// additive, can never close again. Two clients loading the same station at once is the
+    /// additive, can never close again. Two clients loading the same workspace at once is the
     /// ordinary way that happens.
     pub apply_gate: Arc<std::sync::Mutex<()>>,
     /// Decoder frames the log writer itself lost. Shared with the writer task and reported by
@@ -83,6 +83,12 @@ pub(crate) struct AppState {
     pub(crate) tracks: Arc<tracks::Tracks>,
     /// Live WebSocket connections, reported by `GET /api/clients`.
     pub clients: Arc<std::sync::atomic::AtomicU32>,
+    /// Node ids whose saved settings the last workspace switch could not apply — a rate locked by
+    /// a live recording is how it happens. Those radios are running the *previous* workspace's
+    /// settings, so `workspace::capture` skips them: writing them back would replace the tuning
+    /// this workspace had saved with someone else's, which is the one loss the feature exists to
+    /// prevent. Rewritten by every reconcile, so a switch that succeeds clears it.
+    pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl AppState {
@@ -98,6 +104,7 @@ impl AppState {
             decoded_text: tokio::sync::broadcast::channel(DECODED_TEXT_CAP).0,
             tracks: Arc::new(tracks::Tracks::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -157,7 +164,7 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
 fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Writer) {
     let writer = start_decoder_log_writer(&state);
     ws::start_decoded_encoder(&state);
-    station::spawn_autosave(&state);
+    workspace::spawn_autosave(&state);
     let (api_router, api) = rest::openapi_router().split_for_parts();
 
     let mut app = Router::new()
@@ -331,7 +338,7 @@ mod tests {
         (router, state)
     }
 
-    /// A fresh engine over an existing store — what a restart is, from the station's point of
+    /// A fresh engine over an existing store — what a restart is, from the workspace's point of
     /// view: the same database, none of the live device sets or channels.
     fn state_over(store: Arc<Store>) -> AppState {
         let mut registry = sdrmm_device::DeviceRegistry::new();
@@ -927,6 +934,78 @@ mod tests {
         }
     }
 
+    /// Which radios can run a template is the server's answer, not the client's: the rule is one
+    /// function in `wire` and the gallery renders the verdict. The signal generator reaches
+    /// 0–6 GHz and offers 2 Msps, so it can run every built-in one.
+    #[tokio::test]
+    async fn templates_report_the_radios_that_can_run_them() {
+        let app = test_router();
+        let (status, body) = request(app.clone(), "GET", "/api/templates", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed: sdrmm_wire::TemplatesResponse = serde_json::from_slice(&body).expect("json");
+
+        assert!(!listed.templates.is_empty());
+        for template in &listed.templates {
+            assert!(
+                template
+                    .supported_devices
+                    .contains(&"virtual:siggen".to_string()),
+                "{} does not offer the signal generator: {:?}",
+                template.id,
+                template.supported_devices
+            );
+        }
+    }
+
+    /// A playback device replays one recording at one rate, so most templates cannot run on it.
+    /// The refusal must land *before* `apply_configuration`, which deletes the set's channels
+    /// before it retunes — otherwise reporting the mismatch would also wipe the device set.
+    #[tokio::test]
+    async fn a_template_the_radio_cannot_run_is_refused_before_anything_is_torn_down() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let ds = create_virtual_set(&app).await;
+        record(&app, ds, "start").await;
+        wait_for_recorded_samples(&app, ds, 1).await;
+        record(&app, ds, "stop").await;
+
+        let rec = list_recordings(&app).await.remove(0);
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/devicesets",
+            Some(&format!(r#"{{"device_id":"{}"}}"#, rec.device_id)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let playback = serde_json::from_slice::<CreatedId>(&body).expect("json").id;
+
+        // The recording is 100 MHz at 2.048 Msps; ADS-B needs 1090 MHz at exactly 2 Msps.
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/templates/adsb/apply",
+            Some(&format!(r#"{{"device_set":{playback}}}"#)),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+
+        // Nothing was torn down on the way to that answer.
+        let set = get_state(&app)
+            .await
+            .device_sets
+            .into_iter()
+            .find(|set| set.id == playback)
+            .expect("the playback set survived the refusal");
+        assert!(set.channels.is_empty());
+        assert_eq!(set.settings.center_hz, Some(100_000_000.0));
+    }
+
     #[tokio::test]
     async fn record_start_stop_index_and_delete_roundtrip_over_http() {
         let dir = tempfile::TempDir::new().expect("tempdir");
@@ -1422,10 +1501,10 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    /// A template also draws its patch into the active station (CANVAS §8 phase ④): the station
+    /// A template also draws its patch into the active workspace (CANVAS §8 phase ④): the workspace
     /// is the other half of "apply", and re-applying must replace that block, never stack copies.
     #[tokio::test]
-    async fn applying_a_template_merges_its_patch_into_the_active_station() {
+    async fn applying_a_template_merges_its_patch_into_the_active_workspace() {
         let app = test_router();
         let ds = create_virtual_set(&app).await;
         let before = workspaces(&app).await;
@@ -1466,7 +1545,7 @@ mod tests {
             .expect("template");
         let patch = template.patch.as_ref().expect("templates carry a patch");
 
-        // The station's own device node is unbound, so the template drew its own — bound to the set
+        // The workspace's own device node is unbound, so the template drew its own — bound to the set
         // the apply configured, and added exactly once for two applies.
         let added = u32::try_from(patch.nodes.len()).unwrap();
         assert_eq!(
@@ -1494,73 +1573,19 @@ mod tests {
                 .count(),
             1
         );
-        detail.snapshot.validate().expect("a valid station");
+        detail.snapshot.validate().expect("a valid workspace");
     }
 
-    /// Apply brings the engine up to what the station draws. It is additive and idempotent, so
+    /// Apply brings the engine up to what the workspace draws. It is additive and idempotent, so
     /// the second call must change nothing — that is what makes it safe on every load.
     #[tokio::test]
-    async fn applying_a_station_opens_its_radio_and_adds_its_channels_once() {
+    async fn applying_a_workspace_opens_its_radio_and_adds_its_channels_once() {
         let app = test_router();
-        let workspace = workspaces(&app).await.active.expect("seeded workspace");
+        // A workspace naming the virtual radio, with two channels and a speaker.
+        let snapshot = virtual_snapshot("siggen", &[("nfm", "nfm", "iq"), ("am", "am", "iq")]);
+        let workspace = put_active_workspace(&app, &snapshot).await;
 
-        // A station naming the virtual radio, with two channels and a speaker.
-        let device = sdrmm_wire::DeviceRef {
-            backend: "virtual".to_string(),
-            serial: None,
-            key: Some("siggen".to_string()),
-        };
-        let mut snapshot = sdrmm_wire::WorkspaceSnapshot::station_default();
-        let sdrmm_wire::NodeBody::Device(node) = &mut snapshot.graph.nodes[0].body else {
-            panic!("the default station opens with a receiver")
-        };
-        node.device = Some(device);
-        for (id, kind) in [("nfm", "nfm"), ("am", "am")] {
-            snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
-                id: id.to_string(),
-                body: sdrmm_wire::NodeBody::Channel(sdrmm_wire::ChannelNode {
-                    channel_type: kind.to_string(),
-                }),
-                position: sdrmm_wire::Position { x: 400.0, y: 300.0 },
-                size: None,
-                label: None,
-            });
-            snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
-                from: sdrmm_wire::PortRef {
-                    node: "device".to_string(),
-                    port: "iq".to_string(),
-                },
-                to: sdrmm_wire::PortRef {
-                    node: id.to_string(),
-                    port: "iq".to_string(),
-                },
-            });
-        }
-        let (status, body) = request(
-            app.clone(),
-            "PUT",
-            &format!("/api/workspaces/{workspace}"),
-            Some(&format!(
-                r#"{{"revision":1,"snapshot":{}}}"#,
-                serde_json::to_string(&snapshot).unwrap()
-            )),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-
-        let apply = async || -> sdrmm_wire::PatchApplyReport {
-            let (status, body) = request(
-                app.clone(),
-                "POST",
-                &format!("/api/workspaces/{workspace}/apply"),
-                Some("{}"),
-            )
-            .await;
-            assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-            serde_json::from_slice(&body).expect("json")
-        };
-
-        let first = apply().await;
+        let first = apply(&app, workspace).await;
         assert_eq!(first.opened, 1);
         assert_eq!(first.created, 2);
         assert_eq!(first.bound.len(), 1);
@@ -1568,7 +1593,7 @@ mod tests {
         assert!(first.absent.is_empty());
         assert!(first.refused.is_empty(), "{:?}", first.refused);
 
-        let second = apply().await;
+        let second = apply(&app, workspace).await;
         assert_eq!(second.opened, 0, "apply is idempotent");
         assert_eq!(second.created, 0);
         assert_eq!(second.bound, first.bound);
@@ -1583,42 +1608,23 @@ mod tests {
         assert_eq!(types, vec!["nfm", "am"]);
     }
 
-    /// A radio the station names but nobody plugged in is a disconnected node, not an error:
+    /// A radio the workspace names but nobody plugged in is a disconnected node, not an error:
     /// apply reports it and carries on with the rest of the patch.
     #[tokio::test]
-    async fn applying_a_station_reports_an_absent_radio() {
+    async fn applying_a_workspace_reports_an_absent_radio() {
         let app = test_router();
-        let workspace = workspaces(&app).await.active.expect("seeded workspace");
-        let mut snapshot = sdrmm_wire::WorkspaceSnapshot::station_default();
+        let mut snapshot = sdrmm_wire::WorkspaceSnapshot::starter();
         let sdrmm_wire::NodeBody::Device(node) = &mut snapshot.graph.nodes[0].body else {
-            panic!("the default station opens with a receiver")
+            panic!("the default workspace opens with a receiver")
         };
         node.device = Some(sdrmm_wire::DeviceRef {
             backend: "hackrf".to_string(),
             serial: Some("deadbeef".to_string()),
             key: None,
         });
-        let (status, _) = request(
-            app.clone(),
-            "PUT",
-            &format!("/api/workspaces/{workspace}"),
-            Some(&format!(
-                r#"{{"revision":1,"snapshot":{}}}"#,
-                serde_json::to_string(&snapshot).unwrap()
-            )),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
+        let workspace = put_active_workspace(&app, &snapshot).await;
 
-        let (status, body) = request(
-            app.clone(),
-            "POST",
-            &format!("/api/workspaces/{workspace}/apply"),
-            Some("{}"),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        let report: sdrmm_wire::PatchApplyReport = serde_json::from_slice(&body).expect("json");
+        let report = apply(&app, workspace).await;
         assert_eq!(report.absent, vec!["device".to_string()]);
         assert_eq!(report.opened, 0);
         assert!(report.bound.is_empty());
@@ -1656,8 +1662,8 @@ mod tests {
     async fn workspace_crud_over_http() {
         let app = test_router();
         let seeded = workspaces(&app).await;
-        let station = seeded.workspaces[0].id;
-        assert_eq!(seeded.active, Some(station));
+        let workspace = seeded.workspaces[0].id;
+        assert_eq!(seeded.active, Some(workspace));
 
         let (status, body) = request(
             app.clone(),
@@ -1690,7 +1696,7 @@ mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT);
         assert_eq!(workspaces(&app).await.active, Some(created.id));
 
-        // A station this build did not write is refused at the edge rather than half-read: the
+        // A workspace this build did not write is refused at the edge rather than half-read: the
         // shape version is what an M6 row still on disk would carry.
         let (status, body) = request(
             app.clone(),
@@ -1716,8 +1722,8 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
 
-        let snapshot = serde_json::to_string(&sdrmm_wire::WorkspaceSnapshot::station_default())
-            .expect("snapshot");
+        let snapshot =
+            serde_json::to_string(&sdrmm_wire::WorkspaceSnapshot::starter()).expect("snapshot");
         let (status, body) = request(
             app.clone(),
             "PUT",
@@ -1751,7 +1757,7 @@ mod tests {
         assert_eq!(after.workspaces.len(), 1);
         assert_eq!(
             after.active,
-            Some(station),
+            Some(workspace),
             "deleting the active one promotes"
         );
 
@@ -1771,50 +1777,64 @@ mod tests {
         serde_json::from_slice(&body).expect("json")
     }
 
-    /// Store a station naming the virtual signal generator with one NFM channel, and hand back
-    /// the workspace it went into.
-    async fn store_siggen_station(app: &Router) -> i64 {
-        let workspace = workspaces(app).await.active.expect("seeded workspace");
-        let mut snapshot = sdrmm_wire::WorkspaceSnapshot::station_default();
+    /// A workspace snapshot naming a virtual radio, with one channel node per `taps` entry —
+    /// `(node id, channel type, device port)` — wired to the named port of the device's `iq`
+    /// family, so a test can put same-type channels on different streams.
+    fn virtual_snapshot(key: &str, taps: &[(&str, &str, &str)]) -> sdrmm_wire::WorkspaceSnapshot {
+        let mut snapshot = sdrmm_wire::WorkspaceSnapshot::starter();
         let sdrmm_wire::NodeBody::Device(node) = &mut snapshot.graph.nodes[0].body else {
-            panic!("the default station opens with a receiver")
+            panic!("the default workspace opens with a receiver")
         };
         node.device = Some(sdrmm_wire::DeviceRef {
             backend: "virtual".to_string(),
             serial: None,
-            key: Some("siggen".to_string()),
+            key: Some(key.to_string()),
         });
-        snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
-            id: "voice".to_string(),
-            body: sdrmm_wire::NodeBody::Channel(sdrmm_wire::ChannelNode {
-                channel_type: "nfm".to_string(),
-            }),
-            position: sdrmm_wire::Position { x: 400.0, y: 300.0 },
-            size: None,
-            label: None,
-        });
-        snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
-            from: sdrmm_wire::PortRef {
-                node: "device".to_string(),
-                port: "iq".to_string(),
-            },
-            to: sdrmm_wire::PortRef {
-                node: "voice".to_string(),
-                port: "iq".to_string(),
-            },
-        });
+        for (id, channel_type, port) in taps {
+            snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
+                id: (*id).to_string(),
+                body: sdrmm_wire::NodeBody::Channel(sdrmm_wire::ChannelNode {
+                    channel_type: (*channel_type).to_string(),
+                }),
+                position: sdrmm_wire::Position { x: 400.0, y: 300.0 },
+                size: None,
+                label: None,
+            });
+            snapshot.graph.edges.push(sdrmm_wire::PatchEdge {
+                from: sdrmm_wire::PortRef {
+                    node: "device".to_string(),
+                    port: (*port).to_string(),
+                },
+                to: sdrmm_wire::PortRef {
+                    node: (*id).to_string(),
+                    port: "iq".to_string(),
+                },
+            });
+        }
+        snapshot
+    }
+
+    /// Write `snapshot` into the seeded active workspace and hand back its id.
+    async fn put_active_workspace(app: &Router, snapshot: &sdrmm_wire::WorkspaceSnapshot) -> i64 {
+        let workspace = workspaces(app).await.active.expect("seeded workspace");
         let (status, body) = request(
             app.clone(),
             "PUT",
             &format!("/api/workspaces/{workspace}"),
             Some(&format!(
                 r#"{{"revision":1,"snapshot":{}}}"#,
-                serde_json::to_string(&snapshot).unwrap()
+                serde_json::to_string(snapshot).unwrap()
             )),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
         workspace
+    }
+
+    /// Store a workspace naming the virtual signal generator with one NFM channel, and hand back
+    /// the workspace it went into.
+    async fn store_siggen_workspace(app: &Router) -> i64 {
+        put_active_workspace(app, &virtual_snapshot("siggen", &[("voice", "nfm", "iq")])).await
     }
 
     async fn apply(app: &Router, workspace: i64) -> sdrmm_wire::PatchApplyReport {
@@ -1829,13 +1849,13 @@ mod tests {
         serde_json::from_slice(&body).expect("json")
     }
 
-    /// PLAN §7: a station's tuning is part of the station. Apply used to rebuild the topology and
+    /// PLAN §7: a workspace's tuning is part of the workspace. Apply used to rebuild the topology and
     /// hand every channel back at its type's defaults, so a restart kept the patch and lost the
     /// work — the frequencies, the offset and the squelch.
     #[tokio::test]
-    async fn a_station_comes_back_tuned_the_way_it_was_left() {
+    async fn a_workspace_comes_back_tuned_the_way_it_was_left() {
         let (app, state) = test_router_with_state();
-        let workspace = store_siggen_station(&app).await;
+        let workspace = store_siggen_workspace(&app).await;
         assert_eq!(apply(&app, workspace).await.created, 1);
 
         let ds = get_state(&app).await.device_sets[0].id;
@@ -1865,7 +1885,7 @@ mod tests {
         );
 
         // What the autosave task does once the settings stop moving.
-        station::save_active(&state).expect("capture the station");
+        workspace::save_active(&state).expect("capture the workspace");
 
         // Restart: same database, a new engine that has never seen a device set.
         let restarted = state_over(state.store.clone());
@@ -1886,11 +1906,11 @@ mod tests {
     }
 
     /// Apply is additive: a radio someone is already using keeps the frequency it is on, whatever
-    /// the stored station says, because a second browser loading the station is not a retune.
+    /// the stored workspace says, because a second browser loading the workspace is not a retune.
     #[tokio::test]
-    async fn applying_a_station_does_not_retune_an_open_radio() {
+    async fn applying_a_workspace_does_not_retune_an_open_radio() {
         let (app, state) = test_router_with_state();
-        let workspace = store_siggen_station(&app).await;
+        let workspace = store_siggen_workspace(&app).await;
         apply(&app, workspace).await;
 
         let ds = get_state(&app).await.device_sets[0].id;
@@ -1906,7 +1926,7 @@ mod tests {
         };
 
         tune(145_500_000.0).await;
-        station::save_active(&state).expect("capture the station");
+        workspace::save_active(&state).expect("capture the workspace");
         tune(433_800_000.0).await;
 
         apply(&app, workspace).await;
@@ -1916,12 +1936,139 @@ mod tests {
         );
     }
 
+    /// A second workspace over the same siggen, carrying one channel of `channel_type`. Returns
+    /// its id. The device node keeps the id `"device"` so both workspaces name the radio the same
+    /// way — which is the case the reconcile has to get right.
+    async fn store_second_workspace(app: &Router, name: &str, channel_type: &str) -> i64 {
+        let snapshot = virtual_snapshot("siggen", &[("other", channel_type, "iq")]);
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/workspaces",
+            Some(&format!(
+                r#"{{"name":"{name}","snapshot":{}}}"#,
+                serde_json::to_string(&snapshot).unwrap()
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let created: sdrmm_wire::CreatedRowId = serde_json::from_slice(&body).expect("json");
+        created.id
+    }
+
+    async fn activate(app: &Router, workspace: i64) {
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/workspaces/{workspace}/activate"),
+            Some("{}"),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+
+    /// Exactly one workspace is active, and after a switch the hardware says so. Apply stays
+    /// additive — it is what a second browser runs on load — so the closing is activation's job.
+    #[tokio::test]
+    async fn switching_workspaces_closes_the_radios_the_new_one_does_not_name() {
+        let (app, _state) = test_router_with_state();
+        let workspace = store_siggen_workspace(&app).await;
+        apply(&app, workspace).await;
+        assert_eq!(get_state(&app).await.device_sets.len(), 1);
+
+        // An empty bench: it names no radio at all.
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/workspaces",
+            Some(r#"{"name":"Empty"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let created: sdrmm_wire::CreatedRowId = serde_json::from_slice(&body).expect("json");
+        activate(&app, created.id).await;
+
+        assert!(
+            get_state(&app).await.device_sets.is_empty(),
+            "the radio the previous workspace opened is still running"
+        );
+    }
+
+    /// The case that made "a workspace remembers where it was tuned" only true from a cold start:
+    /// two workspaces naming one radio. Apply will not retune a set it did not open, so without
+    /// the reconcile each switch inherited the other workspace's dial and the next autosave wrote
+    /// it down — the saved tuning was never restored and then it was overwritten.
+    ///
+    /// This also covers the save-before-flip ordering: nothing here calls `save_active` by hand,
+    /// so the first workspace's tuning survives only because activation captured it.
+    #[tokio::test]
+    async fn switching_between_workspaces_sharing_a_radio_restores_each_ones_settings() {
+        let (app, _state) = test_router_with_state();
+        let first = store_siggen_workspace(&app).await;
+        apply(&app, first).await;
+        let ds = get_state(&app).await.device_sets[0].id;
+
+        let tune = async |hz: f64| {
+            let (status, _) = request(
+                app.clone(),
+                "PATCH",
+                &format!("/api/devicesets/{ds}/device"),
+                Some(&format!(r#"{{"center_hz":{hz}}}"#)),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+        };
+        tune(145_500_000.0).await;
+
+        let second = store_second_workspace(&app, "Marine", "am").await;
+        activate(&app, second).await;
+
+        // Same radio, so it stays open — but it is the second workspace's radio now: the first
+        // one's NFM channel is not drawn here and must be gone.
+        let sets = get_state(&app).await.device_sets;
+        assert_eq!(sets.len(), 1, "the shared radio was closed and reopened");
+        assert_eq!(sets[0].id, ds, "the shared radio was closed and reopened");
+        assert!(
+            sets[0].channels.is_empty(),
+            "the previous workspace's channel is still running"
+        );
+
+        apply(&app, second).await;
+        tune(162_000_000.0).await;
+        let sets = get_state(&app).await.device_sets;
+        assert_eq!(sets[0].channels.len(), 1);
+        assert_eq!(sets[0].channels[0].settings.params.type_id(), "am");
+
+        activate(&app, first).await;
+        let sets = get_state(&app).await.device_sets;
+        assert_eq!(
+            sets[0].settings.center_hz,
+            Some(145_500_000.0),
+            "the first workspace came back on the second one's frequency"
+        );
+        assert!(
+            sets[0].channels.is_empty(),
+            "the second workspace's channel is still running"
+        );
+
+        apply(&app, first).await;
+        let sets = get_state(&app).await.device_sets;
+        assert_eq!(sets[0].channels.len(), 1);
+        assert_eq!(sets[0].channels[0].settings.params.type_id(), "nfm");
+        assert_eq!(sets[0].settings.center_hz, Some(145_500_000.0));
+    }
+
     /// A radio that is not plugged in this run must not lose where it was tuned last run: a
     /// capture that saw nothing means "not observed", never "reset it".
     #[tokio::test]
     async fn a_capture_without_the_radio_keeps_its_stored_settings() {
         let (app, state) = test_router_with_state();
-        let workspace = store_siggen_station(&app).await;
+        let workspace = store_siggen_workspace(&app).await;
         apply(&app, workspace).await;
         let ds = get_state(&app).await.device_sets[0].id;
         let (status, _) = request(
@@ -1932,9 +2079,9 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        station::save_active(&state).expect("capture the station");
+        workspace::save_active(&state).expect("capture the workspace");
 
-        // The radio goes away, and the station is captured again with nothing bound.
+        // The radio goes away, and the workspace is captured again with nothing bound.
         let (status, _) = request(
             app.clone(),
             "DELETE",
@@ -1943,9 +2090,12 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        station::save_active(&state).expect("capture the empty station");
+        workspace::save_active(&state).expect("capture the empty workspace");
 
-        let stored = state.store.station_state(workspace).expect("station state");
+        let stored = state
+            .store
+            .workspace_state(workspace)
+            .expect("workspace state");
         assert_eq!(
             stored
                 .device("device")
@@ -1954,6 +2104,146 @@ mod tests {
                 .center_hz,
             Some(145_500_000.0)
         );
+    }
+
+    /// Per-stream settings design §6.4: `streams` rides `WorkspaceState`'s `DeviceSettings`,
+    /// but only if capture and restore actually round-trip it — an override lost here would
+    /// bring lane 1 back on the radio-wide dial after a restart, silently.
+    #[tokio::test]
+    async fn a_workspace_remembers_per_stream_overrides() {
+        let (app, state) = test_router_with_state();
+        let workspace = put_active_workspace(&app, &virtual_snapshot("transceiver", &[])).await;
+        apply(&app, workspace).await;
+        let ds = get_state(&app).await.device_sets[0].id;
+        let (status, body) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(r#"{"streams":[{"stream":1,"center_hz":433920000.0}]}"#),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        workspace::save_active(&state).expect("capture the workspace");
+
+        // Restart: same database, an engine that has never seen the radio.
+        let restarted = state_over(state.store.clone());
+        let (app, writer) = router_with_state(restarted, &ServerOptions::default());
+        writer.detach();
+        let report = apply(&app, workspace).await;
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+        let set = &get_state(&app).await.device_sets[0];
+        assert_eq!(set.settings.streams.len(), 1, "{:?}", set.settings.streams);
+        assert_eq!(set.settings.streams[0].stream, 1);
+        assert_eq!(set.settings.streams[0].center_hz, Some(433_920_000.0));
+    }
+
+    /// The wire names the lane (design §5): `iq4` is stream 3, and apply must put the channel
+    /// there — and a second apply must find it there via the (type, stream) claim, or every
+    /// reload would stack a copy on the lane it checked.
+    #[tokio::test]
+    async fn applying_a_workspace_lands_each_channel_on_the_stream_its_wire_names() {
+        let app = test_router();
+        let taps = [("low", "nfm", "iq"), ("high", "nfm", "iq4")];
+        let workspace = put_active_workspace(&app, &virtual_snapshot("array4", &taps)).await;
+
+        let report = apply(&app, workspace).await;
+        assert_eq!(report.created, 2);
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+        let streams: Vec<u32> = get_state(&app).await.device_sets[0]
+            .channels
+            .iter()
+            .map(|channel| channel.stream)
+            .collect();
+        assert_eq!(streams, vec![0, 3], "the iq4 wire must land on stream 3");
+
+        // Both channels are NFM, so only the stream half of the claim key can tell them apart.
+        let second = apply(&app, workspace).await;
+        assert_eq!(
+            second.created, 0,
+            "apply duplicated a channel across streams"
+        );
+    }
+
+    /// Design §10 case 3: a workspace drawn against a multi-stream radio, reopened on one with
+    /// fewer lanes. The wire's stream does not exist on this hardware — the channel is refused
+    /// with the reason in the report, never silently moved to stream 0.
+    #[tokio::test]
+    async fn a_wire_to_a_stream_the_radio_does_not_have_is_refused_not_moved() {
+        let app = test_router();
+        let taps = [("voice", "nfm", "iq3")];
+        let workspace = put_active_workspace(&app, &virtual_snapshot("siggen", &taps)).await;
+
+        let report = apply(&app, workspace).await;
+        assert_eq!(report.opened, 1, "the radio itself is fine and must open");
+        assert_eq!(report.created, 0);
+        assert_eq!(report.refused.len(), 1, "{:?}", report.refused);
+        assert_eq!(report.refused[0].node, "voice");
+        assert!(
+            report.refused[0].reason.contains("1 rx streams"),
+            "the refusal must name the count: {}",
+            report.refused[0].reason
+        );
+        assert!(
+            get_state(&app).await.device_sets[0].channels.is_empty(),
+            "the channel must not come up on another stream"
+        );
+    }
+
+    /// Two same-type channels on different lanes of one radio: capture and restore must pair
+    /// each node with the channel on its own stream, or a restart would swap their settings.
+    #[tokio::test]
+    async fn capture_and_restore_pair_same_type_channels_by_stream() {
+        let (app, state) = test_router_with_state();
+        let taps = [("low", "nfm", "iq"), ("high", "nfm", "iq4")];
+        let workspace = put_active_workspace(&app, &virtual_snapshot("array4", &taps)).await;
+        apply(&app, workspace).await;
+
+        let set = &get_state(&app).await.device_sets[0];
+        let offset_for = |stream: u32| if stream == 0 { 11_000.0 } else { 33_000.0 };
+        for channel in &set.channels {
+            let (status, body) = request(
+                app.clone(),
+                "PATCH",
+                &format!("/api/devicesets/{}/channels/{}", set.id, channel.id),
+                Some(&format!(
+                    r#"{{"offset_hz":{},"params":{{"type":"nfm","settings":{{}}}}}}"#,
+                    offset_for(channel.stream)
+                )),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::NO_CONTENT,
+                "{}",
+                String::from_utf8_lossy(&body)
+            );
+        }
+        workspace::save_active(&state).expect("capture the workspace");
+
+        // Restart: same database, an engine that has never seen the radio.
+        let restarted = state_over(state.store.clone());
+        let (app, writer) = router_with_state(restarted, &ServerOptions::default());
+        writer.detach();
+        let report = apply(&app, workspace).await;
+        assert!(report.refused.is_empty(), "{:?}", report.refused);
+
+        let set = &get_state(&app).await.device_sets[0];
+        let streams: Vec<u32> = set.channels.iter().map(|channel| channel.stream).collect();
+        assert_eq!(streams, vec![0, 3]);
+        for channel in &set.channels {
+            assert_eq!(
+                channel.settings.offset_hz,
+                offset_for(channel.stream),
+                "stream {} came back with the other lane's settings",
+                channel.stream
+            );
+        }
     }
 
     #[tokio::test]

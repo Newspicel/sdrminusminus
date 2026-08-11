@@ -6,16 +6,18 @@ import { applyTemplate, STATE_KEY, templatesQuery } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet, TemplateInfo } from "../lib/types";
 import { BTN } from "./controls";
+import { deviceId } from "./OpenRadio";
 
-/** Whether the open device can tune what the template needs. Reported instead of enforced —
- * the capability list is what the device advertises, and the engine's rejection is the real
- * authority — but a greyed-out card beats a failed apply. */
-export function reachable(template: TemplateInfo, set: DeviceSet | null): boolean {
-  const ranges = set?.capabilities.freq_ranges ?? [];
-  if (ranges.length === 0) {
-    return true;
-  }
-  return ranges.some((r) => template.min_freq_hz >= r.min && template.max_freq_hz <= r.max);
+/** Whether this radio is one the server said can run the template.
+ *
+ * The rule itself is `TemplateInfo::unmet_by` in `crates/wire`, evaluated server-side against
+ * every probed radio's profile — frequency span, sample rate and whether it has the direction
+ * the template needs. This is the lookup, not a second copy of the rule: the engine's rejection
+ * on apply is still the authority, but a card that says why beats a failed apply. */
+export function supports(template: TemplateInfo, set: DeviceSet | null): boolean {
+  // `#[serde(default)]` on the Rust side makes the generated field optional even though the
+  // server always sends it; absent and empty mean the same thing here — no attached radio fits.
+  return set !== null && (template.supported_devices ?? []).includes(deviceId(set.device));
 }
 
 export function TemplatesPanel({
@@ -50,7 +52,7 @@ export function TemplatesPanel({
 
       <div className="grid gap-2 sm:grid-cols-2">
         {(templates.data?.templates ?? []).map((t) => {
-          const ok = reachable(t, active);
+          const ok = supports(t, active);
           return (
             <div
               key={t.id}
@@ -66,10 +68,10 @@ export function TemplatesPanel({
                 type="button"
                 className={`${BTN} mt-1 self-start`}
                 disabled={!active || !ok || applyMut.isPending}
-                title={ok ? undefined : "This device cannot tune that frequency"}
+                title={ok ? undefined : "This radio cannot run this template"}
                 onClick={() => active && applyMut.mutate({ template: t, ds: active.id })}
               >
-                {ok ? "Apply" : "Out of range"}
+                {ok ? "Apply" : "Not supported"}
               </button>
             </div>
           );

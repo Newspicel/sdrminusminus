@@ -1,4 +1,4 @@
-// The one row of chrome above the station: which workspace, which view, what to add, and the
+// The one row of chrome above the workspace: which workspace, which view, what to add, and the
 // library of things that are not nodes (presets, bookmarks, templates, recordings).
 //
 // Everything that *is* a node lives on the canvas — this bar deliberately holds no radio
@@ -11,17 +11,15 @@ import { PresetsPanel } from "../components/PresetsPanel";
 import { RecordingsPanel } from "../components/RecordingsPanel";
 import { TemplatesPanel } from "../components/TemplatesPanel";
 import { ThemeControl } from "../components/ThemeControl";
-import type { NodeKind, PatchNode, WorkspaceInfo } from "../lib/types";
-import { useStationContext } from "./context";
-import { newNodeId } from "./graph";
+import { pushToast } from "../lib/toasts";
+import type { NodeKind, PatchNode, RecordingInfo, WorkspaceInfo } from "../lib/types";
+import { refFromDeviceId } from "./binding";
+import { useWorkspaceContext } from "./context";
+import { addNode, dropPosition, MAX_NAME_LEN, newNodeId } from "./graph";
 
 export type View = "patch" | "rack";
 
-/** Where a node dropped from the palette lands: to the right of everything already drawn, so it
- * is on screen and on top of nothing. CANVAS §9 left auto-placement to feel; this is the feel. */
-const DROP_STEP = 40;
-
-export function StationBar({
+export function WorkspaceBar({
   view,
   onView,
   workspaces,
@@ -44,27 +42,24 @@ export function StationBar({
   clients: number;
   onShowShortcuts: () => void;
 }) {
-  const station = useStationContext();
-  const active = workspaces.find((workspace) => workspace.id === activeWorkspace) ?? null;
+  const workspace = useWorkspaceContext();
+  const active = workspaces.find((entry) => entry.id === activeWorkspace) ?? null;
 
   const add = (kind: NodeKind, channelType?: string) => {
     const id = newNodeId(kind);
-    station.edit((snapshot) => {
-      const drawn = snapshot.graph.nodes;
-      const x = drawn.reduce((max, node) => Math.max(max, node.position.x), 0) + 360;
-      const y = drawn.length * DROP_STEP;
+    workspace.edit((snapshot) => {
       const node = {
         id,
-        position: { x, y },
+        position: dropPosition(snapshot.graph),
         ...(kind === "channel"
           ? { kind: "channel" as const, data: { channel_type: channelType ?? "nfm" } }
           : kind === "device"
             ? { kind: "device" as const, data: {} }
             : { kind }),
       } as PatchNode;
-      return { ...snapshot, graph: { ...snapshot.graph, nodes: [...drawn, node] } };
+      return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });
-    station.select(id);
+    workspace.select(id);
   };
 
   return (
@@ -148,15 +143,15 @@ export function StationBar({
  * channel entries from `GET /api/channeltypes`, so a new node type or decoder appears here with
  * no frontend edit. */
 function Palette({ onAdd }: { onAdd: (kind: NodeKind, channelType?: string) => void }) {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   return (
     <div className="flex flex-col gap-2">
-      {station.context.catalog.nodes.map((entry) =>
+      {workspace.context.catalog.nodes.map((entry) =>
         entry.needs_channel_type === true ? (
           <div key={entry.kind} className="flex flex-col gap-1">
             <span className={LABEL}>{entry.name}</span>
             <div className="flex flex-wrap gap-1">
-              {station.context.channelTypes.map((type) => (
+              {workspace.context.channelTypes.map((type) => (
                 <button
                   key={type.type_id}
                   type="button"
@@ -183,11 +178,11 @@ function Palette({ onAdd }: { onAdd: (kind: NodeKind, channelType?: string) => v
   );
 }
 
-/** Presets, bookmarks, templates and recordings are station *config*, not nodes on the patch —
+/** Presets, bookmarks, templates and recordings are workspace *config*, not nodes on the patch —
  * they configure the radios the nodes name. They live in one drawer rather than as node kinds
  * with no stream to carry. */
 function Library() {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   const [tab, setTab] = useState<"presets" | "bookmarks" | "templates" | "recordings">("templates");
   // These panels act on one radio, and applying a template or a preset to the wrong one is not
   // recoverable by undo. The target is the selected device node; with nothing selected it
@@ -199,10 +194,37 @@ function Library() {
   // still sits beside whatever the last one left running — and the drawer offering to retune a
   // radio the operator can no longer see on the canvas is how a preset lands on the wrong one.
   const selected =
-    station.selected === null ? null : (station.devices.get(station.selected) ?? null);
-  const drawn = [...station.devices.values()];
+    workspace.selected === null ? null : (workspace.devices.get(workspace.selected) ?? null);
+  const drawn = [...workspace.devices.values()];
   const only = drawn.length === 1 ? (drawn[0] ?? null) : null;
   const active = selected ?? only;
+
+  /** Draw a recording onto the canvas as the source it already is: a device node bound to the
+   * `virtual:file:` playback device. Apply is what opens it, so a recording that has since been
+   * deleted lands in the apply report's `absent` list and renders as a disconnected node —
+   * CANVAS §3's bound-but-absent, which is the honest state for a file that is not there. */
+  const openRecording = (recording: RecordingInfo): void => {
+    const device = refFromDeviceId(recording.device_id);
+    if (device === null) {
+      pushToast(`${recording.file} has no playable device id`);
+      return;
+    }
+    const id = newNodeId("device");
+    workspace.edit((snapshot) => ({
+      ...snapshot,
+      graph: addNode(snapshot.graph, {
+        id,
+        kind: "device",
+        data: { device },
+        position: dropPosition(snapshot.graph),
+        // Bounded like every other node label: the server validates the whole snapshot on every
+        // write, so one over-long label would refuse the next node drag too.
+        label: recording.file.slice(0, MAX_NAME_LEN),
+      }),
+    }));
+    workspace.select(id);
+    workspace.apply();
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -227,10 +249,12 @@ function Library() {
             : "no device on this patch"
           : `on ${active.device.label}`}
       </span>
-      {tab === "templates" && <TemplatesPanel active={active} onApplied={() => station.apply()} />}
+      {tab === "templates" && (
+        <TemplatesPanel active={active} onApplied={() => workspace.apply()} />
+      )}
       {tab === "presets" && <PresetsPanel active={active} />}
       {tab === "bookmarks" && <BookmarksPanel active={active} />}
-      {tab === "recordings" && <RecordingsPanel onSelect={() => station.apply()} />}
+      {tab === "recordings" && <RecordingsPanel onOpen={openRecording} />}
     </div>
   );
 }

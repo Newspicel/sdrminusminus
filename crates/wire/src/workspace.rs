@@ -1,8 +1,8 @@
-//! Workspaces — the persisted station (PLAN §10, CANVAS §4). A workspace holds one patch graph
+//! Workspaces — the persisted workspace (PLAN §10, CANVAS §4). A workspace holds one patch graph
 //! and one rack layout, and exactly one workspace is active server-side, so every client that
-//! opens the station sees the same setup.
+//! opens the workspace sees the same setup.
 //!
-//! The graph is *our* model, not the canvas library's serialization: templates author stations in
+//! The graph is *our* model, not the canvas library's serialization: templates author workspaces in
 //! Rust (CANVAS §8 phase ④), the server is the source of truth for type definitions (PLAN §2),
 //! and a React Flow major must not invalidate stored workspaces. The shape lives in
 //! [`crate::patch`]; this module is the stored row around it.
@@ -18,7 +18,7 @@ use utoipa::ToSchema;
 use crate::patch::{DeviceRef, NodeBody, PatchError, PatchGraph, PatchNode, Position, RackLayout};
 
 /// Shape version of a stored [`WorkspaceSnapshot`]. A build refuses to *write back* a snapshot it
-/// did not itself produce: a station is re-persisted on every arrangement gesture, so a downgrade
+/// did not itself produce: a workspace is re-persisted on every arrangement gesture, so a downgrade
 /// would silently rewrite a newer one with whatever this build understood of it.
 ///
 /// Version 2 is the canvas (M7). Version 1 was the tabs-and-dockview tree; stored v1 rows do not
@@ -30,14 +30,14 @@ pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 2;
 /// node by its label on the canvas, so an unbounded string is a layout bug, not a feature.
 pub const MAX_NAME_LEN: usize = 64;
 
-/// Vertical gap between an existing station and a patch merged under it, in canvas units.
+/// Vertical gap between an existing workspace and a patch merged under it, in canvas units.
 const MERGE_GAP: f32 = 120.0;
 
 /// Height to assume for a node that has never been resized. `size` is `None` until the operator
 /// drags a corner, so without this the merge offset would measure to the *top* of the lowest node
 /// and drop the new block on top of it. A face is as tall as its instrument now
 /// (`web/src/canvas/graph.ts`, `NODE_SIZE`), so this is a generous stand-in for the tallest of
-/// them — erring high only opens a gap, erring low overlaps two stations.
+/// them — erring high only opens a gap, erring low overlaps two workspaces.
 const NATURAL_NODE_H: f32 = 380.0;
 
 /// The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written
@@ -96,7 +96,7 @@ impl WorkspaceSnapshot {
         }
     }
 
-    /// Structural bounds a stored station must satisfy. Client-built graphs come from a canvas
+    /// Structural bounds a stored workspace must satisfy. Client-built graphs come from a canvas
     /// the same rules already policed at drag time, so a malformed one is a client bug or a
     /// corrupt row — either way it is refused at the API edge rather than half-applied.
     pub fn validate(&self) -> Result<(), WorkspaceError> {
@@ -116,12 +116,12 @@ impl WorkspaceSnapshot {
         Self::new(PatchGraph::default(), RackLayout::default())
     }
 
-    /// The station a fresh install opens on: one empty device node feeding a scope, with a
+    /// The workspace a fresh install opens on: one empty device node feeding a scope, with a
     /// speaker waiting for a channel. Empty rather than pre-populated because the device node
     /// *is* the "open a radio" invitation — picking a device in it is the first gesture. Only the
     /// seeded first workspace starts here; every later one starts [`empty`](Self::empty).
     #[must_use]
-    pub fn station_default() -> Self {
+    pub fn starter() -> Self {
         let node = |id: &str, body: NodeBody, x: f32, y: f32| PatchNode {
             id: id.to_owned(),
             body,
@@ -154,12 +154,12 @@ impl WorkspaceSnapshot {
         Self::new(graph, RackLayout::default())
     }
 
-    /// Merge an authored patch (a template, CANVAS §8 phase ④) into this station.
+    /// Merge an authored patch (a template, CANVAS §8 phase ④) into this workspace.
     ///
     /// Node ids are namespaced by `prefix` and the prefix's previous nodes are removed first, so
     /// applying a template twice replaces its own block instead of stacking copies — the same
     /// contract M6's `upsert_tab` had. A device node in the patch binds to `device`: if the
-    /// station already has a node for that radio the patch wires into *it* rather than drawing a
+    /// workspace already has a node for that radio the patch wires into *it* rather than drawing a
     /// second box for one device.
     pub fn merge_patch(&mut self, patch: &PatchGraph, prefix: &str, device: Option<&DeviceRef>) {
         // Where the prefix's nodes were, so a re-apply puts them back in the same place. Node
@@ -235,7 +235,7 @@ impl WorkspaceSnapshot {
                     port: edge.to.port.clone(),
                 },
             };
-            // Reusing a device node can reproduce a wire the station already has.
+            // Reusing a device node can reproduce a wire the workspace already has.
             if !self.graph.edges.contains(&mapped_edge) {
                 self.graph.edges.push(mapped_edge);
             }
@@ -276,7 +276,7 @@ impl WorkspaceSnapshot {
     }
 
     /// Where a merged block starts: under everything already drawn, so a template never lands on
-    /// top of the station it is being added to.
+    /// top of the workspace it is being added to.
     fn merge_offset(&self) -> f32 {
         self.graph
             .nodes
@@ -288,7 +288,7 @@ impl WorkspaceSnapshot {
     }
 }
 
-/// `GET /api/workspaces` list entry — the projection a switcher needs, without the station.
+/// `GET /api/workspaces` list entry — the projection a switcher needs, without the workspace.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceInfo {
     pub id: i64,
@@ -314,7 +314,7 @@ pub struct WorkspacesResponse {
     pub active: Option<i64>,
 }
 
-/// `GET /api/workspaces/{id}` — the row plus its station.
+/// `GET /api/workspaces/{id}` — the row plus its workspace.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceDetail {
     #[serde(flatten)]
@@ -326,8 +326,8 @@ pub struct WorkspaceDetail {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreateWorkspaceRequest {
     pub name: String,
-    /// Station to start from; omitted means [`WorkspaceSnapshot::empty`] — a new workspace is a
-    /// clean bench. Only the first workspace a fresh install seeds opens on a starter station.
+    /// Workspace to start from; omitted means [`WorkspaceSnapshot::empty`] — a new workspace is a
+    /// clean bench. Only the first workspace a fresh install seeds opens on a starter workspace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub snapshot: Option<WorkspaceSnapshot>,
 }
@@ -351,7 +351,7 @@ pub struct PatchBinding {
     pub device_set: u32,
 }
 
-/// `POST /api/workspaces/{id}/apply` — what applying the station did.
+/// `POST /api/workspaces/{id}/apply` — what applying the workspace did.
 ///
 /// Apply is additive and idempotent: it opens the radios the graph names and adds the channels it
 /// draws, and never closes or deletes anything. Removing a node is a gesture with its own
@@ -438,8 +438,8 @@ mod tests {
     }
 
     #[test]
-    fn station_default_validates_and_is_a_receiver_with_a_scope() {
-        let snap = WorkspaceSnapshot::station_default();
+    fn starter_validates_and_is_a_receiver_with_a_scope() {
+        let snap = WorkspaceSnapshot::starter();
         snap.validate().expect("the default is valid");
         assert_eq!(snap.version, WORKSPACE_SNAPSHOT_VERSION);
         assert_eq!(snap.graph.nodes.len(), 3);
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn snapshot_roundtrips_through_json_and_omits_an_empty_rack_body() {
-        let snap = WorkspaceSnapshot::station_default();
+        let snap = WorkspaceSnapshot::starter();
         let json = serde_json::to_value(&snap).unwrap();
         assert_eq!(json["version"], WORKSPACE_SNAPSHOT_VERSION);
         assert_eq!(json["graph"]["nodes"][0]["kind"], "device");
@@ -474,14 +474,14 @@ mod tests {
 
     #[test]
     fn validate_refuses_a_version_this_build_did_not_write() {
-        let mut snap = WorkspaceSnapshot::station_default();
+        let mut snap = WorkspaceSnapshot::starter();
         snap.version = 1;
         assert_eq!(snap.validate(), Err(WorkspaceError::Version(1)));
     }
 
     #[test]
     fn validate_surfaces_the_graph_and_rack_reasons() {
-        let mut broken = WorkspaceSnapshot::station_default();
+        let mut broken = WorkspaceSnapshot::starter();
         broken
             .graph
             .edges
@@ -493,7 +493,7 @@ mod tests {
             )))
         );
 
-        let mut pinned_ghost = WorkspaceSnapshot::station_default();
+        let mut pinned_ghost = WorkspaceSnapshot::starter();
         pinned_ghost.rack.slots.push(RackSlot {
             node: "ghost".to_owned(),
             cell: RackCell {
@@ -511,11 +511,11 @@ mod tests {
 
     #[test]
     fn merging_a_template_namespaces_it_binds_the_radio_and_lands_below() {
-        let mut snap = WorkspaceSnapshot::station_default();
+        let mut snap = WorkspaceSnapshot::starter();
         snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
         snap.validate().expect("still valid after a merge");
 
-        // The station's own device was unbound, so the template drew its own — bound.
+        // The workspace's own device was unbound, so the template drew its own — bound.
         let ids: Vec<&str> = snap.graph.nodes.iter().map(|n| n.id.as_str()).collect();
         assert!(ids.contains(&"template:airband:ch"));
         assert!(ids.contains(&"template:airband:dev"));
@@ -528,14 +528,15 @@ mod tests {
         );
         assert!(
             merged.position.y >= MERGE_GAP,
-            "a merged patch lands under the station, not on it"
+            "a merged patch lands under the workspace, not on it"
         );
+        // Templates name the bare `iq`, which is and stays stream 0.
         assert_eq!(
             snap.graph
                 .channels_of("template:airband:dev")
-                .map(|n| n.id.as_str())
+                .map(|(n, stream)| (n.id.as_str(), stream))
                 .collect::<Vec<_>>(),
-            vec!["template:airband:ch"]
+            vec![("template:airband:ch", 0)]
         );
     }
 
@@ -543,7 +544,7 @@ mod tests {
     /// not take that device — and the channels hanging off it — away with its own block.
     #[test]
     fn re_applying_a_template_keeps_a_receiver_another_template_is_using() {
-        let mut snap = WorkspaceSnapshot::station_default();
+        let mut snap = WorkspaceSnapshot::starter();
         snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
         snap.merge_patch(&template(), "template:marine:", Some(&rtlsdr()));
         // The second template reused the first's device rather than drawing its own.
@@ -551,7 +552,7 @@ mod tests {
         assert_eq!(
             snap.graph
                 .channels_of("template:airband:dev")
-                .map(|n| n.id.as_str())
+                .map(|(n, _)| n.id.as_str())
                 .collect::<Vec<_>>(),
             vec!["template:airband:ch", "template:marine:ch"]
         );
@@ -565,7 +566,7 @@ mod tests {
         assert_eq!(
             snap.graph
                 .channels_of("template:airband:dev")
-                .map(|n| n.id.as_str())
+                .map(|(n, _)| n.id.as_str())
                 .collect::<Vec<_>>(),
             vec!["template:airband:ch", "template:marine:ch"],
             "the other template's channel keeps its radio"
@@ -576,7 +577,7 @@ mod tests {
     /// merged block on top of it.
     #[test]
     fn merge_offset_clears_a_node_that_has_never_been_resized() {
-        let mut snap = WorkspaceSnapshot::station_default();
+        let mut snap = WorkspaceSnapshot::starter();
         let lowest = snap
             .graph
             .nodes
@@ -599,7 +600,7 @@ mod tests {
 
     #[test]
     fn re_applying_a_template_replaces_its_own_block() {
-        let mut snap = WorkspaceSnapshot::station_default();
+        let mut snap = WorkspaceSnapshot::starter();
         snap.merge_patch(&template(), "template:airband:", Some(&rtlsdr()));
         let after_first = snap.graph.nodes.len();
         let edges_first = snap.graph.edges.len();
@@ -609,13 +610,13 @@ mod tests {
         snap.validate().expect("valid after a re-apply");
     }
 
-    /// One radio, one box: a template applied to a device the station already draws wires into
+    /// One radio, one box: a template applied to a device the workspace already draws wires into
     /// that node instead of adding a second one for the same hardware.
     #[test]
     fn merging_reuses_a_device_node_that_already_names_the_radio() {
-        let mut snap = WorkspaceSnapshot::station_default();
+        let mut snap = WorkspaceSnapshot::starter();
         let NodeBody::Device(device) = &mut snap.graph.nodes[0].body else {
-            unreachable!("the default station opens with a device node")
+            unreachable!("the default workspace opens with a device node")
         };
         device.device = Some(rtlsdr());
 
@@ -626,7 +627,7 @@ mod tests {
         assert_eq!(
             snap.graph
                 .channels_of("device")
-                .map(|n| n.id.as_str())
+                .map(|(n, _)| n.id.as_str())
                 .collect::<Vec<_>>(),
             vec!["template:airband:ch"]
         );

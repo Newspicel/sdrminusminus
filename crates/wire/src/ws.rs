@@ -58,8 +58,18 @@ pub enum ServerEvent {
     Hello { revision: u64 },
     /// Something changed; invalidate the matching query keys and refetch.
     StateChanged { scope: StateScope },
-    /// A subscribed binary stream is now active with this stream id (see [`crate::frame`]).
-    StreamStarted { stream_id: u16, device_set: u32 },
+    /// A subscribed spectrum stream is now active with this stream id (see [`crate::frame`]).
+    ///
+    /// The id is allocated per connection, exactly like an audio one: a multi-stream radio can
+    /// have several lanes watched at once, so the device-set id is no longer enough to tell two
+    /// spectra apart. `stream` names the lane this id carries — which is how the client knows
+    /// which of its scopes the frames belong to, since the frame header carries only the id.
+    StreamStarted {
+        stream_id: u16,
+        device_set: u32,
+        #[serde(default)]
+        stream: u32,
+    },
     /// A subscribed audio stream is now active. Stream ids are allocated per-connection
     /// from the audio range (see [`StreamKind`]); clients demux binary frames by
     /// `(kind, stream_id)`.
@@ -118,9 +128,20 @@ pub enum ClientCommand {
         fps: u16,
         /// Requested display bins (≤ 4096, PLAN §9); server clamps.
         bins: u16,
+        /// Which receive stream's spectrum. Defaults to 0 so a client that predates
+        /// multi-stream devices keeps its subscription; which stream a binary frame carries is
+        /// implicit in this subscription, never a frame header field.
+        #[serde(default)]
+        stream: u32,
     },
-    /// Stop the spectrum stream for a device set.
-    UnsubscribeSpectrum { device_set: u32 },
+    /// Stop one receive stream's spectrum. `stream` defaults to 0, so a client that predates
+    /// multi-stream radios ends the subscription it started; without it, unsubscribing one scope
+    /// would silence every other lane of the same radio on this connection.
+    UnsubscribeSpectrum {
+        device_set: u32,
+        #[serde(default)]
+        stream: u32,
+    },
     /// Start receiving Opus audio frames for a channel; answered with `AudioStreamStarted`.
     SubscribeAudio { device_set: u32, channel: u32 },
     /// Stop the audio stream for a channel.

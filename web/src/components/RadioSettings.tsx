@@ -2,8 +2,9 @@
 // `DeviceSettings` alone, so a new device setting needs zero frontend work. One row per setting,
 // everything the dial is not — the same rows serve the device node's face (CANVAS §1) and the
 // M6 radio popover, because a receiver has one set of controls, not one per surface.
+import { rxStreamCount, streamLabel } from "../canvas/graph";
 import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
-import { useDevicePatch } from "../lib/useDevicePatch";
+import { forStream, useDevicePatch } from "../lib/useDevicePatch";
 import { Checkbox } from "./Checkbox";
 import { formatHz } from "./format";
 import { NumberField } from "./NumberField";
@@ -25,6 +26,16 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
   const sampleRate = settings.sample_rate ?? 0;
   const rateRange = caps.sample_rate_range;
   const bandwidth = settings.bandwidth ?? caps.bandwidths[0] ?? 0;
+  // A setting the radio scopes per-stream moves out of the shared rows and into one block per
+  // lane, named after the IQ port it feeds — one control per thing the radio can actually hold,
+  // never a shared knob quietly writing four lanes at once (Capabilities::per_stream).
+  const scope = caps.per_stream;
+  const streamedAntenna = scope?.antenna === true && caps.antennas.length > 1;
+  const streamedGain = scope?.gain === true && caps.gains.length > 0;
+  const streams =
+    streamedAntenna || streamedGain
+      ? Array.from({ length: rxStreamCount(caps) }, (_, index) => index)
+      : [];
 
   return (
     <div className="flex flex-col gap-2">
@@ -75,7 +86,7 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
         </div>
       )}
 
-      {caps.antennas.length > 1 && (
+      {caps.antennas.length > 1 && !streamedAntenna && (
         <div className={ROW}>
           <span className="legend">Antenna</span>
           <Select
@@ -88,14 +99,58 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
         </div>
       )}
 
-      {caps.gains.map((stage) => (
-        <GainControl
-          key={stage.name}
-          stage={stage}
-          value={settings.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
-          onCommit={(db) => applyPatch(active.id, { gains: [{ stage: stage.name, value_db: db }] })}
-        />
-      ))}
+      {!streamedGain &&
+        caps.gains.map((stage) => (
+          <GainControl
+            key={stage.name}
+            stage={stage}
+            value={settings.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min}
+            onCommit={(db) =>
+              applyPatch(active.id, { gains: [{ stage: stage.name, value_db: db }] })
+            }
+          />
+        ))}
+
+      {streams.map((stream) => {
+        const port = streamLabel("iq", stream, streams.length);
+        // The lane's resolved view: its override where one exists, the radio-wide value
+        // otherwise — the same fallback the engine applies, so the control shows what the lane
+        // is actually running at.
+        const lane = forStream(settings, stream, scope);
+        return (
+          <div key={stream} className="flex flex-col gap-2 border-t border-line pt-2">
+            <span className="legend">{port}</span>
+            {streamedAntenna && (
+              <div className={ROW}>
+                <span className="legend">Antenna</span>
+                <Select
+                  label={`${port} antenna`}
+                  className="w-full"
+                  value={lane.antenna ?? caps.antennas[0] ?? ""}
+                  options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
+                  onChange={(antenna) => applyPatch(active.id, { streams: [{ stream, antenna }] })}
+                />
+              </div>
+            )}
+            {streamedGain &&
+              caps.gains.map((stage) => (
+                <GainControl
+                  key={stage.name}
+                  stage={stage}
+                  port={port}
+                  value={
+                    lane.gains?.find((g) => g.stage === stage.name)?.value_db ?? stage.range.min
+                  }
+                  onCommit={(db) =>
+                    applyPatch(active.id, {
+                      streams: [{ stream, gains: [{ stage: stage.name, value_db: db }] }],
+                    })
+                  }
+                />
+              ))}
+          </div>
+        );
+      })}
 
       <div className={ROW}>
         <span className="legend">PPM</span>
@@ -124,10 +179,15 @@ function GainControl({
   stage,
   value,
   onCommit,
+  port,
 }: {
   stage: GainStage;
   value: number;
   onCommit: (db: number) => void;
+  /** The IQ port whose lane this stage belongs to. Only the accessible name carries it — the
+   * row already sits under its stream's header, but per-stream radios repeat every stage name
+   * and a screen reader needs the sliders told apart. */
+  port?: string;
 }) {
   const { pending, change } = useDebouncedCommit(onCommit);
   const shown = pending ?? value;
@@ -138,7 +198,7 @@ function GainControl({
       </span>
       <span className="flex items-center gap-2">
         <Slider
-          label={`${stage.name} gain (dB)`}
+          label={`${port === undefined ? "" : `${port} `}${stage.name} gain (dB)`}
           className="min-w-0 flex-1"
           min={stage.range.min}
           max={stage.range.max}

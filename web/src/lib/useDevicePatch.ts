@@ -6,10 +6,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { patchDevice, STATE_KEY } from "./api";
 import { pushToast } from "./toasts";
-import type { DeviceSettings, StateSnapshot } from "./types";
+import type { DeviceSettings, StateSnapshot, StreamScope, StreamSettings } from "./types";
 
 // Mirrors `DeviceSettings::merge_from` (crates/wire): present scalars overwrite; gains/extra
-// merge per stage/name, so a delta carrying one stage must not clobber the others.
+// merge per stage/name, so a delta carrying one stage must not clobber the others. Stream
+// overrides merge by stream index and each entry's gains per stage name again — so a radio-wide
+// retune never wipes a lane's override, and one lane's dial never drags the others.
 export function mergeSettings(current: DeviceSettings, delta: DeviceSettings): DeviceSettings {
   const next: DeviceSettings = { ...current };
   if (delta.center_hz != null) {
@@ -33,7 +35,60 @@ export function mergeSettings(current: DeviceSettings, delta: DeviceSettings): D
   if (delta.extra) {
     next.extra = mergeByKey(current.extra, delta.extra, (e) => e.name);
   }
+  if (delta.streams) {
+    next.streams = mergeStreams(current.streams, delta.streams);
+  }
   return next;
+}
+
+function mergeStreams(
+  current: StreamSettings[] | undefined,
+  delta: readonly StreamSettings[],
+): StreamSettings[] {
+  const merged = [...(current ?? [])];
+  for (const entry of delta) {
+    const at = merged.findIndex((existing) => existing.stream === entry.stream);
+    const existing = merged[at];
+    if (existing === undefined) {
+      merged.push(entry);
+      continue;
+    }
+    merged[at] = {
+      ...existing,
+      ...(entry.center_hz != null ? { center_hz: entry.center_hz } : {}),
+      ...(entry.antenna != null ? { antenna: entry.antenna } : {}),
+      ...(entry.gains ? { gains: mergeByKey(existing.gains, entry.gains, (g) => g.stage) } : {}),
+    };
+  }
+  return merged;
+}
+
+/**
+ * Mirrors `DeviceSettings::for_stream` (crates/wire), the single resolution point: what stream
+ * `index` is actually set to — its own override where the radio declares that setting
+ * per-stream, the radio-wide value otherwise. The result carries no `streams` of its own; it is
+ * one lane's resolved view, not the overrides table.
+ */
+export function forStream(
+  settings: DeviceSettings,
+  index: number,
+  scope: StreamScope | undefined,
+): DeviceSettings {
+  const { streams, ...resolved } = settings;
+  const overrides = streams?.find((entry) => entry.stream === index);
+  if (overrides === undefined || scope === undefined) {
+    return resolved;
+  }
+  if (scope.tuning === true && overrides.center_hz != null) {
+    resolved.center_hz = overrides.center_hz;
+  }
+  if (scope.gain === true && overrides.gains) {
+    resolved.gains = mergeByKey(resolved.gains, overrides.gains, (g) => g.stage);
+  }
+  if (scope.antenna === true && overrides.antenna != null) {
+    resolved.antenna = overrides.antenna;
+  }
+  return resolved;
 }
 
 /**

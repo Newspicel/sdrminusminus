@@ -211,11 +211,15 @@ export function recordingsQuery() {
   });
 }
 
-export async function recordDeviceSet(ds: number, action: RecordAction): Promise<RecordingStatus> {
+export async function recordDeviceSet(
+  ds: number,
+  action: RecordAction,
+  stream = 0,
+): Promise<RecordingStatus> {
   return unwrap(
     await client.POST("/api/devicesets/{ds}/record", {
       params: { path: { ds } },
-      body: { action },
+      body: { action, stream },
     }),
   );
 }
@@ -232,9 +236,10 @@ export function templatesQuery() {
   return queryOptions({
     queryKey: TEMPLATES_KEY,
     queryFn: async (): Promise<TemplatesResponse> => unwrap(await client.GET("/api/templates")),
-    // Built-in and compiled into the server: it can only change across a restart, which
-    // reconnects the socket and refetches everything anyway.
-    staleTime: Number.POSITIVE_INFINITY,
+    // Not cached forever any more: the table is compiled in, but `supported_devices` is computed
+    // against the radios attached *now*, so plugging one in changes the answer. Invalidated on
+    // the `devices` scope alongside the device list itself.
+    staleTime: 30_000,
   });
 }
 
@@ -267,7 +272,7 @@ export function clientsQuery() {
 }
 
 /** The workspace switcher's view: every workspace plus the active one (PLAN §10 — the shell is
- * station config, so it is server-side and every client converges on it). */
+ * workspace config, so it is server-side and every client converges on it). */
 export function workspacesQuery() {
   return queryOptions({
     queryKey: WORKSPACES_KEY,
@@ -278,7 +283,7 @@ export function workspacesQuery() {
 /** One workspace with its layout. Keyed under `WORKSPACES_KEY` so a `workspaces` scope
  * invalidates the list and every open layout together.
  *
- * A station stored against an older port table is brought up to today's here, on the way into the
+ * A workspace stored against an older port table is brought up to today's here, on the way into the
  * cache: every read and every edit then sees one shape, and the first write persists it. */
 export function workspaceQuery(id: number | null) {
   return queryOptions({
@@ -325,7 +330,7 @@ export async function activateWorkspace(id: number): Promise<void> {
   unwrap(await client.POST("/api/workspaces/{id}/activate", { params: { path: { id } } }));
 }
 
-/** Bring the engine up to what the station draws (CANVAS §2): open the radios its device nodes
+/** Bring the engine up to what the workspace draws (CANVAS §2): open the radios its device nodes
  * name, add the channels it wires. Additive and idempotent, so it is safe on every load. */
 export async function applyWorkspace(id: number): Promise<PatchApplyReport> {
   return unwrap(await client.POST("/api/workspaces/{id}/apply", { params: { path: { id } } }));

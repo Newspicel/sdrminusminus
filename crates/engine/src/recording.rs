@@ -30,6 +30,8 @@ const REC_CHANNEL_CAP: usize = 64;
 pub struct FinalizedRecording {
     /// Directory-joined extension-less stem, exactly as `sdrmm_recorder::scan_stems` lists it.
     pub stem: PathBuf,
+    /// The rx stream the pair captured, as `RecordingStatus.stream` reported live.
+    pub stream: u32,
     /// RFC3339 UTC.
     pub started_at: String,
     pub samples: u64,
@@ -195,6 +197,7 @@ fn write_loop(
 pub(crate) fn create_writer(
     dir: &Path,
     ds: u32,
+    stream: u32,
     started_at: jiff::Timestamp,
     sample_rate: f64,
     center_hz: f64,
@@ -207,7 +210,12 @@ pub(crate) fn create_writer(
         let stem = dir.join(&name);
         if !meta_path(&stem).exists() {
             match SigmfWriter::create(&stem, sample_rate, center_hz, hw) {
-                Ok(writer) => return Ok((writer, name)),
+                Ok(mut writer) => {
+                    // Stamped even for stream 0, so the meta states the stream rather than
+                    // leaving it implied (design §6b); absent means "predates multi-stream".
+                    writer.set_rx_stream(stream);
+                    return Ok((writer, name));
+                }
                 Err(SigmfError::StemTaken(_)) => {}
                 Err(e) => {
                     return Err(EngineError::RecordingIo(format!(
@@ -285,25 +293,28 @@ mod tests {
     fn create_writer_advances_the_suffix_on_claimed_stems() {
         let dir = TempDir::new().unwrap();
         let ts = jiff::Timestamp::UNIX_EPOCH;
-        let (first, name) = create_writer(dir.path(), 3, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
+        let (first, name) =
+            create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z");
         let base_stem = first.stem().to_path_buf();
 
         // The in-flight first attempt (breadcrumb + data, no final meta) claims its stem.
-        let (second, name) = create_writer(dir.path(), 3, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
+        let (second, name) =
+            create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z-2");
 
         // A finalized pair and a crashed attempt (breadcrumb left behind) both claim theirs.
         first.finalize().unwrap();
         drop(second);
-        let (_third, name) = create_writer(dir.path(), 3, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
+        let (_third, name) =
+            create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z-3");
 
         // A meta-only stem (data file removed by hand) is never reclaimed: finalize would
         // rename over the surviving meta.
         std::fs::remove_file(data_path(&base_stem)).unwrap();
         let (_fourth, name) =
-            create_writer(dir.path(), 3, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
+            create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z-4");
     }
 }

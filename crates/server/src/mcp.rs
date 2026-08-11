@@ -135,6 +135,9 @@ struct TuneRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct AddChannelRequest {
     device_set: u32,
+    /// Which of the device's receive streams the channel taps; omit for 0, the only stream a
+    /// single-stream radio has.
+    stream: Option<u32>,
     /// Channel type id from `list_channel_types`, e.g. `nfm`, `wfm`, `adsb`, `pocsag`.
     channel_type: String,
     /// Offset from the device centre in Hz (the channel's frequency minus the centre).
@@ -171,6 +174,16 @@ struct RecordRequest {
     device_set: u32,
     /// `true` starts a SigMF recording, `false` stops and finalizes it.
     start: bool,
+    /// Which receive stream a start records — one recording per set, on a named stream; omit
+    /// for 0. Ignored on stop.
+    stream: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SpectrumSnapshotRequest {
+    device_set: u32,
+    /// Which receive stream's spectrum; omit for 0.
+    stream: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -306,10 +319,13 @@ impl SdrMcp {
             params,
         };
         let engine = self.engine.clone();
-        let id = tokio::task::spawn_blocking(move || engine.add_channel(req.device_set, settings))
-            .await
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
-            .map_err(engine_error)?;
+        let stream = req.stream.unwrap_or_default();
+        let id = tokio::task::spawn_blocking(move || {
+            engine.add_channel(req.device_set, stream, settings)
+        })
+        .await
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+        .map_err(engine_error)?;
         structured(&serde_json::json!({ "channel": id }))
     }
 
@@ -398,7 +414,9 @@ impl SdrMcp {
         let ds = req.device_set;
         let result = tokio::task::spawn_blocking(move || {
             if req.start {
-                engine.start_recording(ds).map_err(engine_error)?;
+                engine
+                    .start_recording(ds, req.stream.unwrap_or_default())
+                    .map_err(engine_error)?;
                 return Ok(serde_json::json!({ "recording": true }));
             }
             let finalized = engine.stop_recording(ds).map_err(engine_error)?;
@@ -460,11 +478,12 @@ impl SdrMcp {
     )]
     async fn spectrum_snapshot(
         &self,
-        Parameters(req): Parameters<DeviceSetRef>,
+        Parameters(req): Parameters<SpectrumSnapshotRequest>,
     ) -> Result<CallToolResult, ErrorData> {
         let engine = self.engine.clone();
         let ds = req.device_set;
-        let mut rx = tokio::task::spawn_blocking(move || engine.subscribe_spectrum(ds))
+        let stream = req.stream.unwrap_or_default();
+        let mut rx = tokio::task::spawn_blocking(move || engine.subscribe_spectrum(ds, stream))
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
             .map_err(engine_error)?;

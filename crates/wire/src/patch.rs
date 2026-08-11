@@ -1,9 +1,9 @@
-//! The patch graph — the station drawn as nodes and wires (CANVAS §1, §4).
+//! The patch graph — the workspace drawn as nodes and wires (CANVAS §1, §4).
 //!
 //! A workspace stores a [`PatchGraph`] and a [`RackLayout`]: every radio, demodulator, decoder,
 //! map and sink is a node, an edge names which existing stream (PLAN §5) a node consumes, and the
 //! rack holds the faces being operated. This is *our* model, never the canvas library's
-//! serialization — templates author stations in Rust and a React Flow major must not invalidate a
+//! serialization — templates author workspaces in Rust and a React Flow major must not invalidate a
 //! stored workspace (CANVAS §4, the same rule the M6 layout tree followed).
 //!
 //! The graph is control plane only (CANVAS §2). It is a description the server validates and
@@ -21,13 +21,13 @@ use utoipa::ToSchema;
 
 use crate::{
     channel::{ChannelDescriptor, ChannelParams},
-    device::{Capabilities, DeviceInfo},
+    device::{Capabilities, DeviceInfo, Direction},
     workspace::MAX_NAME_LEN,
 };
 
 /// Structural caps. A graph is stored whole in one row and rewritten on every arrangement
 /// gesture, so the bounds are what keeps one row from growing without limit; the numbers are far
-/// above any station a person would draw.
+/// above any workspace a person would draw.
 pub const MAX_NODES: usize = 128;
 pub const MAX_EDGES: usize = 256;
 pub const MAX_NODE_ID_LEN: usize = 64;
@@ -45,6 +45,40 @@ pub const MAX_NODE_SIZE: f32 = 10_000.0;
 /// arrangement, not data.
 pub const RACK_COLS: u16 = 12;
 pub const RACK_ROWS: u16 = 8;
+/// Bounds a stored port string, not live hardware: validation is pure over the stored graph, so
+/// the family a repeating port admits must end somewhere or any `iq…` digits would be a storable
+/// name. A KrakenSDR is 5 coherent streams; sixteen leaves headroom.
+pub const MAX_STREAMS: u32 = 16;
+
+/// The port name for stream `index` of the family `base`.
+///
+/// Stream 0 keeps the bare name — every stored workspace, template and e2e selector names it —
+/// so the visible numbering starts at 2: `iq`, `iq2`, `iq3`, …
+#[must_use]
+pub fn stream_port(base: &str, index: u32) -> String {
+    if index == 0 {
+        base.to_owned()
+    } else {
+        format!("{base}{}", index + 1)
+    }
+}
+
+/// The stream `name` addresses within family `base`, if it is one of that family's.
+///
+/// One spelling per port: `iq1` would alias `iq` and `iq02` would alias `iq2`, so only the
+/// canonical rendering of `2..=MAX_STREAMS` names a stream.
+#[must_use]
+pub fn port_stream(base: &str, name: &str) -> Option<u32> {
+    if name == base {
+        return Some(0);
+    }
+    let suffix = name.strip_prefix(base)?;
+    let n: u32 = suffix.parse().ok()?;
+    if !(2..=MAX_STREAMS).contains(&n) || suffix != n.to_string() {
+        return None;
+    }
+    Some(n - 1)
+}
 
 /// What a wire carries. Hue encodes this and only this (`DESIGN.md` §2), so the set stays small
 /// and every member is something the engine actually moves today — with one named exception,
@@ -111,7 +145,7 @@ pub enum PortCondition {
     ChannelHasAudio,
     /// Only when the channel type emits decoder events.
     ChannelIsDecoder,
-    /// Only on a radio that can transmit ([`Capabilities::tx_capable`]). Unlike the channel
+    /// Only on a radio that has a transmit side ([`Capabilities::duplex`]). Unlike the channel
     /// conditions this one is answered by the *binding* rather than by the stored node: which
     /// radio a device node names is stored, but what that radio can do is only known while it is
     /// attached. A node naming no radio, or one that is not plugged in, has nothing to ask — and
@@ -130,6 +164,39 @@ pub enum PortBacking<'a> {
     Device(&'a Capabilities),
 }
 
+/// How many of a port a node really has. A repeating port is a *family*: the catalog is
+/// per-build static and cannot see how many streams a radio delivers, so it ships the base spec
+/// with this flag and whoever can see the backing expands it — one port per stream, named by
+/// [`stream_port`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PortRepeat {
+    #[default]
+    Once,
+    PerRxStream,
+    PerTxStream,
+}
+
+impl PortRepeat {
+    /// How many ports this spec expands to on a node with `backing` behind it. Clamped low
+    /// because a radio reporting 0 rx streams still has the one IQ port every stored wire names,
+    /// and high because a port past [`MAX_STREAMS`] could never take a valid wire.
+    fn count(self, backing: Option<PortBacking<'_>>) -> u32 {
+        match (self, backing) {
+            (Self::Once, _) => 1,
+            (Self::PerRxStream, Some(PortBacking::Device(caps))) => {
+                caps.rx_streams.clamp(1, MAX_STREAMS)
+            }
+            (Self::PerTxStream, Some(PortBacking::Device(caps))) => {
+                caps.tx_streams.clamp(1, MAX_STREAMS)
+            }
+            // No backing: stream 0 only. A port drawn on a guess is one the operator can be
+            // told to use and then refused.
+            (Self::PerRxStream | Self::PerTxStream, _) => 1,
+        }
+    }
+}
+
 /// One port of a node type.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PortSpec {
@@ -144,6 +211,8 @@ pub struct PortSpec {
     pub multi: bool,
     #[serde(default, skip_serializing_if = "is_always")]
     pub condition: PortCondition,
+    #[serde(default, skip_serializing_if = "is_once")]
+    pub repeat: PortRepeat,
     /// Why this port refuses everything, for the ports that do. The client renders what the
     /// server describes (PLAN §2), and a port with no wire and no explanation reads as broken.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -152,6 +221,10 @@ pub struct PortSpec {
 
 fn is_always(condition: &PortCondition) -> bool {
     *condition == PortCondition::Always
+}
+
+fn is_once(repeat: &PortRepeat) -> bool {
+    *repeat == PortRepeat::Once
 }
 
 impl PortSpec {
@@ -168,6 +241,7 @@ impl PortSpec {
             direction,
             multi,
             condition,
+            repeat: PortRepeat::Once,
             note: None,
         }
     }
@@ -175,6 +249,12 @@ impl PortSpec {
     #[must_use]
     fn noted(mut self, note: &str) -> Self {
         self.note = Some(note.to_owned());
+        self
+    }
+
+    #[must_use]
+    fn repeated(mut self, repeat: PortRepeat) -> Self {
+        self.repeat = repeat;
         self
     }
 
@@ -193,7 +273,7 @@ impl PortSpec {
                 channel.decoder_kind.is_some()
             }
             (PortCondition::DeviceIsTxCapable, Some(PortBacking::Device(device))) => {
-                device.tx_capable
+                device.duplex.supports(Direction::Tx)
             }
             _ => false,
         }
@@ -264,7 +344,7 @@ impl DeviceRef {
 
 /// A device node's payload: the radio it names, or nothing yet.
 ///
-/// Unbound is a first-class state, not an error — it is the empty node a fresh station starts on,
+/// Unbound is a first-class state, not an error — it is the empty node a fresh workspace starts on,
 /// and it renders the device picker. Bound-but-absent is the other one: controls disabled,
 /// wires kept, never silently rebound (CANVAS §3).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -345,6 +425,35 @@ impl NodeBody {
     pub fn ports(&self) -> Vec<PortSpec> {
         ports_for(self.kind())
     }
+
+    /// The real port list of a node with `backing` behind it: conditions resolved and every
+    /// repeating spec expanded to one port per stream, named by [`stream_port`]. Expanded ports
+    /// are concrete sockets, so they carry [`PortRepeat::Once`] — leaving the flag on would
+    /// invite a second expansion.
+    ///
+    /// With no backing a repeating port keeps stream 0 only: how many streams a radio delivers
+    /// is known only while it is attached, and a port drawn on a guess is one the operator can
+    /// be told to use and then refused.
+    #[must_use]
+    pub fn ports_with(&self, backing: Option<PortBacking<'_>>) -> Vec<PortSpec> {
+        let mut ports = Vec::new();
+        for spec in self.ports() {
+            if !spec.applies_to(backing) {
+                continue;
+            }
+            if spec.repeat == PortRepeat::Once {
+                ports.push(spec);
+                continue;
+            }
+            for stream in 0..spec.repeat.count(backing) {
+                let mut port = spec.clone();
+                port.name = stream_port(&spec.name, stream);
+                port.repeat = PortRepeat::Once;
+                ports.push(port);
+            }
+        }
+        ports
+    }
 }
 
 /// The port table, keyed by node-kind slug so the catalog and a stored node answer from the same
@@ -362,11 +471,13 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         // reads as a broken node rather than as a reservation.
         "device" => vec![
             PortSpec::new("control", Control, In, false, Always),
-            PortSpec::new("tx", Tx, In, false, DeviceIsTxCapable).noted(
-                "reserved: transmit is not built (PLAN §12a), so nothing in this build emits \
-                 a signal to key a radio with",
-            ),
-            PortSpec::new("iq", Iq, Out, true, Always),
+            PortSpec::new("tx", Tx, In, false, DeviceIsTxCapable)
+                .repeated(PortRepeat::PerTxStream)
+                .noted(
+                    "reserved: transmit is not built (PLAN §12a), so nothing in this build emits \
+                     a signal to key a radio with",
+                ),
+            PortSpec::new("iq", Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
         "channel" => vec![
             PortSpec::new("iq", Iq, In, false, Always),
@@ -481,7 +592,7 @@ pub struct PatchEdge {
     pub to: PortRef,
 }
 
-/// The station as a graph (CANVAS §1).
+/// The workspace as a graph (CANVAS §1).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PatchGraph {
     pub nodes: Vec<PatchNode>,
@@ -616,14 +727,26 @@ impl PatchGraph {
             .map(|edge| edge.to.node.as_str())
     }
 
-    /// Channel nodes taking IQ from `device_node`, in stored order. This order is the binding
-    /// order (CANVAS §3): the n-th node of a type binds the n-th engine channel of that type.
-    pub fn channels_of<'a>(&'a self, device_node: &'a str) -> impl Iterator<Item = &'a PatchNode> {
-        self.nodes.iter().filter(move |node| {
-            matches!(node.body, NodeBody::Channel(_))
-                && self
-                    .sources_of(&node.id, "iq")
-                    .any(|src| src == device_node)
+    /// Channel nodes taking IQ from `device_node`, in stored order, with the stream each takes.
+    /// This order is the binding order (CANVAS §3): the n-th node of a type binds the n-th engine
+    /// channel of that type — within a stream, or two channels on different streams of one radio
+    /// would swap settings.
+    pub fn channels_of<'a>(
+        &'a self,
+        device_node: &'a str,
+    ) -> impl Iterator<Item = (&'a PatchNode, u32)> {
+        self.nodes.iter().filter_map(move |node| {
+            if !matches!(node.body, NodeBody::Channel(_)) {
+                return None;
+            }
+            // The stream is what the wire says, not the string "iq": the device end of the edge
+            // may name any port of its rx family.
+            let stream = self.edges.iter().find_map(|edge| {
+                (edge.to.node == node.id && edge.to.port == "iq" && edge.from.node == device_node)
+                    .then(|| port_stream("iq", &edge.from.port))
+                    .flatten()
+            })?;
+            Some((node, stream))
         })
     }
 
@@ -709,7 +832,7 @@ impl PatchGraph {
                 return Err(PatchError::PortOccupied(edge.to.clone()));
             }
             // An output says its arity too: a stream fans out, ownership does not, and a scanner
-            // sweeping two radios at once is a station the engine cannot run.
+            // sweeping two radios at once is a workspace the engine cannot run.
             if left.contains(&&edge.from) && !out.multi {
                 return Err(PatchError::PortOccupied(edge.from.clone()));
             }
@@ -737,11 +860,19 @@ impl PatchGraph {
         let node = self
             .node(&reference.node)
             .ok_or_else(|| PatchError::UnknownNode(reference.node.clone()))?;
+        // A repeating port admits its whole bounded family, backing or not: validation is pure
+        // over the stored graph and runs on every write, so refusing a stored `iq3` here would
+        // refuse every later write — a node drag included. [`MAX_STREAMS`] is what keeps an
+        // arbitrary name `UnknownPort`.
         let spec = node
             .body
             .ports()
             .into_iter()
-            .find(|port| port.name == reference.port)
+            .find(|port| {
+                port.name == reference.port
+                    || (port.repeat != PortRepeat::Once
+                        && port_stream(&port.name, &reference.port).is_some())
+            })
             .ok_or_else(|| PatchError::UnknownPort(reference.clone()))?;
         if spec.direction != direction {
             return Err(PatchError::Direction(reference.clone()));
@@ -754,7 +885,7 @@ impl PatchGraph {
         // is pure over the stored graph. Nothing is let through by the gap — no port emits
         // [`PortType::Tx`], so an edge into a transmit input dies on the type mismatch first
         // (`the_reserved_transmit_input_can_take_no_wire`). The day something does emit it, the
-        // check moves to where the capabilities are: `apply_station`.
+        // check moves to where the capabilities are: the server's `bring_up`.
         if let (NodeBody::Channel(channel), Some(descriptors)) = (&node.body, channels) {
             let descriptor = descriptors
                 .iter()
@@ -837,7 +968,10 @@ impl ChannelParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::channel::ChannelSettings;
+    use crate::{
+        channel::ChannelSettings,
+        device::{Duplex, StreamScope},
+    };
 
     fn node(id: &str, body: NodeBody) -> PatchNode {
         PatchNode {
@@ -871,8 +1005,9 @@ mod tests {
         }
     }
 
-    /// Only the transmit flag matters to the port table; the rest of a radio's report does not.
-    fn capabilities(tx_capable: bool) -> Capabilities {
+    /// Only the transmit flag and the stream counts matter to the port table; the rest of a
+    /// radio's report does not.
+    fn capabilities(duplex: Duplex, rx_streams: u32, tx_streams: u32) -> Capabilities {
         Capabilities {
             freq_ranges: Vec::new(),
             sample_rates: Vec::new(),
@@ -881,7 +1016,10 @@ mod tests {
             antennas: Vec::new(),
             bandwidths: Vec::new(),
             extra: Vec::new(),
-            tx_capable,
+            duplex,
+            rx_streams,
+            tx_streams,
+            per_stream: StreamScope::default(),
         }
     }
 
@@ -910,7 +1048,7 @@ mod tests {
         ]
     }
 
-    fn station() -> PatchGraph {
+    fn workspace() -> PatchGraph {
         PatchGraph {
             nodes: vec![
                 node("dev", NodeBody::Device(DeviceNode::default())),
@@ -945,8 +1083,8 @@ mod tests {
     }
 
     #[test]
-    fn a_station_validates_structurally_and_against_the_registry() {
-        let graph = station();
+    fn a_workspace_validates_structurally_and_against_the_registry() {
+        let graph = workspace();
         graph.validate().expect("structurally valid");
         graph
             .validate_against(&descriptors())
@@ -955,7 +1093,7 @@ mod tests {
 
     #[test]
     fn an_unknown_channel_type_is_refused_only_against_the_registry() {
-        let mut graph = station();
+        let mut graph = workspace();
         graph.nodes[2] = channel("ch", "wefax");
         graph.validate().expect("structure alone cannot know");
         assert_eq!(
@@ -968,7 +1106,7 @@ mod tests {
     /// the wire is refused where the operator drew it, not at stream time.
     #[test]
     fn a_conditional_port_is_refused_on_a_type_that_lacks_it() {
-        let mut graph = station();
+        let mut graph = workspace();
         graph.nodes[2] = channel("ch", "adsb");
         let err = graph.validate_against(&descriptors()).unwrap_err();
         assert_eq!(
@@ -982,7 +1120,7 @@ mod tests {
 
     #[test]
     fn edges_must_name_real_ports_of_matching_type_and_direction() {
-        let mut wrong_type = station();
+        let mut wrong_type = workspace();
         wrong_type.edges.push(edge(("dev", "iq"), ("spk", "audio")));
         assert_eq!(
             wrong_type.validate(),
@@ -992,7 +1130,7 @@ mod tests {
             })
         );
 
-        let mut backwards = station();
+        let mut backwards = workspace();
         backwards.edges = vec![edge(("scope", "iq"), ("dev", "iq"))];
         assert_eq!(
             backwards.validate(),
@@ -1002,7 +1140,7 @@ mod tests {
             }))
         );
 
-        let mut unknown = station();
+        let mut unknown = workspace();
         unknown.edges = vec![edge(("dev", "iq"), ("scope", "tap"))];
         assert_eq!(
             unknown.validate(),
@@ -1012,7 +1150,7 @@ mod tests {
             }))
         );
 
-        let mut missing = station();
+        let mut missing = workspace();
         missing.edges = vec![edge(("ghost", "iq"), ("scope", "iq"))];
         assert_eq!(
             missing.validate(),
@@ -1024,7 +1162,7 @@ mod tests {
     /// `CoherentArray` exists (CANVAS §1, PLAN §6).
     #[test]
     fn a_single_input_takes_one_wire_and_an_output_fans_out() {
-        let mut two_devices = station();
+        let mut two_devices = workspace();
         two_devices
             .nodes
             .push(node("dev2", NodeBody::Device(DeviceNode::default())));
@@ -1038,7 +1176,7 @@ mod tests {
         );
 
         // The same device feeding a scope, a channel and a recorder is the point of the model.
-        let mut fanned = station();
+        let mut fanned = workspace();
         fanned.nodes.push(node("rec", NodeBody::Recorder));
         fanned.edges.push(edge(("dev", "iq"), ("rec", "iq")));
         fanned.validate().expect("iq fans out");
@@ -1046,7 +1184,7 @@ mod tests {
 
     #[test]
     fn duplicate_wires_and_self_wires_are_refused() {
-        let mut duplicate = station();
+        let mut duplicate = workspace();
         duplicate.edges.push(edge(("dev", "iq"), ("scope", "iq")));
         assert_eq!(
             duplicate.validate(),
@@ -1056,7 +1194,7 @@ mod tests {
             }))
         );
 
-        let mut loop_back = station();
+        let mut loop_back = workspace();
         loop_back.edges = vec![edge(("ch", "audio"), ("ch", "iq"))];
         assert_eq!(
             loop_back.validate(),
@@ -1064,7 +1202,7 @@ mod tests {
         );
     }
 
-    /// No station can be drawn that feeds itself. The proof is over the *kinds*: "some output of
+    /// No workspace can be drawn that feeds itself. The proof is over the *kinds*: "some output of
     /// kind A can reach some input of kind B" is read off the port table, and that graph — self
     /// edges included, since one would mean two nodes of a kind could feed each other — has to be
     /// acyclic. Stronger than the per-kind assertions it replaces, and it does not have to be
@@ -1130,7 +1268,7 @@ mod tests {
         );
 
         // The nearest thing to a transmit source is another radio's IQ, and the types do not join.
-        let mut retransmit = station();
+        let mut retransmit = workspace();
         retransmit
             .nodes
             .push(node("dev2", NodeBody::Device(DeviceNode::default())));
@@ -1145,7 +1283,7 @@ mod tests {
     }
 
     /// A receiver has no send side to draw. The reservation is per *radio*, not per node kind: an
-    /// RTL-SDR reports `tx_capable: false`, so the node standing for one has two ports, and the
+    /// An RTL-SDR is receive-only, so the node standing for one has two ports, and the
     /// operator is never shown a socket their hardware does not have.
     #[test]
     fn only_a_radio_that_can_transmit_shows_a_transmit_input() {
@@ -1156,8 +1294,14 @@ mod tests {
 
         let named =
             |port: &PortSpec, caps: &Capabilities| port.applies_to(Some(PortBacking::Device(caps)));
-        assert!(!named(&transmit, &capabilities(false)), "a receiver");
-        assert!(named(&transmit, &capabilities(true)), "a transceiver");
+        assert!(
+            !named(&transmit, &capabilities(Duplex::RxOnly, 1, 0)),
+            "a receiver"
+        );
+        assert!(
+            named(&transmit, &capabilities(Duplex::Half, 1, 1)),
+            "a transceiver"
+        );
         // Which radio is behind the node is stored; what it can do is not — so an unattached one
         // is a receiver until it says otherwise.
         assert!(!transmit.applies_to(None), "no radio bound");
@@ -1175,7 +1319,7 @@ mod tests {
     /// the engine runs one sweep per device set, and a set answers to one sweep.
     #[test]
     fn a_scanner_owns_the_one_radio_its_wire_runs_into() {
-        let mut driven = station();
+        let mut driven = workspace();
         driven.nodes.push(node("scan", NodeBody::Scanner));
         driven
             .edges
@@ -1223,32 +1367,32 @@ mod tests {
 
     #[test]
     fn ids_geometry_and_labels_are_bounded() {
-        let mut duplicate = station();
+        let mut duplicate = workspace();
         duplicate.nodes.push(node("dev", NodeBody::Scope));
         assert_eq!(
             duplicate.validate(),
             Err(PatchError::DuplicateNode("dev".to_owned()))
         );
 
-        let mut empty_id = station();
+        let mut empty_id = workspace();
         empty_id.nodes[1].id = String::new();
         assert!(matches!(empty_id.validate(), Err(PatchError::NodeId(_))));
 
-        let mut far_away = station();
+        let mut far_away = workspace();
         far_away.nodes[1].position.x = f32::INFINITY;
         assert_eq!(
             far_away.validate(),
             Err(PatchError::Geometry("scope".to_owned()))
         );
 
-        let mut flat = station();
+        let mut flat = workspace();
         flat.nodes[1].size = Some(Size { w: 0.0, h: 100.0 });
         assert_eq!(
             flat.validate(),
             Err(PatchError::Geometry("scope".to_owned()))
         );
 
-        let mut long_label = station();
+        let mut long_label = workspace();
         long_label.nodes[1].label = Some("x".repeat(MAX_NAME_LEN + 1));
         assert_eq!(
             long_label.validate(),
@@ -1263,18 +1407,21 @@ mod tests {
             key: "0".to_owned(),
             label: "RTL-SDR".to_owned(),
             serial: Some("00000001".to_owned()),
+            profile: None,
         };
         let file = DeviceInfo {
             driver: "virtual".to_owned(),
             key: "file:/rec/capture".to_owned(),
             label: "capture".to_owned(),
             serial: None,
+            profile: None,
         };
         let siggen = DeviceInfo {
             driver: "virtual".to_owned(),
             key: "siggen".to_owned(),
             label: "Signal Generator".to_owned(),
             serial: None,
+            profile: None,
         };
 
         let by_serial = DeviceRef::from_info(&hardware);
@@ -1309,23 +1456,239 @@ mod tests {
             key: "0".to_owned(),
             label: "HackRF One".to_owned(),
             serial: None,
+            profile: None,
         }));
         assert!(!singleton.matches(&hardware));
     }
 
     #[test]
     fn channels_of_walks_the_wires_in_stored_order() {
-        let mut graph = station();
+        let mut graph = workspace();
         graph.nodes.push(channel("ch2", "adsb"));
         graph.edges.push(edge(("dev", "iq"), ("ch2", "iq")));
-        let bound: Vec<&str> = graph.channels_of("dev").map(|n| n.id.as_str()).collect();
-        assert_eq!(bound, vec!["ch", "ch2"]);
+        let bound: Vec<(&str, u32)> = graph
+            .channels_of("dev")
+            .map(|(n, stream)| (n.id.as_str(), stream))
+            .collect();
+        assert_eq!(bound, vec![("ch", 0), ("ch2", 0)]);
         assert_eq!(graph.channels_of("scope").count(), 0);
+    }
+
+    /// Binding follows the wire, not the string: a channel on `dev.iq3` belongs to that device
+    /// and that stream, or its engine channel would leak on delete and swap settings on bind.
+    #[test]
+    fn channels_of_reports_the_stream_each_channel_taps() {
+        let mut graph = workspace();
+        graph.nodes.push(channel("ch2", "adsb"));
+        graph.edges.push(edge(("dev", "iq3"), ("ch2", "iq")));
+        graph.validate().expect("a stream-3 wire is valid");
+        let bound: Vec<(&str, u32)> = graph
+            .channels_of("dev")
+            .map(|(n, stream)| (n.id.as_str(), stream))
+            .collect();
+        assert_eq!(bound, vec![("ch", 0), ("ch2", 2)]);
+    }
+
+    #[test]
+    fn stream_ports_number_from_two_and_round_trip() {
+        for base in ["iq", "tx"] {
+            assert_eq!(stream_port(base, 0), base, "stream 0 keeps the bare name");
+            assert_eq!(stream_port(base, 1), format!("{base}2"));
+            for index in 0..MAX_STREAMS {
+                assert_eq!(port_stream(base, &stream_port(base, index)), Some(index));
+            }
+        }
+        assert_eq!(port_stream("iq", "iq3"), Some(2));
+        assert_eq!(
+            port_stream("iq", "iq16"),
+            Some(15),
+            "the last storable name"
+        );
+    }
+
+    #[test]
+    fn a_name_outside_the_family_addresses_no_stream() {
+        // Stream 0 is spelled "iq": one spelling per port, or arity would split across aliases.
+        assert_eq!(port_stream("iq", "iq1"), None);
+        assert_eq!(port_stream("iq", "iq0"), None);
+        assert_eq!(port_stream("iq", "iqx"), None);
+        assert_eq!(port_stream("iq", "iq17"), None, "over MAX_STREAMS");
+        assert_eq!(port_stream("iq", "tx2"), None);
+        assert_eq!(port_stream("iq", "iq02"), None);
+        assert_eq!(port_stream("iq", "iq+2"), None);
+        assert_eq!(port_stream("iq", "iq2 "), None);
+        assert_eq!(port_stream("iq", ""), None);
+    }
+
+    /// The catalog stays static; the expansion happens wherever the stream counts are known.
+    #[test]
+    fn ports_with_expands_a_repeating_port_per_stream() {
+        let device = NodeBody::Device(DeviceNode::default());
+        let names = |caps: &Capabilities| {
+            device
+                .ports_with(Some(PortBacking::Device(caps)))
+                .into_iter()
+                .map(|port| port.name)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            names(&capabilities(Duplex::RxOnly, 4, 0)),
+            vec!["control", "iq", "iq2", "iq3", "iq4"]
+        );
+        assert_eq!(
+            names(&capabilities(Duplex::Full, 2, 2)),
+            vec!["control", "tx", "tx2", "iq", "iq2"]
+        );
+        assert_eq!(
+            names(&capabilities(Duplex::RxOnly, 1, 0)),
+            vec!["control", "iq"],
+            "a single-stream radio keeps the table it always had"
+        );
+
+        // Every expanded port is the base socket at another name: same type, side and arity,
+        // and concrete (`Once`) so nothing expands it again.
+        let expanded =
+            device.ports_with(Some(PortBacking::Device(&capabilities(Duplex::Full, 2, 2))));
+        for port in &expanded {
+            assert_eq!(port.repeat, PortRepeat::Once, "{}", port.name);
+        }
+        let iq2 = expanded.iter().find(|p| p.name == "iq2").unwrap();
+        assert_eq!(iq2.port_type, PortType::Iq);
+        assert_eq!(iq2.direction, PortDirection::Out);
+        assert!(iq2.multi, "each stream fans out on its own");
+        let tx2 = expanded.iter().find(|p| p.name == "tx2").unwrap();
+        assert_eq!(tx2.condition, PortCondition::DeviceIsTxCapable);
+        assert!(tx2.note.is_some(), "every reserved transmit port says why");
+    }
+
+    #[test]
+    fn an_unbacked_node_expands_to_stream_zero_only() {
+        let device = NodeBody::Device(DeviceNode::default());
+        let names: Vec<String> = device
+            .ports_with(None)
+            .into_iter()
+            .map(|port| port.name)
+            .collect();
+        assert_eq!(names, vec!["control", "iq"]);
+
+        // A channel's ports never repeat; its backing only resolves conditions.
+        let body = NodeBody::Channel(ChannelNode {
+            channel_type: "nfm".to_owned(),
+        });
+        let nfm = &descriptors()[0];
+        let names: Vec<String> = body
+            .ports_with(Some(PortBacking::Channel(nfm)))
+            .into_iter()
+            .map(|port| port.name)
+            .collect();
+        assert_eq!(names, vec!["iq", "audio"]);
+    }
+
+    /// Edge cases §10.2: a radio reporting 0 rx streams still has the one IQ port every stored
+    /// wire names; a count past `MAX_STREAMS` would draw ports no wire could validly reach.
+    #[test]
+    fn a_zero_or_outsize_stream_count_is_clamped() {
+        let device = NodeBody::Device(DeviceNode::default());
+        let names = |caps: &Capabilities| {
+            device
+                .ports_with(Some(PortBacking::Device(caps)))
+                .into_iter()
+                .map(|port| port.name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(&capabilities(Duplex::RxOnly, 0, 0)),
+            vec!["control", "iq"]
+        );
+        let outsize = names(&capabilities(Duplex::RxOnly, 100, 0));
+        assert_eq!(outsize.len() as u32, 1 + MAX_STREAMS);
+        assert_eq!(outsize.last().map(String::as_str), Some("iq16"));
+    }
+
+    /// §4: validation is pure and runs over the whole snapshot on every write, so a stored
+    /// `iq3` must resolve with no device backing — refusing it would refuse every later write.
+    #[test]
+    fn validation_resolves_the_bounded_stream_family() {
+        let mut streamed = workspace();
+        streamed.edges[0] = edge(("dev", "iq3"), ("scope", "iq"));
+        streamed.validate().expect("iq3 is within the family");
+        streamed
+            .validate_against(&descriptors())
+            .expect("the registry checks do not disturb the family");
+
+        for bad in ["iq17", "iqx", "iq1", "iq0"] {
+            let mut graph = workspace();
+            graph.edges[0] = edge(("dev", bad), ("scope", "iq"));
+            assert_eq!(
+                graph.validate(),
+                Err(PatchError::UnknownPort(PortRef {
+                    node: "dev".to_owned(),
+                    port: bad.to_owned()
+                })),
+                "{bad} is outside the family"
+            );
+        }
+
+        // The family exists only where the table repeats: a channel consumes one stream, so
+        // its input has no siblings.
+        let mut channel_family = workspace();
+        channel_family.edges[1] = edge(("dev", "iq"), ("ch", "iq2"));
+        assert_eq!(
+            channel_family.validate(),
+            Err(PatchError::UnknownPort(PortRef {
+                node: "ch".to_owned(),
+                port: "iq2".to_owned()
+            }))
+        );
+    }
+
+    /// §4: two edges into `dev.iq2` and `dev.iq3` are two distinct ports, not one port twice.
+    #[test]
+    fn arity_is_checked_per_resolved_stream_port() {
+        // One stream fans out to a scope and a channel, exactly as stream 0 always has.
+        let mut fanned = workspace();
+        fanned.edges[0] = edge(("dev", "iq2"), ("scope", "iq"));
+        fanned.edges[1] = edge(("dev", "iq2"), ("ch", "iq"));
+        fanned.validate().expect("a stream fans out");
+
+        // Two different streams into one single-wire input are still two wires into it.
+        let mut crossed = workspace();
+        crossed.edges.push(edge(("dev", "iq3"), ("scope", "iq")));
+        assert_eq!(
+            crossed.validate(),
+            Err(PatchError::PortOccupied(PortRef {
+                node: "scope".to_owned(),
+                port: "iq".to_owned()
+            }))
+        );
+
+        let mut doubled = workspace();
+        doubled.edges[0] = edge(("dev", "iq2"), ("scope", "iq"));
+        doubled.edges.push(edge(("dev", "iq2"), ("scope", "iq")));
+        assert_eq!(
+            doubled.validate(),
+            Err(PatchError::DuplicateEdge(PortRef {
+                node: "scope".to_owned(),
+                port: "iq".to_owned()
+            }))
+        );
+
+        // A resolved stream port still sits on the side its base does.
+        let mut backwards = workspace();
+        backwards.edges = vec![edge(("ch", "audio"), ("dev", "iq2"))];
+        assert_eq!(
+            backwards.validate(),
+            Err(PatchError::Direction(PortRef {
+                node: "dev".to_owned(),
+                port: "iq2".to_owned()
+            }))
+        );
     }
 
     #[test]
     fn the_rack_is_a_grid_with_no_two_faces_in_one_cell() {
-        let graph = station();
+        let graph = workspace();
         let slot = |node: &str, x, y, w, h| RackSlot {
             node: node.to_owned(),
             cell: RackCell { x, y, w, h },
@@ -1403,15 +1766,31 @@ mod tests {
         let ports = &json["nodes"][0]["ports"];
         assert_eq!(ports[0]["port_type"], "control");
         assert_eq!(ports[0]["direction"], "in");
+        assert!(
+            ports[0].get("repeat").is_none(),
+            "the common case stays off the wire"
+        );
         assert_eq!(ports[1]["port_type"], "tx");
         assert_eq!(ports[1]["condition"], "device_is_tx_capable");
+        assert_eq!(ports[1]["repeat"], "per_tx_stream");
         assert!(ports[1]["note"].is_string(), "the reserved port says why");
         assert_eq!(ports[2]["port_type"], "iq");
         assert_eq!(ports[2]["direction"], "out");
+        assert_eq!(ports[2]["repeat"], "per_rx_stream");
         assert!(
             ports[2].get("condition").is_none() && ports[2].get("note").is_none(),
             "the common case stays off the wire"
         );
+
+        // A catalog from a peer that predates `repeat` reads every port as `Once`; the roundtrip
+        // pins that the field is the only thing the elision drops.
+        let back: PatchCatalog = serde_json::from_value(json).unwrap();
+        assert_eq!(back, catalog);
+        let bare: PortSpec = serde_json::from_str(
+            r#"{"name":"iq","port_type":"iq","direction":"in","multi":false}"#,
+        )
+        .unwrap();
+        assert_eq!(bare.repeat, PortRepeat::Once);
     }
 
     /// A channel node names a type; the engine is asked for a channel at that type's documented

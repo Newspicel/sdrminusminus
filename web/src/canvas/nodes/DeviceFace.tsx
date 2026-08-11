@@ -17,17 +17,63 @@ import { DeviceChoices, deviceId } from "../../components/OpenRadio";
 import { RadioSettings } from "../../components/RadioSettings";
 import { createDeviceSet, STATE_KEY } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
-import type { DeviceInfo, DeviceRef, DeviceSet, PatchNode } from "../../lib/types";
-import { useDevicePatch } from "../../lib/useDevicePatch";
+import type {
+  Capabilities,
+  DeviceInfo,
+  DeviceRef,
+  DeviceSet,
+  DeviceSettings,
+  PatchNode,
+} from "../../lib/types";
+import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { deviceRefOf, refMatches, unboundChannels } from "../binding";
-import { useStationContext } from "../context";
-import { patchNode } from "../graph";
+import { useWorkspaceContext } from "../context";
+import { patchNode, rxStreamCount, streamLabel } from "../graph";
 import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
 
-/** One dial per device node, and an id has to be unique in the document — this is the handle a
- * keyboard binding uses to reach the selected node's dial. */
-export function deviceDialId(node: string): string {
-  return `${DIAL_ID}:${node}`;
+/** An id has to be unique in the document. Stream 0's dial keeps the bare id — it is the one the
+ * `f` keyboard binding reaches, and a single-stream radio only has that one. */
+export function deviceDialId(node: string, stream = 0): string {
+  return stream === 0 ? `${DIAL_ID}:${node}` : `${DIAL_ID}:${node}:${stream}`;
+}
+
+/** One dial's worth of the face: which stream it tunes, the IQ port it answers to (`null` when
+ * the radio has one tuning for every lane and the single dial needs no name), and the centre it
+ * shows — the lane's own override where one exists, the radio-wide value otherwise. */
+export interface TunerDial {
+  stream: number;
+  port: string | null;
+  hz: number;
+}
+
+/**
+ * The dials this radio's face draws. One, unlabelled, unless the radio itself declares tuning
+ * per-stream (`Capabilities::per_stream`): a coherent array shares one tuner by definition, so
+ * even four lanes get a single dial — while a radio with a synthesizer per stream gets one per
+ * lane, each named after the IQ port it feeds so the dial and the wire read as the same thing.
+ */
+export function tunerDials(set: DeviceSet): TunerDial[] {
+  const capabilities = set.capabilities;
+  const scope = capabilities.per_stream;
+  const streams = rxStreamCount(capabilities);
+  // One dial needs no name, and two named all but the first would read as if the unnamed one were
+  // the radio's rather than lane 0's.
+  if (scope?.tuning !== true || streams < 2) {
+    return [{ stream: 0, port: null, hz: set.settings.center_hz ?? 0 }];
+  }
+  return Array.from({ length: streams }, (_, stream) => ({
+    stream,
+    port: streamLabel("iq", stream, streams),
+    hz: forStream(set.settings, stream, scope).center_hz ?? 0,
+  }));
+}
+
+/** The retune delta for one dial: a stream override on a radio whose lanes tune apart — so only
+ * the lane touched moves — and the radio-wide centre everywhere else. */
+export function tuneDelta(capabilities: Capabilities, stream: number, hz: number): DeviceSettings {
+  return capabilities.per_stream?.tuning === true
+    ? { streams: [{ stream, center_hz: hz }] }
+    : { center_hz: hz };
 }
 
 /** The radio a reference names, in the terms the operator would use to go and find it. A ref
@@ -46,14 +92,21 @@ function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning
   const active = useFaceActive();
   return (
     <div className="@container flex flex-col gap-1 border-b border-line p-2">
-      <FrequencyDial
-        id={deviceDialId(node)}
-        hz={set.settings.center_hz ?? 0}
-        range={tuningRange(set.capabilities)}
-        disabled={scanning}
-        wheelTunes={active}
-        onTune={(hz) => applyPatch(set.id, { center_hz: hz })}
-      />
+      {tunerDials(set).map((dial) => (
+        <div key={dial.stream} className="flex flex-col">
+          {/* The `legend` class uppercases, so the label renders exactly as the port handle
+              beside it does: `iq2` on the wire is IQ2 on the dial. */}
+          {dial.port !== null && <span className="legend">{dial.port}</span>}
+          <FrequencyDial
+            id={deviceDialId(node, dial.stream)}
+            hz={dial.hz}
+            range={tuningRange(set.capabilities)}
+            disabled={scanning}
+            wheelTunes={active}
+            onTune={(hz) => applyPatch(set.id, tuneDelta(set.capabilities, dial.stream, hz))}
+          />
+        </div>
+      ))}
       {scanning && (
         <p className="text-xs text-ink-dim">
           The scanner is driving this radio; tuning from here is refused until it stops.
@@ -70,17 +123,17 @@ export function scannerOwnsTuning(set: DeviceSet): boolean {
 }
 
 export function DeviceFace({ node }: { node: PatchNode }) {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
   // The kind test is what narrows `node.data` to a device node's payload.
   const reference = node.kind === "device" ? (node.data.device ?? null) : null;
-  const set = station.devices.get(node.id) ?? null;
+  const set = workspace.devices.get(node.id) ?? null;
 
   const open = useMutation({
     mutationFn: createDeviceSet,
     // A radio that just arrived can be the one a channel node has been waiting for, and apply is
     // idempotent, so asking every time costs nothing.
-    onSuccess: () => station.apply(),
+    onSuccess: () => workspace.apply(),
     // Naming the radio has already flipped this face to its disconnected state by the time a
     // refusal lands, so the inline error below is no longer on screen to carry it.
     onError: (error: Error) => pushToast(error.message),
@@ -90,7 +143,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
   // The durable reference is what the patch stores — never an engine id, which is allocated per
   // run and would bind this node to whichever radio opened first (CANVAS §3).
   const nameRadio = (chosen: DeviceRef | null): void =>
-    station.edit((snapshot) => ({
+    workspace.edit((snapshot) => ({
       ...snapshot,
       graph: patchNode(snapshot.graph, node.id, (stored) =>
         stored.kind === "device" ? { ...stored, data: { device: chosen } } : stored,
@@ -100,8 +153,8 @@ export function DeviceFace({ node }: { node: PatchNode }) {
   const bind = (device: DeviceInfo): void => {
     const chosen = deviceRefOf(device);
     nameRadio(chosen);
-    if (station.deviceSets.some((candidate) => refMatches(chosen, candidate.device))) {
-      station.apply();
+    if (workspace.deviceSets.some((candidate) => refMatches(chosen, candidate.device))) {
+      workspace.apply();
     } else {
       open.mutate(deviceId(device));
     }
@@ -150,7 +203,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
 
   const scanning = scannerOwnsTuning(set);
   const overruns = set.overruns ?? 0;
-  const orphans = unboundChannels(station.graph, node.id, set, station.channels);
+  const orphans = unboundChannels(workspace.graph, node.id, set, workspace.channels);
 
   return (
     <NodeShell

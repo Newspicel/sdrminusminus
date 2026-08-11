@@ -11,9 +11,11 @@ use std::{
 
 use arc_swap::ArcSwap;
 use num_complex::Complex;
-use sdrmm_device::{DeviceError, RxSink, SdrDevice, Worker};
+use sdrmm_device::{DeviceError, RxSink, SdrDevice, Worker, check_stream_settings, single_rx_sink};
 use sdrmm_recorder::{SigmfError, SigmfReader};
-use sdrmm_wire::{Capabilities, DeviceSettings, ExtraSetting, ExtraValue, Range};
+use sdrmm_wire::{
+    Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, Range, StreamScope,
+};
 
 use crate::{BLOCK_SECS, DRIVER_ID, FILE_KEY_PREFIX};
 
@@ -78,7 +80,10 @@ impl FilePlayback {
                 name: LOOP_SETTING.to_string(),
                 default: true,
             }],
-            tx_capable: false,
+            duplex: Duplex::RxOnly,
+            rx_streams: 1,
+            tx_streams: 0,
+            per_stream: StreamScope::default(),
         };
         let settings = DeviceSettings {
             center_hz: Some(center_hz),
@@ -129,6 +134,7 @@ impl SdrDevice for FilePlayback {
     }
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
+        check_stream_settings(settings, &self.capabilities)?;
         if let Some(rate) = settings.sample_rate
             && !self.capabilities.sample_rates.contains(&rate)
         {
@@ -165,7 +171,8 @@ impl SdrDevice for FilePlayback {
         Ok(())
     }
 
-    fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+    fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+        let mut sink = single_rx_sink(sinks)?;
         let shared = self.shared.clone();
         let stem = self.stem.clone();
         let sample_rate = self.sample_rate;
@@ -240,6 +247,7 @@ mod tests {
     use std::{fs, sync::mpsc, time::Duration};
 
     use sdrmm_recorder::{SigmfWriter, data_path, meta_path};
+    use sdrmm_wire::StreamSettings;
     use tempfile::TempDir;
 
     use super::*;
@@ -273,9 +281,9 @@ mod tests {
 
     fn start(dev: &mut FilePlayback) -> mpsc::Receiver<Vec<Complex<f32>>> {
         let (tx, rx) = mpsc::channel();
-        dev.rx_start(RxSink::new(move |s| {
+        dev.rx_start(vec![RxSink::new(move |s| {
             let _ = tx.send(s.to_vec());
-        }))
+        })])
         .unwrap();
         rx
     }
@@ -390,6 +398,15 @@ mod tests {
                 }],
                 ..DeviceSettings::default()
             },
+            // A recording has one stream and declares nothing per-stream.
+            DeviceSettings {
+                streams: vec![StreamSettings {
+                    stream: 0,
+                    center_hz: Some(100_000_000.0),
+                    ..StreamSettings::default()
+                }],
+                ..DeviceSettings::default()
+            },
         ] {
             assert!(
                 matches!(dev.apply(&bad), Err(DeviceError::Unsupported(_))),
@@ -479,12 +496,12 @@ mod tests {
         fs::remove_file(data_path(&stem)).unwrap();
 
         let (tx, rx) = mpsc::channel();
-        dev.rx_start(RxSink::with_fatal_handler(
+        dev.rx_start(vec![RxSink::with_fatal_handler(
             |_| {},
             move |err| {
                 let _ = tx.send(err);
             },
-        ))
+        )])
         .unwrap();
         let err = rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert!(matches!(err, DeviceError::Io(_)));

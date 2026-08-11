@@ -1237,7 +1237,7 @@
         "operationId": "list_templates",
         "responses": {
           "200": {
-            "description": "Built-in station templates (read-only; presets are the writable kind)",
+            "description": "Built-in workspace templates (read-only; presets are the writable kind)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1565,7 +1565,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Workspace activated for every client"
+            "description": "Workspace activated for every client. The hardware is reconciled to it: radios this workspace does not name are closed, channels it does not draw are dropped, and the radios it keeps are put back where it was left. Apply opens the rest"
           },
           "400": {
             "description": "Invalid path parameter",
@@ -1607,7 +1607,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The station was brought up: radios opened, channels added, and what could not be satisfied. Additive and idempotent — nothing is closed or deleted, so calling it twice changes nothing",
+            "description": "The workspace was brought up: radios opened, channels added, and what could not be satisfied. Additive and idempotent — nothing is closed or deleted, so calling it twice changes nothing",
             "content": {
               "application/json": {
                 "schema": {
@@ -2177,6 +2177,10 @@
               "format": "double"
             }
           },
+          "duplex": {
+            "$ref": "#/components/schemas/Duplex",
+            "description": "Which directions this radio has, and whether it can run them together. Receive-only\nunless a backend says otherwise, so a device cannot advertise a transmitter by omission.\nThis is the *hardware's* shape, not a permission: PLAN §12a gates transmit behind an\nauthorized-use switch that does not exist, so a `half` radio still transmits nothing."
+          },
           "extra": {
             "type": "array",
             "items": {
@@ -2196,6 +2200,16 @@
               "$ref": "#/components/schemas/GainStage"
             }
           },
+          "per_stream": {
+            "$ref": "#/components/schemas/StreamScope",
+            "description": "Which settings each receive stream holds on its own. Which settings are per-stream is a\nproperty of the *radio* — a coherent array shares one tuning by definition while a\ntwo-daughterboard USRP genuinely has two — so the radio declares it, the same way it\ndeclares gains and antennas."
+          },
+          "rx_streams": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many independent receive streams this radio delivers at once. One for an ordinary\nSDR; a KrakenSDR is five coherent channels on one USB device, which is why this is a\ncount and not a bool. A device node draws one IQ output per stream.",
+            "minimum": 0
+          },
           "sample_rate_range": {
             "oneOf": [
               {
@@ -2214,9 +2228,11 @@
             },
             "description": "Supported sample rates in samples/s. Empty means \"continuous\", use `sample_rate_range`."
           },
-          "tx_capable": {
-            "type": "boolean",
-            "description": "True once TX is implemented; declared from day one, unused in the RX phases (PLAN §1)."
+          "tx_streams": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many independent transmit streams it accepts. Reported for symmetry and for the\ndevice picker; the canvas still draws a single reserved transmit input, because there is\nnothing to wire into it until PLAN §12a lands.",
+            "minimum": 0
           }
         }
       },
@@ -2288,6 +2304,12 @@
           },
           "settings": {
             "$ref": "#/components/schemas/ChannelSettings"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Which of the device's receive streams feeds this channel. Defaults to 0 because a peer\nthat predates multi-stream devices names no stream and means the only one its radio has.",
+            "minimum": 0
           }
         }
       },
@@ -2627,6 +2649,12 @@
                     "format": "int32",
                     "description": "Requested frame rate; server clamps to its supported range.",
                     "minimum": 0
+                  },
+                  "stream": {
+                    "type": "integer",
+                    "format": "int32",
+                    "description": "Which receive stream's spectrum. Defaults to 0 so a client that predates\nmulti-stream devices keeps its subscription; which stream a binary frame carries is\nimplicit in this subscription, never a frame header field.",
+                    "minimum": 0
                   }
                 }
               },
@@ -2640,7 +2668,7 @@
           },
           {
             "type": "object",
-            "description": "Stop the spectrum stream for a device set.",
+            "description": "Stop one receive stream's spectrum. `stream` defaults to 0, so a client that predates\nmulti-stream radios ends the subscription it started; without it, unsubscribing one scope\nwould silence every other lane of the same radio on this connection.",
             "required": [
               "data",
               "type"
@@ -2648,12 +2676,17 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Stop the spectrum stream for a device set.",
+                "description": "Stop one receive stream's spectrum. `stream` defaults to 0, so a client that predates\nmulti-stream radios ends the subscription it started; without it, unsubscribing one scope\nwould silence every other lane of the same radio on this connection.",
                 "required": [
                   "device_set"
                 ],
                 "properties": {
                   "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "stream": {
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
@@ -2795,6 +2828,12 @@
         "properties": {
           "settings": {
             "$ref": "#/components/schemas/ChannelSettings"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Which of the device's receive streams the channel taps. Defaults to 0 so a client that\npredates multi-stream devices keeps meaning the only stream its radio has; out of range\nis a bad request naming the count, never a silent fallback.",
+            "minimum": 0
           }
         }
       },
@@ -2846,7 +2885,7 @@
               },
               {
                 "$ref": "#/components/schemas/WorkspaceSnapshot",
-                "description": "Station to start from; omitted means [`WorkspaceSnapshot::empty`] — a new workspace is a\nclean bench. Only the first workspace a fresh install seeds opens on a starter station."
+                "description": "Workspace to start from; omitted means [`WorkspaceSnapshot::empty`] — a new workspace is a\nclean bench. Only the first workspace a fresh install seeds opens on a starter workspace."
               }
             ]
           }
@@ -3218,6 +3257,17 @@
             "type": "string",
             "description": "Human label for the device picker."
           },
+          "profile": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeviceProfile",
+                "description": "What the driver can say about this radio *without opening it* — enough to tell whether a\nworkspace template could run here, so the picker offers only the devices that fit.\n\n`None` means \"not known until it is opened\", which is what a backend that has to ask the\nhardware reports (Soapy). Unknown is never read as capable: a device with no profile is\noffered with that said plainly, rather than filtered in on a guess.\n\nIt is deliberately narrower than [`Capabilities`]: everything here is a fact about the\n*model*, so a driver can answer from a table. Gain stages, antennas and the extras are\nthe unit's and are read when it opens — reporting an empty gain list at probe time would\nnot read as \"not asked yet\", it would read as \"no gain control\"."
+              }
+            ]
+          },
           "serial": {
             "type": [
               "string",
@@ -3229,7 +3279,7 @@
       },
       "DeviceNode": {
         "type": "object",
-        "description": "A device node's payload: the radio it names, or nothing yet.\n\nUnbound is a first-class state, not an error — it is the empty node a fresh station starts on,\nand it renders the device picker. Bound-but-absent is the other one: controls disabled,\nwires kept, never silently rebound (CANVAS §3).",
+        "description": "A device node's payload: the radio it names, or nothing yet.\n\nUnbound is a first-class state, not an error — it is the empty node a fresh workspace starts on,\nand it renders the device picker. Bound-but-absent is the other one: controls disabled,\nwires kept, never silently rebound (CANVAS §3).",
         "properties": {
           "device": {
             "oneOf": [
@@ -3240,6 +3290,61 @@
                 "$ref": "#/components/schemas/DeviceRef"
               }
             ]
+          }
+        }
+      },
+      "DeviceProfile": {
+        "type": "object",
+        "description": "The part of a radio's capability that is a property of the model rather than the unit.\n\nSplit out so it can be answered twice from one declaration: by a probe, which has only a USB\ndescriptor, and by [`Capabilities::profile`] on a radio that is already open. Nothing\nconstructs it by hand — it is always a projection of a full capability set, which is what\nkeeps the two from drifting.",
+        "required": [
+          "freq_ranges",
+          "sample_rates",
+          "duplex",
+          "rx_streams",
+          "tx_streams"
+        ],
+        "properties": {
+          "duplex": {
+            "$ref": "#/components/schemas/Duplex"
+          },
+          "freq_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            },
+            "description": "Tunable centre-frequency ranges in Hz (multiple = discontiguous tuner ranges)."
+          },
+          "per_stream": {
+            "$ref": "#/components/schemas/StreamScope",
+            "description": "Which settings each stream holds on its own — a property of the model, so the picker can\ntell a coherent array from a bank of independent tuners without opening the radio."
+          },
+          "rx_streams": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sample_rate_range": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Range"
+              }
+            ]
+          },
+          "sample_rates": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "description": "Supported sample rates in samples/s. Empty means \"continuous\", use `sample_rate_range`."
+          },
+          "tx_streams": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -3399,6 +3504,13 @@
               "null"
             ],
             "format": "double"
+          },
+          "streams": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StreamSettings"
+            },
+            "description": "Per-stream overrides, by stream index. Only the fields [`Capabilities::per_stream`] marks\nas per-stream are read here; the rest are the radio's and live above."
           }
         }
       },
@@ -3416,6 +3528,14 @@
             }
           }
         }
+      },
+      "Direction": {
+        "type": "string",
+        "description": "One signal direction.",
+        "enum": [
+          "rx",
+          "tx"
+        ]
       },
       "DoctorCheck": {
         "type": "object",
@@ -3475,6 +3595,16 @@
             "description": "Server version (`CARGO_PKG_VERSION`)."
           }
         }
+      },
+      "Duplex": {
+        "type": "string",
+        "description": "What a radio's hardware can do, and whether it can do it at once.\n\nIt lives here rather than in the device crate because it is the answer to \"what *kind* of\nradio is this\" that a workspace template filters on and the canvas draws ports from — the\narbitration that uses it ([`sdrmm-device`'s `DuplexState`]) is a separate thing, and stays\nwith the backends.",
+        "enum": [
+          "rx_only",
+          "tx_only",
+          "half",
+          "full"
+        ]
       },
       "ExportFormat": {
         "type": "string",
@@ -3913,7 +4043,7 @@
       },
       "PatchApplyReport": {
         "type": "object",
-        "description": "`POST /api/workspaces/{id}/apply` — what applying the station did.\n\nApply is additive and idempotent: it opens the radios the graph names and adds the channels it\ndraws, and never closes or deletes anything. Removing a node is a gesture with its own\nendpoint; a reconciler that also deleted would turn \"this workspace has fewer nodes\" into\n\"close that operator's radio\".",
+        "description": "`POST /api/workspaces/{id}/apply` — what applying the workspace did.\n\nApply is additive and idempotent: it opens the radios the graph names and adds the channels it\ndraws, and never closes or deletes anything. Removing a node is a gesture with its own\nendpoint; a reconciler that also deleted would turn \"this workspace has fewer nodes\" into\n\"close that operator's radio\".",
         "required": [
           "bound",
           "opened",
@@ -4006,7 +4136,7 @@
       },
       "PatchGraph": {
         "type": "object",
-        "description": "The station as a graph (CANVAS §1).",
+        "description": "The workspace as a graph (CANVAS §1).",
         "required": [
           "nodes"
         ],
@@ -4196,6 +4326,15 @@
           }
         }
       },
+      "PortRepeat": {
+        "type": "string",
+        "description": "How many of a port a node really has. A repeating port is a *family*: the catalog is\nper-build static and cannot see how many streams a radio delivers, so it ships the base spec\nwith this flag and whoever can see the backing expands it — one port per stream, named by\n[`stream_port`].",
+        "enum": [
+          "once",
+          "per_rx_stream",
+          "per_tx_stream"
+        ]
+      },
       "PortSpec": {
         "type": "object",
         "description": "One port of a node type.",
@@ -4229,6 +4368,9 @@
           },
           "port_type": {
             "$ref": "#/components/schemas/PortType"
+          },
+          "repeat": {
+            "$ref": "#/components/schemas/PortRepeat"
           }
         }
       },
@@ -4513,6 +4655,12 @@
         "properties": {
           "action": {
             "$ref": "#/components/schemas/RecordAction"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Which receive stream a start records — one recording per set, on a named stream.\nDefaults to 0, the only stream a single-stream radio has.",
+            "minimum": 0
           }
         }
       },
@@ -4618,6 +4766,12 @@
           "started_at": {
             "type": "string",
             "description": "RFC3339 UTC."
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Which of the device's receive streams is being recorded. Defaults to 0 because a\nstatus from before multi-stream devices names no stream and means the only one its\nradio had.",
+            "minimum": 0
           }
         }
       },
@@ -4916,7 +5070,7 @@
           },
           {
             "type": "object",
-            "description": "A subscribed binary stream is now active with this stream id (see [`crate::frame`]).",
+            "description": "A subscribed spectrum stream is now active with this stream id (see [`crate::frame`]).\n\nThe id is allocated per connection, exactly like an audio one: a multi-stream radio can\nhave several lanes watched at once, so the device-set id is no longer enough to tell two\nspectra apart. `stream` names the lane this id carries — which is how the client knows\nwhich of its scopes the frames belong to, since the frame header carries only the id.",
             "required": [
               "data",
               "type"
@@ -4924,13 +5078,18 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "A subscribed binary stream is now active with this stream id (see [`crate::frame`]).",
+                "description": "A subscribed spectrum stream is now active with this stream id (see [`crate::frame`]).\n\nThe id is allocated per connection, exactly like an audio one: a multi-stream radio can\nhave several lanes watched at once, so the device-set id is no longer enough to tell two\nspectra apart. `stream` names the lane this id carries — which is how the client knows\nwhich of its scopes the frames belong to, since the frame header carries only the id.",
                 "required": [
                   "stream_id",
                   "device_set"
                 ],
                 "properties": {
                   "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "stream": {
                     "type": "integer",
                     "format": "int32",
                     "minimum": 0
@@ -5389,6 +5548,57 @@
           "audio"
         ]
       },
+      "StreamScope": {
+        "type": "object",
+        "description": "Which device settings each receive stream holds on its own, rather than sharing with the rest\nof the radio. All-false — the default, and what every capability set from before this field\ndescribes — is the single-stream radio.\n\nSample rate is deliberately absent and stays shared: one device, one clock domain. Channel\nrate validation, the recorder's SigMF `core:sample_rate` and the DSP lanes all assume it.",
+        "properties": {
+          "antenna": {
+            "type": "boolean",
+            "description": "Each stream selects its own antenna port."
+          },
+          "gain": {
+            "type": "boolean",
+            "description": "Each stream has its own gain stages. True on nearly every multi-stream radio, including\nthe coherent arrays: per-channel gain calibration is how an array is levelled."
+          },
+          "tuning": {
+            "type": "boolean",
+            "description": "Each stream tunes independently. False on a coherent array — the streams share one\ntuner reference and tuning them apart is what a coherent array must never do — and true\non a radio with a synthesizer per stream."
+          }
+        }
+      },
+      "StreamSettings": {
+        "type": "object",
+        "description": "One stream's overrides of the radio-wide [`DeviceSettings`]. Absent fields fall back to the\nradio-wide value — [`DeviceSettings::for_stream`] is the one place that resolution lives.",
+        "required": [
+          "stream"
+        ],
+        "properties": {
+          "antenna": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "center_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "gains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GainValue"
+            }
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "SubghzEncoding": {
         "type": "string",
         "description": "What a decoded sub-GHz burst turned out to be (PLAN §8b).",
@@ -5509,7 +5719,7 @@
       },
       "TemplateInfo": {
         "type": "object",
-        "description": "One built-in station template (PLAN §10: the template gallery). Read-only and\ndevice-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry\napplies to whatever hardware is open, provided the device can tune it.",
+        "description": "One built-in workspace template (PLAN §10: the template gallery). Read-only and\ndevice-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry\napplies to whatever hardware is open, provided the device can tune it.",
         "required": [
           "id",
           "name",
@@ -5536,6 +5746,14 @@
           "description": {
             "type": "string",
             "description": "One line for the gallery card."
+          },
+          "direction": {
+            "$ref": "#/components/schemas/Direction",
+            "description": "Which direction the radio has to have. Every built-in template receives; the field is\nhere because \"what kind of radio does this need\" is the question the picker asks, and a\ntransmit template must not be offered on a receiver the day one exists."
+          },
+          "exact_rate": {
+            "type": "boolean",
+            "description": "Whether `sample_rate` is the only rate that works, rather than a starting point. ADS-B\nfills its whole 2 MHz channel, so a resampled one decodes nothing (PLAN §18) — a radio\nwhose rate menu misses 2 Msps cannot run it at all, while an FM template is happy at\nanything wide enough."
           },
           "explainer": {
             "type": "string",
@@ -5564,13 +5782,20 @@
               },
               {
                 "$ref": "#/components/schemas/PatchGraph",
-                "description": "The patch the template draws into the active workspace (CANVAS §8 phase ④): a receiver,\nthe channels above, their wiring and the faces to operate them. Its channel nodes are the\n`channels` list in order, so the n-th node binds the n-th channel the apply creates. A\ntemplate that names no patch leaves the station alone."
+                "description": "The patch the template draws into the active workspace (CANVAS §8 phase ④): a receiver,\nthe channels above, their wiring and the faces to operate them. Its channel nodes are the\n`channels` list in order, so the n-th node binds the n-th channel the apply creates. A\ntemplate that names no patch leaves the workspace alone."
               }
             ]
           },
           "sample_rate": {
             "type": "number",
             "format": "double"
+          },
+          "supported_devices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Devices this template can actually run on, as `driver:key` handles — the server's answer,\ncomputed against each probed radio's [`crate::DeviceProfile`], so the gallery offers a\ndevice only when the template fits it.\n\nA radio whose driver reports no profile is *included*: unknown is not the same as\nunsuitable, and hiding a device because its backend cannot answer cheaply would make the\npicker lie. Empty on the static table; filled in per request.\n\nAlways serialized, unlike the other quiet fields: \"no attached radio can run this\" is a\nreal answer the gallery has to render, and eliding it would make it arrive as the absence\nthat means \"nobody asked\"."
           }
         }
       },
@@ -5651,11 +5876,11 @@
             }
           }
         ],
-        "description": "`GET /api/workspaces/{id}` — the row plus its station."
+        "description": "`GET /api/workspaces/{id}` — the row plus its workspace."
       },
       "WorkspaceInfo": {
         "type": "object",
-        "description": "`GET /api/workspaces` list entry — the projection a switcher needs, without the station.",
+        "description": "`GET /api/workspaces` list entry — the projection a switcher needs, without the workspace.",
         "required": [
           "id",
           "name",

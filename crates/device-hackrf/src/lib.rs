@@ -32,8 +32,8 @@ use std::{
 use convert::samples_to_cs8;
 use driver::{BurstQueue, DeviceDescriptor, HackRf, TX_TRANSFER_SIZE};
 use sdrmm_device::{
-    Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, Direction, Duplex,
-    DuplexState, RxSink, Sample, SdrDevice, TxStream, lock,
+    Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, Direction, DuplexState,
+    RxSink, Sample, SdrDevice, TxStream, lock, single_rx_sink,
 };
 use sdrmm_usb_stream::{NusbBulkOut, RxStream};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings};
@@ -96,6 +96,9 @@ fn device_info(descriptor: &DeviceDescriptor, index: usize) -> DeviceInfo {
             .unwrap_or_else(|| format!("{NOSERIAL_KEY_PREFIX}{index}")),
         label: device_label(descriptor),
         serial,
+        // A HackRF is a HackRF: everything the picker filters on is the model's, not the unit's,
+        // so a template can be matched against it without claiming the radio first.
+        profile: Some(caps::capabilities().profile()),
     }
 }
 
@@ -145,7 +148,7 @@ impl HackRfDriver {
     /// Open a probed radio as its concrete type.
     ///
     /// [`DeviceDriver::open`] erases it to `dyn SdrDevice`, which carries `tx_start` but not the
-    /// transmit *gain* — that has no wire setting while `tx_capable` is false — so this is how
+    /// transmit *gain* — that has no wire setting while transmit is gated (PLAN §12a) — so this is how
     /// [`HackRfDevice::set_tx_gain_db`] is reached at all.
     ///
     /// # Errors
@@ -224,21 +227,21 @@ pub struct HackRfDevice {
 impl HackRfDevice {
     fn new(device: HackRf) -> Self {
         let settings = caps::settings_from_config(device.config());
+        let capabilities = caps::capabilities();
         Self {
             radio: Arc::new(HackRfRadio {
                 device: Mutex::new(device),
             }),
-            capabilities: caps::capabilities(),
+            // One transceiver, one data path: the LPC's mode register selects a direction, so the
+            // other one has to stop first. Declared once, in the capabilities the client renders
+            // from, so the arbitration cannot promise something the ports do not.
+            duplex: Arc::new(Mutex::new(DuplexState::new(capabilities.duplex))),
+            capabilities,
             settings,
-            duplex: Arc::new(Mutex::new(DuplexState::new(HACKRF_DUPLEX))),
             capture: Capture::new(),
         }
     }
 }
-
-/// One transceiver, one data path: the LPC's mode register selects a direction, so the other one
-/// has to stop first.
-const HACKRF_DUPLEX: Duplex = Duplex::Half;
 
 fn write_to_hardware(device: &mut HackRf, applied: &caps::Applied) -> Result<(), DeviceError> {
     if let Some(hz) = applied.frequency_hz {
@@ -286,11 +289,9 @@ impl SdrDevice for HackRfDevice {
         result
     }
 
-    fn duplex(&self) -> Duplex {
-        HACKRF_DUPLEX
-    }
-
-    fn rx_start(&mut self, sink: RxSink) -> Result<(), DeviceError> {
+    fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+        // Before the duplex claim, so a refused sink count cannot leak a receive claim.
+        let sink = single_rx_sink(sinks)?;
         lock(&self.duplex).claim(Direction::Rx)?;
         let started = self.capture.start(
             self.radio.clone(),
@@ -314,7 +315,7 @@ impl SdrDevice for HackRfDevice {
 
     /// Claim the radio for transmit.
     ///
-    /// Nothing above this crate calls it: `Capabilities` reports `tx_capable: false`, and PLAN
+    /// Nothing above this crate calls it: the transmit input is inert (CANVAS, `PortType::Tx`), and PLAN
     /// §12a puts every application-level transmit feature behind an explicit authorized-use
     /// switch that has not been built. Radiating is the operator's responsibility — a HackRF
     /// transmits wideband into whatever is on the antenna port, and most of its range is
@@ -344,7 +345,7 @@ impl HackRfDevice {
     /// The transmit VGA, 0–47 dB. It powers up at zero and is set back to zero when the device
     /// is opened, so the radio cannot be made to radiate at drive by a mode change alone.
     ///
-    /// Not a wire setting: `Capabilities` advertises no transmit gain stage while `tx_capable`
+    /// Not a wire setting: `Capabilities` advertises no transmit gain stage while transmit
     /// is false, so this is reachable only from Rust, like [`SdrDevice::tx_start`] itself.
     ///
     /// # Errors
@@ -432,6 +433,8 @@ impl Drop for HackRfTx {
 
 #[cfg(test)]
 mod tests {
+    use sdrmm_wire::Duplex;
+
     use super::*;
 
     const SERIAL: u128 = 0x0000_0000_0000_0000_675c_62dc_3b2d_4b8b;
@@ -526,10 +529,12 @@ mod tests {
     /// from quietly promising a radio it can do both at once.
     #[test]
     fn the_radio_declares_itself_half_duplex() {
-        let mut state = DuplexState::new(HACKRF_DUPLEX);
-        assert!(HACKRF_DUPLEX.supports(Direction::Rx));
-        assert!(HACKRF_DUPLEX.supports(Direction::Tx));
-        assert!(!HACKRF_DUPLEX.simultaneous());
+        let declared = caps::capabilities().duplex;
+        let mut state = DuplexState::new(declared);
+        assert_eq!(declared, Duplex::Half);
+        assert!(declared.supports(Direction::Rx));
+        assert!(declared.supports(Direction::Tx));
+        assert!(!declared.simultaneous());
         state.claim(Direction::Rx).expect("receive");
         assert!(matches!(
             state.claim(Direction::Tx),

@@ -1,5 +1,5 @@
-// The station, end to end: open the app, bind the virtual radio to the receiver node, add a
-// channel, hear the graph become a running station, pin a face and find it on the rack.
+// The workspace, end to end: open the app, bind the virtual radio to the receiver node, add a
+// channel, hear the graph become a running workspace, pin a face and find it on the rack.
 //
 // This is the one test that exercises the composition — canvas, faces, WebSocket, apply — that
 // the unit suite cannot reach (PLAN §14). It asserts behaviour, not markup: what an operator
@@ -60,10 +60,10 @@ async function dragBy(page: Page, grip: Locator, cells: number): Promise<void> {
   await page.mouse.up();
 }
 
-test.describe("the station", () => {
+test.describe("the workspace", () => {
   test("binds a radio, adds a channel and pins a face", async ({ page }) => {
     // The tile CDN is cut off, not awaited: CI must not lean on a third party, and the offline
-    // fallback the map leg below lands in is itself behaviour the map owes a field station.
+    // fallback the map leg below lands in is itself behaviour the map owes a field workspace.
     await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
     // MapLibre rejects a paint colour it cannot parse by dropping the whole layer with one
     // console error — the map then looks whole minus its targets, which no locator below sees.
@@ -75,7 +75,7 @@ test.describe("the station", () => {
     });
     await page.goto("/");
 
-    // The default station: a receiver node with nothing in it, a scope and a speaker. Nodes are
+    // The default workspace: a receiver node with nothing in it, a scope and a speaker. Nodes are
     // addressed by the id the stored patch gives them, which is the identity the server owns.
     const node = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
     const receiver = node("device");
@@ -151,7 +151,7 @@ test.describe("the station", () => {
       .toEqual([(before[0]?.w ?? 0) + 1, (before[1]?.w ?? 0) - 1]);
 
     // The arrangement is server state, not browser state (PLAN §10): a reload restores it — and
-    // the station comes back bound, which is what applying on load buys.
+    // the workspace comes back bound, which is what applying on load buys.
     await page.reload();
     await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
     await expect(node("device").locator('[id^="frequency-dial"]')).toBeVisible();

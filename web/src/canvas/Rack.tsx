@@ -9,7 +9,7 @@
 import { memo, useCallback, useRef, useState } from "react";
 
 import type { PatchNode, RackLayout } from "../lib/types";
-import { useStationContext } from "./context";
+import { useWorkspaceContext } from "./context";
 import { moveSlot, placeSlot, RACK_COLS, RACK_ROWS, type RackEdge, resizeSlot } from "./graph";
 import { FACES } from "./nodes";
 
@@ -27,7 +27,7 @@ interface Gesture {
 }
 
 export function Rack() {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   const hostRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
   // The layout under the pointer, so the faces follow it before the write lands.
@@ -74,12 +74,12 @@ export function Rack() {
       // One write per gesture, not one per pointer move (CANVAS §4), and it is re-derived from
       // the stored rack rather than replayed from the preview: another client may have moved a
       // face while this drag was in flight, and their arrangement is the one to build on.
-      station.edit((snapshot) => ({
+      workspace.edit((snapshot) => ({
         ...snapshot,
         rack: applyGesture({ ...active, base: snapshot.rack ?? {} }, dx, dy),
       }));
     },
-    [cellSize, station],
+    [cellSize, workspace],
   );
 
   const begin = (event: React.PointerEvent, node: string, mode: Gesture["mode"]) => {
@@ -91,11 +91,11 @@ export function Rack() {
       mode,
       originX: event.clientX,
       originY: event.clientY,
-      base: station.rack,
+      base: workspace.rack,
     };
   };
 
-  const slots = (preview ?? station.rack).slots ?? [];
+  const slots = (preview ?? workspace.rack).slots ?? [];
   if (slots.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-bg">
@@ -119,7 +119,7 @@ export function Rack() {
       onPointerCancel={endGesture}
     >
       {slots.map((slot) => {
-        const node = station.graph.nodes.find((candidate) => candidate.id === slot.node);
+        const node = workspace.graph.nodes.find((candidate) => candidate.id === slot.node);
         if (node === undefined) {
           return null;
         }
@@ -142,7 +142,7 @@ export function Rack() {
 }
 
 /**
- * A face renders from its stored node and the station context, and neither changes while a
+ * A face renders from its stored node and the workspace context, and neither changes while a
  * pointer is down — so the drag preview, which re-renders the rack on every cell it crosses,
  * must not re-render the instruments with it. A scope's WebGL viewport and a map's tiles
  * repainting sixty times a second *is* the flicker this fixes.

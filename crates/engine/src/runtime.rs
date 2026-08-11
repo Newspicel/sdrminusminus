@@ -1,13 +1,14 @@
-//! Per-device-set runtime (PLAN §7): the capture thread pushes IQ into an SPSC ring; a DSP
-//! thread drains it, runs the spectrum tap and the hosted channels, and broadcasts snapshots
-//! plus per-channel PCM. No locks and no steady-state allocation on the DSP hot path beyond
-//! the one documented per-block snapshot hand-off (see [`ChannelHost::process`]) — device
-//! settings arrive via an [`ArcSwap`] snapshot, channel changes via a command queue drained
-//! between blocks, output leaves via broadcast channels.
+//! Per-device-set runtime (PLAN §7): one [`Lane`] per receive stream — the capture thread
+//! pushes that stream's IQ into an SPSC ring; a DSP thread drains it, runs the spectrum tap
+//! and the hosted channels, and broadcasts snapshots plus per-channel PCM. No locks and no
+//! steady-state allocation on the DSP hot path beyond the one documented per-block snapshot
+//! hand-off (see [`ChannelHost::process`]) — device settings arrive via an [`ArcSwap`]
+//! snapshot, channel changes via a per-lane command queue drained between blocks, output
+//! leaves via broadcast channels.
 
 use std::{
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
@@ -23,7 +24,9 @@ use sdrmm_channels::{
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
 use sdrmm_dsp::{Ddc, SpectrumAnalyzer, Squelch};
-use sdrmm_wire::{ChannelParams, ChannelSettings, DecoderEvent};
+use sdrmm_wire::{
+    ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings, MAX_STREAMS, StreamScope,
+};
 use tokio::sync::broadcast;
 
 use crate::{
@@ -337,13 +340,14 @@ pub(crate) enum DspCommand {
     StopRecording,
 }
 
-/// Owns the running device and its DSP thread; drop/stop tears both down cleanly.
-pub struct CaptureRuntime {
-    /// Taken by [`CaptureRuntime::stop`] so the device is *dropped* there, not merely told to
-    /// stop streaming. A USB backend holds its interface claim for as long as the handle
-    /// lives, and auto-reconnect (PLAN §16 M5) re-opens the very same radio — leaving the
-    /// dead set's handle alive would make every replug recovery fail with "busy".
-    device: Option<Box<dyn SdrDevice>>,
+/// The one-shot device-death report shared by every lane's capture sink.
+type FatalReport = Box<dyn FnOnce(DeviceError) + Send>;
+
+/// One receive stream's share of the runtime: the DSP thread draining its ring, its
+/// spectrum broadcast, its command queue, and its overrun counter. Lanes share the device
+/// and its clock (one radio, one sample rate); a lane's *centre* is its own wherever the
+/// capability scopes tuning per stream, and everything downstream of the sink is per-stream.
+struct Lane {
     meta: Arc<ArcSwap<DspMeta>>,
     spectrum_tx: broadcast::Sender<SpectrumSnapshot>,
     cmd_tx: mpsc::Sender<DspCommand>,
@@ -352,116 +356,198 @@ pub struct CaptureRuntime {
     dsp: Option<JoinHandle<()>>,
 }
 
+/// Owns the running device and its per-stream DSP lanes; drop/stop tears them down cleanly.
+pub struct CaptureRuntime {
+    /// Taken by [`CaptureRuntime::stop`] so the device is *dropped* there, not merely told to
+    /// stop streaming. A USB backend holds its interface claim for as long as the handle
+    /// lives, and auto-reconnect (PLAN §16 M5) re-opens the very same radio — leaving the
+    /// dead set's handle alive would make every replug recovery fail with "busy".
+    device: Option<Box<dyn SdrDevice>>,
+    /// Index is the stream: lane k drains the sink that was `sinks[k]` in `rx_start`.
+    lanes: Vec<Lane>,
+    /// Which settings each lane holds on its own, captured from the device at start so
+    /// [`CaptureRuntime::set_meta`] can resolve per-lane centres after the device is gone.
+    per_stream: StreamScope,
+}
+
 impl CaptureRuntime {
-    /// Wire the device to a fresh ring + DSP thread and start streaming. `on_fatal` is the
-    /// cold path a dying capture thread reports through (see [`RxSink::fail`]); the engine
-    /// routes it to its fault drainer so device death becomes visible state.
+    /// Wire the device to one fresh ring + DSP thread per rx stream and start streaming.
+    /// Each lane's initial `DspMeta` centre is resolved through
+    /// [`DeviceSettings::for_stream`], so a stored per-stream override is live from the very
+    /// first drained block. `on_fatal` is the cold path a dying capture thread reports
+    /// through (see [`RxSink::fail`]); the engine routes it to its fault drainer so device
+    /// death becomes visible state.
     pub fn start(
         mut device: Box<dyn SdrDevice>,
-        center_hz: f64,
-        sample_rate: f64,
+        settings: &DeviceSettings,
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
-        let (mut producer, mut consumer) = RingBuffer::<Complex<f32>>::new(RING_CAPACITY);
-        let overruns = Arc::new(AtomicU64::new(0));
-        let ov = overruns.clone();
+        // A radio reporting zero rx streams still gets one lane, or its device set would
+        // have no spectrum and no channel host at all (design §10); the MAX_STREAMS ceiling
+        // bounds the thread count against a buggy backend, whose own sink-count check then
+        // refuses the mismatch.
+        let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
+        let per_stream = device.capabilities().per_stream;
+        let sample_rate = crate::sample_rate_of(settings);
+        // One radio, one death: whichever lane's capture fails first reports for the whole
+        // device, and the remaining sinks' reports collapse into the spent one-shot.
+        let fatal: Arc<Mutex<Option<FatalReport>>> = Arc::new(Mutex::new(Some(Box::new(on_fatal))));
 
-        // Capture sink: lock-free write into the ring; dropped samples are counted, never
-        // silently lost (PLAN §5 backpressure, CLAUDE.md no-silent-failure).
-        let sink = RxSink::with_fatal_handler(
-            move |samples: &[Complex<f32>]| {
-                let free = producer.slots();
-                let take = free.min(samples.len());
-                if take > 0
-                    && let Ok(chunk) = producer.write_chunk_uninit(take)
-                {
-                    chunk.fill_from_iter(samples[..take].iter().copied());
-                }
-                if take < samples.len() {
-                    ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
-                }
-            },
-            on_fatal,
-        );
+        let mut sinks: Vec<RxSink> = Vec::with_capacity(lane_count);
+        let mut lanes: Vec<Lane> = Vec::with_capacity(lane_count);
+        // The per-lane halves that move onto the DSP thread, parallel to `lanes`.
+        let mut tails: Vec<(rtrb::Consumer<Complex<f32>>, mpsc::Receiver<DspCommand>)> =
+            Vec::with_capacity(lane_count);
+        for stream in 0..lane_count {
+            let (mut producer, consumer) = RingBuffer::<Complex<f32>>::new(RING_CAPACITY);
+            let overruns = Arc::new(AtomicU64::new(0));
+            let ov = overruns.clone();
+            let fatal = fatal.clone();
+            // Capture sink: lock-free write into the ring; dropped samples are counted,
+            // never silently lost (PLAN §5 backpressure, CLAUDE.md no-silent-failure).
+            sinks.push(RxSink::with_fatal_handler(
+                move |samples: &[Complex<f32>]| {
+                    let free = producer.slots();
+                    let take = free.min(samples.len());
+                    if take > 0
+                        && let Ok(chunk) = producer.write_chunk_uninit(take)
+                    {
+                        chunk.fill_from_iter(samples[..take].iter().copied());
+                    }
+                    if take < samples.len() {
+                        ov.fetch_add((samples.len() - take) as u64, Ordering::Relaxed);
+                    }
+                },
+                move |err| {
+                    if let Some(report) = fatal
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .take()
+                    {
+                        report(err);
+                    }
+                },
+            ));
+            let (spectrum_tx, _) = broadcast::channel::<SpectrumSnapshot>(8);
+            let (cmd_tx, cmd_rx) = mpsc::channel::<DspCommand>();
+            let center_hz = settings
+                .for_stream(stream as u32, &per_stream)
+                .center_hz
+                .unwrap_or(crate::DEFAULT_CENTER_HZ);
+            lanes.push(Lane {
+                meta: Arc::new(ArcSwap::from_pointee(DspMeta {
+                    center_hz,
+                    sample_rate,
+                })),
+                spectrum_tx,
+                cmd_tx,
+                overruns,
+                stop: Arc::new(AtomicBool::new(false)),
+                dsp: None,
+            });
+            tails.push((consumer, cmd_rx));
+        }
 
-        let meta = Arc::new(ArcSwap::from_pointee(DspMeta {
-            center_hz,
-            sample_rate,
-        }));
-        let (spectrum_tx, _) = broadcast::channel::<SpectrumSnapshot>(8);
-        let (cmd_tx, cmd_rx) = mpsc::channel::<DspCommand>();
-        let stop = Arc::new(AtomicBool::new(false));
-
-        device.rx_start(sink)?;
-
-        let dsp = {
-            let meta = meta.clone();
-            let tx = spectrum_tx.clone();
-            let stop = stop.clone();
-            let overruns = overruns.clone();
-            std::thread::Builder::new()
-                .name("sdrmm-dsp".to_string())
-                .spawn(move || dsp_loop(&mut consumer, &cmd_rx, &meta, &tx, &stop, &overruns))
-                .map_err(|e| DeviceError::Io(format!("spawn dsp thread: {e}")))?
+        device.rx_start(sinks)?;
+        let mut runtime = Self {
+            device: Some(device),
+            lanes,
+            per_stream,
         };
 
-        Ok(Self {
-            device: Some(device),
-            meta,
-            spectrum_tx,
-            cmd_tx,
-            overruns,
-            stop,
-            dsp: Some(dsp),
-        })
+        for (index, (mut consumer, cmd_rx)) in tails.into_iter().enumerate() {
+            let lane = &runtime.lanes[index];
+            let meta = lane.meta.clone();
+            let tx = lane.spectrum_tx.clone();
+            let stop = lane.stop.clone();
+            let overruns = lane.overruns.clone();
+            let spawned = std::thread::Builder::new()
+                .name(format!("sdrmm-dsp-{index}"))
+                .spawn(move || dsp_loop(&mut consumer, &cmd_rx, &meta, &tx, &stop, &overruns));
+            match spawned {
+                Ok(handle) => runtime.lanes[index].dsp = Some(handle),
+                Err(e) => {
+                    // The device is already streaming and earlier lanes are already running;
+                    // tear all of that down instead of leaking it behind the error.
+                    runtime.stop();
+                    return Err(DeviceError::Io(format!("spawn dsp thread: {e}")));
+                }
+            }
+        }
+        Ok(runtime)
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<SpectrumSnapshot> {
-        self.spectrum_tx.subscribe()
+    /// Spectrum subscription for one rx stream, or `None` when the stream is out of range —
+    /// the engine turns that into its bad-request error naming the lane count.
+    pub fn subscribe(&self, stream: u32) -> Option<broadcast::Receiver<SpectrumSnapshot>> {
+        self.lanes
+            .get(stream as usize)
+            .map(|lane| lane.spectrum_tx.subscribe())
     }
 
-    /// Clone of the DSP command queue for the engine's control-plane state: channel
-    /// commands must be queued while the engine `inner` lock is held (see
-    /// `DeviceSetState::cmd_tx`), which a method on the mutex-guarded runtime cannot offer.
-    pub(crate) fn command_sender(&self) -> mpsc::Sender<DspCommand> {
-        self.cmd_tx.clone()
+    /// Clones of every lane's DSP command queue, in stream order, for the engine's
+    /// control-plane state: channel commands must be queued while the engine `inner` lock is
+    /// held (see `DeviceSetState::cmd_txs`), which a method on the mutex-guarded runtime
+    /// cannot offer.
+    pub(crate) fn command_senders(&self) -> Vec<mpsc::Sender<DspCommand>> {
+        self.lanes.iter().map(|lane| lane.cmd_tx.clone()).collect()
     }
 
-    /// Shared ring-drop counter, readable without taking the per-set runtime lock (state
-    /// snapshots must never wait on a wedged device).
-    pub(crate) fn overruns_counter(&self) -> Arc<AtomicU64> {
-        self.overruns.clone()
+    /// Shared per-lane ring-drop counters, in stream order, readable without taking the
+    /// per-set runtime lock (state snapshots must never wait on a wedged device).
+    pub(crate) fn overruns_counters(&self) -> Vec<Arc<AtomicU64>> {
+        self.lanes
+            .iter()
+            .map(|lane| lane.overruns.clone())
+            .collect()
     }
 
-    pub fn set_meta(&self, center_hz: f64, sample_rate: f64) {
-        self.meta.store(Arc::new(DspMeta {
-            center_hz,
-            sample_rate,
-        }));
+    /// Push the resolved tuning to every lane's DSP meta. One radio still has one clock, so
+    /// the sample rate is shared — but each lane's centre is resolved through
+    /// [`DeviceSettings::for_stream`]: channel offsets are relative to the lane's centre, so
+    /// pushing one shared centre would make a per-stream retune invisible to the DSP plane,
+    /// which then decodes (and stamps decoder frames with) the wrong frequency while looking
+    /// fine.
+    pub fn set_meta(&self, settings: &DeviceSettings) {
+        let sample_rate = crate::sample_rate_of(settings);
+        for (stream, lane) in self.lanes.iter().enumerate() {
+            let center_hz = settings
+                .for_stream(stream as u32, &self.per_stream)
+                .center_hz
+                .unwrap_or(crate::DEFAULT_CENTER_HZ);
+            lane.meta.store(Arc::new(DspMeta {
+                center_hz,
+                sample_rate,
+            }));
+        }
     }
 
     /// What the device says it currently holds, which is not always what was asked for: a
     /// gain lands on the tuner's step grid, a rate on the resampler's achievable ratio. `None`
     /// once the device has been released ([`CaptureRuntime::stop`]).
-    pub fn device_settings(&self) -> Option<sdrmm_wire::DeviceSettings> {
+    pub fn device_settings(&self) -> Option<DeviceSettings> {
         self.device.as_ref().map(|d| d.settings().clone())
     }
 
-    pub fn apply(&mut self, settings: &sdrmm_wire::DeviceSettings) -> Result<(), DeviceError> {
+    pub fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         self.device
             .as_mut()
             .ok_or_else(|| DeviceError::Io("the device has been stopped".to_string()))?
             .apply(settings)
     }
 
-    /// Stop streaming, release the device, and join the DSP thread. Idempotent.
+    /// Stop streaming, release the device, and join every lane's DSP thread. Idempotent.
     pub fn stop(&mut self) {
-        self.stop.store(true, Ordering::Release);
+        for lane in &self.lanes {
+            lane.stop.store(true, Ordering::Release);
+        }
         if let Some(mut device) = self.device.take() {
             device.rx_stop();
         }
-        if let Some(handle) = self.dsp.take() {
-            let _ = handle.join();
+        for lane in &mut self.lanes {
+            if let Some(handle) = lane.dsp.take() {
+                let _ = handle.join();
+            }
         }
     }
 }
