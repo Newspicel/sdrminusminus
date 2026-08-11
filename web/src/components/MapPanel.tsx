@@ -10,6 +10,7 @@
 // is not something a wire change may take away.
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
+  AttributionControl,
   type GeoJSONSource,
   Map as MapLibreMap,
   type MapMouseEvent,
@@ -55,6 +56,21 @@ const BASEMAP_TIMEOUT_MS = 6_000;
 
 /** Half-size of the click/tap hit box in pixels — a 4 px dot is not a touch target. */
 const HIT_SLOP_PX = 9;
+
+/** MapLibre's compact attribution opens *expanded* and re-expands itself whenever the credits
+ * change (`_updateAttributions` calls `_updateCompact`), so a map node spends its bottom edge on a
+ * credit line the operator never asked for. `maplibregl-compact` present without
+ * `maplibregl-compact-show` is the collapsed ⓘ badge — the same state MapLibre's own toggle lands
+ * in — and holding the class from the start is what makes it stick: `_updateCompact` expands only
+ * when that class is *absent*. */
+class CollapsedAttributionControl extends AttributionControl {
+  override onAdd(map: MapLibreMap): HTMLElement {
+    const container = super.onAdd(map);
+    container.classList.add("maplibregl-compact");
+    container.classList.remove("maplibregl-compact-show");
+    return container;
+  }
+}
 
 type MapStyle = Exclude<NonNullable<MapOptions["style"]>, string>;
 type Counts = Record<MapKind, number>;
@@ -135,9 +151,10 @@ export function MapPanel({
         style: style ?? offlineStyle(edge),
         center: [0, 25],
         zoom: 1,
-        attributionControl: { compact: true },
+        attributionControl: false,
       });
       mapRef.current = map;
+      map.addControl(new CollapsedAttributionControl({ compact: true }));
       map.addControl(new NavigationControl({ showCompass: false }), "top-right");
 
       map.on("style.load", () => {
