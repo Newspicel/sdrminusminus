@@ -16,22 +16,24 @@ function allocation(over: Partial<BandAllocation> & Pick<BandAllocation, "id">):
     stop_hz: 1,
     service: "other",
     name: "",
+    official_name: "",
     aliases: [],
     ...over,
   };
 }
 
+/** Blocks index into the plan's allocation table, so a fixture has to build both together. */
+const POOL: BandAllocation[] = [];
 function block(startHz: number, stopHz: number, over: Partial<BandAllocation>): BandBlock {
-  return {
-    start_hz: startHz,
-    stop_hz: stopHz,
-    allocation: allocation({
+  POOL.push(
+    allocation({
       id: `${over.name ?? "x"}:${startHz}`,
       start_hz: startHz,
       stop_hz: stopHz,
       ...over,
     }),
-  };
+  );
+  return { start_hz: startHz, stop_hz: stopHz, of: POOL.length - 1 };
 }
 
 const MARINE = block(156_000_000, 161_962_500, {
@@ -82,6 +84,7 @@ const PLAN: BandPlan = {
     itu_region: "r1",
     layers: ["world"],
   },
+  allocations: POOL,
   layers: [
     {
       id: "world",
@@ -98,7 +101,7 @@ const PLAN: BandPlan = {
 describe("spansIn", () => {
   it("clips a block that runs off both edges and says which edges are real", () => {
     // A 1 MHz window entirely inside the 2 m band.
-    const [span] = spansIn(ALLOCATION, 144_500_000, 1_000_000);
+    const [span] = spansIn(PLAN, ALLOCATION, 144_500_000, 1_000_000);
     expect(span?.left).toBe(0);
     expect(span?.width).toBe(1);
     expect(span?.startsInside).toBe(false);
@@ -106,8 +109,8 @@ describe("spansIn", () => {
   });
 
   it("places a band that sits wholly inside the window", () => {
-    const spans = spansIn(ALLOCATION, 161_900_000, 200_000);
-    const ais = spans.find((span) => span.block.allocation.name === "AIS");
+    const spans = spansIn(PLAN, ALLOCATION, 161_900_000, 200_000);
+    const ais = spans.find((span) => span.allocation.name === "AIS");
     expect(ais?.left).toBeCloseTo(0.3125, 10);
     expect(ais?.width).toBeCloseTo(0.375, 10);
     expect(ais?.startsInside).toBe(true);
@@ -115,14 +118,14 @@ describe("spansIn", () => {
   });
 
   it("drops what the window does not reach, including a block that only touches its edge", () => {
-    expect(spansIn(ALLOCATION, 100_000_000, 1_000_000)).toEqual([]);
+    expect(spansIn(PLAN, ALLOCATION, 100_000_000, 1_000_000)).toEqual([]);
     // The window ends exactly where 2 m begins: a half-open block starting there is not visible.
-    expect(spansIn(ALLOCATION, 143_000_000, 1_000_000)).toEqual([]);
+    expect(spansIn(PLAN, ALLOCATION, 143_000_000, 1_000_000)).toEqual([]);
   });
 
   it("returns nothing for a zero or negative window rather than dividing by it", () => {
-    expect(spansIn(ALLOCATION, 144_000_000, 0)).toEqual([]);
-    expect(spansIn(ALLOCATION, 144_000_000, -1)).toEqual([]);
+    expect(spansIn(PLAN, ALLOCATION, 144_000_000, 0)).toEqual([]);
+    expect(spansIn(PLAN, ALLOCATION, 144_000_000, -1)).toEqual([]);
   });
 });
 
@@ -130,8 +133,8 @@ describe("identify", () => {
   it("answers once per lane that covers the frequency, in lane order", () => {
     const found = identify(PLAN, 145_500_000);
     expect(found.map((entry) => entry.laneId)).toEqual(["allocation", "iaru-r1"]);
-    expect(found[0]?.block.allocation.name).toBe("2 m amateur");
-    expect(found[1]?.block.allocation.name).toBe("2 m — FM simplex");
+    expect(found[0]?.allocation.name).toBe("2 m amateur");
+    expect(found[1]?.allocation.name).toBe("2 m — FM simplex");
   });
 
   it("omits a lane with nothing there rather than reporting it empty", () => {
@@ -141,8 +144,8 @@ describe("identify", () => {
   });
 
   it("treats a block as half-open, so a boundary belongs to the band above it", () => {
-    expect(identify(PLAN, 161_962_500)[0]?.block.allocation.name).toBe("AIS");
-    expect(identify(PLAN, 161_962_499)[0]?.block.allocation.name).toBe("Marine VHF");
+    expect(identify(PLAN, 161_962_500)[0]?.allocation.name).toBe("AIS");
+    expect(identify(PLAN, 161_962_499)[0]?.allocation.name).toBe("Marine VHF");
   });
 
   it("has no answer outside every band", () => {

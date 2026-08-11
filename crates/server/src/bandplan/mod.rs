@@ -27,12 +27,11 @@
 
 use std::sync::LazyLock;
 
-use serde::Deserialize;
-
 use sdrmm_wire::{
     BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandRegion,
     BandRegionMatch, BandRegionsResponse, BandService, ChannelParams, ItuRegion,
 };
+use serde::Deserialize;
 
 /// One row of a layer table. Ranges are half-open `[start_hz, stop_hz)`, so a band that ends
 /// where the next begins produces no zero-width sliver.
@@ -77,6 +76,11 @@ const fn primary_by_default() -> bool {
 /// How a layer document came to exist, carried into [`BandLayerInfo`] so a reader can tell an
 /// importer's output from the hand-written remainder.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[expect(
+    dead_code,
+    reason = "the URL, timestamp and digest are written for a human reviewing the generated \
+              document and its diff; only `generator` is answered over the wire"
+)]
 pub(crate) struct Provenance {
     /// `curated`, or the importer that wrote it (`bnetza`, `ofcom`, `fcc`).
     pub generator: String,
@@ -147,6 +151,10 @@ static LAYER_DOCS: &[(&str, &str)] = &[
 static ANNOTATIONS_DOC: &str = include_str!("../../data/bandplan/annotations.json");
 
 /// The curated annotations, sorted so the splitter can walk them.
+///
+/// `expect` here is not I/O: the document is `include_str!`d, so a malformed one cannot appear
+/// at runtime — it fails the loader test in CI, before it can reach anybody.
+#[expect(clippy::expect_used, reason = "compiled-in constant; see above")]
 static ANNOTATIONS: LazyLock<Vec<Annotation>> = LazyLock::new(|| {
     let mut parsed: Vec<Annotation> =
         serde_json::from_str(ANNOTATIONS_DOC).expect("annotations.json is committed and valid");
@@ -446,6 +454,7 @@ fn build(def: &RegionDef) -> BandPlan {
             source: layer.source.to_string(),
             kind: layer.kind,
             rank,
+            generator: layer.provenance.generator.clone(),
         })
     };
 
@@ -792,7 +801,12 @@ mod tests {
         assert_eq!(blocks[0].stop_hz, 150.0);
         assert_eq!(name(blocks[0].of), "MARITIME MOBILE");
         assert_eq!(
-            blocks[0].covered.iter().copied().map(name).collect::<Vec<_>>(),
+            blocks[0]
+                .covered
+                .iter()
+                .copied()
+                .map(name)
+                .collect::<Vec<_>>(),
             vec!["Radionavigation"],
             "a secondary co-allocation must be kept, not dropped"
         );
@@ -849,7 +863,10 @@ mod tests {
                 "{source}: unknown channel type {id}"
             );
         }
-        assert!(checked > 0, "nothing suggests a mode — the overlay is empty");
+        assert!(
+            checked > 0,
+            "nothing suggests a mode — the overlay is empty"
+        );
     }
 
     #[test]
@@ -883,10 +900,9 @@ mod tests {
             for lane in &plan.lanes {
                 for block in &lane.blocks {
                     for &at in std::iter::once(&block.of).chain(&block.covered) {
-                        let allocation = plan
-                            .allocations
-                            .get(at as usize)
-                            .unwrap_or_else(|| panic!("{}: index {at} out of range", plan.region.id));
+                        let allocation = plan.allocations.get(at as usize).unwrap_or_else(|| {
+                            panic!("{}: index {at} out of range", plan.region.id)
+                        });
                         assert!(
                             plan.layers.iter().any(|info| info.id == allocation.layer),
                             "{}: block cites unknown layer {}",
@@ -904,27 +920,39 @@ mod tests {
         }
     }
 
-    /// The property the whole feature rests on: inside a national sub-band the national entry
-    /// wins, and the ITU entry it refines is still readable underneath it.
+    /// The property the whole feature rests on: the most specific layer wins, and everything it
+    /// covers is still readable underneath it.
+    ///
+    /// 446.1 MHz is the case worth pinning. BNetzA's own row (Eintrag 248011, 446.0–446.2 MHz)
+    /// outranks the CEPT PMR446 entry over the same range, which outranks the ITU land-mobile
+    /// allocation over all of it — three layers, narrowing, and none of them lost.
     #[test]
     fn the_national_layer_wins_and_keeps_what_it_covers() {
         let plan = plan("de").expect("germany ships");
-        let lane = &plan.lanes[0];
-        // PMR446 is a CEPT sub-band inside the ITU land-mobile allocation.
-        let block = lane
+        let block = plan.lanes[0]
             .blocks
             .iter()
             .find(|block| block.start_hz <= 446_100_000.0 && block.stop_hz > 446_100_000.0)
             .expect("446.1 MHz is allocated");
         let winner = &plan.allocations[block.of as usize];
-        assert_eq!(winner.layer, "cept");
-        assert!(winner.name.contains("PMR446"));
+        assert_eq!(
+            winner.layer, "de",
+            "the national table is the most specific"
+        );
         assert!(
-            block
-                .covered
-                .iter()
-                .any(|&at| plan.allocations[at as usize].layer == "world"),
-            "the ITU allocation under PMR446 is lost"
+            winner.reference.is_some(),
+            "an imported row carries the id it had in the source document"
+        );
+
+        let under: Vec<&str> = block
+            .covered
+            .iter()
+            .map(|&at| plan.allocations[at as usize].layer.as_str())
+            .collect();
+        assert!(under.contains(&"cept"), "PMR446 is lost under {under:?}");
+        assert!(
+            under.contains(&"world") || under.contains(&"itu-r1"),
+            "the ITU allocation is lost under {under:?}"
         );
     }
 

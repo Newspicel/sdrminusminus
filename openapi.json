@@ -2232,7 +2232,7 @@
           "stop_hz",
           "service",
           "name",
-          "aliases"
+          "official_name"
         ],
         "properties": {
           "aliases": {
@@ -2252,7 +2252,7 @@
           },
           "id": {
             "type": "string",
-            "description": "`layer:start_hz`, stable across requests."
+            "description": "Stable and unique within a plan. Derived from the source's own row id where it has one\n(`de:27002`, `gb:FREQ_00001`) — a range is *not* enough, because a table routinely gives\none range to several services at once."
           },
           "layer": {
             "type": "string",
@@ -2260,13 +2260,28 @@
           },
           "name": {
             "type": "string",
-            "description": "What an operator calls it: \"2 m amateur\", \"Marine VHF\", \"Airband\"."
+            "description": "What an operator calls it: \"2 m amateur\", \"Marine VHF\", \"Airband\". From the annotations\noverlay where one applies, otherwise the same as [`Self::official_name`]."
           },
           "notes": {
             "type": [
               "string",
               "null"
             ]
+          },
+          "official_name": {
+            "type": "string",
+            "description": "Exactly what the source document calls it — \"MOBILER SEEFUNKDIENST\", \"MARITIME MOBILE\".\nKept beside the friendly name rather than replaced by it: the regulator's wording is the\ncitable one, and it is what a reader checking against the source will search for."
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "Primary allocation rather than secondary. Both the ITU and BNetzA tables carry this as\ncapitalisation — `MARITIME MOBILE` is primary, `Maritime mobile` is secondary — and a\nsecondary service must accept interference from every primary one, which is the\ndifference between \"this band is yours\" and \"you may use it if nobody else is\"."
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the row came from inside its source document: `Eintrag 27001`, `FREQ_00001`,\na page number. `None` for the curated layers, which are their own provenance."
           },
           "service": {
             "$ref": "#/components/schemas/BandService"
@@ -2294,23 +2309,27 @@
       },
       "BandBlock": {
         "type": "object",
-        "description": "One resolved stretch: what wins here, and what it covers.",
+        "description": "One resolved stretch: what wins here, and everything else that covers it.\n\nAllocations travel once in [`BandPlan::allocations`] and are referenced by index. A single\nband is split into a block per boundary any *other* layer introduces, and an imported note\ncan be a paragraph, so carrying the payload inline multiplied the document by an order of\nmagnitude for no new information.",
         "required": [
           "start_hz",
           "stop_hz",
-          "allocation"
+          "of"
         ],
         "properties": {
-          "allocation": {
-            "$ref": "#/components/schemas/BandAllocation",
-            "description": "The most specific layer's entry over this stretch."
-          },
           "covered": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/BandAllocation"
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
             },
-            "description": "The layers underneath, most specific first. Empty when nothing else covers this stretch.\nThis is what lets the identify popover say \"BNetzA calls it X, over ITU's Y\"."
+            "description": "Everything else covering it, most specific first — co-allocations from the winner's own\nlayer, then the layers underneath. This is what lets the identify popover say \"BNetzA\ncalls it X, over ITU's Y\", and what keeps a co-primary service from vanishing."
+          },
+          "of": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Index into [`BandPlan::allocations`]: the winner over this stretch.",
+            "minimum": 0
           },
           "start_hz": {
             "type": "number",
@@ -2337,7 +2356,7 @@
             "items": {
               "$ref": "#/components/schemas/BandBlock"
             },
-            "description": "Sorted by `start_hz`, non-overlapping."
+            "description": "Sorted by `start_hz`, non-overlapping — the resolution is what removes the overlaps the\nsource tables are full of."
           },
           "id": {
             "type": "string"
@@ -2366,6 +2385,10 @@
           "authority": {
             "type": "string",
             "description": "Who publishes it — \"ITU\", \"BNetzA\", \"Ofcom\", \"IARU Region 1\"."
+          },
+          "generator": {
+            "type": "string",
+            "description": "What wrote this layer: `curated`, or the importer that generated it from the regulator's\nown publication (`bnetza`, `ofcom`, `fcc`). Worth showing: \"this came out of the\nFrequenzplan\" and \"somebody typed this in\" are different kinds of claim."
           },
           "id": {
             "type": "string",
@@ -2404,9 +2427,17 @@
         "required": [
           "region",
           "layers",
+          "allocations",
           "lanes"
         ],
         "properties": {
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BandAllocation"
+            },
+            "description": "Every allocation the lanes reference, once. [`BandBlock::of`] and [`BandBlock::covered`]\nindex into this; it is also what the explorer searches, which is why search needs no\ndeduplication of its own."
+          },
           "lanes": {
             "type": "array",
             "items": {

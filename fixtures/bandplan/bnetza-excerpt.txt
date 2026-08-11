@@ -1,0 +1,94 @@
+
+
+
+
+         Frequenzteilplan:     20           Eintrag:   20001                                          Stand:   MÄRZ 2022
+
+         Frequenzbereich:     148,5 - 255 kHz
+
+ Nutzungsbestimmung(en):      25
+
+               Funkdienst:    RUNDFUNKDIENST
+
+                 Nutzung:     ziv
+
+        Frequenznutzung:      Ton-Rundfunk (TK)
+
+    Frequenzteilbereich(e):   148,5 - 255 kHz
+
+
+       Frequenznutzungs-      Übertragung von Ton- und Datensignalen in analoger Modulation oder in digitaler Modulation nach
+            bedingungen:      dem DRM-Standard. Die Übertragung von Rundfunk hat Vorrang vor der Übertragung sonstiger
+                              Inhalte.
+
+                              Kanalbandbreite:                                      9 kHz
+                              Kanalraster:                                          9 kHz
+
+
+         Frequenzteilplan:     27         Eintrag:     27001                                        Stand:   MÄRZ 2022
+
+         Frequenzbereich:     435 - 472 kHz
+
+ Nutzungsbestimmung(en):      125
+
+               Funkdienst:    FLUGNAVIGATIONSFUNKDIENST
+
+                 Nutzung:     ziv, mil
+
+        Frequenznutzung:      Funkfeuer
+
+    Frequenzteilbereich(e):   435 - 472 kHz
+
+
+       Frequenznutzungs-      Navigationssysteme gemäß Anhang 10 zum internationalen Luftfahrtabkommen (NDB ungerichtetes
+            bedingungen:      Funkfeuer)
+
+
+
+
+         Frequenzteilplan:     27         Eintrag:     27002                                        Stand:   MÄRZ 2022
+
+         Frequenzbereich:     435 - 472 kHz
+
+ Nutzungsbestimmung(en):      125
+
+               Funkdienst:    MOBILER SEEFUNKDIENST D79
+
+                 Nutzung:     ziv, mil
+
+        Frequenznutzung:      Seefunk
+
+    Frequenzteilbereich(e):   435 - 472 kHz
+
+
+       Frequenznutzungs-      Übertragung von Nachrichten
+            bedingungen:      - zwischen Seefunkstellen oder
+                              - Küstenfunkstellen und Seefunkstellen
+
+                              Es gelten die technischen Parameter gemäß VO Funk.
+
+
+
+
+         Frequenzteilplan:     27         Eintrag:     27003                                        Stand:   MÄRZ 2022
+
+         Frequenzbereich:     435 - 472 kHz
+
+ Nutzungsbestimmung(en):      125
+
+               Funkdienst:
+
+                 Nutzung:     ziv, mil
+
+        Frequenznutzung:      Funkanwendungen geringer Reichweite (SRD)
+
+    Frequenzteilbereich(e):   442,2 - 450 kHz
+
+
+       Frequenznutzungs-      Übertragung von Daten und Tonsignalen über kurze Entfernung
+            bedingungen:
+                              Maximal zulässige magnetische Feldstärke:            2,25 μA/m (7 dB(μA/m)) in 10 m Entfernung
+                              Kanalabstand:                                        ≥ 150 Hz
+
+                              Nur für Personenerkennungs- und Kollisionsschutzgeräte
+© Bundesnetzagentur                  Frequenzplan

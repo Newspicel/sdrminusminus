@@ -724,19 +724,44 @@ export interface components {
              * @description Other names the explorer matches on — wavelengths ("70 cm"), colloquialisms ("CB"),
              *     and the service spelled the long way ("marine", "maritime mobile").
              */
-            aliases: string[];
+            aliases?: string[];
             /**
              * Format: double
              * @description Channel raster, where the band is channelized.
              */
             channel_step_hz?: number | null;
-            /** @description `layer:start_hz`, stable across requests. */
+            /**
+             * @description Stable and unique within a plan. Derived from the source's own row id where it has one
+             *     (`de:27002`, `gb:FREQ_00001`) — a range is *not* enough, because a table routinely gives
+             *     one range to several services at once.
+             */
             id: string;
             /** @description [`BandLayerInfo::id`] this entry came from. */
             layer: string;
-            /** @description What an operator calls it: "2 m amateur", "Marine VHF", "Airband". */
+            /**
+             * @description What an operator calls it: "2 m amateur", "Marine VHF", "Airband". From the annotations
+             *     overlay where one applies, otherwise the same as [`Self::official_name`].
+             */
             name: string;
             notes?: string | null;
+            /**
+             * @description Exactly what the source document calls it — "MOBILER SEEFUNKDIENST", "MARITIME MOBILE".
+             *     Kept beside the friendly name rather than replaced by it: the regulator's wording is the
+             *     citable one, and it is what a reader checking against the source will search for.
+             */
+            official_name: string;
+            /**
+             * @description Primary allocation rather than secondary. Both the ITU and BNetzA tables carry this as
+             *     capitalisation — `MARITIME MOBILE` is primary, `Maritime mobile` is secondary — and a
+             *     secondary service must accept interference from every primary one, which is the
+             *     difference between "this band is yours" and "you may use it if nobody else is".
+             */
+            primary?: boolean;
+            /**
+             * @description Where the row came from inside its source document: `Eintrag 27001`, `FREQ_00001`,
+             *     a page number. `None` for the curated layers, which are their own provenance.
+             */
+            reference?: string | null;
             service: components["schemas"]["BandService"];
             /** Format: double */
             start_hz: number;
@@ -744,15 +769,26 @@ export interface components {
             stop_hz: number;
             suggested?: null | components["schemas"]["ChannelParams"];
         };
-        /** @description One resolved stretch: what wins here, and what it covers. */
+        /**
+         * @description One resolved stretch: what wins here, and everything else that covers it.
+         *
+         *     Allocations travel once in [`BandPlan::allocations`] and are referenced by index. A single
+         *     band is split into a block per boundary any *other* layer introduces, and an imported note
+         *     can be a paragraph, so carrying the payload inline multiplied the document by an order of
+         *     magnitude for no new information.
+         */
         BandBlock: {
-            /** @description The most specific layer's entry over this stretch. */
-            allocation: components["schemas"]["BandAllocation"];
             /**
-             * @description The layers underneath, most specific first. Empty when nothing else covers this stretch.
-             *     This is what lets the identify popover say "BNetzA calls it X, over ITU's Y".
+             * @description Everything else covering it, most specific first — co-allocations from the winner's own
+             *     layer, then the layers underneath. This is what lets the identify popover say "BNetzA
+             *     calls it X, over ITU's Y", and what keeps a co-primary service from vanishing.
              */
-            covered?: components["schemas"]["BandAllocation"][];
+            covered?: number[];
+            /**
+             * Format: int32
+             * @description Index into [`BandPlan::allocations`]: the winner over this stretch.
+             */
+            of: number;
             /** Format: double */
             start_hz: number;
             /** Format: double */
@@ -764,7 +800,10 @@ export interface components {
          *     rather than contradicting it.
          */
         BandLane: {
-            /** @description Sorted by `start_hz`, non-overlapping. */
+            /**
+             * @description Sorted by `start_hz`, non-overlapping — the resolution is what removes the overlaps the
+             *     source tables are full of.
+             */
             blocks: components["schemas"]["BandBlock"][];
             id: string;
             name: string;
@@ -779,6 +818,12 @@ export interface components {
         BandLayerInfo: {
             /** @description Who publishes it — "ITU", "BNetzA", "Ofcom", "IARU Region 1". */
             authority: string;
+            /**
+             * @description What wrote this layer: `curated`, or the importer that generated it from the regulator's
+             *     own publication (`bnetza`, `ofcom`, `fcc`). Worth showing: "this came out of the
+             *     Frequenzplan" and "somebody typed this in" are different kinds of claim.
+             */
+            generator?: string;
             /** @description Stable id, referenced by [`BandAllocation::layer`] and [`BandRegion::layers`]. */
             id: string;
             kind: components["schemas"]["BandLayerKind"];
@@ -805,6 +850,12 @@ export interface components {
         BandLayerKind: "world" | "regulatory" | "amateur";
         /** @description `GET /api/bandplan/regions/{region}` — the whole region, already layered. */
         BandPlan: {
+            /**
+             * @description Every allocation the lanes reference, once. [`BandBlock::of`] and [`BandBlock::covered`]
+             *     index into this; it is also what the explorer searches, which is why search needs no
+             *     deduplication of its own.
+             */
+            allocations: components["schemas"]["BandAllocation"][];
             lanes: components["schemas"]["BandLane"][];
             /** @description Every layer the lanes reference, so a block's `layer` id resolves without a second call. */
             layers: components["schemas"]["BandLayerInfo"][];

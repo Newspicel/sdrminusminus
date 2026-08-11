@@ -182,7 +182,12 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Write
             auth::require_token,
         ))
         .fallback(assets::static_handler)
-        .with_state(state);
+        .with_state(state)
+        // Gzip on the way out. The band plan is what forced it — a resolved region is over a
+        // megabyte of repetitive JSON and compresses about seventeen to one — but every JSON
+        // response here is the same shape of text, and the binary frame streams go over the
+        // WebSocket, which this does not touch.
+        .layer(tower_http::compression::CompressionLayer::new());
 
     if options.dev_cors {
         app = app.layer(CorsLayer::very_permissive());

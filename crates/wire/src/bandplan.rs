@@ -77,6 +77,11 @@ pub struct BandLayerInfo {
     /// Least-specific first: where this layer sits when two of them cover one frequency. Ties
     /// cannot happen — every layer in a region has a distinct rank.
     pub rank: u8,
+    /// What wrote this layer: `curated`, or the importer that generated it from the regulator's
+    /// own publication (`bnetza`, `ofcom`, `fcc`). Worth showing: "this came out of the
+    /// Frequenzplan" and "somebody typed this in" are different kinds of claim.
+    #[serde(default)]
+    pub generator: String,
 }
 
 /// What a stretch of spectrum is allocated to, as one layer states it.

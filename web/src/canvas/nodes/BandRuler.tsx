@@ -74,7 +74,7 @@ export function BandRuler({
   return (
     <div ref={rulerRef} data-plot-chrome className="relative shrink-0 bg-bg">
       {plan.lanes.map((lane) => {
-        const spans = spansIn(lane, lowHz, visibleHz);
+        const spans = spansIn(plan, lane, lowHz, visibleHz);
         return (
           <button
             key={lane.id}
@@ -92,23 +92,19 @@ export function BandRuler({
           >
             {spans.map((span) => (
               <span
-                key={`${span.block.allocation.id}:${span.block.start_hz}`}
+                key={`${span.allocation.id}:${span.block.start_hz}`}
                 aria-hidden
-                className={`absolute inset-y-0 overflow-hidden ${serviceFill(
-                  span.block.allocation.service,
-                )}`}
+                className={`absolute inset-y-0 overflow-hidden ${serviceFill(span.allocation.service)}`}
                 style={{ left: `${span.left * 100}%`, width: `${span.width * 100}%` }}
               >
                 {span.startsInside && (
                   <span
-                    className={`absolute inset-y-0 left-0 w-px ${serviceEdge(
-                      span.block.allocation.service,
-                    )}`}
+                    className={`absolute inset-y-0 left-0 w-px ${serviceEdge(span.allocation.service)}`}
                   />
                 )}
                 {span.width >= LABEL_MIN && (
                   <span className="absolute inset-y-0 left-1 flex items-center whitespace-nowrap font-mono text-[10px] text-ink">
-                    {span.block.allocation.name}
+                    {span.allocation.name}
                   </span>
                 )}
               </span>
@@ -212,7 +208,7 @@ function BandDetail({
   layerName: (id: string) => string;
   covered: boolean;
 }) {
-  const { allocation } = entry.block;
+  const { allocation } = entry;
   return (
     <div className="flex flex-col gap-0.5 border-t border-line pt-1.5 first:border-t-0 first:pt-0">
       <div className="flex items-center gap-1.5">
@@ -221,10 +217,24 @@ function BandDetail({
           className={`size-2 shrink-0 rounded-[1px] ${serviceEdge(allocation.service)}`}
         />
         <span className="min-w-0 truncate text-sm text-ink">{allocation.name}</span>
+        {!allocation.primary && (
+          <span className={CHIP} title="Must accept interference from every primary service">
+            secondary
+          </span>
+        )}
       </div>
+      {/* The regulator's own wording, under the operator's. It is the citable one and the one a
+          reader checking against the source document will search for — and where the friendly
+          name came from an annotation, this is the line that says what was actually allocated. */}
+      {allocation.official_name !== allocation.name && (
+        <span className="truncate font-mono text-[11px] text-ink-dim">
+          {allocation.official_name}
+        </span>
+      )}
       <span className={LABEL}>
         {serviceLabel(allocation.service)} · {layerName(allocation.layer)} ·{" "}
         {formatHz(allocation.start_hz)}–{formatHz(allocation.stop_hz)}
+        {allocation.reference != null && ` · ${allocation.reference}`}
       </span>
       {allocation.channel_step_hz != null && (
         <span className={CHIP}>{formatHz(allocation.channel_step_hz)} channels</span>
@@ -233,9 +243,10 @@ function BandDetail({
         <p className="text-xs leading-snug text-ink-dim">{allocation.notes}</p>
       )}
       {covered &&
-        (entry.block.covered ?? []).map((under) => (
+        entry.covered.map((under) => (
           <span key={under.id} className="text-[11px] text-ink-faint">
-            over {layerName(under.layer)}: {under.name}
+            {under.layer === allocation.layer ? "also" : `over ${layerName(under.layer)}:`}{" "}
+            {under.name}
           </span>
         ))}
     </div>

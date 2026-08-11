@@ -18,6 +18,8 @@ import type {
 /** A block clipped to the visible window, in screen fractions. */
 export interface BandSpan {
   block: BandBlock;
+  /** The block's winning allocation, resolved out of the plan's table. */
+  allocation: BandAllocation;
   /** Left edge as a fraction of the window; already clamped into [0, 1]. */
   left: number;
   width: number;
@@ -39,6 +41,12 @@ export interface BandIdentity {
   laneId: string;
   laneName: string;
   block: BandBlock;
+  /** The winner over that block. */
+  allocation: BandAllocation;
+  /** Everything else covering it — co-allocations from the same layer first, then the layers
+   * underneath. A regulator routinely gives one range to several services, so this is not an
+   * edge case: it is most of the spectrum. */
+  covered: BandAllocation[];
 }
 
 /** Blocks of `lane` that intersect the window, clipped to it and ordered by frequency.
@@ -46,7 +54,12 @@ export interface BandIdentity {
  * Linear rather than a binary search on purpose: a lane is a few hundred blocks and this runs
  * once per render, not per frame — the render is what is throttled, and a bisect here would buy
  * microseconds at the cost of an off-by-one nobody would notice until a band went missing. */
-export function spansIn(lane: BandLane, lowHz: number, visibleHz: number): BandSpan[] {
+export function spansIn(
+  plan: BandPlan,
+  lane: BandLane,
+  lowHz: number,
+  visibleHz: number,
+): BandSpan[] {
   if (!(visibleHz > 0)) {
     return [];
   }
@@ -56,10 +69,15 @@ export function spansIn(lane: BandLane, lowHz: number, visibleHz: number): BandS
     if (block.stop_hz <= lowHz || block.start_hz >= highHz) {
       continue;
     }
+    const allocation = plan.allocations[block.of];
+    if (allocation === undefined) {
+      continue;
+    }
     const left = (block.start_hz - lowHz) / visibleHz;
     const right = (block.stop_hz - lowHz) / visibleHz;
     spans.push({
       block,
+      allocation,
       left: Math.max(0, left),
       width: Math.min(1, right) - Math.max(0, left),
       startsInside: left >= 0,
@@ -75,9 +93,19 @@ export function identify(plan: BandPlan, hz: number): BandIdentity[] {
   const found: BandIdentity[] = [];
   for (const lane of plan.lanes) {
     const block = lane.blocks.find((entry) => entry.start_hz <= hz && entry.stop_hz > hz);
-    if (block !== undefined) {
-      found.push({ laneId: lane.id, laneName: lane.name, block });
+    const allocation = block === undefined ? undefined : plan.allocations[block.of];
+    if (block === undefined || allocation === undefined) {
+      continue;
     }
+    found.push({
+      laneId: lane.id,
+      laneName: lane.name,
+      block,
+      allocation,
+      covered: (block.covered ?? [])
+        .map((at) => plan.allocations[at])
+        .filter((entry): entry is BandAllocation => entry !== undefined),
+    });
   }
   return found;
 }
@@ -91,7 +119,7 @@ export function identify(plan: BandPlan, hz: number): BandIdentity[] {
 export function suggestedAt(found: readonly BandIdentity[]): ChannelParams | null {
   let suggested: ChannelParams | null = null;
   for (const entry of found) {
-    suggested = entry.block.allocation.suggested ?? suggested;
+    suggested = entry.allocation.suggested ?? suggested;
   }
   return suggested;
 }
@@ -113,30 +141,39 @@ export function searchPlan(plan: BandPlan, query: string, limit = 40): BandMatch
     return [];
   }
 
-  const seen = new Set<string>();
-  const scored: { match: BandMatch; score: number; width: number }[] = [];
+  // The plan's allocation table already holds each band exactly once, so this walks it directly
+  // and needs no deduplication of its own — the normalized payload paid for itself twice.
+  const lanes = new Map<string, string>();
   for (const lane of plan.lanes) {
     for (const block of lane.blocks) {
-      for (const allocation of [block.allocation, ...(block.covered ?? [])]) {
-        if (seen.has(allocation.id)) {
-          continue;
+      for (const at of [block.of, ...(block.covered ?? [])]) {
+        const allocation = plan.allocations[at];
+        if (allocation !== undefined && !lanes.has(allocation.id)) {
+          lanes.set(allocation.id, lane.id === "allocation" ? "" : lane.name);
         }
-        const covers = hz !== null && allocation.start_hz <= hz && allocation.stop_hz > hz;
-        const haystack = haystackOf(allocation);
-        const matched = words.filter((word) => haystack.includes(word)).length;
-        if (!covers && matched === 0) {
-          continue;
-        }
-        seen.add(allocation.id);
-        scored.push({
-          // A frequency hit outranks any number of word hits: an operator who typed a
-          // frequency asked a different question than one who typed a name.
-          score: (covers ? 100 : 0) + matched,
-          width: allocation.stop_hz - allocation.start_hz,
-          match: { laneId: lane.id, laneName: lane.name, allocation },
-        });
       }
     }
+  }
+
+  const scored: { match: BandMatch; score: number; width: number }[] = [];
+  for (const allocation of plan.allocations) {
+    const covers = hz !== null && allocation.start_hz <= hz && allocation.stop_hz > hz;
+    const haystack = haystackOf(allocation);
+    const matched = words.filter((word) => haystack.includes(word)).length;
+    if (!covers && matched === 0) {
+      continue;
+    }
+    scored.push({
+      // A frequency hit outranks any number of word hits: an operator who typed a frequency
+      // asked a different question than one who typed a name.
+      score: (covers ? 100 : 0) + matched,
+      width: allocation.stop_hz - allocation.start_hz,
+      match: {
+        laneId: allocation.layer,
+        laneName: lanes.get(allocation.id) ?? "",
+        allocation,
+      },
+    });
   }
   scored.sort((a, b) => b.score - a.score || a.width - b.width);
   return scored.slice(0, limit).map((entry) => entry.match);
@@ -216,5 +253,5 @@ function haystackOf(allocation: BandAllocation): string {
   // "ham" is not an alias anyone would author on fifty amateur rows, and it is what half the
   // world calls the service.
   const service = allocation.service === "amateur" ? "amateur ham" : allocation.service;
-  return `${allocation.name} ${allocation.aliases.join(" ")} ${service}`.toLowerCase();
+  return `${allocation.name} ${(allocation.aliases ?? []).join(" ")} ${service}`.toLowerCase();
 }
