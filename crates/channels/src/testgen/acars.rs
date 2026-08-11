@@ -149,7 +149,12 @@ pub fn transmission(block: &Block<'_>, rate: f64) -> Vec<Complex<f32>> {
     let mut stream: Vec<bool> = (0..PREKEY_BITS).map(|i| i.is_multiple_of(2)).collect();
     stream.extend(bits(&BSYNC));
     stream.extend(bits(&block_bytes(block)));
-    super::am_modulate(&msk_audio(&stream, rate), AM_DEPTH)
+    // ACARS is MSK on an AM carrier: the envelope is `1 + depth·audio`, which is all the
+    // amplitude modulation this mode needs and not enough to be worth a shared helper.
+    msk_audio(&stream, rate)
+        .iter()
+        .map(|&s| Complex::new(1.0 + AM_DEPTH * s, 0.0))
+        .collect()
 }
 
 #[cfg(test)]

@@ -17,6 +17,7 @@ mod rds;
 mod rtty;
 mod ssb;
 mod subghz;
+mod tx;
 mod wfm;
 
 #[cfg(test)]
@@ -31,8 +32,8 @@ pub mod testgen;
 pub use acars::AcarsChannel;
 pub use adsb::AdsbChannel;
 pub use ais::AisChannelRx;
-pub use am::AmChannel;
-pub use aprs::AprsChannel;
+pub use am::{AmChannel, AmTx};
+pub use aprs::{AprsChannel, AprsTx};
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};
@@ -41,7 +42,7 @@ pub use pocsag::PocsagChannel;
 pub use rtty::RttyChannel;
 use sdrmm_dsp::{Agc, Decimator, FirC};
 use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, Sideband};
-pub use ssb::SsbChannel;
+pub use ssb::{SsbChannel, SsbTx};
 pub use subghz::SubghzChannel;
 pub use wfm::WfmChannel;
 
@@ -300,12 +301,12 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: AmChannel::descriptor,
         create: boxed::<AmChannel>,
-        create_tx: None,
+        create_tx: Some(boxed_tx::<AmTx>),
     },
     Registration {
         descriptor: SsbChannel::descriptor,
         create: boxed::<SsbChannel>,
-        create_tx: None,
+        create_tx: Some(boxed_tx::<SsbTx>),
     },
     Registration {
         descriptor: WfmChannel::descriptor,
@@ -330,7 +331,7 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: AprsChannel::descriptor,
         create: boxed::<AprsChannel>,
-        create_tx: None,
+        create_tx: Some(boxed_tx::<AprsTx>),
     },
     Registration {
         descriptor: RttyChannel::descriptor,
@@ -598,16 +599,16 @@ mod tests {
         }
     }
 
-    /// PLAN §20 wave 1: NFM is the one mode with a modulator so far. This is a reminder to
-    /// extend the list deliberately, not a cap.
+    /// PLAN §20: the modes with a modulator so far — the analog voice trio and AX.25. This is a
+    /// reminder to extend the list deliberately, not a cap.
     #[test]
-    fn nfm_is_the_only_transmitting_type() {
+    fn only_the_modes_with_a_modulator_transmit() {
         let transmitting: Vec<String> = descriptors()
             .into_iter()
             .filter(|d| d.can_transmit)
             .map(|d| d.type_id)
             .collect();
-        assert_eq!(transmitting, ["nfm"]);
+        assert_eq!(transmitting, ["nfm", "am", "ssb", "aprs"]);
     }
 
     #[test]

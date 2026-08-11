@@ -7,9 +7,11 @@ ACARS, sub-GHz) after M6.
 
 ## What `cargo xtask fixtures` writes
 
-One pair per decoder, rendered by the same `channels::testgen` modulators the decoder
-unit tests and the engine end-to-end run use — a fixture can therefore never drift from what
-the decoders are tested against. Each is meant to be *played*: open it as a `virtual:file:`
+One pair per decoder, rendered by the same modulators the decoder unit tests and the engine
+end-to-end run use — a fixture can therefore never drift from what the decoders are tested
+against. Most come from a `channels::testgen` encoder; a mode that ships a `ChannelTx` (APRS
+today) is keyed by that transmitter instead, at its own channel rate, and resampled to the
+device rate the fixture is written at. Each is meant to be *played*: open it as a `virtual:file:`
 device, add the named channel at the stated offset, and the decoder log fills up.
 
 | stem | rate | channel | expected |
