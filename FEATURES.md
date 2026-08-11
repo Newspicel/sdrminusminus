@@ -36,8 +36,9 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Auto-reconnect on replug — a faulted set whose radio re-enumerates is re-opened, its tuning re-applied and its channels rebuilt with ids, PCM identity and live audio subscriptions preserved
 - **[shipped]** Two-tier recovery — an in-place stream restart (measured 6.1–7.6 ms on the RTL-SDR, 0.8–1.2 ms on the HackRF, against ~1.6 s for a re-open) with a silent-stall detector on both radios, falling back to the engine's destructive fault path only when the restart budget is spent. Proven in three pieces (policy, transport, primitive); never yet driven by a genuinely halted pipe
 - **[shipped]** Soapy-free builds are a CI gate (`--no-default-features --features rtl-native,hackrf-native`)
+- **[shipped]** HackRF baseband filter as a control of its own — all sixteen MAX2837 widths offered, an off-grid request snapped down and *reported* at the width that landed, and a `0` that asks for whatever the sample rate implies. A rate change still carries the filter with it, but the width it lands on is now libhackrf's `0.75 × rate` rather than the rate itself: the old value asked for a filter wider than the passband it was there to bound, and no longer matched what the same radio does under `hackrf_transfer`
+- **[shipped]** HackRF hardware sweep mode — the firmware's `INIT_SWEEP` request and `RX_SWEEP` transceiver mode, the 16 KiB stamped-block framing, and a reader that hands out one located capture per block, half-duplex arbitrated against capture and transmit. Driver-level and Rust-only, like the transmit path: the plan encoding and the block parsing are golden-tested against libhackrf's and the firmware's own source, but no radio has run it and nothing above `device-hackrf` calls it yet (see §4)
 - **[planned]** Direct sampling (HF via RTL-SDR)
-- **[planned]** HackRF independent baseband-filter bandwidth and hardware sweep mode
 - **[planned]** rtl_tcp / SpyServer client device
 - **[planned]** KiwiSDR client device
 - **[planned]** Remote source/sink between sdr-- instances; local routing between device sets
@@ -70,7 +71,7 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Keyboard-first operation — tune, tune step, mode, squelch, audio, channel and view switching, with a `?` overlay rendering the same table the handler switches on
 - **[shipped]** Frequency manager: presets and bookmarks
 - **[shipped]** Frequency scanner — targets grouped into passband-sized tunings so one dwell measures every target in the passband, peak-hold over the dwell, post-retune settle and drain, hold-and-resume that parks a channel on the hit, and exclusive ownership of the set's centre frequency while it runs. Swept 88–108 MHz (201 targets) on both radios and held on real stations
-- **[planned]** Hardware-assisted wideband sweep — today's scanner sweeps by retuning; the HackRF's own sweep mode is not driven
+- **[planned]** Hardware-assisted wideband sweep — the HackRF driver now runs the radio's own sweep mode (§2), but the scanner still sweeps by retuning: a sweep delivers blocks stamped with their own frequency rather than a stream at one tuning, so the scanner's "measure the device-set spectrum tap" loop has nothing to read it with yet
 - **[planned]** Strongest-signal "close-call" finder
 - **[planned]** Signal-strength **hunt mode** — Geiger-style audio/visual feedback as you close on a transmitter
 - **[planned]** Percentile-anchored waterfall colour range — the range is the frame's own min…max today, so a high noise floor washes the display out

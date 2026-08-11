@@ -13,6 +13,7 @@ use super::{
     },
     discovery::{self, DeviceDescriptor},
     error::{Error, Result},
+    sweep::{SweepPlan, TRANSFER_BYTES as SWEEP_TRANSFER_SIZE},
     tx::BurstQueue,
     types::{BoardId, DeviceInfo},
 };
@@ -33,6 +34,12 @@ const RX_CHANNEL_DEPTH: usize = 8;
 /// Firmware older than USB API 1.18 cannot be asked for its buffer size; libhackrf assumes this.
 const DEFAULT_FLUSH_SIZE: usize = 32 * 1024;
 
+/// USB API the sweep request and the sweep transceiver mode arrived in, as libhackrf's
+/// `USB_API_REQUIRED` gates them. Below these the firmware answers the request with a stall,
+/// which reads as a plain I/O error and says nothing about why.
+const SWEEP_INIT_USB_API: u16 = 0x0102;
+const SWEEP_MODE_USB_API: u16 = 0x0104;
+
 /// An opened HackRF.
 ///
 /// Every setter writes through to the radio and only then updates [`HackRf::config`], so the
@@ -49,6 +56,8 @@ pub(crate) struct HackRf {
     /// Length of the zero-filled transfer that marks the end of a transmit burst, as the
     /// firmware reports it.
     flush_size: usize,
+    /// What the firmware answered on open, for the requests that only newer firmware has.
+    usb_api_version: u16,
 }
 
 impl HackRf {
@@ -108,6 +117,7 @@ impl HackRf {
             control,
             config: Config::default(),
             flush_size,
+            usb_api_version,
         };
         // The radio powers up with no usable tuning, so the defaults are written through and the
         // reported configuration is true from the first read.
@@ -139,19 +149,38 @@ impl HackRf {
         Ok(())
     }
 
-    /// Set the complex sample rate, and the baseband filter to match it.
+    /// Set the complex sample rate, and carry the baseband filter to match it.
     ///
-    /// The two are one operation on purpose: a filter left at the old width either folds
-    /// out-of-band energy into a wider passband or clips a narrower one.
+    /// A filter left at the old width either folds out-of-band energy into a wider passband or
+    /// clips a narrower one, so the rate takes it along — libhackrf's `set_sample_rate_manual`
+    /// does the same. A caller that wants a different width sets it *after* the rate, in the
+    /// same batch; nothing here remembers a width across a later rate change, because the width
+    /// this leaves behind is reported back and shows up on the control the client renders.
+    /// (The RTL-SDR path has to remember one instead: librtlsdr never says what its tuner
+    /// picked, so a revert there would be invisible rather than merely automatic.)
     pub(crate) fn set_sample_rate_hz(&mut self, sample_rate_hz: u32) -> Result<()> {
         config::validate_sample_rate(sample_rate_hz)?;
         self.control
             .control_out(&VendorControlRequest::set_sample_rate(sample_rate_hz))?;
-        self.control
-            .control_out(&VendorControlRequest::set_baseband_bandwidth(
-                sample_rate_hz,
-            ))?;
         self.config.sample_rate_hz = sample_rate_hz;
+        self.write_filter_width(config::filter_width_for_rate(sample_rate_hz))
+    }
+
+    /// Set the MAX2837 baseband filter to one of its own widths, independent of the sample rate.
+    pub(crate) fn set_filter_width_hz(&mut self, width_hz: u32) -> Result<()> {
+        config::validate_filter_width(width_hz)?;
+        self.write_filter_width(width_hz)
+    }
+
+    /// Move the filter to the width the current sample rate implies.
+    pub(crate) fn set_filter_to_match_rate(&mut self) -> Result<()> {
+        self.write_filter_width(config::filter_width_for_rate(self.config.sample_rate_hz))
+    }
+
+    fn write_filter_width(&mut self, width_hz: u32) -> Result<()> {
+        self.control
+            .control_out(&VendorControlRequest::set_baseband_bandwidth(width_hz))?;
+        self.config.filter_width_hz = width_hz;
         Ok(())
     }
 
@@ -215,6 +244,40 @@ impl HackRf {
         config.channel_depth = RX_CHANNEL_DEPTH;
         let stream = sdrmm_usb_stream::start(endpoint, config)?;
         self.select(TransceiverMode::Receive)?;
+        Ok(stream)
+    }
+
+    /// Start the firmware's own sweep.
+    ///
+    /// The plan is validated and armed *before* the stream exists, so a plan the firmware would
+    /// stall on costs nothing and leaves the radio switched off. After this the LPC owns the
+    /// tuning: [`Config::frequency_hz`] is whatever was last written by hand and is not where
+    /// the radio is, which is why every block carries its own frequency instead.
+    pub(crate) fn start_rx_sweep(&mut self, plan: &SweepPlan) -> Result<RxStream> {
+        if self.usb_api_version < SWEEP_INIT_USB_API {
+            return Err(Error::invalid_config(
+                "sweep",
+                "the firmware is older than USB API 1.02 and has no sweep request",
+            ));
+        }
+        if self.usb_api_version < SWEEP_MODE_USB_API {
+            return Err(Error::invalid_config(
+                "sweep",
+                "the firmware is older than USB API 1.04 and has no sweep transceiver mode",
+            ));
+        }
+        let (bytes_per_tuning, payload) = plan.encode()?;
+        // Whatever the radio was doing, it is not doing it now: the firmware reads its sweep
+        // range list once, when the mode is selected, so arming it mid-stream would arm the
+        // wrong thing.
+        self.set_mode_off()?;
+        self.control
+            .control_out(&VendorControlRequest::init_sweep(bytes_per_tuning, payload))?;
+        let endpoint = NusbBulkIn::open(self.control.interface(), RX_ENDPOINT)?;
+        let mut config = StreamConfig::new(SWEEP_TRANSFER_SIZE, "sdrmm-hackrf-sweep");
+        config.channel_depth = RX_CHANNEL_DEPTH;
+        let stream = sdrmm_usb_stream::start(endpoint, config)?;
+        self.select(TransceiverMode::RxSweep)?;
         Ok(stream)
     }
 

@@ -3,8 +3,10 @@
 //! launch with no libhackrf, no libSoapySDR and no C dependency at all (PLAN §15).
 //!
 //! What it buys over the Soapy view of the same radio is the real per-stage gain model — LNA
-//! and VGA separately, each on its own MAX2837 step grid — plus the RF amplifier and
-//! antenna-port bias power as typed extras.
+//! and VGA separately, each on its own MAX2837 step grid — the baseband filter as a width of its
+//! own rather than a shadow of the sample rate, and the RF amplifier and antenna-port bias power
+//! as typed extras. The firmware's self-retuning sweep is here too, as
+//! [`HackRfDevice::sweep_start`]; nothing above this crate drives it yet.
 //!
 //! Four layers, in dependency order:
 //!
@@ -25,15 +27,16 @@
 //! transmit burst, and vice versa.
 
 use std::{
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard, mpsc::RecvTimeoutError},
     time::Duration,
 };
 
 use convert::samples_to_cs8;
-use driver::{BurstQueue, DeviceDescriptor, HackRf, TX_TRANSFER_SIZE};
+use driver::{BurstQueue, DeviceDescriptor, HackRf, SweepBlocks, TX_TRANSFER_SIZE};
+pub use driver::{SweepPlan, SweepRange, SweepStyle};
 use sdrmm_device::{
     Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, Direction, DuplexState,
-    RxSink, Sample, SdrDevice, TxStream, lock, single_rx_sink,
+    LutConverter, RxSink, Sample, SampleConverter, SdrDevice, TxStream, lock, single_rx_sink,
 };
 use sdrmm_usb_stream::{NusbBulkOut, RxStream};
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings};
@@ -247,8 +250,15 @@ fn write_to_hardware(device: &mut HackRf, applied: &caps::Applied) -> Result<(),
     if let Some(hz) = applied.frequency_hz {
         device.set_frequency_hz(hz).map_err(map_err)?;
     }
+    // Rate before filter, always: setting the rate moves the filter to match, so a width
+    // written first would be overwritten by the rate that came after it in the same delta.
     if let Some(rate) = applied.sample_rate_hz {
         device.set_sample_rate_hz(rate).map_err(map_err)?;
+    }
+    match applied.filter {
+        Some(caps::FilterWidth::Hz(hz)) => device.set_filter_width_hz(hz).map_err(map_err)?,
+        Some(caps::FilterWidth::MatchRate) => device.set_filter_to_match_rate().map_err(map_err)?,
+        None => {}
     }
     if let Some(db) = applied.lna_gain_db {
         device.set_lna_gain_db(db).map_err(map_err)?;
@@ -342,6 +352,40 @@ impl SdrDevice for HackRfDevice {
 }
 
 impl HackRfDevice {
+    /// Hand the tuning to the firmware and start sweeping.
+    ///
+    /// A sweep is a receive stream that retunes itself, so it takes the receive claim and is
+    /// arbitrated against everything else the radio could be doing: a capture running here is
+    /// [`DeviceError::AlreadyStreaming`], and a burst on the air is a
+    /// [`DeviceError::DuplexConflict`]. It deliberately does *not* go through [`Capture`]: that
+    /// supervisor's restart path re-arms with `start_rx`, which would silently drop a faulted
+    /// sweep back into a plain capture on one frequency — so a sweep that faults surfaces the
+    /// fault instead, and the caller decides.
+    ///
+    /// Not a wire setting, and reachable only from Rust — like [`SdrDevice::tx_start`]. Driving
+    /// it from the scanner is its own piece of work (FEATURES §4, "hardware-assisted wideband
+    /// sweep"), because the scanner measures off the device set's spectrum tap and a sweep
+    /// produces a different shape of data entirely.
+    ///
+    /// # Errors
+    /// [`DeviceError::Unsupported`] for a plan the firmware would refuse or firmware too old to
+    /// sweep, and [`DeviceError::Io`] if the radio will not start.
+    pub fn sweep_start(&mut self, plan: &SweepPlan) -> Result<HackRfSweep, DeviceError> {
+        lock(&self.duplex).claim(Direction::Rx)?;
+        match self.radio.lock().start_rx_sweep(plan) {
+            Ok(stream) => Ok(HackRfSweep {
+                radio: self.radio.clone(),
+                duplex: self.duplex.clone(),
+                stream: Some(stream),
+                decoder: SweepDecoder::new(u64::from(plan.offset_hz)),
+            }),
+            Err(e) => {
+                lock(&self.duplex).release(Direction::Rx);
+                Err(map_err(e))
+            }
+        }
+    }
+
     /// The transmit VGA, 0–47 dB. It powers up at zero and is set back to zero when the device
     /// is opened, so the radio cannot be made to radiate at drive by a mode change alone.
     ///
@@ -355,6 +399,127 @@ impl HackRfDevice {
             .lock()
             .set_tx_vga_gain_db(gain_db)
             .map_err(map_err)
+    }
+}
+
+/// One located capture from a running sweep.
+#[derive(Debug)]
+pub struct SweepCapture<'a> {
+    /// The firmware's own stamp: the low edge of the span this capture covers.
+    pub stamp_hz: u64,
+    /// Where the radio was — the stamp plus the plan's tuning offset.
+    pub tuned_hz: u64,
+    /// The capture. `hackrf_sweep` takes its FFT window from the *end* of this, because the
+    /// retune that precedes a block is still settling at the start of it.
+    pub samples: &'a [Sample],
+}
+
+/// The sample side of a sweep: one USB transfer in, its located captures out.
+///
+/// Split from [`HackRfSweep`] because it is the half with no radio in it, and therefore the half
+/// that can be tested at all (PLAN §14: no hardware in CI, ever). Everything the transport half
+/// adds is a `recv` and an error mapping.
+struct SweepDecoder {
+    /// Reused across blocks, so a running sweep allocates nothing.
+    converter: LutConverter,
+    offset_hz: u64,
+}
+
+impl SweepDecoder {
+    fn new(offset_hz: u64) -> Self {
+        Self {
+            converter: convert::sweep_converter(),
+            offset_hz,
+        }
+    }
+
+    fn decode(&mut self, transfer: &[u8], mut visit: impl FnMut(SweepCapture<'_>)) -> usize {
+        let mut delivered = 0;
+        for block in SweepBlocks::new(transfer, self.offset_hz) {
+            visit(SweepCapture {
+                stamp_hz: block.stamp_hz,
+                tuned_hz: block.tuned_hz,
+                samples: self.converter.convert(block.iq),
+            });
+            delivered += 1;
+        }
+        delivered
+    }
+}
+
+/// A running sweep. Dropping it takes the radio out of sweep mode.
+pub struct HackRfSweep {
+    radio: Arc<HackRfRadio>,
+    /// Released when the sweep ends, and only the receive half of it.
+    duplex: Arc<Mutex<DuplexState>>,
+    /// Taken by [`HackRfSweep::stop`]; `None` afterwards, so a stopped sweep neither yields more
+    /// blocks nor tears the radio down twice.
+    stream: Option<RxStream>,
+    decoder: SweepDecoder,
+}
+
+impl HackRfSweep {
+    /// Wait up to `timeout` for the next transfer and hand each located capture in it to
+    /// `visit`, returning how many there were.
+    ///
+    /// Zero means the timeout expired with nothing to show, which is not an error: it is how a
+    /// caller stays responsive to its own stop flag while the firmware works through a range
+    /// whose blocks the transport has not filled a transfer with yet.
+    ///
+    /// A visitor rather than an iterator because the sample buffer is reused between captures:
+    /// two blocks from one transfer are two different frequencies, and handing both out at once
+    /// would mean either an allocation per block or a caller holding a slice that has already
+    /// been overwritten.
+    ///
+    /// # Errors
+    /// [`DeviceError::Io`] once the stream is over — a fault, or a [`HackRfSweep::stop`] that
+    /// already happened.
+    pub fn read(
+        &mut self,
+        timeout: Duration,
+        visit: impl FnMut(SweepCapture<'_>),
+    ) -> Result<usize, DeviceError> {
+        let Some(stream) = self.stream.as_ref() else {
+            return Err(DeviceError::Io("sweep is stopped".to_string()));
+        };
+        let transfer = match stream.recv_timeout(timeout) {
+            Ok(transfer) => transfer,
+            Err(RecvTimeoutError::Timeout) => return Ok(0),
+            Err(RecvTimeoutError::Disconnected) => {
+                let reason = stream.error().map_or_else(
+                    || "sweep stream ended".to_string(),
+                    |error| format!("sweep stream failed: {error}"),
+                );
+                return Err(DeviceError::Io(reason));
+            }
+        };
+        Ok(self.decoder.decode(&transfer, visit))
+    }
+
+    /// Stop sweeping and give the radio back. Idempotent.
+    ///
+    /// # Errors
+    /// [`DeviceError::Io`] if the radio would not leave sweep mode. The claim is released
+    /// either way — a radio nobody can talk to must not also be a radio nobody can re-open.
+    pub fn stop(&mut self) -> Result<(), DeviceError> {
+        let Some(mut stream) = self.stream.take() else {
+            return Ok(());
+        };
+        // Mode off first: the firmware would otherwise keep filling transfers the pump is no
+        // longer draining, which is exactly the backlog `set_mode_off` before teardown avoids on
+        // the plain receive path.
+        let stopped = self.radio.lock().set_mode_off();
+        tracing::info!(stats = ?stream.stop(), "hackrf sweep finished");
+        lock(&self.duplex).release(Direction::Rx);
+        stopped.map_err(map_err)
+    }
+}
+
+impl Drop for HackRfSweep {
+    fn drop(&mut self) {
+        if let Err(e) = self.stop() {
+            tracing::debug!("hackrf sweep stop failed: {e}");
+        }
     }
 }
 
@@ -438,6 +603,14 @@ mod tests {
     use super::*;
 
     const SERIAL: u128 = 0x0000_0000_0000_0000_675c_62dc_3b2d_4b8b;
+
+    /// One firmware sweep block: the magic, the stamp, then `code` for every IQ byte.
+    fn sweep_block(stamp_hz: u64, code: u8) -> Vec<u8> {
+        let mut bytes = vec![0x7f, 0x7f];
+        bytes.extend_from_slice(&stamp_hz.to_le_bytes());
+        bytes.resize(16_384, code);
+        bytes
+    }
 
     fn descriptor(serial: Option<u128>, product_string: Option<&str>) -> DeviceDescriptor {
         DeviceDescriptor {
@@ -543,6 +716,62 @@ mod tests {
         // Releasing the receive claim frees the path, and nothing else.
         state.release(Direction::Rx);
         state.claim(Direction::Tx).expect("transmit");
+    }
+
+    /// Sixteen blocks per transfer, each stamped and converted on its own — a sweep's samples
+    /// are only meaningful next to the frequency they were captured at, so the reader must
+    /// never hand out a run that spans two of them.
+    #[test]
+    fn a_sweep_transfer_decodes_into_one_capture_per_block() {
+        let mut transfer = sweep_block(88_000_000, 0x7f);
+        transfer.extend(sweep_block(93_000_000, 0x80));
+        let mut decoder = SweepDecoder::new(7_500_000);
+        let mut seen = Vec::new();
+        let delivered = decoder.decode(&transfer, |capture| {
+            seen.push((
+                capture.stamp_hz,
+                capture.tuned_hz,
+                capture.samples.len(),
+                capture.samples[0],
+            ));
+        });
+        assert_eq!(delivered, 2);
+        assert_eq!(
+            seen,
+            vec![
+                // 0x7f and 0x80 are the extremes of the signed coding, so this also pins that
+                // the sweep path reads the same table the capture path does.
+                (
+                    88_000_000,
+                    95_500_000,
+                    8_187,
+                    Sample::new(127.0 / 128.0, 127.0 / 128.0)
+                ),
+                (93_000_000, 100_500_000, 8_187, Sample::new(-1.0, -1.0)),
+            ]
+        );
+    }
+
+    /// The decoder is fed whole transfers for the life of a sweep; a per-block allocation would
+    /// be one every 8187 samples at 20 Msps.
+    #[test]
+    fn a_running_sweep_does_not_allocate_per_block() {
+        let transfer = sweep_block(88_000_000, 0x00);
+        let mut decoder = SweepDecoder::new(0);
+        let mut first = None;
+        decoder.decode(&transfer, |capture| first = Some(capture.samples.as_ptr()));
+        let mut second = None;
+        decoder.decode(&transfer, |capture| second = Some(capture.samples.as_ptr()));
+        assert_eq!(first, second);
+    }
+
+    /// A transfer the firmware never framed yields nothing rather than samples at a guessed
+    /// frequency — the reader's count is what tells a caller its sweep is not producing.
+    #[test]
+    fn an_unframed_transfer_decodes_to_nothing() {
+        let mut decoder = SweepDecoder::new(0);
+        let delivered = decoder.decode(&vec![0u8; 16_384], |_| panic!("nothing to decode"));
+        assert_eq!(delivered, 0);
     }
 
     /// `tx_start` hands back a trait object, so the burst has to be object-safe — the property

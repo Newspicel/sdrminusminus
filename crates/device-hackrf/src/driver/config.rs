@@ -9,6 +9,21 @@ const DEFAULT_LNA_GAIN_DB: u8 = 8;
 const DEFAULT_VGA_GAIN_DB: u8 = 20;
 const DEFAULT_TX_VGA_GAIN_DB: u8 = 0;
 
+/// Every width the MAX2837's baseband filter can actually be programmed to, ascending —
+/// libhackrf's `max2837_ft` table. The part has no continuous cutoff, so a width off this list
+/// has no register encoding at all and the firmware would substitute one of its own.
+pub(crate) const FILTER_WIDTHS_HZ: [u32; 16] = [
+    1_750_000, 2_500_000, 3_500_000, 5_000_000, 5_500_000, 6_000_000, 7_000_000, 8_000_000,
+    9_000_000, 10_000_000, 12_000_000, 14_000_000, 15_000_000, 20_000_000, 24_000_000, 28_000_000,
+];
+
+/// Fraction of the sample rate the filter is set to, as a rational so the arithmetic is exact.
+/// libhackrf's `hackrf_set_sample_rate_manual` picks `0.75 × rate`: three quarters of the
+/// complex bandwidth is what is left flat after the filter's own transition, so the passband is
+/// usable to its edges instead of rolling off inside the span the client is shown.
+const FILTER_RATE_FRACTION_NUM: u64 = 3;
+const FILTER_RATE_FRACTION_DEN: u64 = 4;
+
 /// What the radio holds.
 ///
 /// A plain value record with no invariants of its own — validation lives on the `Device`
@@ -29,6 +44,9 @@ pub(crate) struct Config {
     /// MAX2837 transmit VGA gain in dB. Powers up at zero, so a transmit that was never asked
     /// for cannot reach the antenna at full drive.
     pub(crate) tx_vga_gain_db: u8,
+    /// Width the MAX2837 baseband filter is programmed to, in Hz — always one of
+    /// [`FILTER_WIDTHS_HZ`], whether it was asked for or derived from the sample rate.
+    pub(crate) filter_width_hz: u32,
     /// Whether the RF amplifier is on.
     pub(crate) amp_enabled: bool,
     /// Whether the antenna port is powered.
@@ -43,6 +61,7 @@ impl Default for Config {
             lna_gain_db: DEFAULT_LNA_GAIN_DB,
             vga_gain_db: DEFAULT_VGA_GAIN_DB,
             tx_vga_gain_db: DEFAULT_TX_VGA_GAIN_DB,
+            filter_width_hz: filter_width_for_rate(DEFAULT_SAMPLE_RATE_HZ),
             amp_enabled: false,
             bias_tee_enabled: false,
         }
@@ -69,6 +88,38 @@ pub(crate) fn validate_sample_rate(value: u32) -> Result<()> {
         Err(Error::invalid_config(
             "sample_rate_hz",
             "must be between 2 MHz and 20 MHz inclusive",
+        ))
+    }
+}
+
+/// The widest listed filter that is no wider than `bandwidth_hz`, or the narrowest one when the
+/// request is under the whole table — libhackrf's `hackrf_compute_baseband_filter_bw`. Rounding
+/// *down* is the safe direction: a filter wider than asked for passes energy the caller said it
+/// did not want, while a narrower one only costs span.
+pub(crate) fn snap_filter_width(bandwidth_hz: u32) -> u32 {
+    FILTER_WIDTHS_HZ
+        .iter()
+        .rev()
+        .copied()
+        .find(|width| *width <= bandwidth_hz)
+        .unwrap_or(FILTER_WIDTHS_HZ[0])
+}
+
+/// The width the filter is carried to by a sample rate of `sample_rate_hz`.
+pub(crate) fn filter_width_for_rate(sample_rate_hz: u32) -> u32 {
+    let target = u64::from(sample_rate_hz) * FILTER_RATE_FRACTION_NUM / FILTER_RATE_FRACTION_DEN;
+    snap_filter_width(target as u32)
+}
+
+/// The filter takes only the widths its register encodes; [`snap_filter_width`] is how a caller
+/// turns an arbitrary request into one.
+pub(crate) fn validate_filter_width(value: u32) -> Result<()> {
+    if FILTER_WIDTHS_HZ.contains(&value) {
+        Ok(())
+    } else {
+        Err(Error::invalid_config(
+            "filter_width_hz",
+            "must be one of the MAX2837 baseband filter widths, 1.75 MHz through 28 MHz",
         ))
     }
 }
@@ -121,8 +172,53 @@ mod tests {
         assert_eq!(config.lna_gain_db, 8);
         assert_eq!(config.vga_gain_db, 20);
         assert_eq!(config.tx_vga_gain_db, 0);
+        // 0.75 × 10 Msps is 7.5 MHz, which the table has no entry for.
+        assert_eq!(config.filter_width_hz, 7_000_000);
         assert!(!config.amp_enabled);
         assert!(!config.bias_tee_enabled);
+    }
+
+    /// Golden vectors against libhackrf's `hackrf_compute_baseband_filter_bw`, which is what
+    /// every other host tool snaps with — a HackRF opened here and in `hackrf_transfer` must
+    /// land on the same filter.
+    #[test]
+    fn filter_widths_snap_down_onto_the_max2837_table() {
+        assert_eq!(snap_filter_width(1_750_000), 1_750_000);
+        assert_eq!(snap_filter_width(2_499_999), 1_750_000);
+        assert_eq!(snap_filter_width(2_500_000), 2_500_000);
+        assert_eq!(snap_filter_width(7_500_000), 7_000_000);
+        assert_eq!(snap_filter_width(28_000_000), 28_000_000);
+        assert_eq!(snap_filter_width(100_000_000), 28_000_000);
+        // Under the narrowest entry libhackrf returns the first one rather than nothing.
+        assert_eq!(snap_filter_width(0), 1_750_000);
+        assert_eq!(snap_filter_width(1_000_000), 1_750_000);
+    }
+
+    /// Every listed width is its own snap, so the table and the snapping cannot disagree.
+    #[test]
+    fn every_listed_width_snaps_to_itself_and_validates() {
+        for width in FILTER_WIDTHS_HZ {
+            assert_eq!(snap_filter_width(width), width);
+            assert!(validate_filter_width(width).is_ok(), "{width}");
+        }
+        for off_table in [0, 1_000_000, 7_500_000, 11_000_000, 28_000_001] {
+            assert!(validate_filter_width(off_table).is_err(), "{off_table}");
+        }
+    }
+
+    /// The rate-derived width is 0.75 × rate snapped down, and never wider than the rate
+    /// itself — a filter wider than the complex bandwidth would alias its own skirts back in.
+    #[test]
+    fn the_rate_derived_width_is_three_quarters_of_the_rate() {
+        assert_eq!(filter_width_for_rate(2_000_000), 1_750_000);
+        assert_eq!(filter_width_for_rate(8_000_000), 6_000_000);
+        assert_eq!(filter_width_for_rate(10_000_000), 7_000_000);
+        assert_eq!(filter_width_for_rate(20_000_000), 15_000_000);
+        for rate in (2_000_000..=20_000_000).step_by(250_000) {
+            let width = filter_width_for_rate(rate);
+            assert!(width <= rate, "{width} Hz filter at {rate} Hz");
+            assert!(validate_filter_width(width).is_ok(), "rate {rate}");
+        }
     }
 
     #[test]
