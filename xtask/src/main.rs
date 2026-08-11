@@ -30,6 +30,9 @@ enum Cmd {
     Check,
     /// Full test suite (uses `device-virtual`; no hardware).
     Test,
+    /// Dependency advisories (`deny.toml`). Separate from `check`: it needs `cargo-deny` and
+    /// fetches the RustSec database, so it can go red on a day the tree did not change.
+    Audit,
     /// The Playwright smoke flow against the real server on `device-virtual` (PLAN §14).
     /// Separate from `test` because it needs a browser binary; CI installs one.
     Smoke,
@@ -49,6 +52,7 @@ fn main() -> Result<()> {
         Cmd::Dev => dev(&root()),
         Cmd::Check => check(&root()),
         Cmd::Test => test(&root()),
+        Cmd::Audit => audit(&root()),
         Cmd::Smoke => smoke(&root()),
         Cmd::Fixtures => fixtures(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
@@ -281,6 +285,22 @@ fn test(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
     run("pnpm", &["--dir", "web", "test"], root)?;
     Ok(())
+}
+
+/// Check the whole dependency graph — including the Tauri shell, which the default gate skips —
+/// against the RustSec database. The policy and every standing exception live in `deny.toml`.
+fn audit(root: &Path) -> Result<()> {
+    let installed = Command::new("cargo")
+        .args(["deny", "--version"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    ensure!(
+        installed,
+        "cargo-deny is missing: `cargo install --locked cargo-deny`"
+    );
+    run("cargo", &["deny", "check", "advisories"], root)
 }
 
 /// The browser smoke flow. It drives the built UI served by the real binary, which is how a
