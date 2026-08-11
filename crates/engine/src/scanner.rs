@@ -33,8 +33,13 @@ const USABLE_SPAN_FRACTION: f64 = 0.8;
 /// covers the ring backlog, which is what would otherwise be measured at the old frequency.
 const RETUNE_SETTLE: Duration = Duration::from_millis(30);
 /// Floor on how long a tuning is listened to, whatever `dwell_ms` says — below one spectrum
-/// frame (~33 ms at the tap's 30 fps) a dwell would measure nothing at all.
+/// frame (~33 ms at the tap's 30 fps) a dwell would peak-hold a single frame and spend the
+/// rest of the sweep retuning.
 const MIN_DWELL: Duration = Duration::from_millis(40);
+/// How long a listening window overruns waiting for its *first* frame. A dwell shorter than
+/// the tap's frame interval, a capture thread still starting, or one the OS starved for a
+/// moment must cost latency — never the scan. Only a tap this quiet is a device that stopped.
+const SPECTRUM_TIMEOUT: Duration = Duration::from_secs(2);
 /// Re-measurement cadence while parked on a hit.
 const HOLD_POLL: Duration = Duration::from_millis(120);
 /// Spectrum poll interval; the tap produces ~30 frames a second, so this only bounds latency.
@@ -306,31 +311,7 @@ impl Scan {
         let targets: Vec<f64> = self.plan.targets[tuning.first..=tuning.last].to_vec();
         let mut peaks = vec![f32::NEG_INFINITY; targets.len()];
         let dwell = Duration::from_millis(u64::from(self.settings.dwell_ms)).max(MIN_DWELL);
-        let deadline = Instant::now() + dwell;
-        let mut frames = 0usize;
-        while Instant::now() < deadline {
-            self.check_stop()?;
-            match rx.try_recv() {
-                Ok(snapshot) => {
-                    frames += 1;
-                    for (peak, &target) in peaks.iter_mut().zip(&targets) {
-                        if let Some(db) = measure(&snapshot, target, self.settings.measure_bw_hz) {
-                            *peak = peak.max(db);
-                        }
-                    }
-                }
-                Err(TryRecvError::Empty) => std::thread::sleep(POLL),
-                // The tap drops the oldest frames under a slow consumer; peak-hold over a
-                // dwell tolerates that, so a lag only costs sensitivity, never correctness.
-                Err(TryRecvError::Lagged(_)) => {}
-                Err(TryRecvError::Closed) => return Err(Halt::Stopped),
-            }
-        }
-        if frames == 0 {
-            return Err(Halt::Failed(
-                "the device produced no spectrum during the dwell".to_string(),
-            ));
-        }
+        self.listen(&mut rx, &targets, &mut peaks, dwell)?;
 
         for (&target, &level) in targets.iter().zip(&peaks) {
             self.check_stop()?;
@@ -379,20 +360,15 @@ impl Scan {
         let mut quiet_since: Option<Instant> = None;
         loop {
             self.check_stop()?;
-            let window = Instant::now() + HOLD_POLL;
+            // A window that measured nothing must not read as a quiet channel: `listen` waits
+            // for a frame, so `resume` only ever counts against real measurements.
             let mut peak = f32::NEG_INFINITY;
-            while Instant::now() < window {
-                match rx.try_recv() {
-                    Ok(snapshot) => {
-                        if let Some(db) = measure(&snapshot, target, self.settings.measure_bw_hz) {
-                            peak = peak.max(db);
-                        }
-                    }
-                    Err(TryRecvError::Empty) => std::thread::sleep(POLL),
-                    Err(TryRecvError::Lagged(_)) => {}
-                    Err(TryRecvError::Closed) => return Err(Halt::Stopped),
-                }
-            }
+            self.listen(
+                rx,
+                std::slice::from_ref(&target),
+                std::slice::from_mut(&mut peak),
+                HOLD_POLL,
+            )?;
             lock_status(&self.status).current_db = peak.is_finite().then_some(peak);
             self.push_update(engine, false);
             if peak >= self.settings.threshold_db {
@@ -407,6 +383,54 @@ impl Scan {
         lock_status(&self.status).state = ScanState::Scanning;
         self.push_update(engine, true);
         Ok(())
+    }
+
+    /// Peak-hold each of `targets` into the matching slot of `peaks` over one listening window,
+    /// which the caller sizes to `targets`.
+    ///
+    /// The window never closes before it has measured a frame: absence of spectrum is not
+    /// absence of signal, so a tap slower than the window — a capture thread still starting,
+    /// a momentary stall — costs latency rather than a false reading. Silence beyond
+    /// [`SPECTRUM_TIMEOUT`] is a device that stopped, and surfaces as a failed scan.
+    fn listen(
+        &self,
+        rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>,
+        targets: &[f64],
+        peaks: &mut [f32],
+        window: Duration,
+    ) -> Result<(), Halt> {
+        peaks.fill(f32::NEG_INFINITY);
+        let start = Instant::now();
+        let deadline = start + window;
+        let mut frames = 0usize;
+        loop {
+            self.check_stop()?;
+            let now = Instant::now();
+            if frames > 0 {
+                if now >= deadline {
+                    return Ok(());
+                }
+            } else if now.duration_since(start) >= SPECTRUM_TIMEOUT {
+                return Err(Halt::Failed(format!(
+                    "the device produced no spectrum within {SPECTRUM_TIMEOUT:?}"
+                )));
+            }
+            match rx.try_recv() {
+                Ok(snapshot) => {
+                    frames += 1;
+                    for (peak, &target) in peaks.iter_mut().zip(targets) {
+                        if let Some(db) = measure(&snapshot, target, self.settings.measure_bw_hz) {
+                            *peak = peak.max(db);
+                        }
+                    }
+                }
+                Err(TryRecvError::Empty) => std::thread::sleep(POLL),
+                // The tap drops the oldest frames under a slow consumer; peak-hold over a
+                // window tolerates that, so a lag only costs sensitivity, never correctness.
+                Err(TryRecvError::Lagged(_)) => {}
+                Err(TryRecvError::Closed) => return Err(Halt::Stopped),
+            }
+        }
     }
 
     fn check_stop(&self) -> Result<(), Halt> {
@@ -623,5 +647,106 @@ mod tests {
         // A window wide enough to reach the peak from a neighbouring channel finds it: the
         // measurement is over the requested bandwidth, not a single bin.
         assert_eq!(measure(&snap, 100_100_000.0, 60_000.0), Some(-20.0));
+    }
+
+    /// A scan stripped to what [`Scan::listen`] actually reads: its settings and its stop flag.
+    fn listener() -> Scan {
+        let settings = ScanSettings::default();
+        Scan {
+            engine: Weak::new(),
+            ds: 0,
+            plan: ScanPlan {
+                targets: vec![100_000_000.0],
+            },
+            status: Arc::new(Mutex::new(ScannerStatus {
+                state: ScanState::Scanning,
+                settings: settings.clone(),
+                targets: 1,
+                current_hz: 100_000_000.0,
+                current_db: None,
+                sweeps: 0,
+                hits: 0,
+                error: None,
+            })),
+            settings,
+            stop: Arc::new(AtomicBool::new(false)),
+            last_update: None,
+        }
+    }
+
+    /// Bin 640 of 1024 == center + 0.125 * span; at 1 MHz span that peak sits at 100.125 MHz.
+    fn carrier_at_125_khz() -> SpectrumSnapshot {
+        let mut db = vec![-90.0f32; 1024];
+        db[640] = -20.0;
+        snapshot(100_000_000.0, 1_000_000.0, db)
+    }
+
+    /// The regression: a tap that has not produced its first frame by the time the dwell
+    /// expires — a capture thread still starting, a runner that starved it — must extend the
+    /// window and measure, not fail the scan.
+    #[test]
+    fn a_window_waits_past_its_deadline_for_the_first_frame() {
+        let (tx, mut rx) = tokio::sync::broadcast::channel(8);
+        let feeder = tx.clone();
+        let sender = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            let _ = feeder.send(carrier_at_125_khz());
+        });
+
+        let mut peak = f32::NEG_INFINITY;
+        let listened = listener().listen(
+            &mut rx,
+            &[100_125_000.0],
+            std::slice::from_mut(&mut peak),
+            Duration::from_millis(20),
+        );
+        assert!(
+            matches!(listened, Ok(())),
+            "a late first frame must not fail the scan"
+        );
+        assert_eq!(peak, -20.0, "the late frame must still be measured");
+        sender.join().expect("feeder");
+    }
+
+    /// The bound on that patience: a device that stopped producing has to surface as a scan
+    /// error rather than a scan that waits on it forever.
+    #[test]
+    fn a_silent_tap_fails_the_scan_once_the_timeout_passes() {
+        let (_tx, mut rx) = tokio::sync::broadcast::channel::<SpectrumSnapshot>(8);
+        let started = Instant::now();
+        let mut peak = f32::NEG_INFINITY;
+        let listened = listener().listen(
+            &mut rx,
+            &[100_000_000.0],
+            std::slice::from_mut(&mut peak),
+            Duration::from_millis(20),
+        );
+        let Err(Halt::Failed(error)) = listened else {
+            panic!("a silent tap must fail the scan");
+        };
+        assert!(error.contains("no spectrum"), "unhelpful error: {error}");
+        assert!(started.elapsed() >= SPECTRUM_TIMEOUT, "gave up early");
+    }
+
+    /// Waiting for a frame must not outlast a stop: the whole point of the timeout is that a
+    /// dead device is survivable, and a client that stops the scan cannot be made to wait it out.
+    #[test]
+    fn a_stop_beats_the_wait_for_a_frame() {
+        let (_tx, mut rx) = tokio::sync::broadcast::channel::<SpectrumSnapshot>(8);
+        let scan = listener();
+        scan.stop.store(true, Ordering::Release);
+        let started = Instant::now();
+        let mut peak = f32::NEG_INFINITY;
+        let listened = scan.listen(
+            &mut rx,
+            &[100_000_000.0],
+            std::slice::from_mut(&mut peak),
+            Duration::from_millis(20),
+        );
+        assert!(matches!(listened, Err(Halt::Stopped)));
+        assert!(
+            started.elapsed() < SPECTRUM_TIMEOUT,
+            "waited out the timeout"
+        );
     }
 }
