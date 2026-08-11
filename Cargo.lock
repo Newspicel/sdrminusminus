@@ -3425,6 +3425,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdrmm-device-net"
+version = "0.0.0"
+dependencies = [
+ "num-complex",
+ "sdrmm-device",
+ "sdrmm-wire",
+ "tracing",
+]
+
+[[package]]
 name = "sdrmm-device-rtlsdr"
 version = "0.0.0"
 dependencies = [
@@ -3484,6 +3494,7 @@ dependencies = [
  "sdrmm-channels",
  "sdrmm-device",
  "sdrmm-device-hackrf",
+ "sdrmm-device-net",
  "sdrmm-device-rtlsdr",
  "sdrmm-device-soapy",
  "sdrmm-device-virtual",

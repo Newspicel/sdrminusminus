@@ -12,10 +12,11 @@ workspace = true
 
 # Passthrough to the engine's backend gate (PLAN §3 Soapy-free build).
 [features]
-default = ["soapy", "rtl-native", "hackrf-native"]
+default = ["soapy", "rtl-native", "hackrf-native", "net-client"]
 soapy = ["sdrmm-engine/soapy"]
 rtl-native = ["sdrmm-engine/rtl-native"]
 hackrf-native = ["sdrmm-engine/hackrf-native"]
+net-client = ["sdrmm-engine/net-client"]
 
 [dependencies]
 sdrmm-wire.workspace = true

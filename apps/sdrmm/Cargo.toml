@@ -16,10 +16,11 @@ workspace = true
 
 # Passthrough so `cargo build -p sdrmm --no-default-features` is Soapy-free (PLAN §3).
 [features]
-default = ["soapy", "rtl-native", "hackrf-native"]
+default = ["soapy", "rtl-native", "hackrf-native", "net-client"]
 soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy"]
 rtl-native = ["sdrmm-server/rtl-native", "sdrmm-engine/rtl-native"]
 hackrf-native = ["sdrmm-server/hackrf-native", "sdrmm-engine/hackrf-native"]
+net-client = ["sdrmm-server/net-client", "sdrmm-engine/net-client"]
 
 [dependencies]
 sdrmm-server.workspace = true
