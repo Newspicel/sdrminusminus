@@ -1,9 +1,10 @@
 // The workspace, end to end: open the app, bind the virtual radio to the receiver node, add a
 // channel, hear the graph become a running workspace, pin a face and find it on the rack.
 //
-// This is the one test that exercises the composition — canvas, faces, WebSocket, apply — that
+// This is the one suite that exercises the composition — canvas, faces, WebSocket, apply — that
 // the unit suite cannot reach (PLAN §14). It asserts behaviour, not markup: what an operator
-// would check after each gesture.
+// would check after each gesture. The flow above runs first and the legs below build on the
+// workspace it leaves, which the single worker and the throwaway database below make sound.
 import { expect, type Locator, type Page, test } from "@playwright/test";
 // The state shape is generated from the server's OpenAPI, like everywhere else (CLAUDE.md #1).
 import type { StateSnapshot } from "../src/lib/types";
@@ -202,5 +203,50 @@ test.describe("the workspace", () => {
     // Last: by the time the canvas above measured, `style.load` had installed the target
     // layers, which is where a rejected paint colour would have said so.
     expect(styleErrors).toEqual([]);
+  });
+
+  test("opens the map's basemap credits collapsed", async ({ page }) => {
+    // A basemap with credits, which the offline fallback has none of — MapLibre only expands the
+    // attribution once a *used* source hands it a line to show, so a source without a layer
+    // referencing it would leave the control empty and this test asserting nothing. The tiles
+    // themselves stay off the wire; the credit line is the whole subject here.
+    await page.route("https://tiles.openfreemap.org/styles/liberty", (route) =>
+      route.fulfill({
+        json: {
+          version: 8,
+          sources: {
+            basemap: {
+              type: "raster",
+              tiles: ["https://tiles.openfreemap.org/tiles/{z}/{x}/{y}.png"],
+              tileSize: 256,
+              attribution: "Stub basemap credits",
+            },
+          },
+          layers: [{ id: "basemap", type: "raster", source: "basemap" }],
+        },
+      }),
+    );
+    await page.route("https://tiles.openfreemap.org/tiles/**", (route) => route.abort());
+    await page.goto("/");
+    await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
+
+    // The arrangement is server state and the run shares one database, so the map the flow above
+    // wired is still on the canvas — and a map is a placeholder until a decoder's events reach it
+    // (CANVAS §1), which is what the aircraft legend names.
+    const map = page.locator('.react-flow__node[data-id^="map:"]', { hasText: "Aircraft" });
+    await fitPatch(page);
+    const attribution = map.locator(".maplibregl-ctrl-attrib");
+
+    // Waiting on the control to *appear* is waiting on the credits: MapLibre hides an attribution
+    // with nothing in it, and the moment it fills is the moment the old default expanded, since
+    // every attribution change re-runs the compact check.
+    await expect(attribution).toBeVisible();
+    await expect(attribution.locator(".maplibregl-ctrl-attrib-inner")).toBeHidden();
+
+    // Collapsed is a default, not a verdict — the ⓘ still owes the operator the credits. The face
+    // only answers a pointer once its node is selected (NodeShell), hence the header click first.
+    await map.locator("header").click();
+    await attribution.locator("summary.maplibregl-ctrl-attrib-button").click();
+    await expect(attribution.getByText("Stub basemap credits")).toBeVisible();
   });
 });
