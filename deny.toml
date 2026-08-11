@@ -1,0 +1,29 @@
+# Supply-chain gate for `cargo xtask audit` (CI mirrors it verbatim).
+#
+# Advisories only. License and duplicate-version policing are separate problems, and every
+# answer they would produce here is about somebody else's dependency tree.
+
+[advisories]
+# Unsound advisories default to workspace-direct crates, which hides RUSTSEC-2024-0429 —
+# the one advisory in this tree that is a soundness bug rather than a "no longer maintained"
+# notice. A transitive dependency can dereference a null pointer just as well as a direct one.
+unsound = "all"
+# Unmaintained is the opposite case: it is only actionable for crates we chose ourselves.
+# Nothing unmaintained here today is one — the ten gtk3-rs crates, five `unic-*` and
+# `proc-macro-error` arrive through `tauri`, `audiopus_sys` through `opus`, `paste` through
+# `utoipa-axum` — and pinning them as ignores would bury the advisories we can actually reason
+# about under a wall of upstream noise.
+unmaintained = "workspace"
+# An exception that no longer applies is a lie about the tree, so make it fail rather than warn:
+# when tauri finally moves off gtk3, this gate is what tells us to delete the ignore below.
+unused-ignored-advisory = "deny"
+
+ignore = [
+    # `glib` 0.18.5 is the newest version that can exist in this graph: the fix landed in
+    # 0.20.0, gtk3-rs is end-of-life at 0.18.2 (its 0.18 branch has had no commit since
+    # Dec 2023), and tauri v2 pins that whole stack through tao/wry/gtk/webkit2gtk. The
+    # affected functions — `VariantStrIter::{next,nth,last,next_back,nth_back}` — are called
+    # by nothing in the graph: glib is the only crate here that so much as names the type, and
+    # it reaches us only through the Linux desktop shell. Drop this the day tauri ships gtk4.
+    { id = "RUSTSEC-2024-0429", reason = "glib::VariantStrIter is unreachable here, and no fixed version exists below glib 0.20 / gtk4" },
+]

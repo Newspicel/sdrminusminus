@@ -16,6 +16,7 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Release artifacts just run — `xtask dist` produces a ~25 MB binary linking only IOKit/CoreFoundation/libiconv/libSystem: no libusb, no libSoapySDR, no libopus, no libsqlite
 - **[shipped]** `sdrmm --doctor` and `GET /api/doctor` — compiled backends, devices found, Linux udev/USB permissions with the fix, database and recordings-path writability, one shared report so CLI and UI cannot disagree
 - **[shipped]** mdBook docs site + Pages deploy
+- **[shipped]** RustSec advisories are a CI gate (`xtask audit`, policy in `deny.toml`) covering the whole graph, Tauri shell included. It runs as its own job because a new advisory lands on RustSec's schedule, not on a pull request's. Standing exception: `RUSTSEC-2024-0429` (`glib` `VariantStrIter` unsoundness), unreachable here and unfixable below gtk4 — see `deny.toml`
 - **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
 - **[planned]** Signed/notarised macOS bundles — the workflow ships them unsigned until Apple secrets exist
 - **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one; the Docker image is likewise built only by the tag workflow, never here

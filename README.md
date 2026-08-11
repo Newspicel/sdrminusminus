@@ -43,6 +43,7 @@ on <http://localhost:5173>, proxying `/api` and the WebSocket to the server.
 | `cargo xtask codegen` | Regenerate `openapi.json` + `web/src/generated` (run after changing `crates/wire`) |
 | `cargo xtask check` | The full gate: fmt, clippy `-D warnings`, Soapy-free build, the release-shaped native build, `biome ci`, type-aware `oxlint`, `tsgo`, web build, codegen-drift |
 | `cargo xtask test` | Rust + web test suites (uses `device-virtual`, no hardware) |
+| `cargo xtask audit` | Check the dependency graph against RustSec (`deny.toml`; needs `cargo install --locked cargo-deny`) |
 | `cargo xtask fixtures` | Regenerate the synthesized SigMF decoder fixtures in `fixtures/` |
 | `cargo xtask dist [--target <triple>]` | Build the self-contained release binary (web build, then `--no-default-features --features rtl-native,hackrf-native`) into `dist/` |
 
