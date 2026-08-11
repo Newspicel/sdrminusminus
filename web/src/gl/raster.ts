@@ -46,6 +46,17 @@ export function nextRingRow(row: number, rings: number): number {
   return rings > 0 ? (row + 1) % rings : 0;
 }
 
+/** Where a history handed to a fresh ring lands: how many of its `count` rows to skip, how many
+ * fit, and the write cursor they leave behind. More rows than the ring holds keeps the newest —
+ * the oldest are the ones already scrolled past the bottom of the plot. */
+export function seedPlacement(
+  count: number,
+  rings: number,
+): { skip: number; rows: number; write: number } {
+  const rows = Math.max(0, Math.min(count, rings));
+  return { skip: Math.max(0, count - rows), rows, write: rings > 0 ? rows % rings : 0 };
+}
+
 /** One axis of the shared drawing buffer: grow to whatever the largest visible plot needs, and
  * shrink only once it needs less than half. A buffer that tracked the requirement exactly would
  * be reallocated on every frame of a resize. */
