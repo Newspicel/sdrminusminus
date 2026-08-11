@@ -213,7 +213,17 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   // The hub refcounts the subscription and re-sends it after a reconnect, so two scopes on one
   // radio cost one stream and neither can stop the other's. The lane is the one this scope's
   // own IQ wire names, not always the radio's first.
+  //
+  // It also kept the lane's recent rows while this face did not exist, and switching between the
+  // patch and the rack remounts every face: the plot opens on the waterfall the operator was
+  // already reading, rather than blanking and filling in again from the next frame.
   useEffect(() => {
+    const past = spectrumHub.history(set.id, stream);
+    rendererRef.current?.seed(past.rows, past.count, past.bins);
+    if (past.latest !== null) {
+      frameRef.current = past.latest;
+      setMeta(metaOf(past.latest));
+    }
     let count = 0;
     return spectrumHub.subscribe(set.id, stream, (frame) => {
       frameRef.current = frame;
@@ -223,12 +233,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       // frame regardless, so this only paces the text.
       count += 1;
       if (count === 1 || count % 8 === 0) {
-        setMeta({
-          centerHz: frame.centerHz,
-          spanHz: frame.spanHz,
-          dbMin: frame.dbMin,
-          dbMax: frame.dbMax,
-        });
+        setMeta(metaOf(frame));
       }
     });
   }, [set.id, stream]);
@@ -614,6 +619,15 @@ function markerAt(
     }
   }
   return best;
+}
+
+function metaOf(frame: SpectrumFrame): FrameMeta {
+  return {
+    centerHz: frame.centerHz,
+    spanHz: frame.spanHz,
+    dbMin: frame.dbMin,
+    dbMax: frame.dbMax,
+  };
 }
 
 function accumulateHold(

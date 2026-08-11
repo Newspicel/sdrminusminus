@@ -128,6 +128,10 @@ test.describe("the workspace", () => {
     await expect(channel).toHaveCount(1);
     await expect(channel.getByText(/nothing feeds this channel|not been created/i)).toHaveCount(0);
 
+    // The scope is running before the view switch below, which is what gives that switch
+    // something to preserve.
+    await expect(node("scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
+
     // Pinning adds the face to the rack and leaves the canvas node where it was (CANVAS §5).
     for (const id of ["scope", "speaker"]) {
       await node(id)
@@ -140,6 +144,12 @@ test.describe("the workspace", () => {
     const rack = page.getByRole("group", { name: "View" }).getByRole("button", { name: "Rack" });
     await rack.click();
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
+
+    // A view switch remounts every face, and a plot's history is its own (gl/waterfall.ts), so the
+    // scope used to come back empty. It opens on the lane's kept rows and its last readout instead.
+    // Read once rather than polled: waiting for the readout would be waiting for the very frame
+    // that used to hide the gap.
+    expect(await page.getByText(/\d\.\d{4} MHz/).count()).toBeGreaterThan(0);
 
     // Dragging the boundary between two faces makes one larger and the other smaller (CANVAS §5).
     // The whole point of the gesture is that it re-balances a full rack without a hole, so both
