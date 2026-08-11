@@ -1,9 +1,10 @@
 // The workspace, end to end: open the app, bind the virtual radio to the receiver node, add a
 // channel, hear the graph become a running workspace, pin a face and find it on the rack.
 //
-// This is the one test that exercises the composition — canvas, faces, WebSocket, apply — that
+// This is the one suite that exercises the composition — canvas, faces, WebSocket, apply — that
 // the unit suite cannot reach (PLAN §14). It asserts behaviour, not markup: what an operator
-// would check after each gesture.
+// would check after each gesture. The flow above runs first and the legs below build on the
+// workspace it leaves, which the single worker and the throwaway database below make sound.
 import { expect, type Locator, type Page, test } from "@playwright/test";
 // The state shape is generated from the server's OpenAPI, like everywhere else (CLAUDE.md #1).
 import type { StateSnapshot } from "../src/lib/types";
