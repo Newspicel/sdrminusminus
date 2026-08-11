@@ -40,6 +40,7 @@ export type PocsagMessage = components["schemas"]["PocsagMessage"];
 export type RdsUpdate = components["schemas"]["RdsUpdate"];
 export type RttyText = components["schemas"]["RttyText"];
 export type MorseText = components["schemas"]["MorseText"];
+export type DvFrame = components["schemas"]["DvFrame"];
 export type ServerEvent = components["schemas"]["ServerEvent"];
 export type StreamKind = components["schemas"]["StreamKind"];
 export type ClientCommand = components["schemas"]["ClientCommand"];

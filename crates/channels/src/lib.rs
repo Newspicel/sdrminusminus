@@ -9,6 +9,7 @@ mod adsb;
 mod ais;
 mod am;
 mod aprs;
+mod dv;
 mod morse;
 mod navtex;
 mod nfm;
@@ -34,6 +35,9 @@ pub use adsb::AdsbChannel;
 pub use ais::AisChannelRx;
 pub use am::{AmChannel, AmTx};
 pub use aprs::{AprsChannel, AprsTx};
+pub use dv::{
+    DmrChannel, DpmrChannel, DstarChannel, M17Channel, NxdnChannel, P25Channel, YsfChannel,
+};
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};
@@ -84,6 +88,13 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Navtex(_) => navtex::occupied_band(),
         ChannelParams::Acars(p) => acars::occupied_band(p),
         ChannelParams::Subghz(p) => subghz::occupied_band(p),
+        ChannelParams::Dmr(_) => dv::dmr::occupied_band(),
+        ChannelParams::Dstar(_) => dv::dstar::occupied_band(),
+        ChannelParams::Ysf(_) => dv::ysf::occupied_band(),
+        ChannelParams::Nxdn(p) => dv::nxdn::occupied_band(p),
+        ChannelParams::P25(_) => dv::p25::occupied_band(),
+        ChannelParams::Dpmr(_) => dv::dpmr::occupied_band(),
+        ChannelParams::M17(_) => dv::m17::occupied_band(),
     }
 }
 
@@ -130,6 +141,13 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Navtex(_) => Ok(navtex::channel_filter()),
         ChannelParams::Acars(p) => acars::channel_filter(p),
         ChannelParams::Subghz(p) => subghz::channel_filter(p),
+        ChannelParams::Dmr(_) => Ok(dv::dmr::channel_filter()),
+        ChannelParams::Dstar(_) => Ok(dv::dstar::channel_filter()),
+        ChannelParams::Ysf(_) => Ok(dv::ysf::channel_filter()),
+        ChannelParams::Nxdn(p) => Ok(dv::nxdn::channel_filter(p)),
+        ChannelParams::P25(_) => Ok(dv::p25::channel_filter()),
+        ChannelParams::Dpmr(_) => Ok(dv::dpmr::channel_filter()),
+        ChannelParams::M17(_) => Ok(dv::m17::channel_filter()),
     }
 }
 
@@ -358,6 +376,41 @@ const REGISTRY: &[Registration] = &[
         create: boxed::<SubghzChannel>,
         create_tx: None,
     },
+    Registration {
+        descriptor: DmrChannel::descriptor,
+        create: boxed::<DmrChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: DstarChannel::descriptor,
+        create: boxed::<DstarChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: YsfChannel::descriptor,
+        create: boxed::<YsfChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: NxdnChannel::descriptor,
+        create: boxed::<NxdnChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: P25Channel::descriptor,
+        create: boxed::<P25Channel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: DpmrChannel::descriptor,
+        create: boxed::<DpmrChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: M17Channel::descriptor,
+        create: boxed::<M17Channel>,
+        create_tx: None,
+    },
 ];
 
 /// Descriptors for every compiled-in channel type (PLAN §8: static registry).
@@ -464,8 +517,9 @@ mod tests {
     use std::collections::HashSet;
 
     use sdrmm_wire::{
-        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, MorseParams,
-        NavtexParams, NfmParams, PocsagParams, RttyParams, SsbParams, SubghzParams, WfmParams,
+        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, DmrParams,
+        DpmrParams, DstarParams, M17Params, MorseParams, NavtexParams, NfmParams, NxdnParams,
+        P25Params, PocsagParams, RttyParams, SsbParams, SubghzParams, WfmParams, YsfParams,
     };
 
     use super::*;
@@ -486,6 +540,13 @@ mod tests {
             "navtex" => ChannelParams::Navtex(NavtexParams::default()),
             "acars" => ChannelParams::Acars(AcarsParams::default()),
             "subghz" => ChannelParams::Subghz(SubghzParams::default()),
+            "dmr" => ChannelParams::Dmr(DmrParams::default()),
+            "dstar" => ChannelParams::Dstar(DstarParams::default()),
+            "ysf" => ChannelParams::Ysf(YsfParams::default()),
+            "nxdn" => ChannelParams::Nxdn(NxdnParams::default()),
+            "p25" => ChannelParams::P25(P25Params::default()),
+            "dpmr" => ChannelParams::Dpmr(DpmrParams::default()),
+            "m17" => ChannelParams::M17(M17Params::default()),
             other => panic!("unexpected type id {other}"),
         }
     }
@@ -493,13 +554,13 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 13);
+        assert_eq!(all.len(), 20);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
             HashSet::from([
                 "nfm", "am", "ssb", "wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse",
-                "navtex", "acars", "subghz",
+                "navtex", "acars", "subghz", "dmr", "dstar", "ysf", "nxdn", "p25", "dpmr", "m17",
             ])
         );
         for d in &all {
@@ -517,6 +578,12 @@ mod tests {
                 "navtex" => (600.0, 8_000.0),
                 "acars" => (12_500.0, 48_000.0),
                 "subghz" => (150_000.0, 250_000.0),
+                // The digital-voice modes all meet the DDC at 48 kHz; they differ in how much
+                // of it they occupy — 12.5 kHz for the four that share a 12.5 kHz raster,
+                // 6.25 for the narrow pair, and 9 kHz for M17.
+                "dmr" | "ysf" | "p25" => (12_500.0, 48_000.0),
+                "dstar" | "nxdn" | "dpmr" => (6_250.0, 48_000.0),
+                "m17" => (9_000.0, 48_000.0),
                 other => panic!("unexpected type id {other}"),
             };
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);

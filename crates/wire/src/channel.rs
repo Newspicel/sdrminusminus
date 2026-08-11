@@ -482,6 +482,76 @@ impl Default for SubghzParams {
     }
 }
 
+/// Which DMR timeslot a channel reports. Both slots share one 12.5 kHz carrier in 30 ms
+/// alternation, so the receiver always hears both; this only decides what reaches the log.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DmrSlots {
+    #[default]
+    Both,
+    One,
+    Two,
+}
+
+impl DmrSlots {
+    /// Whether a burst decoded on `slot` (1 or 2) should be reported.
+    #[must_use]
+    pub fn accepts(self, slot: u8) -> bool {
+        match self {
+            Self::Both => true,
+            Self::One => slot == 1,
+            Self::Two => slot == 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DmrParams {
+    #[serde(default)]
+    pub slots: DmrSlots,
+}
+
+/// The two NXDN channel widths. They are different radios as far as the receiver is
+/// concerned: 6.25 kHz halves both the symbol rate and the deviation of the 12.5 kHz one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NxdnBandwidth {
+    /// 6.25 kHz, 2400 symbols per second — the common deployment.
+    #[default]
+    Narrow,
+    /// 12.5 kHz, 4800 symbols per second.
+    Wide,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct NxdnParams {
+    #[serde(default)]
+    pub bandwidth: NxdnBandwidth,
+}
+
+/// The digital-voice modes whose framing carries no options worth setting: everything about
+/// them — symbol rate, deviation, channel width, sync patterns — is fixed by the mode.
+macro_rules! empty_params {
+    ($($(#[$doc:meta])* $name:ident),* $(,)?) => {$(
+        $(#[$doc])*
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+        pub struct $name {}
+    )*};
+}
+
+empty_params! {
+    /// D-Star (GMSK, 4800 bit/s).
+    DstarParams,
+    /// System Fusion (C4FM, 4800 symbols/s).
+    YsfParams,
+    /// P25 Phase 1 (C4FM, 4800 symbols/s).
+    P25Params,
+    /// dPMR (C4FM, 2400 symbols/s, 6.25 kHz).
+    DpmrParams,
+    /// M17 (C4FM, 4800 symbols/s, RRC 0.5).
+    M17Params,
+}
+
 /// Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
 /// discriminated union on `type`, and `{"type":"nfm","settings":{}}` deserializes with
 /// every field at its default.
@@ -501,6 +571,13 @@ pub enum ChannelParams {
     Navtex(NavtexParams),
     Acars(AcarsParams),
     Subghz(SubghzParams),
+    Dmr(DmrParams),
+    Dstar(DstarParams),
+    Ysf(YsfParams),
+    Nxdn(NxdnParams),
+    P25(P25Params),
+    Dpmr(DpmrParams),
+    M17(M17Params),
 }
 
 impl ChannelParams {
@@ -521,6 +598,13 @@ impl ChannelParams {
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
             Self::Subghz(_) => "subghz",
+            Self::Dmr(_) => "dmr",
+            Self::Dstar(_) => "dstar",
+            Self::Ysf(_) => "ysf",
+            Self::Nxdn(_) => "nxdn",
+            Self::P25(_) => "p25",
+            Self::Dpmr(_) => "dpmr",
+            Self::M17(_) => "m17",
         }
     }
 }

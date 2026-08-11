@@ -298,6 +298,9 @@ function stationId(event: DecoderEvent): string | null {
     case "subghz":
     case "rtty":
     case "morse":
+    // A digital-voice frame is an event in a call — a start, an end, a signalling block — and
+    // merging them forward would blur two calls from the same radio into one row.
+    case "dv":
       return null;
   }
 }

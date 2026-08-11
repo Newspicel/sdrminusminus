@@ -2,6 +2,7 @@
 // exportable, not scroll-back-only). The panel renders two sources through one row shape: the
 // stored page from `GET /api/decoderlog`, and the live tail from the WS store. Everything here
 // is pure so the panel stays a rendering shell.
+
 import type { DecodedState } from "../lib/decoded";
 import type {
   DecodedRecord,
@@ -11,6 +12,7 @@ import type {
   DecoderLogFilter,
   DeviceSet,
 } from "../lib/types";
+import { dvMode, dvNetwork, dvParties } from "./decoderViews";
 
 /** Exhaustive over `DecoderKind`: adding a decoder to `wire` fails the typecheck here until it
  * gets a label, and `DECODER_KINDS` follows for free. */
@@ -25,6 +27,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   navtex: "NAVTEX",
   acars: "ACARS",
   subghz: "Sub-GHz",
+  dv: "Digital voice",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -246,6 +249,18 @@ export function eventSummary(event: DecoderEvent): string {
         f.repeats > 1 ? `\u00d7${f.repeats}` : null,
       ]);
     }
+    case "dv": {
+      const f = event.data;
+      return join([
+        dvMode(f),
+        dvNetwork(f) || null,
+        dvParties(f) || null,
+        f.via == null ? null : `via ${f.via}`,
+        f.opcode ?? null,
+        f.encrypted === true ? "encrypted" : null,
+        f.text ?? null,
+      ]);
+    }
   }
 }
 
@@ -273,6 +288,11 @@ export function eventStation(event: DecoderEvent): string | null {
       }
       return f.data === "" ? null : f.data;
     }
+    // Who keyed up, by whichever name the mode addresses them.
+    case "dv":
+      return (
+        event.data.source_call ?? (event.data.source == null ? null : String(event.data.source))
+      );
     case "rtty":
     case "morse":
       return null;

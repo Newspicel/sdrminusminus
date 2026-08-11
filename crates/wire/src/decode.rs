@@ -321,6 +321,147 @@ pub struct SubghzFrame {
     pub timings_us: Vec<u32>,
 }
 
+/// Which digital-voice mode a [`DvFrame`] was heard on (PLAN §13 wave 3). One event type
+/// serves all of them because the *question* is the same in every mode — who is talking, to
+/// whom, on which network — and only the names for it differ.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DvMode {
+    #[default]
+    Dmr,
+    Dstar,
+    Ysf,
+    Nxdn,
+    P25,
+    Dpmr,
+    M17,
+}
+
+impl DvMode {
+    /// Display name, as operators write it.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dmr => "DMR",
+            Self::Dstar => "D-STAR",
+            Self::Ysf => "YSF",
+            Self::Nxdn => "NXDN",
+            Self::P25 => "P25",
+            Self::Dpmr => "dPMR",
+            Self::M17 => "M17",
+        }
+    }
+}
+
+/// What the burst was carrying. Every mode distinguishes these four, whatever it calls them:
+/// the frame that opens a transmission and names the parties, the voice frames that follow,
+/// the one that closes it, and the signalling that travels outside a call.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DvFrameKind {
+    /// Call setup: DMR voice LC header, D-Star header, P25 header, M17 link setup.
+    #[default]
+    Header,
+    /// A voice burst whose signalling named the call (late entry, or an embedded/link-control
+    /// repeat). Voice frames carrying nothing new are not reported — a 20 ms heartbeat is not
+    /// a log entry.
+    Voice,
+    /// End of transmission.
+    Terminator,
+    /// Signalling outside a call: a DMR CSBK, a P25 trunking block, an NXDN control message.
+    Control,
+    /// Payload data rather than voice: a DMR data header, a D-Star fast-data or slow-data
+    /// text block, an M17 packet.
+    Data,
+}
+
+/// One decoded digital-voice frame — the *metadata* of a call, not its audio.
+///
+/// No mode here produces sound: DMR, D-Star, YSF, NXDN, P25 and dPMR all carry AMBE-family
+/// vocoder frames and this build ships no vocoder, and M17's Codec2 payload is not decoded
+/// either (see FEATURES §9). What a decoder does recover is everything *around* the voice —
+/// who keyed up, on which talkgroup, over which repeater, with what encryption — which is what
+/// a scanner log is actually made of. Fields are `Option` because which of them exist is a
+/// property of the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR
+/// voice header the reverse.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DvFrame {
+    pub mode: DvMode,
+    pub kind: DvFrameKind,
+    /// TDMA timeslot, 1 or 2 — DMR only; every other mode here is single-slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<u8>,
+    /// The mode's network discriminator, under whichever name it publishes: DMR colour code,
+    /// NXDN/dPMR RAN or colour code, P25 NAC, YSF has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_code: Option<u16>,
+    /// True for a talkgroup call, false for a call addressed to one radio.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_call: Option<bool>,
+    /// Numeric source address — DMR/NXDN/dPMR radio ID, P25 source unit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<u32>,
+    /// Numeric destination: talkgroup for a group call, radio ID for a private one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<u32>,
+    /// Source callsign — the modes that address by callsign rather than by number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_call: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_call: Option<String>,
+    /// The repeater or reflector the call is routed through: D-Star RPT1/RPT2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
+    /// Set when the frame says its payload is encrypted. `Some(false)` is a positive statement
+    /// that it is in the clear; `None` means the frame did not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encrypted: Option<bool>,
+    /// Name of the signalling opcode for a control frame — "group voice channel grant",
+    /// "preamble", … — as its specification names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opcode: Option<String>,
+    /// Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta
+    /// field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Bit errors the frame's error-correcting codes repaired — the honest signal-quality
+    /// readout, since a mode with no audio has no other.
+    pub errors_corrected: u32,
+}
+
+impl DvFrame {
+    /// A frame of `mode` and `kind` with nothing else known yet.
+    #[must_use]
+    pub fn new(mode: DvMode, kind: DvFrameKind) -> Self {
+        Self {
+            mode,
+            kind,
+            ..Self::default()
+        }
+    }
+
+    /// How the parties read on one line: `TG 505 ← 2621001`, `DL1ABC → CQCQCQ`.
+    #[must_use]
+    pub fn parties(&self) -> Option<String> {
+        let to = self.destination_call.clone().or_else(|| {
+            self.destination.map(|d| match self.group_call {
+                Some(false) => d.to_string(),
+                _ => format!("TG {d}"),
+            })
+        });
+        let from = self
+            .source_call
+            .clone()
+            .or_else(|| self.source.map(|s| s.to_string()));
+        match (to, from) {
+            (Some(to), Some(from)) => Some(format!("{to} ← {from}")),
+            (Some(to), None) => Some(to),
+            (None, Some(from)) => Some(from),
+            (None, None) => None,
+        }
+    }
+}
+
 /// Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a
 /// discriminated union on `kind` that panels can exhaustively `switch` on, and so the log
 /// database can index on `kind` without parsing the blob.
@@ -337,6 +478,7 @@ pub enum DecoderEvent {
     Navtex(NavtexMessage),
     Acars(AcarsMessage),
     Subghz(SubghzFrame),
+    Dv(DvFrame),
 }
 
 impl DecoderEvent {
@@ -354,6 +496,7 @@ impl DecoderEvent {
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
             Self::Subghz(_) => "subghz",
+            Self::Dv(_) => "dv",
         }
     }
 
@@ -453,6 +596,35 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::Dv(f) => {
+                let mut parts = vec![f.mode.label().to_owned()];
+                if let Some(slot) = f.slot {
+                    parts.push(format!("TS{slot}"));
+                }
+                if let Some(cc) = f.color_code {
+                    parts.push(match f.mode {
+                        DvMode::P25 => format!("NAC {cc:03X}"),
+                        DvMode::Nxdn | DvMode::Dpmr => format!("RAN {cc}"),
+                        _ => format!("CC {cc}"),
+                    });
+                }
+                if let Some(parties) = f.parties() {
+                    parts.push(parties);
+                }
+                if let Some(via) = &f.via {
+                    parts.push(format!("via {via}"));
+                }
+                if let Some(opcode) = &f.opcode {
+                    parts.push(opcode.clone());
+                }
+                if f.encrypted == Some(true) {
+                    parts.push("encrypted".to_owned());
+                }
+                if let Some(text) = &f.text {
+                    parts.push(text.clone());
+                }
+                parts.join(" · ")
+            }
         }
     }
 
@@ -489,6 +661,12 @@ impl DecoderEvent {
                 .address
                 .map(|a| format!("{a:05X}"))
                 .or_else(|| (!f.data.is_empty()).then(|| f.data.clone())),
+            // Who keyed up, by whichever name the mode addresses them: a callsign where the
+            // mode has one, the radio ID where it does not.
+            Self::Dv(f) => f
+                .source_call
+                .clone()
+                .or_else(|| f.source.map(|s| s.to_string())),
             Self::Rtty(_) | Self::Morse(_) => None,
         }
     }

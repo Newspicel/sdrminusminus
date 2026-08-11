@@ -23,6 +23,17 @@ const DEFAULT_SQUELCH_DB = -60;
 
 // Choice lists for the wire enums, typed off the generated union so a renamed or added variant
 // breaks here instead of shipping an option the server rejects.
+/** Which DMR timeslot reaches the log; the receiver always hears both. */
+const DMR_SLOTS: Options<NonNullable<ChannelParamsOf<"dmr">["slots"]>> = [
+  { value: "both", label: "Both" },
+  { value: "one", label: "TS1" },
+  { value: "two", label: "TS2" },
+];
+/** NXDN's two channel widths, which are two different symbol rates to the demodulator. */
+const NXDN_WIDTHS: Options<NonNullable<ChannelParamsOf<"nxdn">["bandwidth"]>> = [
+  { value: "narrow", label: "6.25" },
+  { value: "wide", label: "12.5" },
+];
 const SIDEBANDS: Options<NonNullable<ChannelParamsOf<"ssb">["sideband"]>> = [
   { value: "usb", label: "USB" },
   { value: "lsb", label: "LSB" },
@@ -519,6 +530,34 @@ function ModeControls({
           </label>
         </>
       );
+    case "dmr":
+      return (
+        <Segmented
+          label="Slot"
+          value={params.settings.slots ?? "both"}
+          options={DMR_SLOTS}
+          onChange={(slots) => onParams({ type: "dmr", settings: { ...params.settings, slots } })}
+        />
+      );
+    case "nxdn":
+      return (
+        <Segmented
+          label="Width"
+          value={params.settings.bandwidth ?? "narrow"}
+          options={NXDN_WIDTHS}
+          onChange={(bandwidth) =>
+            onParams({ type: "nxdn", settings: { ...params.settings, bandwidth } })
+          }
+        />
+      );
+    // Everything about these four — symbol rate, deviation, channel width, sync patterns — is
+    // fixed by the mode, so there is nothing to offer beyond the frequency the operator tuned.
+    case "dstar":
+    case "ysf":
+    case "p25":
+    case "dpmr":
+    case "m17":
+      return null;
     default:
       return unhandledMode(params);
   }

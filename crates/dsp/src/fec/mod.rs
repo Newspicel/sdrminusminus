@@ -1,9 +1,15 @@
-//! Checksums and error-correcting codes for the wave-1 decoders (PLAN §7): the HDLC/AIS
+//! Checksums and error-correcting codes for the framed decoders (PLAN §7): the HDLC/AIS
 //! CRC-16, the Mode S CRC-24 with single-bit correction, the POCSAG BCH(31,21) codeword and
-//! the RDS shortened cyclic (26,16) block.
+//! the RDS shortened cyclic (26,16) block, plus the block, product and convolutional codes the
+//! digital-voice signalling layers are built from in the submodules.
 //!
-//! All of it is stateless integer arithmetic over GF(2) — no allocation, no locks — so a
-//! decoder may call it straight from the DSP thread.
+//! All of it is integer arithmetic over GF(2) — no allocation, no locks — so a decoder may call
+//! it straight from the DSP thread. [`conv::Viterbi5`] is the one exception and says so: it owns
+//! a traceback buffer that grows once to the longest frame it is given.
+
+pub mod block;
+pub mod bptc;
+pub mod conv;
 
 /// CRC-16 polynomial 0x1021 in its reflected form, for the LSB-first loops below.
 const CCITT_POLY_REFLECTED: u16 = 0x8408;
@@ -37,6 +43,81 @@ pub fn crc16_x25(data: &[u8]) -> u16 {
 #[must_use]
 pub fn crc16_ccitt(data: &[u8]) -> u16 {
     crc16_reflected(0, data)
+}
+
+/// MSB-first CRC-16 over an arbitrary generator — the un-reflected form the digital-voice
+/// signalling codes check themselves with: `poly` 0x1021 init 0 is the CRC-CCITT that guards a
+/// DMR CSBK and a YSF FICH, `poly` 0x5935 init 0xFFFF the one M17 puts in its link setup frame.
+///
+/// Bit-granular because these fields are not all byte-aligned: an M17 LSF is 224 bits of body,
+/// a DMR CSBK 80, and rounding either up to bytes would checksum padding the transmitter never
+/// sent. [`crc16_msb`] is the byte-aligned convenience over the same register.
+#[must_use]
+pub fn crc16_msb_bits(poly: u16, init: u16, bits: &[bool]) -> u16 {
+    let mut crc = init;
+    for &bit in bits {
+        let msb = crc & 0x8000 != 0;
+        crc <<= 1;
+        if msb != bit {
+            crc ^= poly;
+        }
+    }
+    crc
+}
+
+/// Byte-aligned [`crc16_msb_bits`], MSB of each byte first.
+#[must_use]
+pub fn crc16_msb(poly: u16, init: u16, data: &[u8]) -> u16 {
+    let mut crc = init;
+    for &byte in data {
+        crc ^= u16::from(byte) << 8;
+        for _ in 0..8 {
+            let msb = crc & 0x8000 != 0;
+            crc <<= 1;
+            if msb {
+                crc ^= poly;
+            }
+        }
+    }
+    crc
+}
+
+/// Reed-Solomon(12,9) parity over GF(256) as DMR defines it for its full link control
+/// (ETSI TS 102 361-1 §B.3.9): the systematic remainder of the nine information octets by
+/// `x³ + 14x² + 56x + 64`, returned in transmission order.
+///
+/// Parity only — there is no correction here. The product code underneath a DMR burst has
+/// already repaired what it can, and a link control that still fails this check is one whose
+/// addresses would be a guess.
+#[must_use]
+pub fn rs129_parity(msg: &[u8]) -> [u8; 3] {
+    /// Generator coefficients, lowest order first.
+    const POLY: [u8; 3] = [64, 56, 14];
+    let mut parity = [0u8; 3];
+    for &byte in msg {
+        let feedback = byte ^ parity[2];
+        parity[2] = parity[1] ^ gf256_mul(POLY[2], feedback);
+        parity[1] = parity[0] ^ gf256_mul(POLY[1], feedback);
+        parity[0] = gf256_mul(POLY[0], feedback);
+    }
+    [parity[2], parity[1], parity[0]]
+}
+
+/// GF(256) multiply modulo `x⁸ + x⁴ + x³ + x² + 1`.
+fn gf256_mul(a: u8, b: u8) -> u8 {
+    let (mut a, mut b, mut product) = (a, b, 0u8);
+    while b != 0 {
+        if b & 1 == 1 {
+            product ^= a;
+        }
+        let high = a & 0x80 != 0;
+        a <<= 1;
+        if high {
+            a ^= 0x1D;
+        }
+        b >>= 1;
+    }
+    product
 }
 
 /// True when an HDLC frame's trailing little-endian 2-byte FCS matches its payload.

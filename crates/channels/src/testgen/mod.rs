@@ -24,6 +24,7 @@
 pub mod acars;
 pub mod adsb;
 pub mod ais;
+pub mod dv;
 pub mod morse;
 pub mod navtex;
 pub mod pocsag;
