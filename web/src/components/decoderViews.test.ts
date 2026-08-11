@@ -36,6 +36,7 @@ import {
   subghzTiming,
   TARGET_MAX_AGE_MS,
   TARGET_STALE_MS,
+  toneLabel,
 } from "./decoderViews";
 
 const NOW = Date.parse("2026-08-09T12:00:00Z");
@@ -342,6 +343,19 @@ describe("aprsMotion", () => {
       "En Route · 251° · 20 kt",
     );
     expect(aprsMotion({ mic_e_message: "Emergency" })).toBe("Emergency");
+  });
+});
+
+describe("toneLabel", () => {
+  it("names what is under the carrier the way a radio does", () => {
+    expect(toneLabel({})).toBe("");
+    expect(toneLabel({ ctcss_hz: 88.5 })).toBe("CTCSS 88.5 Hz");
+    expect(toneLabel({ ctcss_hz: 100 })).toBe("CTCSS 100.0 Hz");
+    // Octal codes are three digits, and 023 is not 23.
+    expect(toneLabel({ dcs_code: 23 })).toBe("DCS 023");
+    expect(toneLabel({ dcs_code: 754 })).toBe("DCS 754");
+    // A channel set to one and hearing the other is exactly what Detect is for.
+    expect(toneLabel({ ctcss_hz: 88.5, dcs_code: 23 })).toBe("CTCSS 88.5 Hz · DCS 023");
   });
 });
 

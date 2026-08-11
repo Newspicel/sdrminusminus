@@ -164,6 +164,48 @@ pub fn mode_s_fix_single_bit(frame: &mut [u8]) -> Option<usize> {
     None
 }
 
+/// Golay(23,12) generator x^11+x^10+x^6+x^5+x^4+x^2+1 — the one DCS / CDCSS keys its
+/// subaudible word with. The code is *cyclic*, which is the fact its users have to design
+/// around: every rotation of a codeword is another codeword, so a receiver sliding a 23-bit
+/// window over a repeating word finds a valid one at 23 alignments and needs something
+/// outside the code to pick the right one.
+const GOLAY23_POLY: u32 = 0xC75;
+const GOLAY23_CODE_BITS: u32 = 23;
+const GOLAY23_DATA_BITS: u32 = 12;
+const GOLAY23_CHECK_BITS: u32 = GOLAY23_CODE_BITS - GOLAY23_DATA_BITS;
+
+/// Remainder of a 23-bit word modulo the generator; 0 for a valid codeword.
+const fn golay23_remainder(word: u32) -> u32 {
+    let mut rem = word & ((1 << GOLAY23_CODE_BITS) - 1);
+    let mut shift = GOLAY23_CODE_BITS;
+    while shift > GOLAY23_CHECK_BITS {
+        shift -= 1;
+        if rem & (1 << shift) != 0 {
+            rem ^= GOLAY23_POLY << (shift - GOLAY23_CHECK_BITS);
+        }
+    }
+    rem
+}
+
+/// Systematic Golay(23,12): the 12 data bits followed by the 11 check bits they imply.
+/// Bits above the twelfth are ignored.
+#[must_use]
+pub const fn golay23_encode(data: u16) -> u32 {
+    let payload = (data as u32 & 0x0FFF) << GOLAY23_CHECK_BITS;
+    payload | golay23_remainder(payload)
+}
+
+/// Whether a 23-bit word's check bits match its data bits.
+///
+/// Detection only: the code corrects up to 3 errors, but a DCS receiver has no use for that.
+/// The word repeats about six times a second, so waiting for a clean copy costs nothing —
+/// while correcting one, over 23 alignments and both signal polarities, would turn noise into
+/// a plausible code far more often than it would rescue a real one.
+#[must_use]
+pub const fn golay23_ok(word: u32) -> bool {
+    golay23_remainder(word) == 0
+}
+
 /// POCSAG BCH(31,21) generator x^10+x^9+x^8+x^6+x^5+x^3+1.
 const POCSAG_GEN: u32 = 0x769;
 /// Codeword bits covered by the BCH code — everything but the trailing parity bit.
@@ -471,6 +513,45 @@ mod tests {
                 // The syndrome is *not* the address, which is why this function exists.
                 assert_ne!(mode_s_syndrome(&frame), overlay);
             }
+        }
+    }
+
+    /// The published DCS 023 word, which anchors the generator, the bit layout and the
+    /// systematic ordering all at once: data `100` + `000010011` (023 octal), check
+    /// `11101100011`.
+    #[test]
+    fn golay23_matches_the_published_dcs_word() {
+        let data = 0b1000_0001_0011;
+        let word = golay23_encode(data);
+        assert_eq!(format!("{word:023b}"), "10000001001111101100011");
+        assert!(golay23_ok(word));
+        assert_eq!(word >> GOLAY23_CHECK_BITS, u32::from(data));
+    }
+
+    #[test]
+    fn golay23_accepts_what_it_encodes_and_nothing_one_bit_away() {
+        for data in 0..1u16 << GOLAY23_DATA_BITS {
+            let word = golay23_encode(data);
+            assert!(golay23_ok(word), "data {data:#05x}");
+            for bit in 0..GOLAY23_CODE_BITS {
+                assert!(!golay23_ok(word ^ 1 << bit), "data {data:#05x} bit {bit}");
+            }
+        }
+    }
+
+    /// The property a DCS receiver has to design around: the code is cyclic, so sliding a
+    /// window over a repeating word finds a valid codeword at every one of 23 alignments, and
+    /// the complement of a codeword is one too. Neither is a defect — but a decoder that
+    /// assumed "parity checks out" meant "this is the word" would read a different code out
+    /// of the same transmission depending on where it happened to lock.
+    #[test]
+    fn every_rotation_and_the_complement_of_a_golay_word_is_also_one() {
+        let word = golay23_encode(0b1000_0001_0011);
+        for k in 0..GOLAY23_CODE_BITS {
+            let mask = (1 << GOLAY23_CODE_BITS) - 1;
+            let rotated = (word << k | word >> (GOLAY23_CODE_BITS - k)) & mask;
+            assert!(golay23_ok(rotated), "rotation {k}");
+            assert!(golay23_ok(rotated ^ mask), "complement of rotation {k}");
         }
     }
 

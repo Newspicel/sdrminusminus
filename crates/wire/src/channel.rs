@@ -100,16 +100,55 @@ fn default_deemphasis_us() -> f32 {
     50.0
 }
 
+/// What an NFM channel does about the subaudible signalling under the voice (PLAN §8).
+/// CTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating
+/// under it at 134.4 bit/s. Both are how a repeater tells its own users apart from the
+/// co-channel traffic 50 km away.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NfmToneMode {
+    /// Nothing is detected and nothing is gated — the audio path a channel had before this
+    /// setting existed, including its flat response down to DC.
+    #[default]
+    Off,
+    /// Report whatever tone or code is present without acting on it: what a listener wants
+    /// when the question is "what does this repeater use?".
+    Detect,
+    /// Pass audio only while [`NfmParams::ctcss_hz`] is present.
+    Ctcss,
+    /// Pass audio only while [`NfmParams::dcs_code`] is present.
+    Dcs,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct NfmParams {
     #[serde(default = "default_nfm_bandwidth_hz")]
     pub bandwidth_hz: f64,
+    #[serde(default)]
+    pub tone_mode: NfmToneMode,
+    /// The CTCSS tone to open on, in Hz. One of the 50 standard tones (EIA/TIA-603); anything
+    /// else is refused, because the detector only searches those.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctcss_hz: Option<f64>,
+    /// The DCS code to open on, as the three octal digits a radio displays — `23` for 023,
+    /// `754` for 754. One of the 83 standard codes.
+    ///
+    /// The standard list is not a convenience: the Golay code DCS is built on is cyclic, so
+    /// only a set with no rotation aliasing between its members can be read back unambiguously
+    /// from a continuously repeating word. A code's *inverse* is another code in the list —
+    /// 023 received through an inverted discriminator is 047 — so there is no polarity switch
+    /// here, and none on a radio either.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dcs_code: Option<u16>,
 }
 
 impl Default for NfmParams {
     fn default() -> Self {
         Self {
             bandwidth_hz: default_nfm_bandwidth_hz(),
+            tone_mode: NfmToneMode::default(),
+            ctcss_hz: None,
+            dcs_code: None,
         }
     }
 }

@@ -304,6 +304,17 @@ export function aprsMotion(packet: {
   );
 }
 
+// ── subaudible signalling ─────────────────────────────────────────────────────────────────
+
+/** What is under the carrier, named the way a radio names it: a CTCSS tone in Hz to one
+ * decimal, a DCS code as its three octal digits. Empty when there is nothing under it. */
+export function toneLabel(status: { ctcss_hz?: number | null; dcs_code?: number | null }): string {
+  return joinFields(
+    status.ctcss_hz == null ? "" : `CTCSS ${status.ctcss_hz.toFixed(1)} Hz`,
+    status.dcs_code == null ? "" : `DCS ${String(status.dcs_code).padStart(3, "0")}`,
+  );
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────────────────
 
 function compareIds(a: string, b: string): number {

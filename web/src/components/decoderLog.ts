@@ -25,6 +25,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   navtex: "NAVTEX",
   acars: "ACARS",
   subghz: "Sub-GHz",
+  tone: "Tone",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -246,6 +247,14 @@ export function eventSummary(event: DecoderEvent): string {
         f.repeats > 1 ? `\u00d7${f.repeats}` : null,
       ]);
     }
+    case "tone": {
+      const t = event.data;
+      const heard = join([
+        t.ctcss_hz == null ? null : `CTCSS ${t.ctcss_hz.toFixed(1)} Hz`,
+        t.dcs_code == null ? null : `DCS ${String(t.dcs_code).padStart(3, "0")}`,
+      ]);
+      return join([heard === "" ? "no tone" : heard, t.open ? "open" : "muted"]);
+    }
   }
 }
 
@@ -275,6 +284,8 @@ export function eventStation(event: DecoderEvent): string | null {
     }
     case "rtty":
     case "morse":
+    // Subaudible signalling names the channel's state, not whoever is keying up.
+    case "tone":
       return null;
   }
 }

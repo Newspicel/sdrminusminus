@@ -147,7 +147,8 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[planned]** WFM **stereo** — the audio path becomes two-channel end to end (PCM, Opus, frame layout, worklet)
 - **[planned]** ATV (analog TV)
 - **[planned]** Notch and audio filters per channel
-- **[planned]** CTCSS/DCS detection on NFM; Selcall (CCIR/ZVEI)
+- **[shipped]** CTCSS/DCS on NFM — the subaudible band decimated off the discriminator, a bank of 50 sliding correlators (half-second window, because the closest pair of standard tones is 2.3 Hz apart) and a DCS reader: Golay(23,12) at 134.4 bit/s, sliced against a tracked baseline so a carrier offset is not a decision threshold. Detect names what a repeater uses without gating; CTCSS and DCS gate on it, muting rather than skipping so the client's jitter buffer keeps its samples, and a 300 Hz highpass keeps the tone out of the audio it lets through. **The 83 standard DCS codes are part of the decoder, not a dropdown**: the code is cyclic, so a sliding window finds a valid word at all 23 alignments, and only that set reads back unambiguously — which is also why an inverted transmission comes out as the code's inverse-pair partner (023 ↔ 047) instead of needing a polarity switch
+- **[planned]** Selcall (CCIR/ZVEI)
 
 ## 9. Digital voice
 

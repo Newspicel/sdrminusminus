@@ -26,6 +26,7 @@ pub mod adsb;
 pub mod ais;
 pub mod morse;
 pub mod navtex;
+pub mod nfm;
 pub mod pocsag;
 pub mod rds;
 pub mod rtty;

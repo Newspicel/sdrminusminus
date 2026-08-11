@@ -327,6 +327,23 @@ pub struct SubghzFrame {
     pub timings_us: Vec<u32>,
 }
 
+/// Subaudible signalling heard under an NFM channel's voice (PLAN §8).
+///
+/// Emitted only when the picture changes. Both CTCSS and DCS run for the whole of a
+/// transmission, so an event per block would be the same event forty times a second.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ToneSquelchStatus {
+    /// The CTCSS tone present, in Hz.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctcss_hz: Option<f64>,
+    /// The DCS code present, as the three octal digits a radio displays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dcs_code: Option<u16>,
+    /// Whether audio is passing. Always true unless the channel was told to gate on a tone:
+    /// [`crate::NfmToneMode::Detect`] reports what is there without acting on it.
+    pub open: bool,
+}
+
 /// Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a
 /// discriminated union on `kind` that panels can exhaustively `switch` on, and so the log
 /// database can index on `kind` without parsing the blob.
@@ -343,6 +360,7 @@ pub enum DecoderEvent {
     Navtex(NavtexMessage),
     Acars(AcarsMessage),
     Subghz(SubghzFrame),
+    Tone(ToneSquelchStatus),
 }
 
 impl DecoderEvent {
@@ -360,6 +378,7 @@ impl DecoderEvent {
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
             Self::Subghz(_) => "subghz",
+            Self::Tone(_) => "tone",
         }
     }
 
@@ -447,6 +466,20 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::Tone(t) => {
+                let mut parts = Vec::new();
+                if let Some(hz) = t.ctcss_hz {
+                    parts.push(format!("CTCSS {hz:.1} Hz"));
+                }
+                if let Some(code) = t.dcs_code {
+                    parts.push(format!("DCS {code:03}"));
+                }
+                if parts.is_empty() {
+                    parts.push("no tone".to_owned());
+                }
+                parts.push(if t.open { "open" } else { "muted" }.to_owned());
+                parts.join(" · ")
+            }
             Self::Subghz(f) => {
                 let mut parts = vec![if f.bits == 0 {
                     format!("raw, {} edges", f.timings_us.len())
@@ -500,7 +533,7 @@ impl DecoderEvent {
                 .address
                 .map(|a| format!("{a:05X}"))
                 .or_else(|| (!f.data.is_empty()).then(|| f.data.clone())),
-            Self::Rtty(_) | Self::Morse(_) => None,
+            Self::Rtty(_) | Self::Morse(_) | Self::Tone(_) => None,
         }
     }
 }
@@ -572,6 +605,7 @@ mod tests {
             DecoderEvent::Navtex(NavtexMessage::default()),
             DecoderEvent::Acars(AcarsMessage::default()),
             DecoderEvent::Subghz(SubghzFrame::default()),
+            DecoderEvent::Tone(ToneSquelchStatus::default()),
         ] {
             let json = serde_json::to_value(&ev).unwrap();
             assert_eq!(json["kind"], ev.kind());
