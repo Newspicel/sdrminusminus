@@ -13,7 +13,7 @@
 
 
 # --- web UI ------------------------------------------------------------------------------
-FROM node:24-slim AS web
+FROM node:26-slim AS web
 WORKDIR /web
 RUN npm install -g pnpm@11.15.1
 
