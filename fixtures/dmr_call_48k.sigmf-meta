@@ -1,0 +1,18 @@
+{
+  "global": {
+    "core:datatype": "cf32_le",
+    "core:version": "1.2.6",
+    "core:sample_rate": 48000.0,
+    "core:recorder": "sdr--",
+    "core:hw": "Nooelec NESDR SMArt v5",
+    "core:description": "DMR direct-mode call on PMR446 channel 1, down-converted to the channel rate from a 2.048 Msps capture. Repeated voice LC header and the voice superframes whose embedded link control repeats the same addressing."
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 446006250.0,
+      "core:datetime": "2026-08-11T14:52:02.213432Z"
+    }
+  ],
+  "annotations": []
+}

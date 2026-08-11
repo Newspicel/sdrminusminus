@@ -147,6 +147,7 @@ pub(crate) mod testutil {
     use num_complex::Complex;
     use sdrmm_wire::{DecoderEvent, DvFrame};
 
+    use super::INPUT_RATE_HZ;
     use crate::{ChannelOutputs, ChannelRx};
 
     /// Feed a generated transmission through a channel in deliberately ragged blocks and
@@ -156,6 +157,15 @@ pub(crate) mod testutil {
     pub(crate) fn decode(chan: &mut dyn ChannelRx, iq: &[Complex<f32>]) -> Vec<DvFrame> {
         let mut out = ChannelOutputs::default();
         let mut frames = Vec::new();
+        // A receiver meets a transmission on a channel it was already listening to, and what
+        // it hears until then is its own noise — the same level the generators put under their
+        // signals. The 4FSK front end measures its carrier-detect floor from exactly this, and
+        // a generator handing it silence, or a carrier, from the first sample would be testing
+        // a channel no receiver ever sees.
+        let quiet = crate::testutil::complex_noise(0x1157, 0.01, 4 * INPUT_RATE_HZ as usize / 10);
+        chan.process(&quiet, &mut out);
+        out.reset();
+
         let mut pos = 0;
         for len in [997usize, 1, 4_096, 65, 2_048, 7].iter().cycle() {
             if pos >= iq.len() {

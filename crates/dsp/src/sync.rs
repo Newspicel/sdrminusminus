@@ -79,14 +79,31 @@ impl SymbolSync {
     /// Feed a block of input; append one interpolated sample per recovered symbol to `out`.
     /// Timing state carries across calls, so any block split gives the same symbol stream.
     pub fn process(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
+        self.run(input, out, false);
+    }
+
+    /// As [`Self::process`], but takes no timing error from the block: the clock free-runs at
+    /// the rate and phase it last measured. For the spans a caller knows carry no signal — the
+    /// dead half of a TDMA frame, a closed squelch — where the detector would read the receiver's
+    /// noise and walk the clock a little further every time the carrier came and went.
+    ///
+    /// Symbols still come out, because a decoder above counts its dead time in symbols and has
+    /// to get the same number of them whether or not anything was transmitted.
+    pub fn process_held(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
+        self.run(input, out, true);
+    }
+
+    fn run(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>, hold: bool) {
         self.buf.extend_from_slice(input);
         // The interpolator reads one sample below and two above the instant.
         while self.pos + 3 <= self.consumed + self.buf.len() {
             let base = self.pos - self.consumed;
             let y = farrow(&self.buf[base - 1..base + 3], self.frac as f32);
             if self.at_symbol {
-                if self.primed {
+                if self.primed && !hold {
                     self.retime(y);
+                } else if hold {
+                    self.step = self.sps;
                 }
                 self.prev_symbol = y;
                 self.primed = true;
@@ -134,13 +151,23 @@ impl SymbolSync {
     }
 
     fn retime(&mut self, symbol: Complex<f32>) {
-        // Gardner: a ±A transition through a Nyquist pulse crosses zero with slope πA per
-        // symbol, so Re{(x[k] − x[k−1])·conj(x_mid)} ≈ 2π·A²·τ. Dividing by 2π times the
-        // symbol energy reads τ off directly in symbol periods, at any signal amplitude.
+        // Gardner reads the *transition* between two symbols. If either end of it carries no
+        // energy there is no transition to read — only the live end against nothing, which
+        // reads as a full-scale error of arbitrary sign. That is the keying edge of a burst
+        // mode (a DMR radio keys off for half of every 60 ms frame) and the edge of a squelch
+        // gate, and taking an error off either would walk the clock a little further every
+        // time the carrier came and went. Free-run across it instead.
+        let (before, after) = (self.prev_symbol.norm_sqr(), symbol.norm_sqr());
+        if before <= 0.0 || after <= 0.0 {
+            self.step = self.sps;
+            return;
+        }
+        // A ±A transition through a Nyquist pulse crosses zero with slope πA per symbol, so
+        // Re{(x[k] − x[k−1])·conj(x_mid)} ≈ 2π·A²·τ. Dividing by 2π times the symbol energy
+        // reads τ off directly in symbol periods, at any signal amplitude.
         let raw = ((symbol - self.prev_symbol) * self.mid.conj()).re;
-        let energy = 0.5 * (self.prev_symbol.norm_sqr() + symbol.norm_sqr());
-        let err = f64::from(raw) / (f64::from(energy) * TAU);
-        // Silence (energy 0) and non-finite input must free-run, not poison the accumulator.
+        let err = f64::from(raw) / (f64::from(0.5 * (before + after)) * TAU);
+        // Non-finite input must free-run too, not poison the accumulator.
         if !err.is_finite() {
             self.step = self.sps;
             return;

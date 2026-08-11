@@ -176,12 +176,17 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
 - **[shipped]** Shared C4FM front end — discriminator, root-raised-cosine matched filter, Gardner
   symbol clock, and decision levels *measured* rather than assumed, so an under-deviated
   transmitter decodes and one front end serves the ±1944 Hz 12.5 kHz modes and the ±1050 Hz
-  6.25 kHz ones alike
+  6.25 kHz ones alike. A **carrier gate** decides what those estimates are allowed to learn
+  from: DMR is TDMA and keys off for half of every 60 ms frame, and a clock, centre or level
+  that integrated the receiver's own noise in between would arrive at each burst having learned
+  the noise floor instead of the transmitter
 - **[shipped]** DMR — all eight sync patterns, Golay(20,8) slot type, BPTC(196,96) signalling:
   voice LC header, terminator, CSBK and data header, each confirmed by the Reed-Solomon or CRC
   mask that names its own frame type. Talkgroup, radio ID, colour code, group/private,
   encryption flag. **Late entry**: the BPTC(128,77) embedded link control is reassembled from
-  bursts B–E of a voice superframe, so a call joined in progress names itself within 240 ms
+  bursts B–E of a voice superframe, so a call joined in progress names itself within 240 ms.
+  Verified against a recorded off-air call (`fixtures/dmr_call_48k`): header, terminator and
+  thirteen of fifteen superframes' late entry, all naming the same radio
 - **[shipped]** M17 — the one mode that names both parties in the clear: link setup frame through
   derandomiser, quadratic interleaver, P1 depuncturing, Viterbi and CRC-16, with base-40
   callsigns, encryption flag and end-of-transmission
@@ -201,8 +206,14 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
 - **[shipped]** Every mode verified against its specification via a reference modulator that
   encodes the real framing (the same BPTC, Golay, convolutional and CRC layers, in reverse), fed
   through the decoder in ragged block splits, plus a noise-decodes-to-nothing test per mode.
-  **None has yet decoded a real signal** — the same caveat the ADS-B/AIS/ACARS/NAVTEX decoders
-  carry, and the constants most likely to be wrong are named in each module's header comment
+  **DMR is the only one that has decoded a real signal so far**, off a recorded PMR446 call; the
+  other six carry the same caveat the ADS-B/AIS/ACARS/NAVTEX decoders do, and the constants most
+  likely to be wrong are named in each module's header comment
+- **[planned]** Sync-anchored level and centre estimation — a burst's own sync pattern says what
+  its four levels are, which is what a TDMA receiver should measure them from rather than from
+  loops that also run between bursts. The generated keyed waveform still costs about a bit per
+  burst without it, which is under what a real signal needs but over what late entry's four
+  consecutive clean bursts can spare
 - **[planned]** Vocoder audio — AMBE+2/IMBE for the six, Codec2 for M17. The framing above is
   what a vocoder would plug into
 - **[planned]** P25 link control and trunking blocks (LDU1 link control, TSBK), NXDN SACCH/FACCH

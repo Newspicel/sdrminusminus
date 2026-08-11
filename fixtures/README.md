@@ -29,6 +29,12 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `subghz_ev1527_500k` | 500 k | `subghz` @ +100 kHz | 24-bit PWM `0A1B23`, address `0A1B2`, button 3 |
 | `atv_ccir625_2m4` | 2.4 M | `atv` @ +200 kHz | 625/25 AM, five vertical bars black to white |
 
+One pair is **not** synthesized and is committed: `dmr_call_48k`, a recorded off-air excerpt.
+
+| stem | rate | channel | expected |
+|---|---|---|---|
+| `dmr_call_48k` | 48 k | `dmr` @ 0 Hz | colour code 1, group call, radio ID 12345678 to talkgroup 12345678 |
+
 ADS-B is the one fixture whose device rate is not negotiable: it fills its whole 2 MHz
 channel, so a resampling DDC cannot carry it and the engine refuses the channel at any other
 rate (PLAN §18). ATV is the one whose output is not a log line: play it, wire the channel's
@@ -54,3 +60,9 @@ device.
   to the band of interest, and either committed case-by-case (small) or fetched by
   `cargo xtask fixtures` (PLAN §14). Committing one means force-adding past the
   `.gitignore` — that friction is the case-by-case review.
+- `dmr_call_48k` is the one committed so far (1.7 s, 640 KB): a direct-mode DMR call on PMR446
+  channel 1, captured with an RTL-SDR at 2.048 Msps and down-converted to the channel rate so
+  only the 12.5 kHz that matters is carried. It is committed because it is the only signal in
+  the tree that keys off between bursts the way a real TDMA transmitter does, and no generated
+  one reproduces what that costs a receiver — `dv::dmr::tests::decodes_a_recorded_call` reads
+  it directly.

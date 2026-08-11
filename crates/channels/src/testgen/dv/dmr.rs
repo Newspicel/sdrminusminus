@@ -5,7 +5,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, crc16_msb, rs129_parity};
 
-use super::{bits, c4fm, dibits, filler};
+use super::{bits, dibits, filler};
 
 /// Direct-mode slot 1 sync patterns, which name their timeslot on the wire.
 const VOICE_SYNC: u64 = 0x5D57_7F77_57FF;
@@ -18,6 +18,13 @@ const DT_CSBK: u8 = 0x3;
 const BAUD: f64 = 4_800.0;
 const DEVIATION_HZ: f64 = 1_944.0;
 const RRC_ALPHA: f64 = 0.2;
+
+/// Symbols in a 30 ms timeslot, of which the 264-bit burst is 132 (27.5 ms). A direct-mode
+/// radio keys down for the remaining 2.5 ms of guard time and for the whole of the other
+/// slot — so it transmits 132 symbols in every 288, and this generator has to key off for the
+/// other 156 or it would not be exercising a TDMA receiver at all.
+const SLOT_SYMBOLS: usize = 144;
+const BURST_SYMBOLS: usize = 132;
 
 /// One call, as its transmitter would key it.
 pub struct Call {
@@ -53,43 +60,39 @@ impl Call {
     }
 }
 
-/// A voice LC header burst, a voice superframe whose embedded link control repeats the same
-/// addressing, and a terminator: 8 bursts, 30 ms apart in the slot, with the other slot's time
-/// left as the idle carrier a direct-mode radio transmits.
+/// The voice LC header a radio repeats at the head of a call, a voice superframe whose embedded
+/// link control repeats the same addressing, and a terminator — each keyed for its own 30 ms
+/// slot with the rest of the 60 ms TDMA frame dead, as a direct-mode radio transmits.
 #[must_use]
 pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
-    let mut symbols = Vec::new();
-    // Lead-in: the receiver's clock and level estimates need a run of symbols before the
-    // first burst, exactly as they would get from a real transmitter's preamble.
-    symbols.extend(dibits(&filler(400, 7)));
-
-    symbols.extend(dibits(&data_burst(
-        call,
-        DT_VOICE_LC_HEADER,
-        &lc_with_parity(call, [0x96, 0x96, 0x96]),
-    )));
-    symbols.extend(idle_slot());
+    let mut tx = Keyed::default();
+    // Three headers, as radios send: a receiver has only the keyed part of each frame to learn
+    // its clock, centre and level from, and the protocol allows for the first burst arriving
+    // before it has.
+    for _ in 0..3 {
+        tx.burst(&data_burst(
+            call,
+            DT_VOICE_LC_HEADER,
+            &lc_with_parity(call, [0x96, 0x96, 0x96]),
+        ));
+    }
 
     let embedded = Bptc128::encode(&embedded_block(call));
     // Burst A carries the sync; B to E one quarter each of the embedded link control; F the
     // null fragment that closes the superframe.
-    symbols.extend(dibits(&voice_burst(call, None)));
-    symbols.extend(idle_slot());
+    tx.burst(&voice_burst(call, None));
     for (i, lcss) in [0b01u8, 0b11, 0b11, 0b10].into_iter().enumerate() {
         let fragment: Vec<bool> = embedded[i * 32..(i + 1) * 32].to_vec();
-        symbols.extend(dibits(&voice_burst(call, Some((lcss, fragment)))));
-        symbols.extend(idle_slot());
+        tx.burst(&voice_burst(call, Some((lcss, fragment))));
     }
-    symbols.extend(dibits(&voice_burst(call, Some((0b00, vec![false; 32])))));
-    symbols.extend(idle_slot());
+    tx.burst(&voice_burst(call, Some((0b00, vec![false; 32]))));
 
-    symbols.extend(dibits(&data_burst(
+    tx.burst(&data_burst(
         call,
         DT_TERMINATOR_WITH_LC,
         &lc_with_parity(call, [0x99, 0x99, 0x99]),
-    )));
-    symbols.extend(dibits(&filler(200, 11)));
-    c4fm(&symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
+    ));
+    tx.modulate(rate)
 }
 
 /// A single CSBK burst — the signalling that travels outside a call.
@@ -115,10 +118,58 @@ pub fn csbk(
         color_code,
         ..Call::default()
     };
-    let mut symbols = dibits(&filler(400, 3));
-    symbols.extend(dibits(&data_burst(&call, DT_CSBK, &payload)));
-    symbols.extend(dibits(&filler(200, 5)));
-    c4fm(&symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
+    // Repeated, as the preamble CSBKs that precede a call are: one burst is 27.5 ms of carrier
+    // and a receiver joining a dead channel has nothing else to acquire on.
+    let mut tx = Keyed::default();
+    for _ in 0..3 {
+        tx.burst(&data_burst(&call, DT_CSBK, &payload));
+    }
+    tx.modulate(rate)
+}
+
+/// The symbol stream a direct-mode radio puts on the air: its own burst, then the guard time
+/// and the other radio's slot, which it spends keyed down.
+#[derive(Default)]
+struct Keyed {
+    symbols: Vec<Option<u8>>,
+}
+
+impl Keyed {
+    fn burst(&mut self, bits: &[bool]) {
+        let burst = dibits(bits);
+        assert_eq!(burst.len(), BURST_SYMBOLS, "a DMR burst is 264 bits");
+        self.symbols.extend(burst.into_iter().map(Some));
+        self.symbols
+            .extend(std::iter::repeat_n(None, 2 * SLOT_SYMBOLS - BURST_SYMBOLS));
+    }
+
+    fn modulate(self, rate: f64) -> Vec<Complex<f32>> {
+        let mut noise = Noise(0x5d5d_7f77);
+        super::c4fm_keyed(&self.symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
+            .into_iter()
+            // The receiver's own noise is on the channel whether the transmitter is keyed or
+            // not. A generated signal without it reads as digitally silent between bursts,
+            // which is not something any receiver sees — and a carrier detector has nothing
+            // to measure a noise floor from.
+            .map(|sample| sample + noise.sample())
+            .collect()
+    }
+}
+
+/// A receiver's noise floor, 40 dB below a unit-magnitude carrier.
+struct Noise(u32);
+
+impl Noise {
+    fn next(&mut self) -> f32 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 17;
+        self.0 ^= self.0 << 5;
+        (self.0 as f32 / u32::MAX as f32 * 2.0 - 1.0) * 0.01
+    }
+
+    fn sample(&mut self) -> Complex<f32> {
+        Complex::new(self.next(), self.next())
+    }
 }
 
 /// The 96-bit signalling block of a link control frame: 72 bits of addressing and the
@@ -187,11 +238,6 @@ fn voice_burst(call: &Call, embedded: Option<(u8, Vec<bool>)>) -> Vec<bool> {
     }
     burst.extend(filler(108, u32::from(call.color_code) + 23));
     burst
-}
-
-/// The other timeslot, which this transmitter is not using.
-fn idle_slot() -> Vec<u8> {
-    dibits(&filler(264, 29))
 }
 
 fn pack(bits: &[bool]) -> Vec<u8> {
