@@ -39,15 +39,15 @@ pub enum StateScope {
     Workspaces,
 }
 
-/// Which binary stream a control event refers to. Spectrum stream ids are device-set ids
-/// (< 0x8000) and audio ids are connection-allocated from `0x8000..=0xFFFF`, but only the
-/// pair `(kind, stream_id)` identifies a stream — events must carry the kind or a spectrum
-/// stop is indistinguishable from an audio stop.
+/// Which binary stream a control event refers to. Every id is allocated per connection, from a
+/// range per class, but only the pair `(kind, stream_id)` identifies a stream — events must
+/// carry the kind or a spectrum stop is indistinguishable from an audio one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StreamKind {
     Spectrum,
     Audio,
+    Video,
 }
 
 /// Server → client push (PLAN §5). Adjacently tagged so unit variants stay compact.
@@ -74,6 +74,14 @@ pub enum ServerEvent {
     /// from the audio range (see [`StreamKind`]); clients demux binary frames by
     /// `(kind, stream_id)`.
     AudioStreamStarted {
+        stream_id: u16,
+        device_set: u32,
+        channel: u32,
+    },
+    /// A subscribed video stream is now active, carrying the channel's pictures as
+    /// [`crate::VideoFrame`]s. Ids come from the same per-connection media range audio uses, so
+    /// the client demuxes on `(kind, stream_id)` exactly as it does there.
+    VideoStreamStarted {
         stream_id: u16,
         device_set: u32,
         channel: u32,
@@ -146,4 +154,10 @@ pub enum ClientCommand {
     SubscribeAudio { device_set: u32, channel: u32 },
     /// Stop the audio stream for a channel.
     UnsubscribeAudio { device_set: u32, channel: u32 },
+    /// Start receiving pictures from a channel that produces them (`ChannelDescriptor.has_video`);
+    /// answered with `VideoStreamStarted`. A channel with no video refuses rather than opening a
+    /// stream that would never carry a frame.
+    SubscribeVideo { device_set: u32, channel: u32 },
+    /// Stop the video stream for a channel.
+    UnsubscribeVideo { device_set: u32, channel: u32 },
 }

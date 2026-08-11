@@ -2062,6 +2062,13 @@
             ],
             "format": "double"
           },
+          "mic_e_message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7\nstandard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's\nown word for a packet whose three message bits mix the standard and custom tables.\nAbsent on every packet that is not Mic-E."
+          },
           "path": {
             "type": "array",
             "items": {
@@ -2104,6 +2111,47 @@
             "$ref": "#/components/schemas/AprsMode"
           }
         }
+      },
+      "AtvModulation": {
+        "type": "string",
+        "description": "How an analog television transmission carries its video, and with it the polarity the\ndemodulated signal arrives in (PLAN §13: ATV).",
+        "enum": [
+          "am",
+          "fm"
+        ]
+      },
+      "AtvParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Video channel width in Hz. This *is* the horizontal resolution — a picture cannot carry\nmore detail per line than the bandwidth that delivered it — so it is the one knob worth\nopening up when the channel is clean, bounded by the mode's IQ rate."
+          },
+          "interlace": {
+            "type": "boolean",
+            "description": "Weave the two fields into one frame at their real line positions. Off decodes each\nvertical sync as a whole progressive frame, which is what non-interlaced amateur and\ncamera sources send."
+          },
+          "invert": {
+            "type": "boolean",
+            "description": "Invert the video polarity, for a transmission that keys the opposite way round from its\nmodulation's convention (see [`AtvModulation`]). A picture that comes out as a photographic\nnegative, with the sync tracker never locking, is what this fixes."
+          },
+          "modulation": {
+            "$ref": "#/components/schemas/AtvModulation"
+          },
+          "standard": {
+            "$ref": "#/components/schemas/AtvStandard"
+          }
+        }
+      },
+      "AtvStandard": {
+        "type": "string",
+        "description": "Scanning standard the transmission follows: how many lines make a frame and how fast they\ngo by. Everything else the demodulator needs — porch widths, active window, blanked lines —\nderives from these two numbers plus the standard's own timings.",
+        "enum": [
+          "ccir625",
+          "eia525",
+          "system_a405"
+        ]
       },
       "AuthInfo": {
         "type": "object",
@@ -2270,6 +2318,10 @@
             "type": "boolean",
             "description": "Whether the channel produces listenable audio. Data decoders (PLAN §13 wave 1) do\nnot, so the client hides their audio controls instead of offering a silent stream.\nDefaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour."
           },
+          "has_video": {
+            "type": "boolean",
+            "description": "Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames\nrather than as decoder events (ATV, PLAN §13). The client subscribes and mounts a video\npanel on the channel's face when this is set. Defaults to `false`, which is every mode\nthat predates the video transport."
+          },
           "input_rate_hz": {
             "type": "number",
             "format": "double",
@@ -2277,7 +2329,7 @@
           },
           "name": {
             "type": "string",
-            "description": "Display name, e.g. `\"NFM\"`, `\"WFM (mono)\"`."
+            "description": "Display name, e.g. `\"NFM\"`, `\"WFM (broadcast)\"`."
           },
           "native_rate_max_hz": {
             "type": [
@@ -2562,6 +2614,24 @@
                 "type": "string",
                 "enum": [
                   "subghz"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/AtvParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "atv"
                 ]
               }
             }
@@ -2899,6 +2969,78 @@
                 "type": "string",
                 "enum": [
                   "UnsubscribeAudio"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Start receiving pictures from a channel that produces them (`ChannelDescriptor.has_video`);\nanswered with `VideoStreamStarted`. A channel with no video refuses rather than opening a\nstream that would never carry a frame.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Start receiving pictures from a channel that produces them (`ChannelDescriptor.has_video`);\nanswered with `VideoStreamStarted`. A channel with no video refuses rather than opening a\nstream that would never carry a frame.",
+                "required": [
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SubscribeVideo"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Stop the video stream for a channel.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Stop the video stream for a channel.",
+                "required": [
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "UnsubscribeVideo"
                 ]
               }
             }
@@ -3261,6 +3403,24 @@
                 "type": "string",
                 "enum": [
                   "subghz"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ToneSquelchStatus"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "tone"
                 ]
               }
             }
@@ -4157,8 +4317,38 @@
           "bandwidth_hz": {
             "type": "number",
             "format": "double"
+          },
+          "ctcss_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "The CTCSS tone to open on, in Hz. One of the 50 standard tones (EIA/TIA-603); anything\nelse is refused, because the detector only searches those."
+          },
+          "dcs_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The DCS code to open on, as the three octal digits a radio displays — `23` for 023,\n`754` for 754. One of the 83 standard codes.\n\nThe standard list is not a convenience: the Golay code DCS is built on is cyclic, so\nonly a set with no rotation aliasing between its members can be read back unambiguously\nfrom a continuously repeating word. A code's *inverse* is another code in the list —\n023 received through an inverted discriminator is 047 — so there is no polarity switch\nhere, and none on a radio either.",
+            "minimum": 0
+          },
+          "tone_mode": {
+            "$ref": "#/components/schemas/NfmToneMode"
           }
         }
+      },
+      "NfmToneMode": {
+        "type": "string",
+        "description": "What an NFM channel does about the subaudible signalling under the voice (PLAN §8).\nCTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating\nunder it at 134.4 bit/s. Both are how a repeater tells its own users apart from the\nco-channel traffic 50 km away.",
+        "enum": [
+          "off",
+          "detect",
+          "ctcss",
+          "dcs"
+        ]
       },
       "NodeBody": {
         "oneOf": [
@@ -5481,6 +5671,48 @@
           },
           {
             "type": "object",
+            "description": "A subscribed video stream is now active, carrying the channel's pictures as\n[`crate::VideoFrame`]s. Ids come from the same per-connection media range audio uses, so\nthe client demuxes on `(kind, stream_id)` exactly as it does there.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "A subscribed video stream is now active, carrying the channel's pictures as\n[`crate::VideoFrame`]s. Ids come from the same per-connection media range audio uses, so\nthe client demuxes on `(kind, stream_id)` exactly as it does there.",
+                "required": [
+                  "stream_id",
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "stream_id": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "VideoStreamStarted"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "A subscribed stream stopped; `kind` says which one, since spectrum and audio ids\ncome from different spaces.",
             "required": [
               "data",
@@ -5870,10 +6102,11 @@
       },
       "StreamKind": {
         "type": "string",
-        "description": "Which binary stream a control event refers to. Spectrum stream ids are device-set ids\n(< 0x8000) and audio ids are connection-allocated from `0x8000..=0xFFFF`, but only the\npair `(kind, stream_id)` identifies a stream — events must carry the kind or a spectrum\nstop is indistinguishable from an audio stop.",
+        "description": "Which binary stream a control event refers to. Every id is allocated per connection, from a\nrange per class, but only the pair `(kind, stream_id)` identifies a stream — events must\ncarry the kind or a spectrum stop is indistinguishable from an audio one.",
         "enum": [
           "spectrum",
-          "audio"
+          "audio",
+          "video"
         ]
       },
       "StreamScope": {
@@ -6142,6 +6375,36 @@
           }
         }
       },
+      "ToneSquelchStatus": {
+        "type": "object",
+        "description": "Subaudible signalling heard under an NFM channel's voice (PLAN §8).\n\nEmitted only when the picture changes. Both CTCSS and DCS run for the whole of a\ntransmission, so an event per block would be the same event forty times a second.",
+        "required": [
+          "open"
+        ],
+        "properties": {
+          "ctcss_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "The CTCSS tone present, in Hz."
+          },
+          "dcs_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The DCS code present, as the three octal digits a radio displays.",
+            "minimum": 0
+          },
+          "open": {
+            "type": "boolean",
+            "description": "Whether audio is passing. Always true unless the channel was told to gate on a tone:\n[`crate::NfmToneMode::Detect`] reports what is there without acting on it."
+          }
+        }
+      },
       "UpdateWorkspaceRequest": {
         "type": "object",
         "description": "`PUT /api/workspaces/{id}` — rename, re-patch, or both.",
@@ -6184,6 +6447,10 @@
           "rds": {
             "type": "boolean",
             "description": "Decode the 57 kHz RDS subcarrier alongside the audio (PLAN §13 P2). Off by default:\nit costs a second demod chain on the same channel."
+          },
+          "stereo": {
+            "type": "boolean",
+            "description": "Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.\nA station without a 19 kHz pilot still plays: L and R carry the same mono programme."
           }
         }
       },

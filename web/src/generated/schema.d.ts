@@ -646,6 +646,13 @@ export interface components {
             lat?: number | null;
             /** Format: double */
             lon?: number | null;
+            /**
+             * @description The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7
+             *     standard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's
+             *     own word for a packet whose three message bits mix the standard and custom tables.
+             *     Absent on every packet that is not Mic-E.
+             */
+            mic_e_message?: string | null;
             /** @description Digipeater path, in order. */
             path?: string[];
             /** @description Source callsign with SSID, e.g. `DL1ABC-9`. */
@@ -662,6 +669,42 @@ export interface components {
             bandwidth_hz?: number;
             mode?: components["schemas"]["AprsMode"];
         };
+        /**
+         * @description How an analog television transmission carries its video, and with it the polarity the
+         *     demodulated signal arrives in (PLAN §13: ATV).
+         * @enum {string}
+         */
+        AtvModulation: "am" | "fm";
+        AtvParams: {
+            /**
+             * Format: double
+             * @description Video channel width in Hz. This *is* the horizontal resolution — a picture cannot carry
+             *     more detail per line than the bandwidth that delivered it — so it is the one knob worth
+             *     opening up when the channel is clean, bounded by the mode's IQ rate.
+             */
+            bandwidth_hz?: number;
+            /**
+             * @description Weave the two fields into one frame at their real line positions. Off decodes each
+             *     vertical sync as a whole progressive frame, which is what non-interlaced amateur and
+             *     camera sources send.
+             */
+            interlace?: boolean;
+            /**
+             * @description Invert the video polarity, for a transmission that keys the opposite way round from its
+             *     modulation's convention (see [`AtvModulation`]). A picture that comes out as a photographic
+             *     negative, with the sync tracker never locking, is what this fixes.
+             */
+            invert?: boolean;
+            modulation?: components["schemas"]["AtvModulation"];
+            standard?: components["schemas"]["AtvStandard"];
+        };
+        /**
+         * @description Scanning standard the transmission follows: how many lines make a frame and how fast they
+         *     go by. Everything else the demodulator needs — porch widths, active window, blanked lines —
+         *     derives from these two numbers plus the standard's own timings.
+         * @enum {string}
+         */
+        AtvStandard: "ccir625" | "eia525" | "system_a405";
         /**
          * @description `GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before
          *     its first real request (PLAN §12: optional single shared token).
@@ -755,11 +798,18 @@ export interface components {
              */
             has_audio?: boolean;
             /**
+             * @description Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames
+             *     rather than as decoder events (ATV, PLAN §13). The client subscribes and mounts a video
+             *     panel on the channel's face when this is set. Defaults to `false`, which is every mode
+             *     that predates the video transport.
+             */
+            has_video?: boolean;
+            /**
              * Format: double
              * @description IQ rate the demod expects from the DDC, in Hz.
              */
             input_rate_hz: number;
-            /** @description Display name, e.g. `"NFM"`, `"WFM (mono)"`. */
+            /** @description Display name, e.g. `"NFM"`, `"WFM (broadcast)"`. */
             name: string;
             /**
              * Format: double
@@ -852,6 +902,10 @@ export interface components {
             settings: components["schemas"]["SubghzParams"];
             /** @enum {string} */
             type: "subghz";
+        } | {
+            settings: components["schemas"]["AtvParams"];
+            /** @enum {string} */
+            type: "atv";
         } | {
             settings: components["schemas"]["DmrParams"];
             /** @enum {string} */
@@ -969,6 +1023,30 @@ export interface components {
             };
             /** @enum {string} */
             type: "UnsubscribeAudio";
+        } | {
+            /**
+             * @description Start receiving pictures from a channel that produces them (`ChannelDescriptor.has_video`);
+             *     answered with `VideoStreamStarted`. A channel with no video refuses rather than opening a
+             *     stream that would never carry a frame.
+             */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+            };
+            /** @enum {string} */
+            type: "SubscribeVideo";
+        } | {
+            /** @description Stop the video stream for a channel. */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+            };
+            /** @enum {string} */
+            type: "UnsubscribeVideo";
         };
         /**
          * @description `GET /api/clients` — how many clients share this server right now (PLAN §16 M5
@@ -1087,6 +1165,10 @@ export interface components {
             data: components["schemas"]["SubghzFrame"];
             /** @enum {string} */
             kind: "subghz";
+        } | {
+            data: components["schemas"]["ToneSquelchStatus"];
+            /** @enum {string} */
+            kind: "tone";
         } | {
             data: components["schemas"]["DvFrame"];
             /** @enum {string} */
@@ -1485,7 +1567,34 @@ export interface components {
         NfmParams: {
             /** Format: double */
             bandwidth_hz?: number;
+            /**
+             * Format: double
+             * @description The CTCSS tone to open on, in Hz. One of the 50 standard tones (EIA/TIA-603); anything
+             *     else is refused, because the detector only searches those.
+             */
+            ctcss_hz?: number | null;
+            /**
+             * Format: int32
+             * @description The DCS code to open on, as the three octal digits a radio displays — `23` for 023,
+             *     `754` for 754. One of the 83 standard codes.
+             *
+             *     The standard list is not a convenience: the Golay code DCS is built on is cyclic, so
+             *     only a set with no rotation aliasing between its members can be read back unambiguously
+             *     from a continuously repeating word. A code's *inverse* is another code in the list —
+             *     023 received through an inverted discriminator is 047 — so there is no polarity switch
+             *     here, and none on a radio either.
+             */
+            dcs_code?: number | null;
+            tone_mode?: components["schemas"]["NfmToneMode"];
         };
+        /**
+         * @description What an NFM channel does about the subaudible signalling under the voice (PLAN §8).
+         *     CTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating
+         *     under it at 134.4 bit/s. Both are how a repeater tells its own users apart from the
+         *     co-channel traffic 50 km away.
+         * @enum {string}
+         */
+        NfmToneMode: "off" | "detect" | "ctcss" | "dcs";
         /**
          * @description What a node is. Adjacently tagged like [`crate::ChannelParams`], so the generated TypeScript
          *     is a union the client can exhaustively switch on.
@@ -2097,6 +2206,22 @@ export interface components {
             type: "AudioStreamStarted";
         } | {
             /**
+             * @description A subscribed video stream is now active, carrying the channel's pictures as
+             *     [`crate::VideoFrame`]s. Ids come from the same per-connection media range audio uses, so
+             *     the client demuxes on `(kind, stream_id)` exactly as it does there.
+             */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+                /** Format: int32 */
+                stream_id: number;
+            };
+            /** @enum {string} */
+            type: "VideoStreamStarted";
+        } | {
+            /**
              * @description A subscribed stream stopped; `kind` says which one, since spectrum and audio ids
              *     come from different spaces.
              */
@@ -2234,13 +2359,12 @@ export interface components {
             revision: number;
         };
         /**
-         * @description Which binary stream a control event refers to. Spectrum stream ids are device-set ids
-         *     (< 0x8000) and audio ids are connection-allocated from `0x8000..=0xFFFF`, but only the
-         *     pair `(kind, stream_id)` identifies a stream — events must carry the kind or a spectrum
-         *     stop is indistinguishable from an audio stop.
+         * @description Which binary stream a control event refers to. Every id is allocated per connection, from a
+         *     range per class, but only the pair `(kind, stream_id)` identifies a stream — events must
+         *     carry the kind or a spectrum stop is indistinguishable from an audio one.
          * @enum {string}
          */
-        StreamKind: "spectrum" | "audio";
+        StreamKind: "spectrum" | "audio" | "video";
         /**
          * @description Which device settings each receive stream holds on its own, rather than sharing with the rest
          *     of the radio. All-false — the default, and what every capability set from before this field
@@ -2412,6 +2536,29 @@ export interface components {
         TemplatesResponse: {
             templates: components["schemas"]["TemplateInfo"][];
         };
+        /**
+         * @description Subaudible signalling heard under an NFM channel's voice (PLAN §8).
+         *
+         *     Emitted only when the picture changes. Both CTCSS and DCS run for the whole of a
+         *     transmission, so an event per block would be the same event forty times a second.
+         */
+        ToneSquelchStatus: {
+            /**
+             * Format: double
+             * @description The CTCSS tone present, in Hz.
+             */
+            ctcss_hz?: number | null;
+            /**
+             * Format: int32
+             * @description The DCS code present, as the three octal digits a radio displays.
+             */
+            dcs_code?: number | null;
+            /**
+             * @description Whether audio is passing. Always true unless the channel was told to gate on a tone:
+             *     [`crate::NfmToneMode::Detect`] reports what is there without acting on it.
+             */
+            open: boolean;
+        };
         /** @description `PUT /api/workspaces/{id}` — rename, re-patch, or both. */
         UpdateWorkspaceRequest: {
             name?: string | null;
@@ -2433,6 +2580,11 @@ export interface components {
              *     it costs a second demod chain on the same channel.
              */
             rds?: boolean;
+            /**
+             * @description Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.
+             *     A station without a 19 kHz pilot still plays: L and R carry the same mono programme.
+             */
+            stereo?: boolean;
         };
         /** @description `GET /api/workspaces/{id}` — the row plus its workspace. */
         WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {

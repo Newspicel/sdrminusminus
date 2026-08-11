@@ -17,6 +17,11 @@ use super::{
 /// RTL2832U crystal frequency (Hz) on every dongle this driver supports.
 pub(crate) const DEF_RTL_XTAL_FREQ: u32 = 28_800_000;
 
+/// Highest frequency direct sampling reaches: the ADC runs at the crystal rate, so its first
+/// Nyquist zone ends here — and the downconverter register that does the tuning holds exactly
+/// this much (see [`if_freq_reg`]). Above it the ADC aliases and the register wraps.
+pub(crate) const DIRECT_SAMPLING_MAX_HZ: u32 = DEF_RTL_XTAL_FREQ / 2;
+
 /// USB vendor ID for RTL-SDR devices (Realtek).
 pub(crate) const RTL_USB_VID: u16 = 0x0bda;
 /// Product IDs of the RTL2832U-based dongles this driver claims.
@@ -67,6 +72,51 @@ pub(crate) enum BoardVariant {
     Generic,
     /// RTL-SDR Blog V4 (R828D with a 28.8 MHz crystal and an HF upconverter).
     RtlSdrBlogV4,
+}
+
+/// Which ADC input feeds the demodulator when the tuner is bypassed.
+///
+/// The RTL2832U samples both ADC pins at the crystal rate. Normally the tuner drives them with a
+/// 3.57 MHz IF and the demodulator's downconverter mixes that to zero; in direct sampling the
+/// tuner is put in standby and the *downconverter itself* is tuned instead, so whatever is wired
+/// to the ADC pin is received across the first Nyquist zone — DC to half the crystal. That is how
+/// a dongle whose tuner starts at 24 MHz hears HF.
+///
+/// Which branch is usable is a property of the board, not the chip: the RTL-SDR Blog V3 wires its
+/// antenna port to the Q branch, and other dongles need the well-known solder mod. The driver
+/// cannot tell them apart, so the operator selects the branch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum DirectSampling {
+    /// Tuner in circuit — the normal receive path.
+    #[default]
+    Off,
+    /// ADC I branch.
+    IBranch,
+    /// ADC Q branch, which is what the Blog V3 and the usual mod connect.
+    QBranch,
+}
+
+impl DirectSampling {
+    /// The wire spelling, as offered in the `direct_sampling` enum setting.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::IBranch => "i",
+            Self::QBranch => "q",
+        }
+    }
+
+    /// Parse a wire spelling. `None` for anything else — a client bug, not a value to coerce.
+    pub(crate) fn parse(text: &str) -> Option<Self> {
+        [Self::Off, Self::IBranch, Self::QBranch]
+            .into_iter()
+            .find(|mode| mode.as_str() == text)
+    }
+
+    /// Every mode, in the order the setting offers them.
+    pub(crate) const fn all() -> [Self; 3] {
+        [Self::Off, Self::IBranch, Self::QBranch]
+    }
 }
 
 struct EnumeratedDevice {
@@ -159,6 +209,8 @@ pub(crate) struct RtlSdr {
     /// Set by the EEPROM on dongles wired to power the antenna port unconditionally.
     force_bias_t: bool,
     board_variant: BoardVariant,
+    /// Whether the tuner is bypassed, and which ADC branch is being received if it is.
+    direct_sampling: DirectSampling,
 }
 
 impl RtlSdr {
@@ -207,6 +259,9 @@ impl RtlSdr {
             ppm: 0,
             force_bias_t: false,
             board_variant: info.board_variant,
+            // `init` programs the tuner-in-circuit registers, so a freshly opened dongle is in
+            // this mode whatever the last process left behind.
+            direct_sampling: DirectSampling::Off,
         };
         sdr.init()?;
         Ok(sdr)
@@ -374,15 +429,76 @@ impl RtlSdr {
         self.sample_rate
     }
 
-    /// Tune the PLL. The R820T covers roughly 24 MHz–1.766 GHz; a Blog V4 reaches HF by
-    /// upconverting through the same tuner.
+    /// The ADC branch the demodulator is receiving, or [`DirectSampling::Off`] for the tuner.
+    #[must_use]
+    pub(crate) fn direct_sampling(&self) -> DirectSampling {
+        self.direct_sampling
+    }
+
+    /// Tune. The R820T covers roughly 24 MHz–1.766 GHz; a Blog V4 reaches HF by upconverting
+    /// through the same tuner. In direct sampling there is no PLL in the path at all — the
+    /// demodulator's own downconverter is the tuning, so the IF register *is* the frequency
+    /// (librtlsdr's `rtlsdr_set_center_freq` splits on the same condition).
     pub(crate) fn set_center_freq(&mut self, freq: u32) -> Result<()> {
-        self.dev.set_i2c_repeater(true)?;
-        self.tuner.set_freq(&self.dev, freq)?;
-        self.dev.set_i2c_repeater(false)?;
-        // A width change may have moved the IF since the last tune.
-        self.set_if_freq(self.tuner.if_freq())?;
+        if self.direct_sampling == DirectSampling::Off {
+            self.dev.set_i2c_repeater(true)?;
+            self.tuner.set_freq(&self.dev, freq)?;
+            self.dev.set_i2c_repeater(false)?;
+            // A width change may have moved the IF since the last tune.
+            self.set_if_freq(self.tuner.if_freq())?;
+        } else {
+            self.set_if_freq(freq)?;
+        }
         self.center_freq = freq;
+        Ok(())
+    }
+
+    /// Bypass the tuner and receive an ADC branch directly, or put the tuner back in circuit.
+    ///
+    /// The register sequence is librtlsdr's `rtlsdr_set_direct_sampling`. It deliberately does
+    /// *not* retune: the caller holds a centre for the mode being entered, and the cached one
+    /// belongs to the mode being left — on a generic dongle those two live in ranges the other
+    /// mode cannot reach, so tuning here would drive the tuner at an HF frequency it has no
+    /// divider for.
+    ///
+    /// Leaving also re-initializes the tuner, which resets its register shadow: the gain and the
+    /// IF filter are gone with it and the caller has to write them again.
+    pub(crate) fn set_direct_sampling(&mut self, mode: DirectSampling) -> Result<()> {
+        match mode {
+            DirectSampling::Off => {
+                self.dev.set_i2c_repeater(true)?;
+                self.tuner.init(&self.dev)?;
+                self.dev.set_i2c_repeater(false)?;
+                self.direct_sampling = mode;
+                // Zero-IF off and in-phase ADC only: the R82xx path's own settings, as `init`
+                // writes them. Re-asserted rather than assumed, so the mode switch stands on its
+                // own registers instead of on what was last left in them.
+                self.dev.demod_write_reg(1, 0xb1, 0x1a, 1)?;
+                self.dev.demod_write_reg(0, 0x08, 0x4d, 1)?;
+                self.set_if_freq(self.tuner.if_freq())?;
+                // Spectrum inversion back on: the R82xx's low-side injection inverts, and the
+                // ADC branch feeding the demodulator directly does not.
+                self.dev.demod_write_reg(1, 0x15, 0x01, 1)?;
+                self.dev.demod_write_reg(0, 0x06, 0x80, 1)?;
+            }
+            DirectSampling::IBranch | DirectSampling::QBranch => {
+                self.dev.set_i2c_repeater(true)?;
+                self.tuner.standby(&self.dev)?;
+                self.dev.set_i2c_repeater(false)?;
+                self.dev.demod_write_reg(1, 0xb1, 0x1a, 1)?;
+                self.dev.demod_write_reg(1, 0x15, 0x00, 1)?;
+                self.dev.demod_write_reg(0, 0x08, 0x4d, 1)?;
+                // Bit 4 swaps the ADC inputs, which is the whole of the branch selection.
+                let datapath = if mode == DirectSampling::QBranch {
+                    0x90
+                } else {
+                    0x80
+                };
+                self.dev.demod_write_reg(0, 0x06, datapath, 1)?;
+                self.direct_sampling = mode;
+            }
+        }
+        info!(mode = mode.as_str(), "direct sampling");
         Ok(())
     }
 
@@ -402,13 +518,19 @@ impl RtlSdr {
         // The tuner's bandwidth calculation reads this back, so it has to land first.
         self.sample_rate = actual_rate;
 
-        self.dev.set_i2c_repeater(true)?;
-        let if_freq = self.tuner.set_bandwidth(&self.dev, actual_rate)?;
-        self.dev.set_i2c_repeater(false)?;
-        self.set_if_freq(if_freq)?;
-        // The IF moved, so the PLL has to follow it or the radio receives the wrong frequency.
-        if self.center_freq != 0 {
-            self.set_center_freq(self.center_freq)?;
+        // Only the tuner's IF filter tracks the rate. In direct sampling the tuner is in standby
+        // and the IF registers hold the *tuning*, so following librtlsdr here — which re-runs the
+        // filter calculation and rewrites the IF whatever the mode — would silently retune the
+        // radio to 3.57 MHz on every rate change.
+        if self.direct_sampling == DirectSampling::Off {
+            self.dev.set_i2c_repeater(true)?;
+            let if_freq = self.tuner.set_bandwidth(&self.dev, actual_rate)?;
+            self.dev.set_i2c_repeater(false)?;
+            self.set_if_freq(if_freq)?;
+            // The IF moved, so the PLL has to follow it or the radio receives the wrong frequency.
+            if self.center_freq != 0 {
+                self.set_center_freq(self.center_freq)?;
+            }
         }
 
         self.dev
@@ -462,9 +584,14 @@ impl RtlSdr {
             .demod_write_reg(1, 0x3e, ((offset >> 8) & 0x3f) as u16, 1)
     }
 
-    /// Tell the demodulator where the tuner put the IF, so it can mix it back down to zero.
+    /// Point the demodulator's downconverter at `freq`, so it mixes that back down to zero.
+    ///
+    /// The crystal is the *corrected* one, as librtlsdr's `rtlsdr_set_if_freq` reads it: the NCO
+    /// is derived from it, so an uncorrected value leaves the mixdown off by the crystal's own
+    /// error. It is a few hertz at a 3.57 MHz IF and easy to overlook — but in direct sampling
+    /// this register is the tuning, and the error is the operator's whole ppm at the dial.
     fn set_if_freq(&self, freq: u32) -> Result<()> {
-        let if_reg = -((i64::from(freq) * (1 << 22)) / i64::from(self.rtl_xtal_freq)) as i32;
+        let if_reg = if_freq_reg(freq, corrected_xtal(self.rtl_xtal_freq, self.ppm));
         self.dev
             .demod_write_reg(1, 0x19, ((if_reg >> 16) & 0x3f) as u16, 1)?;
         self.dev
@@ -472,8 +599,21 @@ impl RtlSdr {
         self.dev.demod_write_reg(1, 0x1b, (if_reg & 0xff) as u16, 1)
     }
 
+    /// Refuse a write aimed at a tuner that is not in the signal path. The backend's `apply`
+    /// plans no such write; reaching one means a caller has bypassed the plan, and driving a
+    /// standby tuner over I2C would half-wake it while changing nothing a listener can hear.
+    fn require_tuner(&self, what: &str) -> Result<()> {
+        if self.direct_sampling == DirectSampling::Off {
+            return Ok(());
+        }
+        Err(Error::InvalidParam(format!(
+            "{what}: the tuner is bypassed while direct sampling"
+        )))
+    }
+
     /// Hand the LNA and mixer back to the tuner's own AGC.
     pub(crate) fn set_gain_auto(&mut self) -> Result<()> {
+        self.require_tuner("tuner AGC")?;
         self.dev.set_i2c_repeater(true)?;
         self.tuner.set_gain_auto(&self.dev)?;
         self.dev.set_i2c_repeater(false)
@@ -481,6 +621,7 @@ impl RtlSdr {
 
     /// Set manual gain in tenths of a dB, snapped to the nearest step the tuner supports.
     pub(crate) fn set_gain_manual(&mut self, gain_tenth_db: i32) -> Result<()> {
+        self.require_tuner("tuner gain")?;
         self.dev.set_i2c_repeater(true)?;
         self.tuner.set_gain_manual(&self.dev, gain_tenth_db)?;
         self.dev.set_i2c_repeater(false)
@@ -489,6 +630,7 @@ impl RtlSdr {
     /// Set the IF filter width in Hz, or 0 to follow the sample rate. Returns the IF frequency
     /// the tuner ended up on, which narrow widths move off the 3.57 MHz default.
     pub(crate) fn set_bandwidth(&mut self, bw: u32) -> Result<u32> {
+        self.require_tuner("IF filter width")?;
         let bw = if bw == 0 { self.sample_rate } else { bw };
         self.dev.set_i2c_repeater(true)?;
         let if_freq = self.tuner.set_bandwidth(&self.dev, bw)?;
@@ -531,6 +673,16 @@ impl Drop for RtlSdr {
         let _ = self.tuner.standby(&self.dev);
         let _ = self.dev.set_i2c_repeater(false);
     }
+}
+
+/// The demodulator's downconverter register value for an IF of `freq` on a crystal of `xtal_hz`.
+///
+/// Negated because the register shifts the NCO, which moves the received frequency the opposite
+/// way. It is written as 22 bits two's complement across `0x19`/`0x1a`/`0x1b`, so the largest
+/// magnitude it holds is half the crystal — which is also the Nyquist limit of what the ADC could
+/// have delivered ([`DIRECT_SAMPLING_MAX_HZ`]).
+fn if_freq_reg(freq: u32, xtal_hz: u32) -> i32 {
+    -((i64::from(freq) * (1 << 22)) / i64::from(xtal_hz)) as i32
 }
 
 /// A crystal frequency scaled by a ppm correction.
@@ -604,6 +756,51 @@ mod tests {
         let offset = |ppm: i32| -(i64::from(ppm) << 24) / 1_000_000;
         assert!(offset(MAX_PPM).abs() <= 0x1fff, "{}", offset(MAX_PPM));
         assert!(offset(MAX_PPM + 1).abs() > 0x1fff);
+    }
+
+    /// The three-byte register the demodulator tunes with. In direct sampling it is the whole of
+    /// the frequency control, so its arithmetic is worth pinning to values that can be checked by
+    /// hand: `freq / xtal * 2^22`, negated.
+    #[test]
+    fn the_downconverter_register_is_the_negated_fraction_of_the_crystal() {
+        assert_eq!(if_freq_reg(0, DEF_RTL_XTAL_FREQ), 0);
+        // 3.57 MHz of 28.8 MHz is 0.123958…, and 0.123958 × 2^22 = 519 918.
+        assert_eq!(if_freq_reg(3_570_000, DEF_RTL_XTAL_FREQ), -519_918);
+        // A quarter of the crystal is a quarter turn of the NCO.
+        assert_eq!(if_freq_reg(7_200_000, DEF_RTL_XTAL_FREQ), -(1 << 20));
+    }
+
+    /// The register is 22 bits signed. The advertised direct-sampling ceiling must be the largest
+    /// frequency that still fits, or the top of HF would wrap to the bottom of it.
+    #[test]
+    fn the_direct_sampling_ceiling_is_the_register_width() {
+        let at_limit = if_freq_reg(DIRECT_SAMPLING_MAX_HZ, DEF_RTL_XTAL_FREQ);
+        assert_eq!(at_limit, -(1 << 21), "the most negative 22-bit value");
+        assert!(if_freq_reg(DIRECT_SAMPLING_MAX_HZ + 100, DEF_RTL_XTAL_FREQ) < -(1 << 21));
+    }
+
+    /// The correction has to reach the downconverter, not just the tuner: in direct sampling the
+    /// tuner is in standby and this register is the only thing that moves the dial.
+    #[test]
+    fn a_ppm_correction_moves_the_downconverter_register() {
+        let nominal = if_freq_reg(7_100_000, DEF_RTL_XTAL_FREQ);
+        let corrected = if_freq_reg(7_100_000, corrected_xtal(DEF_RTL_XTAL_FREQ, 100));
+        // A crystal 100 ppm fast needs 100 ppm less of a turn per sample to sit on the same
+        // frequency, so the magnitude drops — by 100 ppm of it, which is 103 counts.
+        assert_eq!(corrected - nominal, 103);
+    }
+
+    #[test]
+    fn direct_sampling_modes_round_trip_their_wire_spelling() {
+        for mode in DirectSampling::all() {
+            assert_eq!(DirectSampling::parse(mode.as_str()), Some(mode));
+        }
+        let spellings: Vec<&str> = DirectSampling::all().iter().map(|m| m.as_str()).collect();
+        assert_eq!(spellings, ["off", "i", "q"]);
+        assert_eq!(DirectSampling::default(), DirectSampling::Off);
+        for unknown in ["", "1", "Q", "on", "off "] {
+            assert_eq!(DirectSampling::parse(unknown), None, "{unknown}");
+        }
     }
 
     #[test]

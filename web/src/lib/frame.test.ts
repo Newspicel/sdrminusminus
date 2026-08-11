@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   decodeAudio,
   decodeSpectrum,
+  decodeVideo,
   FRAME_KIND_AUDIO_OPUS,
   FRAME_KIND_SPECTRUM,
+  FRAME_KIND_VIDEO_GRAY,
   frameKind,
   PROTOCOL_VERSION,
 } from "./frame";
@@ -32,11 +34,20 @@ function spectrumBuffer(bins: Uint8Array): ArrayBuffer {
   return buf;
 }
 
-function audioBuffer(opus: Uint8Array): ArrayBuffer {
+function audioBuffer(opus: Uint8Array, chLayout = 1): ArrayBuffer {
   const buf = new ArrayBuffer(16 + 1 + opus.length);
   const view = header(buf, FRAME_KIND_AUDIO_OPUS, 3, 512, 96_000n);
-  view.setUint8(16, 1);
+  view.setUint8(16, chLayout);
   new Uint8Array(buf, 17).set(opus);
+  return buf;
+}
+
+function videoBuffer(width: number, height: number, luma: Uint8Array): ArrayBuffer {
+  const buf = new ArrayBuffer(16 + 4 + luma.length);
+  const view = header(buf, FRAME_KIND_VIDEO_GRAY, 0x8001, 9, 2_000_000n);
+  view.setUint16(16, width, true);
+  view.setUint16(18, height, true);
+  new Uint8Array(buf, 20).set(luma);
   return buf;
 }
 
@@ -93,6 +104,13 @@ describe("decodeAudio", () => {
     expect(Array.from(frame?.opus ?? [])).toEqual(Array.from(opus));
   });
 
+  it("reads the stereo layout without shifting the payload", () => {
+    const opus = Uint8Array.from([9, 8, 7]);
+    const frame = decodeAudio(audioBuffer(opus, 2));
+    expect(frame?.chLayout).toBe(2);
+    expect(Array.from(frame?.opus ?? [])).toEqual(Array.from(opus));
+  });
+
   it("accepts an empty opus payload but rejects a missing ch_layout byte", () => {
     const empty = decodeAudio(audioBuffer(new Uint8Array(0)));
     expect(empty?.opus.length).toBe(0);
@@ -105,5 +123,36 @@ describe("decodeAudio", () => {
     const wrongVersion = audioBuffer(new Uint8Array(8));
     new DataView(wrongVersion).setUint8(0, PROTOCOL_VERSION + 1);
     expect(decodeAudio(wrongVersion)).toBeNull();
+  });
+});
+
+describe("decodeVideo", () => {
+  it("decodes every field exactly", () => {
+    const luma = Uint8Array.from({ length: 8 * 4 }, (_, i) => (i * 7) & 0xff);
+    const frame = decodeVideo(videoBuffer(8, 4, luma));
+    expect(frame).not.toBeNull();
+    expect(frame?.streamId).toBe(0x8001);
+    expect(frame?.seq).toBe(9);
+    expect(frame?.timestamp).toBe(2_000_000n);
+    expect(frame?.width).toBe(8);
+    expect(frame?.height).toBe(4);
+    expect(Array.from(frame?.luma ?? [])).toEqual(Array.from(luma));
+  });
+
+  // A canvas sized from the header and filled from a short payload would draw whatever the
+  // buffer happened to hold, so the geometry and the payload have to agree or nothing is drawn.
+  it("rejects a payload that is shorter than its geometry, and an empty one", () => {
+    const luma = new Uint8Array(8 * 4);
+    expect(decodeVideo(videoBuffer(8, 4, luma).slice(0, 20 + 31))).toBeNull();
+    expect(decodeVideo(videoBuffer(0, 0, new Uint8Array(0)))).toBeNull();
+  });
+
+  it("rejects other kinds and wrong versions", () => {
+    expect(decodeVideo(audioBuffer(new Uint8Array(8)))).toBeNull();
+    expect(decodeAudio(videoBuffer(2, 2, new Uint8Array(4)))).toBeNull();
+
+    const wrongVersion = videoBuffer(2, 2, new Uint8Array(4));
+    new DataView(wrongVersion).setUint8(0, PROTOCOL_VERSION + 1);
+    expect(decodeVideo(wrongVersion)).toBeNull();
   });
 });

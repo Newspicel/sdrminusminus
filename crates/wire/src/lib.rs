@@ -20,23 +20,23 @@ pub mod workspace_state;
 pub mod ws;
 
 pub use channel::{
-    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams,
-    ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DmrParams, DmrSlots,
-    DpmrParams, DstarParams, M17Params, MorseParams, NavtexParams, NfmParams, NxdnBandwidth,
-    NxdnParams, P25Params, PocsagBaud, PocsagParams, RttyParams, RttyStopBits, Sideband, SsbParams,
-    SubghzModulation, SubghzParams, WfmParams, YsfParams,
+    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvModulation,
+    AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings,
+    DmrParams, DmrSlots, DpmrParams, DstarParams, M17Params, MorseParams, NavtexParams, NfmParams,
+    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, RttyParams,
+    RttyStopBits, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, YsfParams,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, DvFrame,
     DvFrameKind, DvMode, MorseText, NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate,
-    RttyText, SubghzEncoding, SubghzFrame,
+    RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus,
 };
 pub use device::{
     Capabilities, DeviceInfo, DeviceSettings, Direction, Duplex, ExtraSetting, ExtraValue,
     GainStage, GainValue, Range, StreamScope, StreamSettings,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
-pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame};
+pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame, VideoFrame};
 pub use patch::{
     ChannelNode, DeviceNode, DeviceRef, MAX_EDGES, MAX_NODES, MAX_STREAMS, NodeBody, NodeCategory,
     NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking,
@@ -211,7 +211,10 @@ mod contract_tests {
         assert_eq!(
             nfm,
             ChannelParams::Nfm(NfmParams {
-                bandwidth_hz: 12_500.0
+                bandwidth_hz: 12_500.0,
+                tone_mode: NfmToneMode::Off,
+                ctcss_hz: None,
+                dcs_code: None,
             })
         );
         let ssb: ChannelParams = serde_json::from_str(r#"{"type":"ssb","settings":{}}"#).unwrap();
@@ -236,6 +239,7 @@ mod contract_tests {
             ChannelParams::Wfm(WfmParams {
                 deemphasis_us: 75.0,
                 rds: false,
+                stereo: true,
             })
         );
     }

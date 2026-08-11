@@ -44,6 +44,7 @@ import {
   TARGET_MAX_AGE_MS,
   type TargetRow,
   type TargetSort,
+  toneLabel,
 } from "./decoderViews";
 
 const PANE = "flex flex-col gap-2 p-3";
@@ -587,6 +588,37 @@ export function SubghzView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
+/** Subaudible signalling is a property of the channel right now, not a stream of messages, so
+ * this is a status line rather than a list — the decoder log already holds the history. */
+export function ToneView({ scope = {} }: { scope?: DecoderScope }) {
+  const records = recordsInScope(useDecodedKind("tone"), scope);
+  const latest = records[0];
+
+  if (latest === undefined) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>No subaudible tone heard.</span>
+      </div>
+    );
+  }
+
+  const status = latest.event.data;
+  const label = toneLabel(status);
+  return (
+    <div className={PANE}>
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="font-mono text-xs tabular-nums text-ink-dim">
+          {formatClock(latest.at)}
+        </span>
+        <span className="font-mono text-xs tabular-nums text-accent">
+          {label === "" ? "no tone" : label}
+        </span>
+        <span className={CAPTION}>{status.open ? "open" : "muted"}</span>
+      </div>
+    </div>
+  );
+}
+
 /** Digital voice: one call per row, from whichever of the seven modes produced it. There is no
  * audio to offer — none of these modes ships a vocoder here — so the row *is* the decode: who
  * called whom, on which network, and what happened to the transmission. */
@@ -653,6 +685,7 @@ const VIEWS: Record<DecoderKind, (scope: DecoderScope) => ReactNode> = {
   navtex: (scope) => <NavtexView scope={scope} />,
   acars: (scope) => <AcarsView scope={scope} />,
   subghz: (scope) => <SubghzView scope={scope} />,
+  tone: (scope) => <ToneView scope={scope} />,
   dv: (scope) => <DvView scope={scope} />,
 };
 

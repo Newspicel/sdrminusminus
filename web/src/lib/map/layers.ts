@@ -265,6 +265,7 @@ function detailRows(station: Target): (readonly [string, string])[] {
         ["Speed", scalar(d.speed_kt, 0, " kt")],
         ["Course", scalar(d.course_deg, 0, "°")],
         ["Altitude", scalar(d.altitude_ft, 0, " ft")],
+        ["Message", trimmed(d.mic_e_message)],
         ["Comment", trimmed(d.comment)],
       ]);
     }

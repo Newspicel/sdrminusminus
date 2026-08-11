@@ -1,14 +1,15 @@
 //! `sdrmm-channels` — the `ChannelRx` plugin surface (PLAN §8). Depends only on `dsp` + `wire`.
 //! Phase-1 analog demodulators plus the wave-1 and wave-2 data decoders (PLAN §13): NFM, AM,
-//! SSB, WFM mono (+RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse, NAVTEX, ACARS, sub-GHz. Each mode is one module whose
-//! descriptor and constructor sit in the same [`REGISTRY`] row, so the "add channel" UI and
-//! `create` dispatch cannot drift apart.
+//! SSB, WFM (stereo + RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse, NAVTEX, ACARS, sub-GHz
+//! and ATV. Each mode is one module whose descriptor and constructor sit in the same
+//! [`REGISTRY`] row, so the "add channel" UI and `create` dispatch cannot drift apart.
 
 mod acars;
 mod adsb;
 mod ais;
 mod am;
 mod aprs;
+mod atv;
 mod dv;
 mod morse;
 mod navtex;
@@ -18,6 +19,7 @@ mod rds;
 mod rtty;
 mod ssb;
 mod subghz;
+pub mod tone_squelch;
 mod tx;
 mod wfm;
 
@@ -34,7 +36,8 @@ pub use acars::AcarsChannel;
 pub use adsb::AdsbChannel;
 pub use ais::AisChannelRx;
 pub use am::{AmChannel, AmTx};
-pub use aprs::{AprsChannel, AprsTx};
+pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
+pub use atv::AtvChannel;
 pub use dv::{
     DmrChannel, DpmrChannel, DstarChannel, M17Channel, NxdnChannel, P25Channel, YsfChannel,
 };
@@ -50,8 +53,20 @@ pub use ssb::{SsbChannel, SsbTx};
 pub use subghz::SubghzChannel;
 pub use wfm::WfmChannel;
 
-/// Every channel emits mono PCM at this rate; the engine's audio path is sized against it.
+/// Every channel emits PCM at this rate; the engine's audio path is sized against it.
 pub const AUDIO_RATE: u32 = 48_000;
+
+/// How many interleaved channels this mode's audio comes out as — WFM in stereo is the one
+/// two-channel mode. The engine builds its Opus encoder from this rather than from what a
+/// block happens to contain, so a squelched channel emits silence in the right layout; a mode
+/// whose `process` disagreed with it would interleave garbage.
+#[must_use]
+pub fn audio_channels(params: &ChannelParams) -> u8 {
+    match params {
+        ChannelParams::Wfm(p) if p.stereo => 2,
+        _ => 1,
+    }
+}
 
 /// Opus integer-API decoders (and the browser DAC) hard-clip PCM beyond ±1.0, so every demod
 /// bounds its final output here — overshoot (open-squelch FM noise, over-deviated carriers)
@@ -88,6 +103,7 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Navtex(_) => navtex::occupied_band(),
         ChannelParams::Acars(p) => acars::occupied_band(p),
         ChannelParams::Subghz(p) => subghz::occupied_band(p),
+        ChannelParams::Atv(p) => atv::occupied_band(p),
         ChannelParams::Dmr(_) => dv::dmr::occupied_band(),
         ChannelParams::Dstar(_) => dv::dstar::occupied_band(),
         ChannelParams::Ysf(_) => dv::ysf::occupied_band(),
@@ -141,6 +157,7 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Navtex(_) => Ok(navtex::channel_filter()),
         ChannelParams::Acars(p) => acars::channel_filter(p),
         ChannelParams::Subghz(p) => subghz::channel_filter(p),
+        ChannelParams::Atv(p) => atv::channel_filter(p),
         ChannelParams::Dmr(_) => Ok(dv::dmr::channel_filter()),
         ChannelParams::Dstar(_) => Ok(dv::dstar::channel_filter()),
         ChannelParams::Ysf(_) => Ok(dv::ysf::channel_filter()),
@@ -174,16 +191,31 @@ pub struct ChannelCtx {
     pub input_rate: f64,
 }
 
-/// Sink a channel writes into each `process` call: demodulated audio, typed events, and
-/// low-rate IQ taps for the analyzer (PLAN §8). Buffers are reused across calls by the host.
+/// One picture a video channel scanned out: 8-bit luma, row-major from the top line, exactly
+/// `width · height` bytes. Grayscale because that is what an analog raster carries once the
+/// colour subcarrier is left alone (PLAN §13: ATV decodes luma).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VideoPicture {
+    pub width: u16,
+    pub height: u16,
+    pub luma: Vec<u8>,
+}
+
+/// Sink a channel writes into each `process` call: demodulated audio, typed events, pictures,
+/// and low-rate IQ taps for the analyzer (PLAN §8). Buffers are reused across calls by the host.
 #[derive(Default)]
 pub struct ChannelOutputs {
-    /// Interleaved/mono PCM plus its sample rate, when the channel produced audio this block.
+    /// PCM plus its sample rate, when the channel produced audio this block. Interleaved at
+    /// [`audio_channels`] for the channel's params — a whole number of sample frames.
     pub audio_pcm: Vec<f32>,
     pub audio_rate: u32,
     /// Typed decoder frames produced this block (PLAN §5). The host stamps them with time and
     /// frequency; a decoder never formats or serializes on the DSP thread.
     pub events: Vec<DecoderEvent>,
+    /// Pictures completed this block. A `Vec` rather than one slot because a block is sized by
+    /// the device's USB transfers, not by the raster: nothing stops one from spanning two
+    /// fields, and the second picture must not be the one that silently vanishes.
+    pub video: Vec<VideoPicture>,
     /// Decimated IQ for scope/constellation panels.
     pub iq_tap: Vec<Complex<f32>>,
 }
@@ -194,6 +226,7 @@ impl ChannelOutputs {
         self.audio_pcm.clear();
         self.audio_rate = 0;
         self.events.clear();
+        self.video.clear();
         self.iq_tap.clear();
     }
 }
@@ -222,6 +255,20 @@ pub trait ChannelRx: Send {
     /// Retunes arrive here rather than through [`ChannelRx::apply`], which the host does not
     /// call for an offset-only change.
     fn retuned(&mut self) {}
+
+    /// Whether the host must keep feeding this channel while the squelch is closed.
+    ///
+    /// A decoder measures time in the samples it has processed — its bit clock, its element
+    /// timing, its inter-frame gaps — so skipping the gated span would splice those spans out
+    /// of a stream that never had a gap in it. `true`, the default, is right for every one of
+    /// them, and the host reads it only for the types that emit events at all.
+    ///
+    /// A channel whose events describe something *inside* a carrier says otherwise when it has
+    /// nothing to describe: there is no subaudible tone under a closed squelch, and running
+    /// the demodulator on silence to find that out is what the squelch exists to avoid.
+    fn needs_gated_input(&self) -> bool {
+        true
+    }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs);
 }
@@ -377,6 +424,11 @@ const REGISTRY: &[Registration] = &[
         create_tx: None,
     },
     Registration {
+        descriptor: AtvChannel::descriptor,
+        create: boxed::<AtvChannel>,
+        create_tx: None,
+    },
+    Registration {
         descriptor: DmrChannel::descriptor,
         create: boxed::<DmrChannel>,
         create_tx: None,
@@ -517,9 +569,10 @@ mod tests {
     use std::collections::HashSet;
 
     use sdrmm_wire::{
-        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, DmrParams,
-        DpmrParams, DstarParams, M17Params, MorseParams, NavtexParams, NfmParams, NxdnParams,
-        P25Params, PocsagParams, RttyParams, SsbParams, SubghzParams, WfmParams, YsfParams,
+        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvParams, ChannelParams,
+        DmrParams, DpmrParams, DstarParams, M17Params, MorseParams, NavtexParams, NfmParams,
+        NxdnParams, P25Params, PocsagParams, RttyParams, SsbParams, SubghzParams, WfmParams,
+        YsfParams,
     };
 
     use super::*;
@@ -540,6 +593,7 @@ mod tests {
             "navtex" => ChannelParams::Navtex(NavtexParams::default()),
             "acars" => ChannelParams::Acars(AcarsParams::default()),
             "subghz" => ChannelParams::Subghz(SubghzParams::default()),
+            "atv" => ChannelParams::Atv(AtvParams::default()),
             "dmr" => ChannelParams::Dmr(DmrParams::default()),
             "dstar" => ChannelParams::Dstar(DstarParams::default()),
             "ysf" => ChannelParams::Ysf(YsfParams::default()),
@@ -554,13 +608,14 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 20);
+        assert_eq!(all.len(), 21);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
             HashSet::from([
                 "nfm", "am", "ssb", "wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse",
-                "navtex", "acars", "subghz", "dmr", "dstar", "ysf", "nxdn", "p25", "dpmr", "m17",
+                "navtex", "acars", "subghz", "atv", "dmr", "dstar", "ysf", "nxdn", "p25", "dpmr",
+                "m17",
             ])
         );
         for d in &all {
@@ -578,6 +633,7 @@ mod tests {
                 "navtex" => (600.0, 8_000.0),
                 "acars" => (12_500.0, 48_000.0),
                 "subghz" => (150_000.0, 250_000.0),
+                "atv" => (1_500_000.0, 2_000_000.0),
                 // The digital-voice modes all meet the DDC at 48 kHz; they differ in how much
                 // of it they occupy — 12.5 kHz for the four that share a 12.5 kHz raster,
                 // 6.25 for the narrow pair, and 9 kHz for M17.
@@ -589,17 +645,60 @@ mod tests {
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);
             assert_eq!(d.input_rate_hz, rate, "{}", d.type_id);
             assert!(!d.name.is_empty(), "{}", d.type_id);
-            // Every channel type must be useful for something: audio, decoded frames, or
-            // both (WFM+RDS is the only current "both").
+            // Every channel type must be useful for something: audio, decoded frames, or a
+            // picture. Several do more than one — WFM decodes RDS beside its audio, NFM the
+            // subaudible tone under it.
             assert!(
-                d.has_audio || d.decoder_kind.is_some(),
-                "{} produces neither audio nor decoder events",
+                d.has_audio || d.decoder_kind.is_some() || d.has_video,
+                "{} produces neither audio, decoder events nor video",
                 d.type_id
             );
             assert_eq!(
                 d.has_audio,
                 matches!(d.type_id.as_str(), "nfm" | "am" | "ssb" | "wfm"),
                 "{} audio flag does not match its mode class",
+                d.type_id
+            );
+            assert_eq!(
+                d.has_video,
+                d.type_id == "atv",
+                "{} video flag does not match its mode class",
+                d.type_id
+            );
+        }
+    }
+
+    /// [`audio_channels`] is what the engine sizes its Opus encoder and its squelched
+    /// zero-fill from, so it has to be what the demodulator actually writes: a mode whose
+    /// interleave disagreed would show up here as half — or double — the frames its rate
+    /// implies, and would reach a listener as chipmunk audio, not as a wrong channel count.
+    #[test]
+    fn audio_channels_matches_the_frames_each_mode_produces() {
+        const LEN: usize = 96_000;
+        for d in descriptors().into_iter().filter(|d| d.has_audio) {
+            let params = default_params(&d.type_id);
+            let channels = usize::from(audio_channels(&params));
+            let ctx = ChannelCtx {
+                input_rate: d.input_rate_hz,
+            };
+            let mut chan = create(ctx, &settings(params)).expect("builds");
+            let audio = crate::testutil::run_ragged(
+                chan.as_mut(),
+                &crate::testutil::complex_noise(7, 0.5, LEN),
+            );
+            assert_eq!(
+                audio.len() % channels,
+                0,
+                "{} emitted a partial sample frame",
+                d.type_id
+            );
+            let frames = audio.len() / channels;
+            // Filter warm-up is the only shortfall allowed: no mode's group delay reaches
+            // 200 output frames at these tap counts.
+            let expected = (LEN as f64 * f64::from(AUDIO_RATE) / d.input_rate_hz) as usize;
+            assert!(
+                frames <= expected && expected - frames < 200,
+                "{} produced {frames} frames of {channels}-channel audio, expected ~{expected}",
                 d.type_id
             );
         }
@@ -691,7 +790,8 @@ mod tests {
     fn occupied_band_tracks_params_and_sideband() {
         assert_eq!(
             occupied_band(&ChannelParams::Nfm(NfmParams {
-                bandwidth_hz: 25_000.0
+                bandwidth_hz: 25_000.0,
+                ..NfmParams::default()
             })),
             (-12_500.0, 12_500.0)
         );
@@ -758,6 +858,7 @@ mod tests {
         for params in [
             ChannelParams::Nfm(NfmParams {
                 bandwidth_hz: f64::NAN,
+                ..NfmParams::default()
             }),
             ChannelParams::Am(AmParams {
                 bandwidth_hz: 0.0,

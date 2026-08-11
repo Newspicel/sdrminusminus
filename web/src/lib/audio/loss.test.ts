@@ -12,12 +12,12 @@ describe("LossTracker", () => {
     expect(t.next(2_880n)).toEqual({ kind: "continuous" });
   });
 
-  it("reports the exact number of missing samples on a gap", () => {
+  it("reports the exact number of missing frames on a gap", () => {
     const t = new LossTracker(MAX_GAP);
     t.next(0n);
     t.next(960n);
     // Two packets lost: the delta is three packet durations.
-    expect(t.next(3_840n)).toEqual({ kind: "gap", samples: 1_920 });
+    expect(t.next(3_840n)).toEqual({ kind: "gap", frames: 1_920 });
     // The clock is intact afterwards.
     expect(t.next(4_800n)).toEqual({ kind: "continuous" });
   });
@@ -36,7 +36,7 @@ describe("LossTracker", () => {
     t.next(960n);
     expect(t.next(0n)).toEqual({ kind: "reset" });
     expect(t.next(960n)).toEqual({ kind: "continuous" });
-    expect(t.next(2_880n)).toEqual({ kind: "gap", samples: 960 });
+    expect(t.next(2_880n)).toEqual({ kind: "gap", frames: 960 });
   });
 
   it("adopts a smaller delta when the first delta was itself a loss gap", () => {
@@ -47,7 +47,7 @@ describe("LossTracker", () => {
     // A true back-to-back pair corrects it downward.
     expect(t.next(2_880n)).toEqual({ kind: "continuous" });
     expect(t.next(3_840n)).toEqual({ kind: "continuous" });
-    expect(t.next(5_760n)).toEqual({ kind: "gap", samples: 960 });
+    expect(t.next(5_760n)).toEqual({ kind: "gap", frames: 960 });
   });
 
   it("reset() forgets history so a rebound stream starts clean", () => {

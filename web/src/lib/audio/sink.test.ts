@@ -102,7 +102,7 @@ describe("createWebAudioSink", () => {
   });
 
   it("reports a suspended context, retries resume on gesture, and reports recovery", async () => {
-    createDecoder.mockResolvedValue({ decode: vi.fn(), close: vi.fn() });
+    createDecoder.mockResolvedValue({ channels: 1, decode: vi.fn(), close: vi.fn() });
     const sinkModule = await importSink();
     const reported: boolean[] = [];
     sinkModule.onOutputStateChange((running) => reported.push(running));
@@ -123,7 +123,7 @@ describe("createWebAudioSink", () => {
   });
 
   it("a context created suspended (autoplay veto) is resumed inside the creating gesture", async () => {
-    createDecoder.mockResolvedValue({ decode: vi.fn(), close: vi.fn() });
+    createDecoder.mockResolvedValue({ channels: 1, decode: vi.fn(), close: vi.fn() });
     FakeAudioContext.initialState = "suspended";
     const sinkModule = await importSink();
     const reported: boolean[] = [];
@@ -141,17 +141,72 @@ describe("createWebAudioSink", () => {
   });
 
   it("conceal posts a silence buffer of exactly the gap size", async () => {
-    createDecoder.mockResolvedValue({ decode: vi.fn(), close: vi.fn() });
+    createDecoder.mockResolvedValue({ channels: 1, decode: vi.fn(), close: vi.fn() });
     const { createWebAudioSink } = await importSink();
 
     const sink = await createWebAudioSink(1, () => {});
     const node = FakeWorkletNode.instances[0];
     node?.port.postMessage.mockClear();
 
+    // The graph is two-channel, so a 480-frame gap is 960 interleaved samples of silence.
     sink.conceal(480);
     const posted = node?.port.postMessage.mock.calls[0]?.[0] as Float32Array | undefined;
     expect(posted).toBeInstanceOf(Float32Array);
-    expect(posted?.length).toBe(480);
+    expect(posted?.length).toBe(480 * 2);
     expect(posted?.every((v) => v === 0)).toBe(true);
+  });
+
+  it("plays a mono stream on both output channels", async () => {
+    let emit: ((pcm: Float32Array) => void) | undefined;
+    createDecoder.mockImplementation((channels: number, onPcm: (pcm: Float32Array) => void) => {
+      emit = onPcm;
+      return Promise.resolve({ channels, decode: vi.fn(), close: vi.fn() });
+    });
+    const { createWebAudioSink } = await importSink();
+
+    await createWebAudioSink(1, () => {});
+    const node = FakeWorkletNode.instances[0];
+    node?.port.postMessage.mockClear();
+
+    emit?.(Float32Array.from([0.25, -0.5]));
+    const posted = node?.port.postMessage.mock.calls[0]?.[0] as Float32Array | undefined;
+    expect(Array.from(posted ?? [])).toEqual([0.25, 0.25, -0.5, -0.5]);
+  });
+
+  // A channel that switches to stereo mid-stream cannot be decoded by the mono decoder, and
+  // no Opus decoder can be reconfigured in place: the sink has to build a replacement.
+  it("swaps in a decoder for the packet's layout and passes its pcm through untouched", async () => {
+    const decoders: {
+      channels: number;
+      decode: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+    }[] = [];
+    let emit: ((pcm: Float32Array) => void) | undefined;
+    createDecoder.mockImplementation((channels: number, onPcm: (pcm: Float32Array) => void) => {
+      emit = onPcm;
+      const decoder = { channels, decode: vi.fn(), close: vi.fn() };
+      decoders.push(decoder);
+      return Promise.resolve(decoder);
+    });
+    const { createWebAudioSink } = await importSink();
+
+    const sink = await createWebAudioSink(1, () => {});
+    const packet = Uint8Array.from([1, 2, 3]);
+
+    // The packet that announces the new layout is dropped, not decoded with the wrong one.
+    sink.push(packet, 0, 2);
+    expect(decoders[0]?.decode).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(decoders).toHaveLength(2));
+    expect(decoders[1]?.channels).toBe(2);
+    expect(decoders[0]?.close).toHaveBeenCalled();
+
+    sink.push(packet, 20_000, 2);
+    expect(decoders[1]?.decode).toHaveBeenCalledWith(packet, 20_000);
+
+    const node = FakeWorkletNode.instances[0];
+    node?.port.postMessage.mockClear();
+    emit?.(Float32Array.from([0.25, -0.5]));
+    const posted = node?.port.postMessage.mock.calls[0]?.[0] as Float32Array | undefined;
+    expect(Array.from(posted ?? [])).toEqual([0.25, -0.5]);
   });
 });

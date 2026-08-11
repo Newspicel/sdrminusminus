@@ -12,15 +12,20 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Server is authoritative — every client (browser, desktop window, MCP agent) sees the same state and converges over one WebSocket
 - **[shipped]** One frontend, two hosts — served by the server for browser access, and bundled into the Tauri v2 desktop shell
 - **[shipped]** Desktop app spawns an embedded server on an ephemeral loopback port (loopback-only, unauthenticated by design)
-- **[shipped]** Linux (x86_64 + aarch64) and macOS (arm64) release tarballs, multi-arch ghcr.io image and Tauri bundles, all built by a tag-triggered workflow
+- **[shipped]** Release archives for Linux (x86_64 + aarch64), macOS (arm64 + x86_64) and Windows (x86_64), a multi-arch ghcr.io image, and desktop installers (`.dmg`, `.deb`, `.AppImage`, `.msi`, `.exe`), all built by a tag-triggered workflow
 - **[shipped]** Release artifacts just run — `xtask dist` produces a ~25 MB binary linking only IOKit/CoreFoundation/libiconv/libSystem: no libusb, no libSoapySDR, no libopus, no libsqlite
+- **[shipped]** One version, one place — `[workspace.package] version` is the only copy; `tauri.conf.json` omits `version` so Tauri inherits it, `xtask dist` names archives from it, and the release workflow stamps it from the git tag with `xtask set-version`. Each built artifact is then run and asserted to report the version it is named after
+- **[shipped]** The Tauri shell and the Dockerfile are pull-request gates (`xtask desktop`, plus an image build that boots the container and asserts the UI is really embedded) — both used to be built for the first time on release day, since `apps/desktop` sits outside the workspace's `default-members`
+- **[shipped]** Pull requests are Linux-only by design; macOS tests run on `main` and on tags, where a platform break is still caught before it ships
+- **[shipped]** Nightly builds of the full release matrix, published over a rolling `nightly` prerelease and a `nightly` container tag, versioned `YY.M.D` so `sdrmm --version` names the night it came from. It only spends runners when `main` moved: the `nightly` tag records the commit the last one was built from, and an unchanged tree skips all twelve jobs
+- **[shipped]** A release version is a plain `major.minor.patch` with major/minor ≤ 255, rejected at the point it is stamped rather than 20 minutes later in the one job of twelve that bundles an MSI — those are the Windows installer's limits, and a `-rc.1` suffix has nowhere to live in an MSI ProductVersion
+- **[shipped]** Node and pnpm are pinned in four files that four different tools update; `xtask check` fails when they disagree, so a lone Dependabot bump of the Dockerfile cannot leave the container building the UI on a different Node than CI does
 - **[shipped]** `sdrmm --doctor` and `GET /api/doctor` — compiled backends, devices found, Linux udev/USB permissions with the fix, database and recordings-path writability, one shared report so CLI and UI cannot disagree
 - **[shipped]** mdBook docs site + Pages deploy
 - **[shipped]** RustSec advisories are a CI gate (`xtask audit`, policy in `deny.toml`) covering the whole graph, Tauri shell included. It runs as its own job because a new advisory lands on RustSec's schedule, not on a pull request's. Standing exception: `RUSTSEC-2024-0429` (`glib` `VariantStrIter` unsoundness), unreachable here and unfixable below gtk4 — see `deny.toml`
 - **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
-- **[planned]** Signed/notarised macOS bundles — the workflow ships them unsigned until Apple secrets exist
-- **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one; the Docker image is likewise built only by the tag workflow, never here
-- **[skipped]** Windows
+- **[shipped]** Signed and notarised macOS bundles — a Developer ID Application certificate and the App Store notary service, driven by six repository secrets the release workflow passes through to Tauri
+- **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one
 - **[skipped]** Mobile/phone layouts — every mobile path was deleted with the M6 shell; pointer, keyboard and laptop-class viewport are assumed everywhere
 
 ## 2. Device support
@@ -36,8 +41,9 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Auto-reconnect on replug — a faulted set whose radio re-enumerates is re-opened, its tuning re-applied and its channels rebuilt with ids, PCM identity and live audio subscriptions preserved
 - **[shipped]** Two-tier recovery — an in-place stream restart (measured 6.1–7.6 ms on the RTL-SDR, 0.8–1.2 ms on the HackRF, against ~1.6 s for a re-open) with a silent-stall detector on both radios, falling back to the engine's destructive fault path only when the restart budget is spent. Proven in three pieces (policy, transport, primitive); never yet driven by a genuinely halted pipe
 - **[shipped]** Soapy-free builds are a CI gate (`--no-default-features --features rtl-native,hackrf-native`)
-- **[planned]** Direct sampling (HF via RTL-SDR)
-- **[planned]** HackRF independent baseband-filter bandwidth and hardware sweep mode
+- **[shipped]** Direct sampling (HF via RTL-SDR) — the tuner goes to standby and the RTL2832U's own downconverter becomes the dial, so a dongle whose tuner starts at 24 MHz hears DC–14.4 MHz. Offered as an `off`/`i`/`q` setting on every board but the Blog V4, which upconverts into the tuner instead and would lose its antenna if the tuner were bypassed. Switching modes carries the dial into the range the new mode can reach and reports where it landed; the tuner's gain and IF filter are recorded while bypassed and written back when it returns, so a faulted HF set reconnects onto the same configuration. The register sequence follows librtlsdr line for line and every pure part of it is tested, but no modified dongle or Blog V3 has been attached — nothing has yet *heard* HF this way
+- **[shipped]** HackRF baseband filter as a control of its own — all sixteen MAX2837 widths offered, an off-grid request snapped down and *reported* at the width that landed, and a `0` that asks for whatever the sample rate implies. A rate change still carries the filter with it, but the width it lands on is now libhackrf's `0.75 × rate` rather than the rate itself: the old value asked for a filter wider than the passband it was there to bound, and no longer matched what the same radio does under `hackrf_transfer`
+- **[shipped]** HackRF hardware sweep mode — the firmware's `INIT_SWEEP` request and `RX_SWEEP` transceiver mode, the 16 KiB stamped-block framing, and a reader that hands out one located capture per block, half-duplex arbitrated against capture and transmit. Driver-level and Rust-only, like the transmit path: the plan encoding and the block parsing are golden-tested against libhackrf's and the firmware's own source, but no radio has run it and nothing above `device-hackrf` calls it yet (see §4)
 - **[planned]** rtl_tcp / SpyServer client device
 - **[planned]** KiwiSDR client device
 - **[planned]** Remote source/sink between sdr-- instances; local routing between device sets
@@ -70,7 +76,7 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Keyboard-first operation — tune, tune step, mode, squelch, audio, channel and view switching, with a `?` overlay rendering the same table the handler switches on
 - **[shipped]** Frequency manager: presets and bookmarks
 - **[shipped]** Frequency scanner — targets grouped into passband-sized tunings so one dwell measures every target in the passband, peak-hold over the dwell, post-retune settle and drain, hold-and-resume that parks a channel on the hit, and exclusive ownership of the set's centre frequency while it runs. Swept 88–108 MHz (201 targets) on both radios and held on real stations
-- **[planned]** Hardware-assisted wideband sweep — today's scanner sweeps by retuning; the HackRF's own sweep mode is not driven
+- **[planned]** Hardware-assisted wideband sweep — the HackRF driver now runs the radio's own sweep mode (§2), but the scanner still sweeps by retuning: a sweep delivers blocks stamped with their own frequency rather than a stream at one tuning, so the scanner's "measure the device-set spectrum tap" loop has nothing to read it with yet
 - **[planned]** Strongest-signal "close-call" finder
 - **[planned]** Signal-strength **hunt mode** — Geiger-style audio/visual feedback as you close on a transmitter
 - **[planned]** Percentile-anchored waterfall colour range — the range is the frame's own min…max today, so a high noise floor washes the display out
@@ -138,14 +144,17 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 
 ## 8. Voice & analog channels
 
-- **[shipped]** AM, NFM, SSB (USB/LSB), WFM mono — DDC → mode-aware complex channel filter → squelch → demod → 48 kHz PCM
+- **[shipped]** AM, NFM, SSB (USB/LSB), WFM — DDC → mode-aware complex channel filter → squelch → demod → 48 kHz PCM
 - **[shipped]** Squelch (power + hysteresis + hold, measured on the filtered channel so a threshold means the same thing across modes), AGC, de-emphasis, DC blocking
 - **[shipped]** Mode changed in place on a live channel, keeping audio subscribers
 - **[shipped]** RDS — 19 kHz pilot PLL → 3rd harmonic → symbol sync → differential decode → offset-word block sync; groups 0A/0B (PS, TP/TA/MS, AF), 2A/2B (RadioText), PTY; emitted only when a field changes. **It decodes the synthesized fixture completely and has never decoded off air** — six real stations on two radios produced nothing, reproduced deterministically from a committed-out 8 s capture; the leading (untested) hypothesis is the stereo L−R subcarrier sitting against 57 kHz
-- **[planned]** WFM **stereo** — the audio path becomes two-channel end to end (PCM, Opus, frame layout, worklet)
-- **[planned]** ATV (analog TV)
+- **[shipped]** WFM **stereo** — 19 kHz pilot PLL → 38 kHz difference demod → L/R matrix, with the whole audio path two-channel end to end (interleaved PCM, stereo Opus, per-frame `ch_layout`, two-channel worklet); a station without a pilot falls back to the same programme on both channels, and the toggle switches layout under a live stream
+- **[shipped]** **ATV (analog TV)** — envelope (AM, negative-modulated) or discriminator (FM) → sync-tip/peak-white level tracking → pulse-width sync separation → per-line resampling into 8-bit luma. 625/25, 525/30 and 405/25 from their own timing tables; a flywheel that coasts through a sync the noise ate; interlace recovered from the half-line offset of the field's vertical sync; black clamped per line off its own back porch. Nothing reaches the picture until the line clock locks, so a dead channel shows nothing rather than a raster the decoder invented. **Specification-proven only** — it scans the synthesized raster from the reference modulator and has never seen a real transmission
+- **[shipped]** Video as a first-class stream — a `VIDEO_GRAY` binary WS frame kind, `SubscribeVideo` with per-connection ids drawn from the same media range audio uses, a refcounted client hub, and a canvas panel on the channel's own face. This is the transport WEFAX and SSTV were blocked on
+- **[planned]** ATV colour and the sound subcarrier — luma only today; chroma is left where it is in the video band
 - **[planned]** Notch and audio filters per channel
-- **[planned]** CTCSS/DCS detection on NFM; Selcall (CCIR/ZVEI)
+- **[shipped]** CTCSS/DCS on NFM — the subaudible band decimated off the discriminator, a bank of 50 sliding correlators (half-second window, because the closest pair of standard tones is 2.3 Hz apart) and a DCS reader: Golay(23,12) at 134.4 bit/s, sliced against a tracked baseline so a carrier offset is not a decision threshold. Detect names what a repeater uses without gating; CTCSS and DCS gate on it, muting rather than skipping so the client's jitter buffer keeps its samples, and a 300 Hz highpass keeps the tone out of the audio it lets through. **The 83 standard DCS codes are part of the decoder, not a dropdown**: the code is cyclic, so a sliding window finds a valid word at all 23 alignments, and only that set reads back unambiguously — which is also why an inverted transmission comes out as the code's inverse-pair partner (023 ↔ 047) instead of needing a polarity switch
+- **[planned]** Selcall (CCIR/ZVEI)
 
 ## 9. Digital voice
 
@@ -197,7 +206,8 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
 
 ## 10. Aviation & marine
 
-- **[shipped]** ADS-B + map — level-relative preamble correlation, Mode S CRC-24 with single-bit repair, DF17/18 only, identification, airborne/surface CPR position, velocity, Gillham and 25 ft altitude, bounded per-ICAO CPR cache
+- **[shipped]** ADS-B + map — level-relative preamble correlation, Mode S CRC-24 with single-bit repair, identification, airborne/surface CPR position, velocity, Gillham and 25 ft altitude, bounded per-ICAO CPR cache
+- **[shipped]** Mode S beyond the extended squitter — DF11 all-call replies, DF4/20 altitude and DF5/21 identity (squawk) replies, plus the BDS 2,0 callsign a Comm-B reply may carry. A roll-call reply keys its address onto the parity and so proves nothing by itself: it is decoded only when that address was proved in the clear (DF11/17/18) within the last minute, and single-bit repair is confined to the bare-parity formats where it cannot invent a different aircraft
 - **[shipped]** ADS-B at **any receiver rate 2–4 MHz** — the decoder meets the radio instead of the radio meeting the decoder: per-chip half-chip boundaries, eight sub-sample phase tables arbitrated by the CRC, and overlap-weighted energy per half-chip. Measured 0% → 100% at 2.048 Msps off-grid and band-limited (98% at 34 dB SNR); 2.000 Msps keeps a physical half-sample blind spot that real 2.048 receivers do not have
 - **[shipped]** AIS + map — GMSK via discriminator and Gaussian matched filter, NRZI + HDLC + CRC-16/X-25, types 1/2/3/5/18/24, `!AIVDM` output
 - **[shipped]** ACARS — MSK on an AM carrier, mirrored-spectrum tolerant, strict validation: character parity *and* the ARINC 618 CRC both pass or the block is dropped, uplink/downlink field layouts distinguished
@@ -214,7 +224,7 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
 - **[shipped]** RTTY — ITA2 with LTRS/FIGS and unshift-on-space, start/stop framing with stop-bit rejection, 45.45/50/75 baud, 170/450/850 Hz shifts
 - **[shipped]** Morse — envelope + adaptive keying slicer, element/gap clustering that tracks sending speed, unknown sequences surface as `*` rather than vanishing, pure noise decodes to nothing
 - **[shipped]** APRS / AX.25 — AFSK1200 and 9600 G3RUH, SSIDs and the has-been-repeated flag, TNC2 line, uncompressed and base-91 compressed positions, course/speed, `/A=` altitude
-- **[planned]** Mic-E position encoding — the one AX.25 form still undecoded (it yields a valid packet with no position rather than a wrong one)
+- **[shipped]** Mic-E — the one APRS form that is not a text format: six latitude digits and three indicator bits unpacked from the destination *callsign*, longitude/course/speed/symbol from an information field offset by 28, all 15 message codes named (and the standard/custom mixture the spec itself refuses to name), position ambiguity carried from the latitude into the longitude, telemetry told apart from status text, and the base-91 `xxx}` altitude
 - **[planned]** APRS *feature* — station/position collection, distinct from the channel
 - **[planned]** FLEX and further pager formats, ERMES
 - **[planned]** CW skimmer — every CW signal in the passband at once
@@ -239,7 +249,7 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
 
 - **[planned]** NOAA APT; Meteor M-2 LRPT
 - **[planned]** Radiosonde (RS41 …) + map/log feature; later DFM, M10/M20, iMet
-- **[planned]** HF WEFAX — the DSP is the easy half; it needs an `IMAGE` binary frame kind, a server-side page store and a canvas panel first, which is a transport decision and not a decoder
+- **[planned]** HF WEFAX — the DSP is the easy half; the picture transport ATV shipped (§8) is now the half that exists, so what is left is the decoder plus a server-side page store for a mode whose picture takes minutes rather than milliseconds
 - **[planned]** SSTV RX; APRS weather aggregation
 
 ## 14. Broadcast & wideband digital
@@ -266,7 +276,7 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
 
 ## 17. Audio processing
 
-- **[shipped]** Opus audio to the browser and desktop — per-channel encoder threads, WebCodecs fast path with a WASM fallback, AudioWorklet jitter buffer (100 ms target, underrun rebuffer, 400 ms drop-oldest), per-channel gain, gesture-unlocked context, auto-resubscribe on reconnect, timestamp-gap loss detection
+- **[shipped]** Opus audio to the browser and desktop — per-channel encoder threads that follow the channel's layout (mono 64 kbit/s, stereo 96 kbit/s) mid-stream, WebCodecs fast path with a WASM fallback, AudioWorklet jitter buffer (100 ms target, underrun rebuffer, 400 ms drop-oldest), per-channel gain, gesture-unlocked context, auto-resubscribe on reconnect, timestamp-gap loss detection
 - **[shipped]** Speaker node — client-side mixing across every channel wired into it
 - **[planned]** Spectral noise reduction, noise blanker, auto-notch, AGC as advanced processing inside **every** voice channel rather than a separate channel type
 - **[planned]** Adaptive/auto DSP — auto-notch, auto-squelch, auto-gain, per-mode click and noise removal
