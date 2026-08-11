@@ -1,0 +1,136 @@
+{
+  "authority": "Ofcom",
+  "entries": [
+    {
+      "aliases": [
+        "cb",
+        "27/81",
+        "citizens band"
+      ],
+      "channel_step_hz": 10000.0,
+      "name": "CB 27/81 — UK FM channels",
+      "notes": "The UK's own 40-channel FM allocation from 1981, still authorised alongside the CEPT channels below it.",
+      "service": "mobile",
+      "start_hz": 27601250.0,
+      "stop_hz": 27991250.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "4 m",
+        "70 mhz",
+        "four metres"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "4 m amateur",
+      "notes": "A Region 1 speciality and the UK has the widest slice of it: 70.450 MHz is the FM calling channel, 70.200 MHz the SSB centre.",
+      "service": "amateur",
+      "start_hz": 70000000.0,
+      "stop_hz": 70500000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "fm",
+        "radio"
+      ],
+      "channel_step_hz": 100000.0,
+      "name": "FM broadcast",
+      "notes": "The BBC national networks cluster between 88 and 94.6 MHz.",
+      "service": "broadcast",
+      "start_hz": 88000000.0,
+      "stop_hz": 108000000.0,
+      "suggested": {
+        "settings": {
+          "deemphasis_us": 50.0,
+          "rds": false
+        },
+        "type": "wfm"
+      }
+    },
+    {
+      "aliases": [
+        "dab",
+        "digital radio"
+      ],
+      "name": "DAB — VHF Band III",
+      "notes": "BBC National DAB on block 12B (225.648 MHz), Digital One on 11D, and a dense layer of local multiplexes.",
+      "service": "broadcast",
+      "start_hz": 174000000.0,
+      "stop_hz": 230000000.0
+    },
+    {
+      "aliases": [
+        "airwave",
+        "tetra",
+        "emergency services"
+      ],
+      "name": "Airwave — emergency services",
+      "notes": "The national public-safety TETRA network.",
+      "service": "mobile",
+      "start_hz": 380000000.0,
+      "stop_hz": 400000000.0
+    },
+    {
+      "aliases": [
+        "business radio",
+        "simple light",
+        "site radio"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "Business radio — simple UK and simple light",
+      "notes": "Ofcom's shared business channels: taxis, security, events and building sites.",
+      "service": "mobile",
+      "start_hz": 457500000.0,
+      "stop_hz": 464000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "freeview",
+        "dvb-t2",
+        "uhf tv"
+      ],
+      "channel_step_hz": 8000000.0,
+      "name": "UHF television — Freeview",
+      "notes": "DVB-T2, channels 21–48 after the 700 MHz clearance.",
+      "service": "broadcast",
+      "start_hz": 470000000.0,
+      "stop_hz": 694000000.0
+    },
+    {
+      "aliases": [
+        "radio mic",
+        "wireless microphone",
+        "in-ear"
+      ],
+      "name": "Wireless microphones — 863–865 MHz",
+      "notes": "Licence-exempt radio mics and in-ear monitors, 10 mW ERP.",
+      "service": "ism",
+      "start_hz": 863000000.0,
+      "stop_hz": 865000000.0
+    }
+  ],
+  "id": "gb",
+  "kind": "regulatory",
+  "name": "United Kingdom — Ofcom",
+  "provenance": {
+    "generator": "curated"
+  },
+  "source": "UK Frequency Allocation Table, Issue 22 — curated extract"
+}

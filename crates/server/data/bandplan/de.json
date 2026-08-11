@@ -1,0 +1,148 @@
+{
+  "authority": "Bundesnetzagentur",
+  "entries": [
+    {
+      "aliases": [
+        "dcf77",
+        "time signal",
+        "funkuhr",
+        "radio clock"
+      ],
+      "name": "DCF77 — time signal",
+      "notes": "77.5 kHz from Mainflingen: the amplitude-keyed code every German radio clock listens to, one bit a second.",
+      "service": "science",
+      "start_hz": 77000.0,
+      "stop_hz": 78000.0
+    },
+    {
+      "aliases": [
+        "cb",
+        "cb funk",
+        "citizens band"
+      ],
+      "channel_step_hz": 10000.0,
+      "name": "CB channels 41–80",
+      "notes": "Germany licenses 80 CB channels rather than the CEPT 40; 41–80 are FM only.",
+      "service": "mobile",
+      "start_hz": 26565000.0,
+      "stop_hz": 26955000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "4 m",
+        "70 mhz"
+      ],
+      "name": "4 m amateur",
+      "notes": "A 30 kHz secondary allocation, CW and SSB only — a sliver next to the UK's 500 kHz on the same band.",
+      "service": "amateur",
+      "start_hz": 70150000.0,
+      "stop_hz": 70180000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "bos",
+        "4 m bos",
+        "behördenfunk",
+        "emergency services"
+      ],
+      "channel_step_hz": 20000.0,
+      "name": "BOS 4 m band",
+      "notes": "Legacy analogue public-safety radio. Largely migrated to BOS-Digitalfunk in 380–400 MHz, but fire brigades still run paging and fallback traffic here.",
+      "service": "mobile",
+      "start_hz": 75200000.0,
+      "stop_hz": 87255000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "ukw",
+        "fm",
+        "radio"
+      ],
+      "channel_step_hz": 100000.0,
+      "name": "UKW broadcast",
+      "notes": "The public and private FM networks, with RDS on essentially all of them.",
+      "service": "broadcast",
+      "start_hz": 87500000.0,
+      "stop_hz": 108000000.0,
+      "suggested": {
+        "settings": {
+          "deemphasis_us": 50.0,
+          "rds": false
+        },
+        "type": "wfm"
+      }
+    },
+    {
+      "aliases": [
+        "bos",
+        "2 m bos",
+        "behördenfunk",
+        "emergency services"
+      ],
+      "channel_step_hz": 20000.0,
+      "name": "BOS 2 m band",
+      "notes": "Analogue public-safety VHF, and where POCSAG fire paging still runs.",
+      "service": "mobile",
+      "start_hz": 165210000.0,
+      "stop_hz": 169380000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "dab",
+        "dab+",
+        "digitalradio"
+      ],
+      "name": "DAB+ — VHF Band III",
+      "notes": "The national ensemble sits on block 5C (178.352 MHz); the Länder ensembles fill the rest.",
+      "service": "broadcast",
+      "start_hz": 174000000.0,
+      "stop_hz": 230000000.0
+    },
+    {
+      "aliases": [
+        "bos",
+        "digitalfunk",
+        "tetra",
+        "emergency services"
+      ],
+      "name": "BOS-Digitalfunk (TETRA)",
+      "notes": "The national public-safety TETRA network. Encrypted, so a scope shows the carriers and nothing else.",
+      "service": "mobile",
+      "start_hz": 380000000.0,
+      "stop_hz": 400000000.0
+    }
+  ],
+  "id": "de",
+  "kind": "regulatory",
+  "name": "Germany — BNetzA",
+  "provenance": {
+    "generator": "curated"
+  },
+  "source": "Frequenzplan (Stand 2024) and Allgemeinzuteilungen — curated extract"
+}

@@ -82,17 +82,35 @@ pub struct BandLayerInfo {
 /// What a stretch of spectrum is allocated to, as one layer states it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BandAllocation {
-    /// `layer:start_hz`, stable across requests.
+    /// Stable and unique within a plan. Derived from the source's own row id where it has one
+    /// (`de:27002`, `gb:FREQ_00001`) — a range is *not* enough, because a table routinely gives
+    /// one range to several services at once.
     pub id: String,
     /// [`BandLayerInfo::id`] this entry came from.
     pub layer: String,
     pub start_hz: f64,
     pub stop_hz: f64,
     pub service: BandService,
-    /// What an operator calls it: "2 m amateur", "Marine VHF", "Airband".
+    /// What an operator calls it: "2 m amateur", "Marine VHF", "Airband". From the annotations
+    /// overlay where one applies, otherwise the same as [`Self::official_name`].
     pub name: String,
+    /// Exactly what the source document calls it — "MOBILER SEEFUNKDIENST", "MARITIME MOBILE".
+    /// Kept beside the friendly name rather than replaced by it: the regulator's wording is the
+    /// citable one, and it is what a reader checking against the source will search for.
+    pub official_name: String,
+    /// Primary allocation rather than secondary. Both the ITU and BNetzA tables carry this as
+    /// capitalisation — `MARITIME MOBILE` is primary, `Maritime mobile` is secondary — and a
+    /// secondary service must accept interference from every primary one, which is the
+    /// difference between "this band is yours" and "you may use it if nobody else is".
+    #[serde(default)]
+    pub primary: bool,
+    /// Where the row came from inside its source document: `Eintrag 27001`, `FREQ_00001`,
+    /// a page number. `None` for the curated layers, which are their own provenance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
     /// Other names the explorer matches on — wavelengths ("70 cm"), colloquialisms ("CB"),
     /// and the service spelled the long way ("marine", "maritime mobile").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<String>,
     /// The mode to tune with, where the band has an obvious one. Sent to the channel verbatim,
     /// so "tune here with the suggested mode" needs no client-side mode table.
@@ -105,17 +123,23 @@ pub struct BandAllocation {
     pub notes: Option<String>,
 }
 
-/// One resolved stretch: what wins here, and what it covers.
+/// One resolved stretch: what wins here, and everything else that covers it.
+///
+/// Allocations travel once in [`BandPlan::allocations`] and are referenced by index. A single
+/// band is split into a block per boundary any *other* layer introduces, and an imported note
+/// can be a paragraph, so carrying the payload inline multiplied the document by an order of
+/// magnitude for no new information.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BandBlock {
     pub start_hz: f64,
     pub stop_hz: f64,
-    /// The most specific layer's entry over this stretch.
-    pub allocation: BandAllocation,
-    /// The layers underneath, most specific first. Empty when nothing else covers this stretch.
-    /// This is what lets the identify popover say "BNetzA calls it X, over ITU's Y".
+    /// Index into [`BandPlan::allocations`]: the winner over this stretch.
+    pub of: u32,
+    /// Everything else covering it, most specific first — co-allocations from the winner's own
+    /// layer, then the layers underneath. This is what lets the identify popover say "BNetzA
+    /// calls it X, over ITU's Y", and what keeps a co-primary service from vanishing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub covered: Vec<BandAllocation>,
+    pub covered: Vec<u32>,
 }
 
 /// A row of the ruler. The regulatory layers merge into one lane by most-specific-wins; an
@@ -127,7 +151,8 @@ pub struct BandLane {
     pub name: String,
     /// Whether the lane is supplementary and may be switched off without losing the allocation.
     pub overlay: bool,
-    /// Sorted by `start_hz`, non-overlapping.
+    /// Sorted by `start_hz`, non-overlapping — the resolution is what removes the overlaps the
+    /// source tables are full of.
     pub blocks: Vec<BandBlock>,
 }
 
@@ -162,6 +187,10 @@ pub struct BandPlan {
     pub region: BandRegion,
     /// Every layer the lanes reference, so a block's `layer` id resolves without a second call.
     pub layers: Vec<BandLayerInfo>,
+    /// Every allocation the lanes reference, once. [`BandBlock::of`] and [`BandBlock::covered`]
+    /// index into this; it is also what the explorer searches, which is why search needs no
+    /// deduplication of its own.
+    pub allocations: Vec<BandAllocation>,
     pub lanes: Vec<BandLane>,
 }
 

@@ -1490,16 +1490,12 @@ mod tests {
             .iter()
             .find(|block| block.start_hz <= 121_500_000.0 && block.stop_hz > 121_500_000.0)
             .expect("118–137 MHz is allocated");
+        // Allocations travel once and blocks index into them, so the payload does not repeat a
+        // paragraph of notes for every boundary another layer introduces.
+        let winner = &plan.allocations[block.of as usize];
+        assert_eq!(winner.service, sdrmm_wire::BandService::Aeronautical);
         assert_eq!(
-            block.allocation.service,
-            sdrmm_wire::BandService::Aeronautical
-        );
-        assert_eq!(
-            block
-                .allocation
-                .suggested
-                .as_ref()
-                .map(ChannelParams::type_id),
+            winner.suggested.as_ref().map(ChannelParams::type_id),
             Some("am"),
             "the airband suggests AM, which is what one-click tuning applies"
         );

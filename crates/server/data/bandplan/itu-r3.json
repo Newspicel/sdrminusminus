@@ -1,0 +1,92 @@
+{
+  "authority": "ITU",
+  "entries": [
+    {
+      "aliases": [
+        "80 m"
+      ],
+      "name": "80 m amateur (Region 3)",
+      "service": "amateur",
+      "start_hz": 3500000.0,
+      "stop_hz": 3900000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "6 m",
+        "magic band"
+      ],
+      "name": "6 m amateur (Region 3)",
+      "service": "amateur",
+      "start_hz": 50000000.0,
+      "stop_hz": 54000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "2 m"
+      ],
+      "name": "2 m amateur (Region 3 extension)",
+      "service": "amateur",
+      "start_hz": 146000000.0,
+      "stop_hz": 148000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm"
+      ],
+      "name": "70 cm amateur (Region 3, lower)",
+      "service": "amateur",
+      "start_hz": 420000000.0,
+      "stop_hz": 430000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm"
+      ],
+      "name": "70 cm amateur (Region 3, upper)",
+      "service": "amateur",
+      "start_hz": 440000000.0,
+      "stop_hz": 450000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    }
+  ],
+  "id": "itu-r3",
+  "kind": "world",
+  "name": "ITU Region 3",
+  "provenance": {
+    "generator": "curated"
+  },
+  "source": "Radio Regulations, Article 5 — Region 3 column"
+}

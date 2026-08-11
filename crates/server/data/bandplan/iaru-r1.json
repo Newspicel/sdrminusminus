@@ -1,0 +1,970 @@
+{
+  "authority": "IARU Region 1",
+  "entries": [
+    {
+      "aliases": [
+        "160 m cw"
+      ],
+      "name": "160 m — CW",
+      "notes": "1836 kHz is the QRP centre of activity.",
+      "service": "amateur",
+      "start_hz": 1810000.0,
+      "stop_hz": 1838000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "160 m digital",
+        "ft8"
+      ],
+      "name": "160 m — narrow band digital",
+      "notes": "FT8 at 1840 kHz.",
+      "service": "amateur",
+      "start_hz": 1838000.0,
+      "stop_hz": 1843000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "160 m ssb"
+      ],
+      "name": "160 m — all modes, SSB",
+      "notes": "1855 kHz is the SSB QRP centre.",
+      "service": "amateur",
+      "start_hz": 1843000.0,
+      "stop_hz": 2000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "80 m cw"
+      ],
+      "name": "80 m — CW",
+      "notes": "3560 kHz is the QRP centre; the bottom 10 kHz is for intercontinental work.",
+      "service": "amateur",
+      "start_hz": 3500000.0,
+      "stop_hz": 3570000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "80 m digital",
+        "ft8"
+      ],
+      "name": "80 m — narrow band digital",
+      "notes": "FT8 at 3573 kHz.",
+      "service": "amateur",
+      "start_hz": 3570000.0,
+      "stop_hz": 3600000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "80 m ssb"
+      ],
+      "name": "80 m — all modes, SSB",
+      "notes": "3690 kHz is the SSB QRP centre; 3735 kHz the image (SSTV) centre.",
+      "service": "amateur",
+      "start_hz": 3600000.0,
+      "stop_hz": 3800000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "40 m cw"
+      ],
+      "name": "40 m — CW",
+      "notes": "7030 kHz is the QRP centre.",
+      "service": "amateur",
+      "start_hz": 7000000.0,
+      "stop_hz": 7040000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "40 m digital"
+      ],
+      "name": "40 m — narrow band digital",
+      "service": "amateur",
+      "start_hz": 7040000.0,
+      "stop_hz": 7060000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "40 m ssb",
+        "ft8"
+      ],
+      "name": "40 m — all modes, SSB",
+      "notes": "7090 kHz is the SSB QRP centre, 7110 kHz the emergency centre, and FT8 sits at 7074 kHz.",
+      "service": "amateur",
+      "start_hz": 7060000.0,
+      "stop_hz": 7200000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "30 m cw"
+      ],
+      "name": "30 m — CW",
+      "notes": "10116 kHz is the QRP centre.",
+      "service": "amateur",
+      "start_hz": 10100000.0,
+      "stop_hz": 10130000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "30 m digital",
+        "ft8"
+      ],
+      "name": "30 m — narrow band digital",
+      "notes": "FT8 at 10136 kHz. No phone anywhere on this band.",
+      "service": "amateur",
+      "start_hz": 10130000.0,
+      "stop_hz": 10150000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "20 m cw"
+      ],
+      "name": "20 m — CW",
+      "notes": "14060 kHz is the QRP centre.",
+      "service": "amateur",
+      "start_hz": 14000000.0,
+      "stop_hz": 14070000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "20 m digital",
+        "ft8"
+      ],
+      "name": "20 m — narrow band digital",
+      "notes": "FT8 at 14074 kHz — probably the busiest 3 kHz in amateur radio.",
+      "service": "amateur",
+      "start_hz": 14070000.0,
+      "stop_hz": 14099000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "beacon",
+        "ibp",
+        "ncdxf"
+      ],
+      "name": "20 m — IBP beacons",
+      "notes": "The NCDXF/IARU international beacon project: eighteen stations round the world transmit in a three-minute rotation, so the band tells you where it is open.",
+      "service": "amateur",
+      "start_hz": 14099000.0,
+      "stop_hz": 14101000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "20 m ssb"
+      ],
+      "name": "20 m — all modes, SSB",
+      "notes": "14230 kHz is the SSTV calling frequency; 14285 kHz the SSB QRP centre.",
+      "service": "amateur",
+      "start_hz": 14101000.0,
+      "stop_hz": 14350000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "17 m cw"
+      ],
+      "name": "17 m — CW",
+      "service": "amateur",
+      "start_hz": 18068000.0,
+      "stop_hz": 18095000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "17 m digital",
+        "ft8"
+      ],
+      "name": "17 m — narrow band digital",
+      "notes": "FT8 at 18100 kHz.",
+      "service": "amateur",
+      "start_hz": 18095000.0,
+      "stop_hz": 18109000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "beacon",
+        "ibp"
+      ],
+      "name": "17 m — IBP beacons",
+      "service": "amateur",
+      "start_hz": 18109000.0,
+      "stop_hz": 18111000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "17 m ssb"
+      ],
+      "name": "17 m — all modes, SSB",
+      "service": "amateur",
+      "start_hz": 18111000.0,
+      "stop_hz": 18168000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "15 m cw"
+      ],
+      "name": "15 m — CW",
+      "notes": "21060 kHz is the QRP centre.",
+      "service": "amateur",
+      "start_hz": 21000000.0,
+      "stop_hz": 21070000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "15 m digital",
+        "ft8"
+      ],
+      "name": "15 m — narrow band digital",
+      "notes": "FT8 at 21074 kHz.",
+      "service": "amateur",
+      "start_hz": 21070000.0,
+      "stop_hz": 21149000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "beacon",
+        "ibp"
+      ],
+      "name": "15 m — IBP beacons",
+      "service": "amateur",
+      "start_hz": 21149000.0,
+      "stop_hz": 21151000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "15 m ssb"
+      ],
+      "name": "15 m — all modes, SSB",
+      "notes": "21285 kHz is the SSB QRP centre; 21340 kHz the SSTV calling frequency.",
+      "service": "amateur",
+      "start_hz": 21151000.0,
+      "stop_hz": 21450000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "12 m cw"
+      ],
+      "name": "12 m — CW",
+      "service": "amateur",
+      "start_hz": 24890000.0,
+      "stop_hz": 24915000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "12 m digital",
+        "ft8"
+      ],
+      "name": "12 m — narrow band digital",
+      "notes": "FT8 at 24915 kHz.",
+      "service": "amateur",
+      "start_hz": 24915000.0,
+      "stop_hz": 24929000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "beacon",
+        "ibp"
+      ],
+      "name": "12 m — IBP beacons",
+      "service": "amateur",
+      "start_hz": 24929000.0,
+      "stop_hz": 24931000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "12 m ssb"
+      ],
+      "name": "12 m — all modes, SSB",
+      "service": "amateur",
+      "start_hz": 24931000.0,
+      "stop_hz": 24990000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "10 m cw"
+      ],
+      "name": "10 m — CW",
+      "notes": "28060 kHz is the QRP centre.",
+      "service": "amateur",
+      "start_hz": 28000000.0,
+      "stop_hz": 28070000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "10 m digital",
+        "ft8"
+      ],
+      "name": "10 m — narrow band digital",
+      "notes": "FT8 at 28074 kHz.",
+      "service": "amateur",
+      "start_hz": 28070000.0,
+      "stop_hz": 28190000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "beacon",
+        "ibp"
+      ],
+      "name": "10 m — beacons",
+      "notes": "Regional and IBP beacons. If you hear one, the band is open in that direction.",
+      "service": "amateur",
+      "start_hz": 28190000.0,
+      "stop_hz": 28225000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "10 m ssb"
+      ],
+      "name": "10 m — all modes, SSB",
+      "notes": "28680 kHz SSTV; 28885 kHz is the liaison frequency for 6 m openings.",
+      "service": "amateur",
+      "start_hz": 28225000.0,
+      "stop_hz": 29200000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "10 m packet"
+      ],
+      "name": "10 m — digital and packet",
+      "service": "amateur",
+      "start_hz": 29200000.0,
+      "stop_hz": 29300000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "satellite"
+      ],
+      "name": "10 m — satellite downlink",
+      "service": "amateur",
+      "start_hz": 29300000.0,
+      "stop_hz": 29510000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "10 m fm"
+      ],
+      "channel_step_hz": 10000.0,
+      "name": "10 m — FM repeaters and simplex",
+      "notes": "29.600 MHz is the FM calling channel.",
+      "service": "amateur",
+      "start_hz": 29510000.0,
+      "stop_hz": 29700000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "6 m cw",
+        "beacon"
+      ],
+      "name": "6 m — CW and beacons",
+      "notes": "50.000–50.030 MHz is the beacon sub-band.",
+      "service": "amateur",
+      "start_hz": 50000000.0,
+      "stop_hz": 50100000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "6 m ssb",
+        "dx window"
+      ],
+      "name": "6 m — SSB and CW",
+      "notes": "50.110 MHz is the intercontinental calling frequency and 50.150 MHz the SSB centre; 50.313 MHz carries FT8.",
+      "service": "amateur",
+      "start_hz": 50100000.0,
+      "stop_hz": 50500000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "6 m digital"
+      ],
+      "name": "6 m — all modes and digital",
+      "service": "amateur",
+      "start_hz": 50500000.0,
+      "stop_hz": 51000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "6 m fm"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "6 m — FM and digital voice",
+      "notes": "51.510 MHz is the FM calling channel.",
+      "service": "amateur",
+      "start_hz": 51000000.0,
+      "stop_hz": 52000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "2 m cw",
+        "eme",
+        "moonbounce"
+      ],
+      "name": "2 m — CW and EME",
+      "notes": "144.050 MHz is the CW calling frequency; the bottom 35 kHz is the earth-moon-earth window, where signals arrive below the noise floor.",
+      "service": "amateur",
+      "start_hz": 144000000.0,
+      "stop_hz": 144150000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "2 m ssb"
+      ],
+      "name": "2 m — SSB and MGM",
+      "notes": "144.300 MHz is the SSB calling frequency; 144.174 MHz carries FT8.",
+      "service": "amateur",
+      "start_hz": 144150000.0,
+      "stop_hz": 144400000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "beacon"
+      ],
+      "name": "2 m — beacons",
+      "service": "amateur",
+      "start_hz": 144400000.0,
+      "stop_hz": 144490000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "2 m"
+      ],
+      "name": "2 m — all modes",
+      "service": "amateur",
+      "start_hz": 144490000.0,
+      "stop_hz": 144794000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "aprs",
+        "packet",
+        "ax.25"
+      ],
+      "name": "2 m — APRS and packet",
+      "notes": "144.800 MHz is the Region 1 APRS frequency: AFSK1200 position beacons, digipeated across the continent.",
+      "service": "amateur",
+      "start_hz": 144794000.0,
+      "stop_hz": 144990000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0,
+          "mode": "afsk1200"
+        },
+        "type": "aprs"
+      }
+    },
+    {
+      "aliases": [
+        "2 m repeater"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "2 m — FM repeater inputs",
+      "notes": "The outputs are 600 kHz higher, in 145.594–145.806 MHz.",
+      "service": "amateur",
+      "start_hz": 144990000.0,
+      "stop_hz": 145194000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "satellite"
+      ],
+      "name": "2 m — space communication",
+      "service": "amateur",
+      "start_hz": 145194000.0,
+      "stop_hz": 145206000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "2 m fm",
+        "simplex"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "2 m — FM simplex",
+      "notes": "145.500 MHz is the FM calling channel — the first place to listen.",
+      "service": "amateur",
+      "start_hz": 145206000.0,
+      "stop_hz": 145594000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "2 m repeater"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "2 m — FM repeater outputs",
+      "service": "amateur",
+      "start_hz": 145594000.0,
+      "stop_hz": 145806000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "satellite",
+        "iss"
+      ],
+      "name": "2 m — satellite",
+      "notes": "Amateur satellite downlinks and the ISS.",
+      "service": "amateur",
+      "start_hz": 145806000.0,
+      "stop_hz": 146000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm"
+      ],
+      "name": "70 cm — all modes and repeater links",
+      "service": "amateur",
+      "start_hz": 430000000.0,
+      "stop_hz": 432000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm ssb",
+        "eme"
+      ],
+      "name": "70 cm — CW, SSB and EME",
+      "notes": "432.200 MHz is the SSB calling frequency; the bottom 25 kHz is EME.",
+      "service": "amateur",
+      "start_hz": 432000000.0,
+      "stop_hz": 432500000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm",
+        "beacon"
+      ],
+      "name": "70 cm — all modes and beacons",
+      "service": "amateur",
+      "start_hz": 432500000.0,
+      "stop_hz": 433000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm repeater"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "70 cm — FM repeater outputs",
+      "service": "amateur",
+      "start_hz": 433000000.0,
+      "stop_hz": 433400000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm fm",
+        "simplex",
+        "dmr"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "70 cm — FM simplex and digital voice",
+      "notes": "433.500 MHz is the FM calling channel. This is also where the 433 MHz ISM devices live, so the noise floor here is not the band's fault.",
+      "service": "amateur",
+      "start_hz": 433400000.0,
+      "stop_hz": 434600000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm"
+      ],
+      "name": "70 cm — all modes and repeater links",
+      "service": "amateur",
+      "start_hz": 434600000.0,
+      "stop_hz": 435000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "satellite",
+        "iss",
+        "cubesat"
+      ],
+      "name": "70 cm — satellite",
+      "notes": "Amateur satellite downlinks and the ISS packet digipeater.",
+      "service": "amateur",
+      "start_hz": 435000000.0,
+      "stop_hz": 438000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm repeater"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "70 cm — FM repeater inputs and digital",
+      "service": "amateur",
+      "start_hz": 438000000.0,
+      "stop_hz": 440000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    }
+  ],
+  "id": "iaru-r1",
+  "kind": "amateur",
+  "name": "Amateur band plan — IARU R1",
+  "provenance": {
+    "generator": "curated"
+  },
+  "source": "IARU R1 HF and VHF/UHF band plans (2023)"
+}
