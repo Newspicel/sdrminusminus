@@ -22,13 +22,14 @@ pub mod ws;
 pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvModulation,
     AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings,
-    MorseParams, NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams, RttyParams,
-    RttyStopBits, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams,
+    DmrParams, DmrSlots, DpmrParams, DstarParams, M17Params, MorseParams, NavtexParams, NfmParams,
+    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, RttyParams,
+    RttyStopBits, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, YsfParams,
 };
 pub use decode::{
-    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, MorseText,
-    NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame,
-    ToneSquelchStatus,
+    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, DvFrame,
+    DvFrameKind, DvMode, MorseText, NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate,
+    RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus,
 };
 pub use device::{
     Capabilities, DeviceInfo, DeviceSettings, Direction, Duplex, ExtraSetting, ExtraValue,

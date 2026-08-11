@@ -2635,6 +2635,132 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/DmrParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dmr"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/DstarParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dstar"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/YsfParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ysf"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/NxdnParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "nxdn"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/P25Params"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "p25"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/DpmrParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dpmr"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/M17Params"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "m17"
+                ]
+              }
+            }
           }
         ],
         "description": "Type-discriminated demod parameters. Adjacently tagged so the generated TS is a\ndiscriminated union on `type`, and `{\"type\":\"nfm\",\"settings\":{}}` deserializes with\nevery field at its default."
@@ -3298,6 +3424,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DvFrame"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dv"
+                ]
+              }
+            }
           }
         ],
         "description": "Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a\ndiscriminated union on `kind` that panels can exhaustively `switch` on, and so the log\ndatabase can index on `kind` without parsing the blob."
@@ -3701,6 +3845,23 @@
           "tx"
         ]
       },
+      "DmrParams": {
+        "type": "object",
+        "properties": {
+          "slots": {
+            "$ref": "#/components/schemas/DmrSlots"
+          }
+        }
+      },
+      "DmrSlots": {
+        "type": "string",
+        "description": "Which DMR timeslot a channel reports. Both slots share one 12.5 kHz carrier in 30 ms\nalternation, so the receiver always hears both; this only decides what reaches the log.",
+        "enum": [
+          "both",
+          "one",
+          "two"
+        ]
+      },
       "DoctorCheck": {
         "type": "object",
         "description": "One diagnostic line.",
@@ -3760,6 +3921,14 @@
           }
         }
       },
+      "DpmrParams": {
+        "type": "object",
+        "description": "dPMR (C4FM, 2400 symbols/s, 6.25 kHz)."
+      },
+      "DstarParams": {
+        "type": "object",
+        "description": "D-Star (GMSK, 4800 bit/s)."
+      },
       "Duplex": {
         "type": "string",
         "description": "What a radio's hardware can do, and whether it can do it at once.\n\nIt lives here rather than in the device crate because it is the answer to \"what *kind* of\nradio is this\" that a workspace template filters on and the canvas draws ports from — the\narbitration that uses it ([`sdrmm-device`'s `DuplexState`]) is a separate thing, and stays\nwith the backends.",
@@ -3768,6 +3937,137 @@
           "tx_only",
           "half",
           "full"
+        ]
+      },
+      "DvFrame": {
+        "type": "object",
+        "description": "One decoded digital-voice frame — the *metadata* of a call, not its audio.\n\nNo mode here produces sound: DMR, D-Star, YSF, NXDN, P25 and dPMR all carry AMBE-family\nvocoder frames and this build ships no vocoder, and M17's Codec2 payload is not decoded\neither (see FEATURES §9). What a decoder does recover is everything *around* the voice —\nwho keyed up, on which talkgroup, over which repeater, with what encryption — which is what\na scanner log is actually made of. Fields are `Option` because which of them exist is a\nproperty of the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR\nvoice header the reverse.",
+        "required": [
+          "mode",
+          "kind",
+          "errors_corrected"
+        ],
+        "properties": {
+          "color_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The mode's network discriminator, under whichever name it publishes: DMR colour code,\nNXDN/dPMR RAN or colour code, P25 NAC, YSF has none.",
+            "minimum": 0
+          },
+          "destination": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Numeric destination: talkgroup for a group call, radio ID for a private one.",
+            "minimum": 0
+          },
+          "destination_call": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "encrypted": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Set when the frame says its payload is encrypted. `Some(false)` is a positive statement\nthat it is in the clear; `None` means the frame did not say."
+          },
+          "errors_corrected": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Bit errors the frame's error-correcting codes repaired — the honest signal-quality\nreadout, since a mode with no audio has no other.",
+            "minimum": 0
+          },
+          "group_call": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "True for a talkgroup call, false for a call addressed to one radio."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DvFrameKind"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/DvMode"
+          },
+          "opcode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the signalling opcode for a control frame — \"group voice channel grant\",\n\"preamble\", … — as its specification names it."
+          },
+          "slot": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "TDMA timeslot, 1 or 2 — DMR only; every other mode here is single-slot.",
+            "minimum": 0
+          },
+          "source": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Numeric source address — DMR/NXDN/dPMR radio ID, P25 source unit.",
+            "minimum": 0
+          },
+          "source_call": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Source callsign — the modes that address by callsign rather than by number."
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta\nfield."
+          },
+          "via": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The repeater or reflector the call is routed through: D-Star RPT1/RPT2."
+          }
+        }
+      },
+      "DvFrameKind": {
+        "type": "string",
+        "description": "What the burst was carrying. Every mode distinguishes these four, whatever it calls them:\nthe frame that opens a transmission and names the parties, the voice frames that follow,\nthe one that closes it, and the signalling that travels outside a call.",
+        "enum": [
+          "header",
+          "voice",
+          "terminator",
+          "control",
+          "data"
+        ]
+      },
+      "DvMode": {
+        "type": "string",
+        "description": "Which digital-voice mode a [`DvFrame`] was heard on (PLAN §13 wave 3). One event type\nserves all of them because the *question* is the same in every mode — who is talking, to\nwhom, on which network — and only the names for it differ.",
+        "enum": [
+          "dmr",
+          "dstar",
+          "ysf",
+          "nxdn",
+          "p25",
+          "dpmr",
+          "m17"
         ]
       },
       "ExportFormat": {
@@ -3906,6 +4206,10 @@
             "format": "double"
           }
         }
+      },
+      "M17Params": {
+        "type": "object",
+        "description": "M17 (C4FM, 4800 symbols/s, RRC 0.5)."
       },
       "MorseParams": {
         "type": "object",
@@ -4234,6 +4538,26 @@
             }
           }
         }
+      },
+      "NxdnBandwidth": {
+        "type": "string",
+        "description": "The two NXDN channel widths. They are different radios as far as the receiver is\nconcerned: 6.25 kHz halves both the symbol rate and the deviation of the 12.5 kHz one.",
+        "enum": [
+          "narrow",
+          "wide"
+        ]
+      },
+      "NxdnParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth": {
+            "$ref": "#/components/schemas/NxdnBandwidth"
+          }
+        }
+      },
+      "P25Params": {
+        "type": "object",
+        "description": "P25 Phase 1 (C4FM, 4800 symbols/s)."
       },
       "PatchApplyReport": {
         "type": "object",
@@ -6235,6 +6559,10 @@
             }
           }
         }
+      },
+      "YsfParams": {
+        "type": "object",
+        "description": "System Fusion (C4FM, 4800 symbols/s)."
       }
     }
   }
