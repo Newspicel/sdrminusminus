@@ -17,6 +17,7 @@ import {
   liveStatus,
   parseRanges,
   type RangeInput,
+  scanRefusal,
   targetCount,
 } from "./scanner";
 
@@ -70,6 +71,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
   const count = typeof parsed === "string" ? 0 : targetCount(parsed.ranges);
   const running = status !== null;
   const busy = startMut.isPending || stopMut.isPending;
+  const refusal = scanRefusal(active);
 
   return (
     <div className="flex flex-col gap-2 p-3">
@@ -193,7 +195,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
           <button
             type="button"
             className={BTN}
-            disabled={!active || busy || typeof parsed === "string"}
+            disabled={!active || busy || typeof parsed === "string" || refusal !== null}
             onClick={() => active && startMut.mutate(active.id)}
           >
             Start scan
@@ -201,6 +203,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
         )}
       </div>
       {!active && <span className="text-sm text-ink-dim">Open a device to scan.</span>}
+      {refusal !== null && <span className="text-sm text-ink-dim">{refusal}</span>}
     </div>
   );
 }

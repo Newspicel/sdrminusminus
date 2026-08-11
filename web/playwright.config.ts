@@ -1,15 +1,15 @@
 // The smoke flow the web suite owed since M6 (PLAN §14, CANVAS §8). One browser, one server,
-// one path through the station — enough to catch the class of break vitest cannot see, where
+// one path through the workspace — enough to catch the class of break vitest cannot see, where
 // every pure transform is right and the composition above them never mounts.
 //
 // The server under test is the real one on `device-virtual` (PLAN §14: no hardware in CI, ever)
-// with a throwaway database, so the run starts from the seeded default station every time and
+// with a throwaway database, so the run starts from the seeded default workspace every time and
 // leaves nothing behind.
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 8099;
 /** Throwaway state for the run, inside `web/` and git-ignored: the flow must start from the
- * seeded default station every time, and must not touch the developer's own database. */
+ * seeded default workspace every time, and must not touch the developer's own database. */
 const SCRATCH = ".e2e-tmp";
 
 export default defineConfig({

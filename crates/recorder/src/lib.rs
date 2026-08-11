@@ -72,6 +72,16 @@ pub struct SigmfGlobal {
     /// Free-text capture hardware description; this build writes the device label.
     #[serde(rename = "core:hw", default, skip_serializing_if = "Option::is_none")]
     pub hw: Option<String>,
+    /// Which receive stream of a multi-stream radio the file captured (sdrmm extension
+    /// namespace — SigMF core has no field for it). Absent in foreign files and in
+    /// recordings that predate multi-stream devices; those are stream 0, the only stream a
+    /// single-stream radio has.
+    #[serde(
+        rename = "sdrmm:rx_stream",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub rx_stream: Option<u32>,
 }
 
 /// One `captures` segment: the sample index where a tuning state begins (SigMF v1.2.6
@@ -182,6 +192,7 @@ impl SigmfWriter {
                 sample_rate: Some(sample_rate),
                 recorder: Some(RECORDER_NAME.to_string()),
                 hw: Some(hw.to_string()),
+                rx_stream: None,
             },
             captures: vec![SigmfCapture {
                 sample_start: 0,
@@ -231,6 +242,14 @@ impl SigmfWriter {
         self.data.write_all(&self.scratch)?;
         self.samples += block.len() as u64;
         Ok(())
+    }
+
+    /// Record which receive stream of a multi-stream radio this file captures. Kept off
+    /// [`SigmfWriter::create`] so its many single-stream callers stay untouched; the final
+    /// meta carries the field, while the `.tmp` breadcrumb (written at create, before the
+    /// stream is stamped) does not — a crashed recording is unplayable either way.
+    pub fn set_rx_stream(&mut self, stream: u32) {
+        self.meta.global.rx_stream = Some(stream);
     }
 
     /// Record a center retune as a capture segment starting at the next sample. A retune
@@ -621,6 +640,7 @@ mod tests {
                 sample_rate: Some(2_400_000.0),
                 recorder: Some("sdr--".to_string()),
                 hw: None,
+                rx_stream: None,
             },
             captures: vec![SigmfCapture {
                 sample_start: 7,
@@ -635,11 +655,32 @@ mod tests {
         assert_eq!(json["global"]["core:sample_rate"], 2_400_000.0);
         assert_eq!(json["global"]["core:recorder"], "sdr--");
         assert!(json["global"].get("core:hw").is_none());
+        // The extension field must stay off the wire until a stream is stamped, so foreign
+        // and pre-multi-stream metas round-trip byte-identical.
+        assert!(json["global"].get("sdrmm:rx_stream").is_none());
         assert_eq!(json["captures"][0]["core:sample_start"], 7);
         assert_eq!(json["captures"][0]["core:frequency"], 100_000_000.0);
         assert_eq!(json["annotations"], serde_json::json!([]));
 
         let back: SigmfMeta = serde_json::from_value(json).unwrap();
         assert_eq!(back, meta);
+    }
+
+    /// A multi-stream radio's recording must say which stream it captured — the file is
+    /// otherwise indistinguishable from any other mono `cf32` pair (design §6b).
+    #[test]
+    fn rx_stream_is_stamped_into_the_final_meta_and_read_back() {
+        let dir = TempDir::new().unwrap();
+        let stem = dir.path().join("lane2");
+        let mut writer = SigmfWriter::create(&stem, 48_000.0, 1_000_000.0, "hw").unwrap();
+        writer.set_rx_stream(2);
+        writer.write_block(&samples(4)).unwrap();
+        let meta = writer.finalize().unwrap();
+        assert_eq!(meta.global.rx_stream, Some(2));
+
+        let json = serde_json::to_value(&meta).unwrap();
+        assert_eq!(json["global"]["sdrmm:rx_stream"], 2);
+        let reader = SigmfReader::open(&stem).unwrap();
+        assert_eq!(reader.meta().global.rx_stream, Some(2));
     }
 }

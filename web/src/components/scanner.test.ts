@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceSet, ScannerStatus, TemplateInfo } from "../lib/types";
 import { rankDevices } from "./OpenRadio";
-import { formatDb, liveStatus, parseRanges, targetCount } from "./scanner";
-import { reachable } from "./TemplatesPanel";
+import { formatDb, liveStatus, parseRanges, scanRefusal, targetCount } from "./scanner";
+import { supports } from "./TemplatesPanel";
 
 describe("parseRanges", () => {
   it("converts the MHz/kHz the user types into wire Hz", () => {
@@ -73,7 +73,7 @@ function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
       antennas: [],
       bandwidths: [],
       extra: [],
-      tx_capable: false,
+      duplex: "rx_only",
     },
     settings: {},
     status: "running",
@@ -99,6 +99,30 @@ describe("liveStatus", () => {
   });
 });
 
+// Mirrors the server's refusal (a sweep needs one radio-wide tuning to own): the panel disables
+// the start and says why, so the operator never sees the raw 400.
+describe("scanRefusal", () => {
+  it("refuses a radio whose streams tune independently", () => {
+    const perStream = deviceSet({
+      capabilities: {
+        ...deviceSet().capabilities,
+        rx_streams: 2,
+        per_stream: { tuning: true, gain: true, antenna: true },
+      },
+    });
+    expect(scanRefusal(perStream)).toMatch(/independently/);
+  });
+
+  it("allows a single-stream radio, a shared-tuning array, and no radio at all", () => {
+    expect(scanRefusal(deviceSet())).toBeNull();
+    const array4 = deviceSet({
+      capabilities: { ...deviceSet().capabilities, rx_streams: 4, per_stream: { gain: true } },
+    });
+    expect(scanRefusal(array4)).toBeNull();
+    expect(scanRefusal(null)).toBeNull();
+  });
+});
+
 describe("formatDb", () => {
   it("renders a dash rather than a bogus number for an absent level", () => {
     expect(formatDb(-31.5)).toBe("-31.5 dB");
@@ -118,31 +142,28 @@ const TEMPLATE: TemplateInfo = {
   channels: [],
   min_freq_hz: 1_090_000_000,
   max_freq_hz: 1_090_000_000,
+  direction: "rx",
+  exact_rate: true,
+  supported_devices: ["rtlsdr:00000001"],
 };
 
-describe("template reachability", () => {
-  it("greys out what the open device cannot tune", () => {
+// Which radios can run a template is decided once, in `TemplateInfo::unmet_by`, and served as
+// `supported_devices`. The panel looks the open radio up in that list rather than re-deriving
+// the rule from the capability set — these cases pin the lookup, not the rule.
+describe("template support", () => {
+  it("offers the template on a radio the server listed", () => {
     const rtl = deviceSet({
-      capabilities: {
-        ...deviceSet().capabilities,
-        freq_ranges: [{ min: 24_000_000, max: 1_766_000_000 }],
-      },
+      device: { driver: "rtlsdr", key: "00000001", label: "RTL-SDR" },
     });
-    const hf = deviceSet({
-      capabilities: {
-        ...deviceSet().capabilities,
-        freq_ranges: [{ min: 0, max: 30_000_000 }],
-      },
-    });
-    expect(reachable(TEMPLATE, rtl)).toBe(true);
-    expect(reachable(TEMPLATE, hf)).toBe(false);
+    expect(supports(TEMPLATE, rtl)).toBe(true);
   });
 
-  // A device that advertises no ranges (the virtual siggen) must not have every template
-  // greyed out — the engine is the authority, and it accepts them.
-  it("assumes reachable when the device advertises no ranges", () => {
-    expect(reachable(TEMPLATE, deviceSet())).toBe(true);
-    expect(reachable(TEMPLATE, null)).toBe(true);
+  it("refuses a radio the server left out, and refuses with no radio open", () => {
+    const other = deviceSet({
+      device: { driver: "rtlsdr", key: "00000002", label: "RTL-SDR" },
+    });
+    expect(supports(TEMPLATE, other)).toBe(false);
+    expect(supports(TEMPLATE, null)).toBe(false);
   });
 });
 

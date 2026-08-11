@@ -25,6 +25,7 @@ use caps::{GainMode, Plan};
 use driver::{DeviceDescriptor, DeviceDescriptors, RtlSdr};
 use sdrmm_device::{
     Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice, lock,
+    single_rx_sink,
 };
 use sdrmm_usb_stream::RxStream;
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, ExtraValue};
@@ -275,11 +276,11 @@ impl SdrDevice for RtlSdrDevice {
         Ok(())
     }
 
-    fn rx_start(&mut self, sink: RxSink) -> Result<(), DeviceError> {
+    fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
         self.capture.start(
             self.radio.clone(),
             convert::converter(),
-            sink,
+            single_rx_sink(sinks)?,
             CaptureConfig::new("sdrmm-rtlsdr-rx", DRIVER_ID),
         )
     }

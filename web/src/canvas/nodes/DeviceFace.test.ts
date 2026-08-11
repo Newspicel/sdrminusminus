@@ -1,20 +1,26 @@
 import { describe, expect, it } from "vitest";
-import type { DeviceSet, ScannerStatus } from "../../lib/types";
-import { refLabel, scannerOwnsTuning } from "./DeviceFace";
+import type { Capabilities, DeviceSet, ScannerStatus } from "../../lib/types";
+import { mergeSettings } from "../../lib/useDevicePatch";
+import { refLabel, scannerOwnsTuning, tuneDelta, tunerDials } from "./DeviceFace";
+
+function capabilities(overrides: Partial<Capabilities> = {}): Capabilities {
+  return {
+    freq_ranges: [],
+    sample_rates: [],
+    gains: [],
+    antennas: [],
+    bandwidths: [],
+    extra: [],
+    duplex: "rx_only",
+    ...overrides,
+  };
+}
 
 function deviceSet(overrides: Partial<DeviceSet> = {}): DeviceSet {
   return {
     id: 1,
     device: { driver: "virtual", key: "siggen", label: "Signal Generator" },
-    capabilities: {
-      freq_ranges: [],
-      sample_rates: [],
-      gains: [],
-      antennas: [],
-      bandwidths: [],
-      extra: [],
-      tx_capable: false,
-    },
+    capabilities: capabilities(),
     settings: {},
     status: "running",
     channels: [],
@@ -42,6 +48,84 @@ describe("refLabel", () => {
   // rather than as an empty separator.
   it("falls back to the backend alone", () => {
     expect(refLabel({ backend: "hackrf" })).toBe("hackrf");
+  });
+});
+
+// Which dials a device face draws is the radio's `per_stream` declaration, not its stream
+// count: a coherent array shares one tuner by definition, so even four lanes get one dial.
+describe("tunerDials", () => {
+  it("draws exactly one unlabelled dial for a single-stream radio", () => {
+    const set = deviceSet({ settings: { center_hz: 100_000_000 } });
+    expect(tunerDials(set)).toEqual([{ stream: 0, port: null, hz: 100_000_000 }]);
+  });
+
+  it("still draws one dial for a shared-tuning array, whatever its stream count", () => {
+    const array4 = deviceSet({
+      capabilities: capabilities({ rx_streams: 4, per_stream: { gain: true } }),
+      settings: { center_hz: 433_920_000 },
+    });
+    expect(tunerDials(array4)).toEqual([{ stream: 0, port: null, hz: 433_920_000 }]);
+  });
+
+  it("draws one dial per stream, named for its IQ port, when the radio tunes per stream", () => {
+    const set = deviceSet({
+      capabilities: capabilities({
+        rx_streams: 2,
+        per_stream: { tuning: true, gain: true, antenna: true },
+      }),
+      settings: {
+        center_hz: 100_000_000,
+        streams: [{ stream: 1, center_hz: 433_920_000 }],
+      },
+    });
+    // Stream 0 has no override, so its dial shows the radio-wide centre it falls back to. It is
+    // labelled `iq1`, not the bare `iq` it is stored as: above an `iq2`, an unnumbered dial reads
+    // as the radio's rather than as the first lane's.
+    expect(tunerDials(set)).toEqual([
+      { stream: 0, port: "iq1", hz: 100_000_000 },
+      { stream: 1, port: "iq2", hz: 433_920_000 },
+    ]);
+  });
+
+  // A one-lane radio that happens to declare per-stream tuning has nothing to distinguish, and a
+  // lone dial labelled IQ reads as if some other one were the radio's.
+  it("leaves a single-lane radio's dial unnamed even where tuning is per-stream", () => {
+    const set = deviceSet({
+      capabilities: capabilities({ rx_streams: 1, per_stream: { tuning: true } }),
+      settings: { center_hz: 100_000_000 },
+    });
+    expect(tunerDials(set)).toEqual([{ stream: 0, port: null, hz: 100_000_000 }]);
+  });
+});
+
+describe("tuneDelta", () => {
+  it("retunes the whole radio when tuning is shared", () => {
+    expect(tuneDelta(capabilities({ rx_streams: 4 }), 0, 145_500_000)).toEqual({
+      center_hz: 145_500_000,
+    });
+  });
+
+  it("tunes only the lane touched on a per-stream radio", () => {
+    const caps = capabilities({ rx_streams: 2, per_stream: { tuning: true } });
+    const delta = tuneDelta(caps, 1, 434_000_000);
+    expect(delta).toEqual({ streams: [{ stream: 1, center_hz: 434_000_000 }] });
+
+    // Through the optimistic merge, the other lane's dial must not move.
+    const set = deviceSet({
+      capabilities: caps,
+      settings: {
+        center_hz: 100_000_000,
+        streams: [
+          { stream: 0, center_hz: 101_000_000 },
+          { stream: 1, center_hz: 433_920_000 },
+        ],
+      },
+    });
+    const retuned = { ...set, settings: mergeSettings(set.settings, delta) };
+    expect(tunerDials(retuned)).toEqual([
+      { stream: 0, port: "iq1", hz: 101_000_000 },
+      { stream: 1, port: "iq2", hz: 434_000_000 },
+    ]);
   });
 });
 

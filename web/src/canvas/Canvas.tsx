@@ -24,7 +24,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { BTN_QUIET, SURFACE } from "../components/controls";
 import { pushToast } from "../lib/toasts";
 import type { PatchEdge, PatchGraph, PatchNode, PortRef } from "../lib/types";
-import { useStationContext } from "./context";
+import { useWorkspaceContext } from "./context";
 import {
   addEdge,
   connectionRefusal,
@@ -58,44 +58,44 @@ const FIT_VIEW = { padding: 0.12, maxZoom: 1 } as const;
 const DELETE_KEYS = ["Backspace", "Delete"];
 
 export function Canvas() {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData>>(
-    toFlowNodes(station.graph),
+    toFlowNodes(workspace.graph),
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    toFlowEdges(station.graph, station.context),
+    toFlowEdges(workspace.graph, workspace.context),
   );
 
   // What the canvas currently holds, as a stored patch. An incoming graph equal to this is our
   // own write echoing back through the query cache, and re-applying it would reset a drag in
   // progress; anything else is another client's patch (or the 409 recovery) and is taken.
-  const held = useRef<PatchGraph>(station.graph);
-  const context = station.context;
+  const held = useRef<PatchGraph>(workspace.graph);
+  const context = workspace.context;
   useEffect(() => {
-    if (sameGraph(held.current, station.graph)) {
+    if (sameGraph(held.current, workspace.graph)) {
       // The graph is unchanged, but a wire's *fault* is live state — a radio retuned to the
       // wrong rate under a wideband channel has to light its wire without a patch write.
-      setEdges(toFlowEdges(station.graph, context));
+      setEdges(toFlowEdges(workspace.graph, context));
       return;
     }
-    held.current = station.graph;
+    held.current = workspace.graph;
     // Reconciled, not replaced: a fresh object per node would drop React Flow's own `selected`
     // flag and its measured handle bounds, so after any write the library would consider
     // nothing selected while the node still rendered as selected — and Backspace would stop
     // deleting it.
     setNodes((previous) =>
-      toFlowNodes(station.graph).map((node) => {
+      toFlowNodes(workspace.graph).map((node) => {
         const mounted = previous.find((candidate) => candidate.id === node.id);
         return mounted === undefined ? node : { ...mounted, ...node, selected: mounted.selected };
       }),
     );
-    setEdges(toFlowEdges(station.graph, context));
-  }, [station.graph, context, setNodes, setEdges]);
+    setEdges(toFlowEdges(workspace.graph, context));
+  }, [workspace.graph, context, setNodes, setEdges]);
 
   // Geometry is written at the end of a gesture, never per frame: one write per drag, not one
   // per pointer move (CANVAS §4).
   const commitGeometry = useCallback(() => {
-    station.edit((snapshot) => ({
+    workspace.edit((snapshot) => ({
       ...snapshot,
       graph: {
         ...snapshot.graph,
@@ -117,7 +117,7 @@ export function Canvas() {
         }),
       },
     }));
-  }, [station]);
+  }, [workspace]);
 
   // The live node array, read by `commitGeometry` without making it depend on every frame of a
   // drag (which would rebuild the handler mid-gesture).
@@ -132,7 +132,7 @@ export function Canvas() {
       // and the click reads as "nothing selected". Collapse the batch to its outcome.
       const selects = changes.filter((change) => change.type === "select");
       if (selects.length > 0) {
-        station.select(selects.find((change) => change.selected)?.id ?? null);
+        workspace.select(selects.find((change) => change.selected)?.id ?? null);
       }
       for (const change of changes) {
         // A resize reports every frame; only its last one is a gesture that ended.
@@ -140,14 +140,14 @@ export function Canvas() {
           queueMicrotask(commitGeometry);
         }
         if (change.type === "remove") {
-          station.edit((snapshot) => {
+          workspace.edit((snapshot) => {
             const graph = removeNode(snapshot.graph, change.id);
             return { ...snapshot, graph, rack: pruneRack(snapshot.rack ?? {}, graph) };
           });
         }
       }
     },
-    [onNodesChange, station, commitGeometry],
+    [onNodesChange, workspace, commitGeometry],
   );
 
   const handleEdgesChange = useCallback(
@@ -155,14 +155,14 @@ export function Canvas() {
       onEdgesChange(changes);
       for (const change of changes) {
         if (change.type === "remove") {
-          station.edit((snapshot) => ({
+          workspace.edit((snapshot) => ({
             ...snapshot,
             graph: removeEdge(snapshot.graph, change.id),
           }));
         }
       }
     },
-    [onEdgesChange, station],
+    [onEdgesChange, workspace],
   );
 
   // Backspace deletes what is selected, and a node's deletion has to close the radio or channel
@@ -172,7 +172,7 @@ export function Canvas() {
     async ({ nodes: doomed, edges: cut }) => {
       try {
         await closeEngineObjects(
-          station,
+          workspace,
           doomed.map((node) => node.id),
         );
       } catch (error) {
@@ -181,13 +181,13 @@ export function Canvas() {
       }
       return { nodes: doomed, edges: cut };
     },
-    [station],
+    [workspace],
   );
 
   const refusal = useCallback(
     (from: PortRef, to: PortRef): string | null =>
-      connectionRefusal(station.context, station.graph, from, to),
-    [station],
+      connectionRefusal(workspace.context, workspace.graph, from, to),
+    [workspace],
   );
 
   const isValidConnection: IsValidConnection = useCallback(
@@ -205,12 +205,12 @@ export function Canvas() {
         from: { node: connection.source, port: connection.sourceHandle ?? "" },
         to: { node: connection.target, port: connection.targetHandle ?? "" },
       };
-      station.edit((snapshot) => ({ ...snapshot, graph: addEdge(snapshot.graph, edge) }));
+      workspace.edit((snapshot) => ({ ...snapshot, graph: addEdge(snapshot.graph, edge) }));
       // A new wire can mean a new channel to create (a channel node just given a radio), and
       // apply is idempotent, so asking every time costs nothing.
-      station.apply();
+      workspace.apply();
     },
-    [station],
+    [workspace],
   );
 
   // The reason a wire was refused, said in words where the operator is looking (CANVAS §1).
@@ -268,7 +268,7 @@ export function Canvas() {
         onBeforeDelete={onBeforeDelete}
         isValidConnection={isValidConnection}
         onPaneClick={() => {
-          station.select(null);
+          workspace.select(null);
           setMenu(null);
         }}
         onNodeClick={() => setMenu(null)}
@@ -281,7 +281,7 @@ export function Canvas() {
         panOnScroll
         panOnScrollSpeed={1}
         selectionOnDrag
-        // The patch opens framed: a station drawn over several screens is otherwise restored at
+        // The patch opens framed: a workspace drawn over several screens is otherwise restored at
         // whatever corner the last camera left, and the operator's first gesture is always a hunt.
         fitView
         fitViewOptions={FIT_VIEW}
@@ -307,11 +307,11 @@ interface Menu {
  * reachable from the node's own chrome or a key, and a menu that lists the whole application is
  * one nobody reads. */
 function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
-  const station = useStationContext();
+  const workspace = useWorkspaceContext();
   const { fitView } = useReactFlow();
   const menuRef = useRef<HTMLDivElement>(null);
-  const node = menu.target.kind === "node" ? nodeOf(station.graph, menu.target.id) : undefined;
-  const pinned = node !== undefined && isPinned(station.rack, node.id);
+  const node = menu.target.kind === "node" ? nodeOf(workspace.graph, menu.target.id) : undefined;
+  const pinned = node !== undefined && isPinned(workspace.rack, node.id);
 
   // A menu that outlives its context is a menu that acts on the wrong thing.
   useEffect(() => {
@@ -358,7 +358,7 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   if (node !== undefined) {
     items.push(
       item(pinned ? "Unpin from the rack" : "Pin to the rack", () =>
-        station.edit((snapshot) => ({
+        workspace.edit((snapshot) => ({
           ...snapshot,
           rack: pinned ? unpin(snapshot.rack ?? {}, node.id) : pin(snapshot.rack ?? {}, node.id),
         })),
@@ -367,7 +367,7 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
     if (node.size != null) {
       items.push(
         item("Reset size", () =>
-          station.edit((snapshot) => ({
+          workspace.edit((snapshot) => ({
             ...snapshot,
             graph: patchNode(snapshot.graph, node.id, ({ size: _size, ...rest }) => rest),
           })),
@@ -380,7 +380,8 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
     items.push(
       item(
         "Delete wire",
-        () => station.edit((snapshot) => ({ ...snapshot, graph: removeEdge(snapshot.graph, key) })),
+        () =>
+          workspace.edit((snapshot) => ({ ...snapshot, graph: removeEdge(snapshot.graph, key) })),
         true,
       ),
     );

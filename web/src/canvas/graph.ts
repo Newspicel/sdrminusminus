@@ -1,6 +1,6 @@
 // Pure operations on the stored patch graph (CANVAS §1, §4). No React, no React Flow: the
 // canvas maps this model onto the library's nodes and edges, never the other way round, so a
-// library major cannot reach the stored station.
+// library major cannot reach the stored workspace.
 //
 // The connection rules are enforced twice on purpose — here at drag time, so the operator is
 // told where they are looking, and again by the server, which is the one that decides. They are
@@ -9,8 +9,10 @@
 
 import { rateMismatch } from "../components/channelSettings";
 import type {
+  Capabilities,
   ChannelDescriptor,
   DeviceSet,
+  Duplex,
   NodeKind,
   PatchCatalog,
   PatchEdge,
@@ -18,6 +20,7 @@ import type {
   PatchNode,
   PortRef,
   PortSpec,
+  Position,
   RackLayout,
   WorkspaceSnapshot,
 } from "../lib/types";
@@ -34,6 +37,68 @@ export interface GraphContext {
 
 export function nodeOf(graph: PatchGraph, id: string): PatchNode | undefined {
   return graph.nodes.find((node) => node.id === id);
+}
+
+// ── stream port families ──────────────────────────────────────────────────────────────────
+//
+// A multi-stream radio has one IQ output per receive stream. The three rules below are
+// `crates/wire/src/patch.rs`'s `MAX_STREAMS` / `stream_port` / `port_stream`, mirrored so the
+// canvas names the same ports the server validates; if one side changes, both change.
+
+export const MAX_STREAMS = 16;
+
+/** The port name for stream `index` of the family `base`. Stream 0 keeps the bare name — every
+ * stored workspace and template names it — so the wire's numbering starts at 2: `iq`, `iq2`… */
+export function streamPort(base: string, index: number): string {
+  return index === 0 ? base : `${base}${index + 1}`;
+}
+
+/** What a port is *called on screen*, which is not always what it is called on the wire.
+ *
+ * Stream 0 is stored as the bare `iq`, and renaming it would invalidate every stored workspace and
+ * template — but on screen an unnumbered `IQ` sitting above `IQ2` reads as a different kind of
+ * port rather than the first of a set. So it is shown as `IQ1` whenever the radio has a second
+ * stream to tell it from, and left bare when it is the only one.
+ *
+ * `siblings` is the port list it is drawn among, already expanded per stream. */
+export function portLabel(name: string, siblings: readonly PortSpec[]): string {
+  const numbered = `${name}2`;
+  return siblings.some((port) => port.name === numbered) ? `${name}1` : name;
+}
+
+/** [`portLabel`] for a control that is drawn per stream rather than per port: the face knows how
+ * many lanes it is rendering, so it has no port list to look a sibling up in. */
+export function streamLabel(base: string, index: number, streams: number): string {
+  return streams > 1 && index === 0 ? `${base}1` : streamPort(base, index);
+}
+
+/** How many receive streams to draw controls for: the declared count, clamped the same way the
+ * port family is, so a dial or gain row always has the socket it reads as. */
+export function rxStreamCount(capabilities: Capabilities | undefined): number {
+  return clampStreams(capabilities?.rx_streams);
+}
+
+/** No radio attached (or an older server that reports no count): stream 0 only. */
+function clampStreams(declared: number | undefined): number {
+  return Math.min(Math.max(declared ?? 1, 1), MAX_STREAMS);
+}
+
+/** The stream `name` addresses within family `base`, or `null` when it is not one of that
+ * family's. One spelling per port: `iq1` would alias `iq` and `iq02` would alias `iq2`, so only
+ * the canonical rendering of 2..=MAX_STREAMS names a stream. */
+export function portStream(base: string, name: string): number | null {
+  if (name === base) {
+    return 0;
+  }
+  if (!name.startsWith(base)) {
+    return null;
+  }
+  const suffix = name.slice(base.length);
+  const n = Number(suffix);
+  if (!Number.isInteger(n) || n < 2 || n > MAX_STREAMS || suffix !== String(n)) {
+    return null;
+  }
+  return n - 1;
 }
 
 /** A fresh node id. Ids only have to be unique within one graph and stable for the node's life;
@@ -62,24 +127,77 @@ export function descriptorOf(
  * attached. So an unbound node has no transmit input, and gains one when its transceiver appears
  * — the same way its dial only reads a frequency once there is a radio behind it.
  */
-export function portsOf(context: GraphContext, node: PatchNode): PortSpec[] {
+/** Whether a radio has a send side at all. `rx_only` is the wire default, so a capability set
+ * that says nothing — an older server, or a backend that declares no duplex — has none. */
+export function hasTransmitter(duplex: Duplex | undefined): boolean {
+  return duplex === "half" || duplex === "full" || duplex === "tx_only";
+}
+
+export function portsOf(context: GraphContext, graph: PatchGraph, node: PatchNode): PortSpec[] {
   const entry = context.catalog.nodes.find((type) => type.kind === node.kind);
   if (entry === undefined) {
     return [];
   }
   const descriptor = descriptorOf(context, node);
-  return entry.ports.filter((port) => {
-    switch (port.condition) {
-      case "channel_has_audio":
-        return descriptor?.has_audio === true;
-      case "channel_is_decoder":
-        return descriptor?.decoder_kind != null;
-      case "device_is_tx_capable":
-        return context.bound?.get(node.id)?.capabilities.tx_capable === true;
-      default:
-        return true;
+  const capabilities = context.bound?.get(node.id)?.capabilities;
+  return entry.ports
+    .filter((port) => {
+      switch (port.condition) {
+        case "channel_has_audio":
+          return descriptor?.has_audio === true;
+        case "channel_is_decoder":
+          return descriptor?.decoder_kind != null;
+        case "device_is_tx_capable":
+          // The reserved transmit input is drawn on a radio that *has* a send side, whatever
+          // PLAN §12a lets it do with one: `rx_only` is the wire default, so a radio that says
+          // nothing gets no port.
+          return hasTransmitter(capabilities?.duplex);
+        default:
+          return true;
+      }
+    })
+    .flatMap((port) => expandStreams(port, node.id, graph.edges ?? [], capabilities));
+}
+
+/**
+ * One concrete port per stream for a repeating spec (mirrors `NodeBody::ports_with`): the
+ * catalog is per-build static, so how many streams a family really has is read off the attached
+ * radio's capabilities.
+ *
+ * Streams a stored wire already names are always kept, *unlike* the transmit input's
+ * hide-when-unbound rule: an edge whose port has no handle is an edge React Flow will not draw,
+ * so a workspace laid out against a four-stream radio must not lose its wires the moment that
+ * radio is absent — or smaller than it was.
+ */
+function expandStreams(
+  spec: PortSpec,
+  node: string,
+  edges: readonly PatchEdge[],
+  capabilities: Capabilities | undefined,
+): PortSpec[] {
+  const repeat = spec.repeat ?? "once";
+  if (repeat === "once") {
+    return [spec];
+  }
+  const count = clampStreams(
+    repeat === "per_rx_stream" ? capabilities?.rx_streams : capabilities?.tx_streams,
+  );
+  const streams = new Set<number>();
+  for (let stream = 0; stream < count; stream++) {
+    streams.add(stream);
+  }
+  for (const edge of edges) {
+    const end = spec.direction === "out" ? edge.from : edge.to;
+    const stream = end.node === node ? portStream(spec.name, end.port) : null;
+    if (stream !== null) {
+      streams.add(stream);
     }
-  });
+  }
+  // Expanded ports are concrete sockets, so they carry `once` — leaving the flag on would
+  // invite a second expansion.
+  return [...streams]
+    .toSorted((a, b) => a - b)
+    .map((stream) => ({ ...spec, name: streamPort(spec.name, stream), repeat: "once" as const }));
 }
 
 export function portOf(
@@ -90,7 +208,7 @@ export function portOf(
   const node = nodeOf(graph, reference.node);
   return node === undefined
     ? undefined
-    : portsOf(context, node).find((port) => port.name === reference.port);
+    : portsOf(context, graph, node).find((port) => port.name === reference.port);
 }
 
 export function edgeKey(edge: PatchEdge): string {
@@ -216,7 +334,45 @@ export const NODE_MIN_SIZE: Record<NodeKind, { w: number; h: number }> = {
   scanner: { w: 300, h: 160 },
 };
 
+/** Vertical space the shell's header takes, so ports are spread down the body only. Ports start
+ * half a step below it: a handle sitting exactly on the boundary puts its label across the title
+ * row, over the pin and remove buttons. */
+export const HEADER_PX = 26;
+/** Distance between stacked ports on one side of a face. */
+export const PORT_STEP_PX = 22;
+/** Where the first port sits, measured from the top of the face. */
+export const PORT_TOP_PX = HEADER_PX + PORT_STEP_PX / 2;
+
+/**
+ * The resize floor for a node with these ports. Ports sit at `PORT_TOP_PX + PORT_STEP_PX × index`
+ * down each side, so a radio with more streams than its kind's base minimum has rows for must
+ * refuse to shrink past its lowest port — the shell clips its overflow, and a clipped port is a
+ * wire that cannot be grabbed.
+ */
+export function nodeMinSize(kind: NodeKind, ports: readonly PortSpec[]): { w: number; h: number } {
+  const base = NODE_MIN_SIZE[kind];
+  const deepest = Math.max(
+    ports.filter((port) => port.direction === "in").length,
+    ports.filter((port) => port.direction === "out").length,
+  );
+  return { w: base.w, h: Math.max(base.h, PORT_TOP_PX + PORT_STEP_PX * deepest) };
+}
+
 /** Add a node. The caller supplies the id so the same call can be replayed optimistically. */
+/** Vertical stagger between nodes dropped in one session, so a run of them does not stack. */
+const DROP_STEP = 40;
+
+/** Where a node dropped from a palette or a library panel lands: to the right of everything
+ * already drawn, so it is on screen and on top of nothing. CANVAS §9 left auto-placement to
+ * feel; this is the feel, and it lives here so every drop site shares it. */
+export function dropPosition(graph: PatchGraph): Position {
+  const drawn = graph.nodes;
+  return {
+    x: drawn.reduce((max, node) => Math.max(max, node.position.x), 0) + 360,
+    y: drawn.length * DROP_STEP,
+  };
+}
+
 export function addNode(graph: PatchGraph, node: PatchNode): PatchGraph {
   return { ...graph, nodes: [...graph.nodes, node] };
 }
@@ -256,7 +412,7 @@ export function sameGraph(a: PatchGraph, b: PatchGraph): boolean {
 }
 
 /**
- * A stored station brought up to today's port table, returned unchanged when it already is.
+ * A stored workspace brought up to today's port table, returned unchanged when it already is.
  *
  * One shape needs it so far. A scanner used to *consume* a radio's IQ; it now drives the radio
  * through a control wire running the other way, because a device's left side is what is done to
@@ -277,8 +433,10 @@ function migrateGraph(graph: PatchGraph): PatchGraph {
     graph.nodes.filter((node) => node.kind === "scanner").map((node) => node.id),
   );
   const edges = graph.edges ?? [];
+  // The whole IQ family, not the bare name: a scanner has no IQ input of any stream today, so
+  // every spelling of one is the old shape and would refuse writes just the same.
   const consumed = (edge: PatchEdge): boolean =>
-    scanners.has(edge.to.node) && edge.to.port === "iq";
+    scanners.has(edge.to.node) && portStream("iq", edge.to.port) !== null;
   if (!edges.some(consumed)) {
     return graph;
   }
@@ -325,6 +483,11 @@ function migrateGraph(graph: PatchGraph): PatchGraph {
 export const RACK_COLS = 12;
 export const RACK_ROWS = 8;
 export const RACK_DEFAULT = { w: 6, h: 4 } as const;
+
+/** `crates/wire/src/workspace.rs`'s `MAX_NAME_LEN`. The server validates the whole snapshot on
+ * every write, so a label built here from something unbounded — a recording's file name — has to
+ * be cut to this or the next arrangement gesture is refused along with it. */
+export const MAX_NAME_LEN = 64;
 
 /** Cells a face occupies. The stored shape without the node it belongs to. */
 export interface RackCell {

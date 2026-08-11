@@ -18,7 +18,7 @@ use std::{
 };
 
 use sdrmm_channels::{ChannelCtx, ChannelError};
-use sdrmm_device::{DeviceError, DeviceRegistry};
+use sdrmm_device::{DeviceError, DeviceRegistry, check_stream_settings};
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
@@ -100,6 +100,10 @@ pub enum EngineError {
     DeviceSetNotFound(u32),
     #[error("channel {0} not found in device set {1}")]
     ChannelNotFound(u32, u32),
+    /// A stream index past the device's lane count — a bad request naming the count, never a
+    /// panic and never a silent fallback to stream 0 (design §6).
+    #[error("stream {stream} is out of range: this device has {streams} rx streams")]
+    StreamOutOfRange { stream: u32, streams: u32 },
     #[error(transparent)]
     Device(#[from] DeviceError),
     #[error(transparent)]
@@ -136,6 +140,7 @@ impl EngineError {
             ) | Self::Channel(_)
                 | Self::Recording(_)
                 | Self::Scan(_)
+                | Self::StreamOutOfRange { .. }
         )
     }
 }
@@ -145,6 +150,8 @@ impl EngineError {
 /// must reuse so the audio stream and its timestamps survive the swap.
 struct RebuildEntry {
     id: u32,
+    /// The rx stream the channel taps; the replacement host must land on the same lane.
+    stream: u32,
     settings: ChannelSettings,
     pcm_tx: broadcast::Sender<PcmBlock>,
     pcm_pos: Arc<AtomicU64>,
@@ -244,6 +251,41 @@ fn validate_channel(
     Ok(())
 }
 
+/// Whether the radio's advertised ranges reach `hz`. No ranges means unconstrained — the
+/// same reading as `DeviceProfile::reaches`, so the engine and the picker cannot disagree.
+fn tuner_reaches(capabilities: &Capabilities, hz: f64) -> bool {
+    capabilities.freq_ranges.is_empty()
+        || capabilities
+            .freq_ranges
+            .iter()
+            .any(|r| hz >= r.min && hz <= r.max)
+}
+
+/// Refuse a per-stream delta the capability cannot honour — an entry for a stream the radio
+/// lacks, or for a setting it does not scope per-stream — before any device I/O (design §4).
+/// The backends refuse the same things through the shared [`check_stream_settings`], but the
+/// refusal must come back as the engine's bad request naming the problem, not as an apply
+/// failure after other fields already reached the device. The range check mirrors the
+/// radio-wide dial's: a per-stream tuner is still this tuner.
+fn validate_streams(
+    capabilities: &Capabilities,
+    delta: &DeviceSettings,
+) -> Result<(), EngineError> {
+    check_stream_settings(delta, capabilities)?;
+    for entry in &delta.streams {
+        if let Some(hz) = entry.center_hz
+            && !tuner_reaches(capabilities, hz)
+        {
+            return Err(DeviceError::Unsupported(format!(
+                "streams[{}].center_hz: {hz} Hz is outside this device's tuning range",
+                entry.stream
+            ))
+            .into());
+        }
+    }
+    Ok(())
+}
+
 /// A channel's audio identity: the PCM fan-in and Opus fan-out survive pipeline rebuilds
 /// (params type change, device rate change), so audio subscribers never notice a swap.
 struct ChannelAudio {
@@ -286,6 +328,8 @@ impl ChannelAudio {
 struct RecordingState {
     /// Stem file name (no directory, no `.sigmf-*` suffix) — what clients display.
     file: String,
+    /// The rx stream being recorded; the stop command must reach this lane's tap.
+    stream: u32,
     /// RFC3339 UTC.
     started_at: String,
     /// Directory-joined stem, kept for the finalized handoff to the server's index.
@@ -304,6 +348,7 @@ impl RecordingState {
     fn status(&self, overruns_now: u64) -> RecordingStatus {
         RecordingStatus {
             file: self.file.clone(),
+            stream: self.stream,
             started_at: self.started_at.clone(),
             samples: self.shared.samples(),
             bytes: self.shared.bytes(),
@@ -342,17 +387,18 @@ struct DeviceSetState {
     /// the reverse ordering of the recording guard in the patch pre-validation. Cleared by
     /// [`RatePatchGuard`] on every patch exit path.
     rate_patches: u32,
-    /// Clone of the runtime's DSP command queue. Channel commands go through this while
-    /// holding the engine `inner` lock with this set's entry present — that ordering is what
-    /// keeps DSP-plane channel membership consistent with control-plane state (a removal or
-    /// swap can never interleave into a stale rebuild and re-add a deleted channel, which
-    /// would strand a live PCM sender and hang the encoder join). `mpsc` sends never block,
-    /// so sending under `inner` is safe; the never-hold-both rule below concerns only the
-    /// `runtime` mutex, which these sends never touch.
-    cmd_tx: mpsc::Sender<DspCommand>,
-    /// Capture-ring drop counter shared with the runtime; readable without its lock so
-    /// snapshots never wait on a wedged device.
-    overruns: Arc<AtomicU64>,
+    /// Clones of the runtime's per-stream DSP command queues, index = stream. Channel
+    /// commands go through these while holding the engine `inner` lock with this set's entry
+    /// present — that ordering is what keeps DSP-plane channel membership consistent with
+    /// control-plane state (a removal or swap can never interleave into a stale rebuild and
+    /// re-add a deleted channel, which would strand a live PCM sender and hang the encoder
+    /// join). `mpsc` sends never block, so sending under `inner` is safe; the
+    /// never-hold-both rule below concerns only the `runtime` mutex, which these sends never
+    /// touch.
+    cmd_txs: Vec<mpsc::Sender<DspCommand>>,
+    /// Per-lane capture-ring drop counters shared with the runtime, index = stream;
+    /// readable without its lock so snapshots never wait on a wedged device.
+    overruns: Vec<Arc<AtomicU64>>,
     /// Overrun count already surfaced to clients; the hotplug tick diffs against it.
     overruns_seen: u64,
     /// Control-plane mutex around the runtime: device I/O (`apply`, `stop`) happens under it,
@@ -364,10 +410,13 @@ struct DeviceSetState {
 
 impl DeviceSetState {
     fn project(&self, id: u32) -> DeviceSet {
-        let overruns = self.overruns.load(Ordering::Relaxed);
+        let overruns = self.overruns_total();
         DeviceSet {
             id,
-            device: self.info.clone(),
+            // Identity only: the radio is open, so `capabilities` below is what it actually
+            // reports, and the probe-time profile beside it would be a second answer to the
+            // same question.
+            device: self.info.identity(),
             capabilities: self.capabilities.clone(),
             settings: self.settings.clone(),
             status: self.status,
@@ -379,12 +428,52 @@ impl DeviceSetState {
         }
     }
 
-    /// Queue a DSP command. Callers hold `inner` with this set still listed, so the DSP
-    /// thread is alive (`remove_device_set` unlists the set before stopping it); a closed
-    /// queue here is an engine bug and is surfaced rather than swallowed.
-    fn send_dsp(&self, cmd: DspCommand) {
-        if self.cmd_tx.send(cmd).is_err() {
-            tracing::error!("dsp command queue closed while its device set is still listed");
+    /// How many rx streams this set's runtime hosts — the bound every stream-taking call is
+    /// checked against, and the count its refusal names.
+    fn rx_streams(&self) -> u32 {
+        self.cmd_txs.len() as u32
+    }
+
+    /// `Ok(())` iff `stream` addresses one of this set's lanes.
+    fn check_stream(&self, stream: u32) -> Result<(), EngineError> {
+        if stream < self.rx_streams() {
+            Ok(())
+        } else {
+            Err(EngineError::StreamOutOfRange {
+                stream,
+                streams: self.rx_streams(),
+            })
+        }
+    }
+
+    /// `DeviceSet.overruns` stays one number: the set-wide sum (per-lane counts exist for
+    /// per-lane sample clocks, not for the projection).
+    fn overruns_total(&self) -> u64 {
+        self.overruns
+            .iter()
+            .map(|counter| counter.load(Ordering::Relaxed))
+            .sum()
+    }
+
+    /// Queue a DSP command on `stream`'s lane. Callers hold `inner` with this set still
+    /// listed, so the DSP threads are alive (`remove_device_set` unlists the set before
+    /// stopping it), and they derive `stream` from state committed under `inner` — a missing
+    /// lane or a closed queue here is an engine bug and is surfaced rather than swallowed.
+    fn send_dsp(&self, stream: u32, cmd: DspCommand) {
+        match self.cmd_txs.get(stream as usize) {
+            Some(cmd_tx) => {
+                if cmd_tx.send(cmd).is_err() {
+                    tracing::error!(
+                        stream,
+                        "dsp command queue closed while its device set is still listed"
+                    );
+                }
+            }
+            None => tracing::error!(
+                stream,
+                streams = self.rx_streams(),
+                "dsp command for a stream this device set does not have"
+            ),
         }
     }
 }
@@ -591,8 +680,8 @@ impl Engine {
             // The DSP thread is still alive (only removal stops it), so the queued command
             // is guaranteed to drop the tap and the join below cannot hang.
             let recording = state.recording.take();
-            if recording.is_some() {
-                state.send_dsp(DspCommand::StopRecording);
+            if let Some(recording) = &recording {
+                state.send_dsp(recording.stream, DspCommand::StopRecording);
             }
             // A dead device accepts no more retunes, so the scan is over; take it here and
             // join outside the lock — the scan thread takes `inner` on every step.
@@ -689,7 +778,7 @@ impl Engine {
             let mut rec_faults: Vec<(u32, String)> = Vec::new();
             let mut changed: Vec<u32> = Vec::new();
             for (id, s) in inner.device_sets.iter_mut() {
-                let now = s.overruns.load(Ordering::Relaxed);
+                let now = s.overruns_total();
                 let delta = now - s.overruns_seen;
                 s.overruns_seen = now;
                 let mut dirty = delta > 0;
@@ -828,7 +917,6 @@ impl Engine {
         // reopened device actually reports laid over it.
         let mut settings = stored_settings.clone();
         settings.merge_from(&device.settings().clone());
-        let center = settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
         let rate = sample_rate_of(&settings);
         // A fault from the *fresh* capture that lands before the swap below would be applied
         // to a set that is still `Error` and then overwritten by the swap — leaving a dead
@@ -837,7 +925,7 @@ impl Engine {
         let gate = Arc::new(Mutex::new(FaultGate::Pending(None)));
         let fault_tx = self.fault_tx.clone();
         let handler_gate = gate.clone();
-        let runtime = match CaptureRuntime::start(device, center, rate, move |err| {
+        let runtime = match CaptureRuntime::start(device, &settings, move |err| {
             let mut gate = handler_gate
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -854,8 +942,8 @@ impl Engine {
                 return;
             }
         };
-        let cmd_tx = runtime.command_sender();
-        let overruns = runtime.overruns_counter();
+        let cmd_txs = runtime.command_senders();
+        let overruns = runtime.overruns_counters();
         let runtime = Arc::new(Mutex::new(runtime));
 
         // Swap under `inner` so a concurrent removal or a fault on the new capture cannot
@@ -885,9 +973,9 @@ impl Engine {
                 FaultGate::Armed => None,
             };
             let old_runtime = std::mem::replace(&mut state.runtime, runtime);
-            state.cmd_tx = cmd_tx;
-            // The fresh counter starts at zero, so the seen-watermark has to follow it or the
-            // next tick would compute a negative delta.
+            state.cmd_txs = cmd_txs;
+            // The fresh counters start at zero, so the seen-watermark has to follow them or
+            // the next tick would compute a negative delta.
             state.overruns = overruns;
             state.overruns_seen = 0;
             state.info = info;
@@ -901,6 +989,7 @@ impl Engine {
                 .filter_map(|c| {
                     state.audio.get(&c.id).map(|a| RebuildEntry {
                         id: c.id,
+                        stream: c.stream,
                         settings: c.settings.clone(),
                         pcm_tx: a.pcm_tx.clone(),
                         pcm_pos: a.pcm_pos.clone(),
@@ -1005,8 +1094,6 @@ impl Engine {
         let (info, device) = self.registry.open(device_id)?;
         let capabilities = device.capabilities().clone();
         let settings = device.settings().clone();
-        let center = settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
-        let rate = sample_rate_of(&settings);
 
         // Reserve the id before the runtime exists: the fatal handler must name its device
         // set, and `creating` membership lets `mark_device_fault` stash a fault raised before
@@ -1019,7 +1106,7 @@ impl Engine {
             id
         };
         let fault_tx = self.fault_tx.clone();
-        let started = CaptureRuntime::start(device, center, rate, move |err| {
+        let started = CaptureRuntime::start(device, &settings, move |err| {
             // Unbounded send: the dying capture thread never blocks on the control plane.
             let _ = fault_tx.send((id, err));
         });
@@ -1033,8 +1120,8 @@ impl Engine {
             }
         };
 
-        let cmd_tx = runtime.command_sender();
-        let overruns = runtime.overruns_counter();
+        let cmd_txs = runtime.command_senders();
+        let overruns = runtime.overruns_counters();
         let faulted = {
             let mut inner = self.lock();
             inner.creating.remove(&id);
@@ -1057,7 +1144,7 @@ impl Engine {
                     recording: None,
                     scanner: None,
                     rate_patches: 0,
-                    cmd_tx,
+                    cmd_txs,
                     overruns,
                     overruns_seen: 0,
                     runtime: Arc::new(Mutex::new(runtime)),
@@ -1162,6 +1249,7 @@ impl Engine {
                     "the device is being tuned by a running scan; stop the scan first".to_string(),
                 ));
             }
+            validate_streams(&state.capabilities, &delta)?;
             // Refuse a rate the hosted channels cannot run at, before any device I/O —
             // rejecting up front beats stranding a channel after the device already retuned.
             let mut rate_change = false;
@@ -1201,7 +1289,7 @@ impl Engine {
             runtime.apply(&delta)?;
             runtime.device_settings()
         };
-        let (center, rate, rebuilds) = {
+        let (settings, rate, rebuilds) = {
             let mut inner = self.lock();
             // The set may have been removed while `apply` ran; its runtime was stopped by
             // `remove_device_set`, so just report the removal.
@@ -1239,7 +1327,6 @@ impl Engine {
             if let Some(actual) = &actual {
                 state.settings.merge_from(actual);
             }
-            let center = state.settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ);
             let rate = sample_rate_of(&state.settings);
             let rebuilds: Vec<RebuildEntry> = if rate == old_rate {
                 Vec::new()
@@ -1250,6 +1337,7 @@ impl Engine {
                     .filter_map(|c| {
                         state.audio.get(&c.id).map(|a| RebuildEntry {
                             id: c.id,
+                            stream: c.stream,
                             settings: c.settings.clone(),
                             pcm_tx: a.pcm_tx.clone(),
                             pcm_pos: a.pcm_pos.clone(),
@@ -1257,10 +1345,11 @@ impl Engine {
                     })
                     .collect()
             };
+            let settings = state.settings.clone();
             inner.revision += 1;
-            (center, rate, rebuilds)
+            (settings, rate, rebuilds)
         };
-        lock_runtime(&runtime).set_meta(center, rate);
+        lock_runtime(&runtime).set_meta(&settings);
         let mut dead: Vec<ChannelAudio> = Vec::new();
         for rebuild in rebuilds {
             self.rebuild_channel(ds, rebuild, rate, &mut dead);
@@ -1295,6 +1384,7 @@ impl Engine {
     ) {
         let RebuildEntry {
             id,
+            stream,
             mut settings,
             pcm_tx,
             pcm_pos,
@@ -1331,8 +1421,8 @@ impl Engine {
             }
             match built {
                 Ok(host) => {
-                    state.send_dsp(DspCommand::RemoveChannel { id });
-                    state.send_dsp(DspCommand::AddChannel { id, host });
+                    state.send_dsp(stream, DspCommand::RemoveChannel { id });
+                    state.send_dsp(stream, DspCommand::AddChannel { id, host });
                 }
                 Err(e) => {
                     // The rate was pre-validated against every channel before the device
@@ -1341,7 +1431,7 @@ impl Engine {
                     tracing::error!(ds, channel = id, error = %e, "channel rebuild failed after rate change; removing channel");
                     state.channels.retain(|c| c.id != id);
                     dead.extend(state.audio.remove(&id));
-                    state.send_dsp(DspCommand::RemoveChannel { id });
+                    state.send_dsp(stream, DspCommand::RemoveChannel { id });
                     inner.revision += 1;
                 }
             }
@@ -1374,17 +1464,14 @@ impl Engine {
             .unwrap_or_else(|| sample_rate_of(&state.settings));
         let caps = &state.capabilities;
         if let Some(center) = settings.center_hz
-            && !caps.freq_ranges.is_empty()
-            && !caps
-                .freq_ranges
-                .iter()
-                .any(|r| center >= r.min && center <= r.max)
+            && !tuner_reaches(caps, center)
         {
             return Err(DeviceError::Unsupported(format!(
                 "{center} Hz is outside this device's tuning range"
             ))
             .into());
         }
+        validate_streams(caps, settings)?;
         for channel in channels {
             let descriptor = descriptor_for(&channel.params)?;
             validate_channel(&descriptor, channel, rate)?;
@@ -1392,10 +1479,16 @@ impl Engine {
         Ok(())
     }
 
-    /// Add a channel to a device set (PLAN §5 POST channels): validate and build the whole
-    /// DDC → demod pipeline control-side, then hand it to the DSP thread via the command
-    /// queue. Construction failures surface here as bad requests.
-    pub fn add_channel(&self, ds: u32, settings: ChannelSettings) -> Result<u32, EngineError> {
+    /// Add a channel to a device set (PLAN §5 POST channels), tapping the rx stream
+    /// `stream`: validate and build the whole DDC → demod pipeline control-side, then hand
+    /// it to that stream's DSP thread via the command queue. Construction failures surface
+    /// here as bad requests.
+    pub fn add_channel(
+        &self,
+        ds: u32,
+        stream: u32,
+        settings: ChannelSettings,
+    ) -> Result<u32, EngineError> {
         let descriptor = descriptor_for(&settings.params)?;
         // Reserve the id before building: the host's decoder sink is bound to it, and ids
         // are never reused, so a failed add simply leaves a gap.
@@ -1405,6 +1498,7 @@ impl Engine {
                 .device_sets
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            state.check_stream(stream)?;
             let id = state.next_channel_id;
             state.next_channel_id += 1;
             (sample_rate_of(&state.settings), id)
@@ -1437,6 +1531,11 @@ impl Engine {
             let Some(state) = inner.device_sets.get_mut(&ds) else {
                 break Err(EngineError::DeviceSetNotFound(ds));
             };
+            // Re-checked at commit: a reconnect may have swapped the runtime (and its lane
+            // count) while the host was building outside the lock.
+            if let Err(e) = state.check_stream(stream) {
+                break Err(e);
+            }
             let current_rate = sample_rate_of(&state.settings);
             if current_rate != device_rate {
                 device_rate = current_rate;
@@ -1444,12 +1543,13 @@ impl Engine {
             }
             state.channels.push(ChannelInfo {
                 id,
+                stream,
                 settings: settings.clone(),
             });
             if let Some(handle) = audio.take() {
                 state.audio.insert(id, handle);
             }
-            state.send_dsp(DspCommand::AddChannel { id, host });
+            state.send_dsp(stream, DspCommand::AddChannel { id, host });
             inner.revision += 1;
             break Ok(id);
         };
@@ -1552,24 +1652,33 @@ impl Engine {
                 need_host = true;
                 continue;
             }
+            // A patch never moves a channel between streams; the lane is the one the channel
+            // was created on.
+            let stream = info.stream;
             let prev = std::mem::replace(&mut info.settings, settings.clone());
             match host {
                 Some(host) => {
-                    state.send_dsp(DspCommand::RemoveChannel { id: ch });
-                    state.send_dsp(DspCommand::AddChannel { id: ch, host });
+                    state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
+                    state.send_dsp(stream, DspCommand::AddChannel { id: ch, host });
                 }
                 None => {
                     if prev.offset_hz != settings.offset_hz {
-                        state.send_dsp(DspCommand::Retune {
-                            id: ch,
-                            offset_hz: settings.offset_hz,
-                        });
+                        state.send_dsp(
+                            stream,
+                            DspCommand::Retune {
+                                id: ch,
+                                offset_hz: settings.offset_hz,
+                            },
+                        );
                     }
                     if prev.params != settings.params || prev.squelch_db != settings.squelch_db {
-                        state.send_dsp(DspCommand::ApplySettings {
-                            id: ch,
-                            settings: settings.clone(),
-                        });
+                        state.send_dsp(
+                            stream,
+                            DspCommand::ApplySettings {
+                                id: ch,
+                                settings: settings.clone(),
+                            },
+                        );
                     }
                 }
             }
@@ -1592,17 +1701,19 @@ impl Engine {
                 .device_sets
                 .get_mut(&ds)
                 .ok_or(EngineError::DeviceSetNotFound(ds))?;
-            let before = state.channels.len();
+            let stream = state
+                .channels
+                .iter()
+                .find(|c| c.id == ch)
+                .map(|c| c.stream)
+                .ok_or(EngineError::ChannelNotFound(ch, ds))?;
             state.channels.retain(|c| c.id != ch);
-            if state.channels.len() == before {
-                return Err(EngineError::ChannelNotFound(ch, ds));
-            }
             let handle = state.audio.remove(&ch);
             // Queued under `inner` in the same critical section as the state removal: every
             // rebuild swap re-checks membership under `inner` before queueing, so nothing
             // can re-add the host after this — the DSP-side PCM sender is guaranteed to
             // drop and the encoder join below cannot hang.
-            state.send_dsp(DspCommand::RemoveChannel { id: ch });
+            state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
             inner.revision += 1;
             handle
         };
@@ -1615,13 +1726,14 @@ impl Engine {
         Ok(())
     }
 
-    /// Start recording a device set's raw IQ into a SigMF pair under the recordings dir
-    /// (PLAN §5; the path is lossless — see [`recording`]). Writer, files, and thread come
-    /// up control-side so open errors surface here; the tap then arms via the command queue
-    /// in the same critical section as the state commit (the `send_dsp` invariant), with the
-    /// commit re-verifying the rate the meta was written with — an `add_channel`-style retry
-    /// against racing patches.
-    pub fn start_recording(&self, ds: u32) -> Result<(), EngineError> {
+    /// Start recording one rx stream of a device set's raw IQ into a SigMF pair under the
+    /// recordings dir (PLAN §5; the path is lossless — see [`recording`]). One recording per
+    /// set, on the named stream (design §6b); the SigMF meta records which. Writer, files,
+    /// and thread come up control-side so open errors surface here; the tap then arms via
+    /// that stream's command queue in the same critical section as the state commit (the
+    /// `send_dsp` invariant), with the commit re-verifying the rate the meta was written
+    /// with — an `add_channel`-style retry against racing patches.
+    pub fn start_recording(&self, ds: u32, stream: u32) -> Result<(), EngineError> {
         loop {
             let (rate, center, hw) = {
                 let inner = self.lock();
@@ -1629,6 +1741,7 @@ impl Engine {
                     .device_sets
                     .get(&ds)
                     .ok_or(EngineError::DeviceSetNotFound(ds))?;
+                state.check_stream(stream)?;
                 if state.recording.is_some() {
                     return Err(EngineError::Recording("already recording".to_string()));
                 }
@@ -1637,9 +1750,18 @@ impl Engine {
                         "device set is not running".to_string(),
                     ));
                 }
+                // The SigMF meta opens with the recorded *lane's* centre: the tap stamps
+                // every block with that lane's DSP meta, so a radio-wide value here would
+                // file the capture under a frequency the lane never sat on (and open with a
+                // spurious extra capture segment on a per-stream-retuned lane).
+                let center = state
+                    .settings
+                    .for_stream(stream, &state.capabilities.per_stream)
+                    .center_hz
+                    .unwrap_or(DEFAULT_CENTER_HZ);
                 (
                     sample_rate_of(&state.settings),
-                    state.settings.center_hz.unwrap_or(DEFAULT_CENTER_HZ),
+                    center,
                     state.info.label.clone(),
                 )
             };
@@ -1652,7 +1774,8 @@ impl Engine {
             std::fs::create_dir_all(&dir)
                 .map_err(|e| EngineError::RecordingIo(format!("create {}: {e}", dir.display())))?;
             let started_at = jiff::Timestamp::now();
-            let (sigmf, file) = recording::create_writer(&dir, ds, started_at, rate, center, &hw)?;
+            let (sigmf, file) =
+                recording::create_writer(&dir, ds, stream, started_at, rate, center, &hw)?;
             let stem = sigmf.stem().to_path_buf();
             let (tap, blocks, shared) = recording::create_tap();
             let writer = recording::spawn_writer(sigmf, blocks, shared.clone())?;
@@ -1660,23 +1783,28 @@ impl Engine {
             let (aborted, patch_in_flight) = {
                 let mut inner = self.lock();
                 match inner.device_sets.get_mut(&ds) {
+                    // The stream bound is re-checked too: a reconnect may have swapped the
+                    // runtime while the files were opened, and an aborted attempt re-loops
+                    // into the entry check, which then refuses with the count.
                     Some(state)
                         if state.status == DeviceSetStatus::Running
                             && state.recording.is_none()
                             && state.rate_patches == 0
+                            && state.check_stream(stream).is_ok()
                             && sample_rate_of(&state.settings) == rate =>
                     {
                         state.recording = Some(RecordingState {
                             file,
+                            stream,
                             started_at: started_at.to_string(),
                             stem: stem.clone(),
                             shared,
                             writer,
-                            overruns_at_start: state.overruns.load(Ordering::Relaxed),
+                            overruns_at_start: state.overruns_total(),
                             samples_seen: 0,
                             error_seen: false,
                         });
-                        state.send_dsp(DspCommand::StartRecording { tap });
+                        state.send_dsp(stream, DspCommand::StartRecording { tap });
                         inner.revision += 1;
                         (None, false)
                     }
@@ -1728,13 +1856,14 @@ impl Engine {
             let Some(recording) = state.recording.take() else {
                 return Err(EngineError::Recording("not recording".to_string()));
             };
-            state.send_dsp(DspCommand::StopRecording);
+            state.send_dsp(recording.stream, DspCommand::StopRecording);
             let overruns = state.overruns.clone();
             inner.revision += 1;
             (recording, overruns)
         };
         let RecordingState {
             stem,
+            stream,
             started_at,
             shared,
             writer,
@@ -1745,12 +1874,17 @@ impl Engine {
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
         });
+        let overruns_now: u64 = overruns
+            .iter()
+            .map(|counter| counter.load(Ordering::Relaxed))
+            .sum();
         Ok(FinalizedRecording {
             stem,
+            stream,
             started_at,
             samples: shared.samples(),
             bytes: shared.bytes(),
-            overruns: overruns.load(Ordering::Relaxed) - overruns_at_start,
+            overruns: overruns_now - overruns_at_start,
             error: shared.error(),
         })
     }
@@ -1800,6 +1934,19 @@ impl Engine {
             if state.status != DeviceSetStatus::Running {
                 return Err(EngineError::Scan(
                     "the device set is not running".to_string(),
+                ));
+            }
+            // A scan drives the radio-wide dial. Where tuning is per-stream that dial is only
+            // the default for lanes without an override (design §6.3), so a sweep would drag
+            // every unpinned lane along and skip the pinned ones — there is no whole-radio
+            // tuning for the scan to own. Refuse rather than silently sweep every lane
+            // (design §6.5).
+            if state.capabilities.per_stream.tuning {
+                return Err(EngineError::Scan(
+                    "this radio tunes each receive stream independently, so a sweep of the \
+                     shared dial would retune every lane at once; scanning one stream is not \
+                     supported yet"
+                        .to_string(),
                 ));
             }
             // Reject targets the tuner cannot reach up front: discovering it mid-sweep would
@@ -1904,7 +2051,10 @@ impl Engine {
             },
             PatchOrigin::Scan,
         )?;
-        self.subscribe_spectrum(ds)
+        // The scan owns the whole radio, not a stream; `start_scan` refuses radios whose
+        // streams tune apart, so every lane here shares the tuning the scan drives and
+        // stream 0 — the one every device has — speaks for all of them.
+        self.subscribe_spectrum(ds, 0)
     }
 
     /// Park the scan's listening channel on `offset_hz` from the current centre.
@@ -1933,22 +2083,23 @@ impl Engine {
         self.patch_channel(ds, ch, settings)
     }
 
-    /// Subscribe to a device set's spectrum stream (PLAN §5 SubscribeSpectrum).
+    /// Subscribe to one rx stream of a device set's spectrum (PLAN §5 SubscribeSpectrum).
     pub fn subscribe_spectrum(
         &self,
         ds: u32,
+        stream: u32,
     ) -> Result<broadcast::Receiver<SpectrumSnapshot>, EngineError> {
-        let runtime = {
+        let (runtime, streams) = {
             let inner = self.lock();
-            inner
+            let state = inner
                 .device_sets
                 .get(&ds)
-                .ok_or(EngineError::DeviceSetNotFound(ds))?
-                .runtime
-                .clone()
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            (state.runtime.clone(), state.rx_streams())
         };
-        let subscription = lock_runtime(&runtime).subscribe();
-        Ok(subscription)
+        lock_runtime(&runtime)
+            .subscribe(stream)
+            .ok_or(EngineError::StreamOutOfRange { stream, streams })
     }
 
     fn emit(&self, event: ServerEvent) {
@@ -2007,8 +2158,10 @@ mod tests {
     };
 
     use num_complex::Complex;
-    use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice};
-    use sdrmm_wire::{ChannelSettings, NfmParams, ScanState, Sideband, SsbParams};
+    use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, single_rx_sink};
+    use sdrmm_wire::{
+        ChannelSettings, Duplex, NfmParams, ScanState, Sideband, SsbParams, StreamScope,
+    };
 
     use super::*;
 
@@ -2018,6 +2171,7 @@ mod tests {
             key: key.to_string(),
             label: format!("Mock {key}"),
             serial: serial.map(str::to_string),
+            profile: None,
         }
     }
 
@@ -2030,7 +2184,10 @@ mod tests {
             antennas: Vec::new(),
             bandwidths: Vec::new(),
             extra: Vec::new(),
-            tx_capable: false,
+            duplex: Duplex::RxOnly,
+            rx_streams: 1,
+            tx_streams: 0,
+            per_stream: StreamScope::default(),
         }
     }
 
@@ -2074,7 +2231,8 @@ mod tests {
             Ok(())
         }
 
-        fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            let mut sink = single_rx_sink(sinks)?;
             self.worker = Some(std::thread::spawn(move || {
                 let block = [Complex::new(0.0f32, 0.0); 256];
                 for _ in 0..3 {
@@ -2132,7 +2290,8 @@ mod tests {
             Ok(())
         }
 
-        fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            let mut sink = single_rx_sink(sinks)?;
             sink.fail(DeviceError::Io("died at start".to_string()));
             Ok(())
         }
@@ -2186,8 +2345,8 @@ mod tests {
             Ok(())
         }
 
-        fn rx_start(&mut self, _sink: RxSink) -> Result<(), DeviceError> {
-            Ok(())
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            single_rx_sink(sinks).map(|_| ())
         }
 
         fn rx_stop(&mut self) {}
@@ -2232,7 +2391,8 @@ mod tests {
             Ok(())
         }
 
-        fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            let mut sink = single_rx_sink(sinks)?;
             // 2× the ring in one push: at most RING_CAPACITY fits, the rest must be counted.
             let block = vec![Complex::new(0.0f32, 0.0); crate::runtime::RING_CAPACITY * 2];
             sink.push(&block);
@@ -2289,7 +2449,8 @@ mod tests {
             Ok(())
         }
 
-        fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            let mut sink = single_rx_sink(sinks)?;
             let die = self.die.clone();
             let stop = self.stop.clone();
             self.worker = Some(std::thread::spawn(move || {
@@ -2366,8 +2527,8 @@ mod tests {
             Ok(())
         }
 
-        fn rx_start(&mut self, _sink: RxSink) -> Result<(), DeviceError> {
-            Ok(())
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            single_rx_sink(sinks).map(|_| ())
         }
 
         fn rx_stop(&mut self) {}
@@ -2445,7 +2606,8 @@ mod tests {
             Ok(())
         }
 
-        fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            let mut sink = single_rx_sink(sinks)?;
             let center = self.center.clone();
             let stop = self.stop.clone();
             self.worker = Some(std::thread::spawn(move || {
@@ -2531,8 +2693,8 @@ mod tests {
             Ok(())
         }
 
-        fn rx_start(&mut self, _sink: RxSink) -> Result<(), DeviceError> {
-            Ok(())
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            single_rx_sink(sinks).map(|_| ())
         }
 
         fn rx_stop(&mut self) {}
@@ -2598,7 +2760,8 @@ mod tests {
             Ok(())
         }
 
-        fn rx_start(&mut self, mut sink: RxSink) -> Result<(), DeviceError> {
+        fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            let mut sink = single_rx_sink(sinks)?;
             let die = self.die.clone();
             let stop = self.stop.clone();
             self.worker = Some(std::thread::spawn(move || {
@@ -2716,6 +2879,9 @@ mod tests {
         // registry.open must have carried the probed info through, not a synthesized one.
         assert_eq!(snap.device_sets[0].device.label, "Mock dying");
         assert_eq!(snap.device_sets[0].device.serial.as_deref(), Some("MOCK-1"));
+        // ...but not its probe-time profile: the set reports what the opened radio said, and a
+        // second capability answer beside it is one a reader can pick by accident.
+        assert!(snap.device_sets[0].device.profile.is_none());
 
         let removal = {
             let engine = engine.clone();
@@ -2877,7 +3043,7 @@ mod tests {
     async fn spectrum_flows_with_a_visible_tone() {
         let engine = virtual_engine();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        let mut rx = engine.subscribe_spectrum(ds).unwrap();
+        let mut rx = engine.subscribe_spectrum(ds, 0).unwrap();
 
         let snap = tokio::time::timeout(Duration::from_secs(3), rx.recv())
             .await
@@ -2929,7 +3095,7 @@ mod tests {
     async fn channel_crud_updates_state() {
         let engine = virtual_engine();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        let ch = engine.add_channel(ds, nfm_settings(0.0)).unwrap();
+        let ch = engine.add_channel(ds, 0, nfm_settings(0.0)).unwrap();
         assert_eq!(engine.snapshot().device_sets[0].channels.len(), 1);
         engine.remove_channel(ds, ch).unwrap();
         assert!(engine.snapshot().device_sets[0].channels.is_empty());
@@ -2943,7 +3109,7 @@ mod tests {
         let ds = engine.create_device_set("virtual:siggen").unwrap();
         // Default rate 2.048 Msps → ±1.024 MHz passband.
         let err = engine
-            .add_channel(ds, nfm_settings(1_100_000.0))
+            .add_channel(ds, 0, nfm_settings(1_100_000.0))
             .unwrap_err();
         assert!(err.is_bad_request(), "expected bad request, got {err}");
         assert!(engine.snapshot().device_sets[0].channels.is_empty());
@@ -2963,7 +3129,7 @@ mod tests {
     async fn rate_change_stranding_a_channel_is_rejected_before_device_io() {
         let engine = virtual_engine();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        engine.add_channel(ds, nfm_settings(900_000.0)).unwrap();
+        engine.add_channel(ds, 0, nfm_settings(900_000.0)).unwrap();
         // At 250 ksps the ±125 kHz passband cannot contain a channel at +900 kHz.
         let err = engine
             .patch_device(
@@ -2993,7 +3159,7 @@ mod tests {
         let engine = virtual_engine();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
         for i in 0..40u32 {
-            let ch = engine.add_channel(ds, nfm_settings(100_000.0)).unwrap();
+            let ch = engine.add_channel(ds, 0, nfm_settings(100_000.0)).unwrap();
             let rate = if i % 2 == 0 { 2_400_000.0 } else { 2_048_000.0 };
             let patch = {
                 let engine = engine.clone();
@@ -3099,7 +3265,7 @@ mod tests {
         let mut events = engine.subscribe_events();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
 
-        engine.start_recording(ds).unwrap();
+        engine.start_recording(ds, 0).unwrap();
         wait_for_deviceset_event(&mut events, ds).await;
         let live = wait_for_recorded_samples(&engine, ds, 1).await;
         assert!(!live.file.is_empty());
@@ -3135,8 +3301,8 @@ mod tests {
         let err = engine.stop_recording(ds).unwrap_err();
         assert!(err.is_bad_request(), "expected bad request, got {err}");
 
-        engine.start_recording(ds).unwrap();
-        let err = engine.start_recording(ds).unwrap_err();
+        engine.start_recording(ds, 0).unwrap();
+        let err = engine.start_recording(ds, 0).unwrap_err();
         assert!(err.is_bad_request(), "expected bad request, got {err}");
 
         engine.stop_recording(ds).unwrap();
@@ -3149,7 +3315,7 @@ mod tests {
     async fn start_without_a_recordings_dir_is_rejected() {
         let engine = virtual_engine();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        let err = engine.start_recording(ds).unwrap_err();
+        let err = engine.start_recording(ds, 0).unwrap_err();
         assert!(err.is_bad_request(), "expected bad request, got {err}");
         engine.remove_device_set(ds).unwrap();
     }
@@ -3159,7 +3325,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let engine = recording_engine(dir.path());
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        engine.start_recording(ds).unwrap();
+        engine.start_recording(ds, 0).unwrap();
         let before = wait_for_recorded_samples(&engine, ds, 1).await;
 
         let err = engine
@@ -3216,7 +3382,7 @@ mod tests {
         let engine = Engine::with_registry(registry, Some(dir.path().to_path_buf()));
         let ds = engine.create_device_set("mock:ondemand").unwrap();
 
-        engine.start_recording(ds).unwrap();
+        engine.start_recording(ds, 0).unwrap();
         let live = wait_for_recorded_samples(&engine, ds, 1).await;
 
         // The fault event is emitted only after the writer join, so the pair is finalized
@@ -3258,7 +3424,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let engine = recording_engine(dir.path());
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        engine.start_recording(ds).unwrap();
+        engine.start_recording(ds, 0).unwrap();
         wait_for_recorded_samples(&engine, ds, 1).await;
 
         let mut events = engine.subscribe_events();
@@ -3303,7 +3469,7 @@ mod tests {
         // rate-patch claim) already committed.
         entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
 
-        let err = engine.start_recording(ds).unwrap_err();
+        let err = engine.start_recording(ds, 0).unwrap_err();
         assert!(err.is_bad_request(), "expected bad request, got {err}");
         assert!(err.to_string().contains("in flight"), "{err}");
         // The rejected attempt must leave no files behind.
@@ -3316,7 +3482,7 @@ mod tests {
         assert!(snap.device_sets[0].recording.is_none());
 
         // Once the patch merged, recording works again — at the new rate.
-        engine.start_recording(ds).unwrap();
+        engine.start_recording(ds, 0).unwrap();
         let finalized = engine.stop_recording(ds).unwrap();
         let reader = sdrmm_recorder::SigmfReader::open(&finalized.stem).unwrap();
         assert_eq!(reader.meta().global.sample_rate, Some(2_400_000.0));
@@ -3328,7 +3494,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let engine = recording_engine(dir.path());
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        engine.start_recording(ds).unwrap();
+        engine.start_recording(ds, 0).unwrap();
         let live = wait_for_recorded_samples(&engine, ds, 1).await;
 
         drop(engine);
@@ -3353,7 +3519,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let engine = recording_engine(dir.path());
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        engine.start_recording(ds).unwrap();
+        engine.start_recording(ds, 0).unwrap();
         let live = wait_for_recorded_samples(&engine, ds, 1).await;
 
         let mut events = engine.subscribe_events();
@@ -3388,7 +3554,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let engine = recording_engine(dir.path());
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        engine.start_recording(ds).unwrap();
+        engine.start_recording(ds, 0).unwrap();
         wait_for_recorded_samples(&engine, ds, 1).await;
 
         // No portable way to make a live writer's disk I/O fail on demand; inject through
@@ -3427,7 +3593,7 @@ mod tests {
     #[tokio::test]
     async fn record_start_on_a_missing_set_is_not_found_even_without_a_recordings_dir() {
         let engine = virtual_engine();
-        let err = engine.start_recording(99).unwrap_err();
+        let err = engine.start_recording(99, 0).unwrap_err();
         assert!(err.is_not_found(), "expected not found, got {err}");
     }
 
@@ -3440,7 +3606,7 @@ mod tests {
         let engine = Engine::with_registry(registry, Some(blocker.path().join("recordings")));
         let ds = engine.create_device_set("virtual:siggen").unwrap();
 
-        let err = engine.start_recording(ds).unwrap_err();
+        let err = engine.start_recording(ds, 0).unwrap_err();
         assert!(matches!(err, EngineError::RecordingIo(_)), "got {err}");
         assert!(!err.is_bad_request() && !err.is_not_found());
         engine.remove_device_set(ds).unwrap();
@@ -3479,17 +3645,17 @@ mod tests {
 
         // USB at +120 kHz occupies +120.1…+130 kHz — past the +125 kHz Nyquist edge even
         // though the descriptor-nominal ±1.5 kHz check would pass it.
-        let err = engine.add_channel(ds, usb(120_000.0)).unwrap_err();
+        let err = engine.add_channel(ds, 0, usb(120_000.0)).unwrap_err();
         assert!(err.is_bad_request(), "expected bad request, got {err}");
         // A 25 kHz NFM at +118 kHz reaches +130.5 kHz.
-        let err = engine.add_channel(ds, wide_nfm(118_000.0)).unwrap_err();
+        let err = engine.add_channel(ds, 0, wide_nfm(118_000.0)).unwrap_err();
         assert!(err.is_bad_request(), "expected bad request, got {err}");
         assert!(engine.snapshot().device_sets[0].channels.is_empty());
 
         // The same configs fit once their occupied band stays inside the passband — the
         // check must not become a blunt nominal-width rejection.
-        engine.add_channel(ds, usb(-124_000.0)).unwrap();
-        engine.add_channel(ds, wide_nfm(112_000.0)).unwrap();
+        engine.add_channel(ds, 0, usb(-124_000.0)).unwrap();
+        engine.add_channel(ds, 0, wide_nfm(112_000.0)).unwrap();
         engine.remove_device_set(ds).unwrap();
     }
 
@@ -3535,6 +3701,7 @@ mod tests {
         let ch = engine
             .add_channel(
                 ds,
+                0,
                 ChannelSettings {
                     offset_hz: 25_000.0,
                     squelch_db: None,
@@ -3727,6 +3894,7 @@ mod tests {
         let ch = engine
             .add_channel(
                 ds,
+                0,
                 ChannelSettings {
                     offset_hz: 0.0,
                     squelch_db: None,

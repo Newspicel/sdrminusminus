@@ -1,5 +1,5 @@
 // Theme selection (DESIGN.md §2). Unlike workspaces, a theme is a property of the eye looking
-// at the screen rather than of the station, so it lives in `localStorage` and never syncs
+// at the screen rather than of the workspace, so it lives in `localStorage` and never syncs
 // between clients.
 //
 // The document only ever carries a *resolved* theme (`data-theme="dark" | "light"`), so the

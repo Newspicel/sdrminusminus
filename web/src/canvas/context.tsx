@@ -13,7 +13,7 @@ import type { SdrSocket } from "../lib/ws";
 import { deviceNodeOf } from "./binding";
 import type { GraphContext } from "./graph";
 
-export interface Station {
+export interface Workspace {
   socket: SdrSocket;
   connected: boolean;
   /** The patch as stored. Faces read their own node out of it; the canvas owns the geometry. */
@@ -30,30 +30,30 @@ export interface Station {
   /** Selected node — the one the keyboard acts on. */
   selected: string | null;
   select: (node: string | null) => void;
-  /** Edit the stored patch. Debounced and revision-checked by the station hook. */
+  /** Edit the stored patch. Debounced and revision-checked by the workspace hook. */
   edit: (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => void;
   /** Ask the server to bring the engine up to the patch (open radios, add channels). */
   apply: () => void;
 }
 
-const StationContext = createContext<Station | null>(null);
+const WorkspaceContext = createContext<Workspace | null>(null);
 
-export function StationProvider({ value, children }: { value: Station; children: ReactNode }) {
-  return <StationContext value={value}>{children}</StationContext>;
+export function WorkspaceProvider({ value, children }: { value: Workspace; children: ReactNode }) {
+  return <WorkspaceContext value={value}>{children}</WorkspaceContext>;
 }
 
-export function useStationContext(): Station {
-  const station = useContext(StationContext);
-  if (station === null) {
-    throw new Error("useStationContext outside StationProvider");
+export function useWorkspaceContext(): Workspace {
+  const workspace = useContext(WorkspaceContext);
+  if (workspace === null) {
+    throw new Error("useWorkspaceContext outside WorkspaceProvider");
   }
-  return station;
+  return workspace;
 }
 
 /** The device set behind a node, following the wire when the node is a channel, a sink or a
  * scanner (`deviceNodeOf`). Returns `null` while the radio is absent — the face renders
  * disconnected rather than empty. */
-export function deviceSetOf(station: Station, node: string): DeviceSet | null {
-  const owner = deviceNodeOf(station.graph, node);
-  return owner === null ? null : (station.devices.get(owner) ?? null);
+export function deviceSetOf(workspace: Workspace, node: string): DeviceSet | null {
+  const owner = deviceNodeOf(workspace.graph, node);
+  return owner === null ? null : (workspace.devices.get(owner) ?? null);
 }

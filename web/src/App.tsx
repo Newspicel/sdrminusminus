@@ -1,6 +1,6 @@
 // App shell (PLAN §10, CANVAS §1). Owns the WebSocket, turns `StateChanged` events into
 // TanStack Query invalidations (the only invalidation path — no polling), and frames the
-// station in one row of chrome above the patch or the rack.
+// workspace in one row of chrome above the patch or the rack.
 //
 // There is no device bar and no tab bar any more: identity is spatial (PLAN §18). Which radio
 // you are operating is the node you are looking at, and the wires leaving it.
@@ -9,13 +9,13 @@ import { ReactFlowProvider } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
 import { bindChannels, bindDevices, deviceNodeOf } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
-import { StationProvider } from "./canvas/context";
+import { WorkspaceProvider } from "./canvas/context";
 import { isPinned, patchNode, pin, pruneRack, unpin } from "./canvas/graph";
 import { deviceDialId } from "./canvas/nodes/DeviceFace";
 import { Rack } from "./canvas/Rack";
-import { StationBar, type View } from "./canvas/StationBar";
 import { useHotkeys } from "./canvas/useHotkeys";
-import { useStation } from "./canvas/useStation";
+import { useWorkspace } from "./canvas/useWorkspace";
+import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
 import { BTN_PRIMARY } from "./components/controls";
 import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
 import { Shortcuts } from "./components/Shortcuts";
@@ -33,6 +33,7 @@ import {
   RECORDINGS_KEY,
   STATE_KEY,
   stateQuery,
+  TEMPLATES_KEY,
   WORKSPACES_KEY,
 } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
@@ -62,7 +63,7 @@ export function App() {
   const clients = useQuery(clientsQuery());
   const channelTypes = useQuery(channelTypesQuery());
   const catalog = useQuery(patchCatalogQuery());
-  const station = useStation();
+  const workspace = useWorkspace();
   const { applyPatch, cachedSettings } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
   // A fresh `[]` every render would defeat every downstream memo, and the binding passes below
@@ -115,28 +116,28 @@ export function App() {
   }, [socket, queryClient]);
 
   useEffect(() => {
-    if (station.error !== null) {
-      pushToast(`Station: ${station.error}`);
+    if (workspace.error !== null) {
+      pushToast(`Workspace: ${workspace.error}`);
     }
-  }, [station.error]);
+  }, [workspace.error]);
 
-  const snapshot = station.active?.snapshot ?? null;
+  const snapshot = workspace.active?.snapshot ?? null;
   const graph: PatchGraph = useMemo(
     () => snapshot?.graph ?? { nodes: [], edges: [] },
     [snapshot?.graph],
   );
   // A patch that names radios which are not attached is normal (CANVAS §3) — but a patch whose
-  // channels the engine refused is a station that is not doing what it draws, so it is said out
+  // channels the engine refused is a workspace that is not doing what it draws, so it is said out
   // loud rather than left to be noticed.
   useEffect(() => {
-    for (const refusal of station.applied?.refused ?? []) {
+    for (const refusal of workspace.applied?.refused ?? []) {
       // Named the way the operator named it: a node id is a uuid nobody reads.
       const node = graph.nodes.find((candidate) => candidate.id === refusal.node);
       const what =
         node?.label ?? (node?.kind === "channel" ? node.data.channel_type.toUpperCase() : "node");
       pushToast(`${what}: ${refusal.reason}`);
     }
-  }, [station.applied, graph.nodes]);
+  }, [workspace.applied, graph.nodes]);
 
   // What the rack draws is the stored layout with anything that no longer fits the grid
   // re-placed (`pruneRack`) — the same normalisation every write goes through, so the operate
@@ -206,7 +207,7 @@ export function App() {
       // across a type change, but the *node* names the type (CANVAS §4), so a patch left saying
       // `nfm` would unbind this face and the next apply would add a second channel for it.
       applyEdit(selectedSet.id, selectedChannel.id, { params: { type: next, settings: {} } });
-      station.save((current) => ({
+      workspace.save((current) => ({
         ...current,
         graph: patchNode(current.graph, selected, (node) =>
           node.kind === "channel"
@@ -255,7 +256,7 @@ export function App() {
       if (selectedNode === null) {
         return;
       }
-      station.save((current) => ({
+      workspace.save((current) => ({
         ...current,
         rack: isPinned(current.rack ?? {}, selectedNode.id)
           ? unpin(current.rack ?? {}, selectedNode.id)
@@ -270,7 +271,7 @@ export function App() {
     <TokenGate onToken={() => socket?.retryNow()}>
       <div className="flex h-full flex-col bg-bg text-ink">
         {socket !== null && snapshot !== null && (
-          <StationProvider
+          <WorkspaceProvider
             value={{
               socket,
               connected,
@@ -282,18 +283,18 @@ export function App() {
               channels,
               selected,
               select: setSelected,
-              edit: station.save,
-              apply: station.apply,
+              edit: workspace.save,
+              apply: workspace.apply,
             }}
           >
-            <StationBar
+            <WorkspaceBar
               view={view}
               onView={setView}
-              workspaces={station.workspaces}
-              activeWorkspace={station.active?.id ?? null}
-              onActivate={station.activate}
-              onCreate={station.create}
-              onRemove={station.remove}
+              workspaces={workspace.workspaces}
+              activeWorkspace={workspace.active?.id ?? null}
+              onActivate={workspace.activate}
+              onCreate={workspace.create}
+              onRemove={workspace.remove}
               connected={connected}
               clients={clients.data?.clients ?? 1}
               onShowShortcuts={() => setShowShortcuts(true)}
@@ -305,17 +306,17 @@ export function App() {
             ) : (
               <Rack />
             )}
-          </StationProvider>
+          </WorkspaceProvider>
         )}
 
-        {/* Deleting the last workspace leaves the station with none, honestly (the server says
+        {/* Deleting the last workspace leaves the workspace with none, honestly (the server says
             so rather than inventing one); the only thing to offer is a new one. */}
-        {station.active === null && !station.pending && (
+        {workspace.active === null && !workspace.pending && (
           <div className="flex min-h-0 flex-1 items-center justify-center">
             <button
               type="button"
               className={BTN_PRIMARY}
-              onClick={() => station.create("Workspace")}
+              onClick={() => workspace.create("Workspace")}
             >
               Create a workspace
             </button>
@@ -338,6 +339,9 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
     case "devices":
       void queryClient.invalidateQueries({ queryKey: STATE_KEY });
       void queryClient.invalidateQueries({ queryKey: DEVICES_KEY });
+      // Which templates a radio can run is answered per attached radio, so the gallery goes
+      // stale the moment one is plugged in or unplugged.
+      void queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY });
       break;
     case "device_set":
       void queryClient.invalidateQueries({ queryKey: STATE_KEY });
@@ -355,7 +359,7 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
       break;
     case "workspaces":
-      // Covers the list and every open station: the station queries are keyed under this prefix.
+      // Covers the list and every open workspace: the workspace queries are keyed under this prefix.
       void queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
       break;
     case "decoder_log":

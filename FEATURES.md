@@ -115,16 +115,16 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[shipped]** Node faces sized to their instrument, opened framed (`fitView`), active-on-click so the wheel tunes the dial *or* pans the patch but never both
 - **[shipped]** Pin-board rack (12×8) — pin a face, drag a boundary and neighbours give up exactly what it takes, drop a face on another and they trade places
 - **[shipped]** Right-click menu: pin, reset size, cut a wire, fit the patch
-- **[shipped]** Workspaces that apply **additively and idempotently** — loading a station opens the radios it names and creates the channels it draws, never closing or deleting anyone else's work; what it cannot satisfy is reported (`absent`, `refused` with the engine's reason) rather than skipped
+- **[shipped]** Workspaces that apply **additively and idempotently** — loading a workspace opens the radios it names and creates the channels it draws, never closing or deleting anyone else's work; what it cannot satisfy is reported (`absent`, `refused` with the engine's reason) rather than skipped
 - **[shipped]** Revision-checked workspace writes with serialized edits, so an idle browser cannot overwrite the layout someone is arranging
 - **[shipped]** The canvas refuses invalid wiring where it is drawn — an ADS-B wire onto a 2.4 Msps receiver names the rate that works, using the same rule the engine enforces rather than a second copy of it
 - **[shipped]** A radio's left side is what is done *to* it — `control` in (the scanner owns the tuning, one wire), `tx` in (reserved, inert, refuses every wire with the server's own reason), `iq` out
-- **[shipped]** Template gallery — eight built-in stations (FM·RDS, airband, ADS-B, AIS, APRS, POCSAG, 2 m, marine VHF) with explainers, each validated to fit its own passband, re-applying replaces rather than stacks
+- **[shipped]** Template gallery — eight built-in workspaces (FM·RDS, airband, ADS-B, AIS, APRS, POCSAG, 2 m, marine VHF) with explainers, each validated to fit its own passband, re-applying replaces rather than stacks
 - **[shipped]** Library drawer for the things that are not nodes — presets, bookmarks, templates, recordings — scoped to the radios this patch binds
 - **[shipped]** Generic schema-rendered settings forms for anything without a dedicated face; decoder output renders on the channel's own face
 - **[shipped]** MapLibre map (OpenFreeMap, no API key) with a themed fallback, plotting only the decoders wired into it, GeoJSON updated on a throttled tick
 - **[shipped]** `DESIGN.md` as a binding rulebook — OKLCH role table, contrast measured in both themes, achromatic plot overlays, type/spacing/density/motion ladders
-- **[shipped]** Dark, light and auto themes (per browser, not synced — a theme belongs to the eye, not the station)
+- **[shipped]** Dark, light and auto themes (per browser, not synced — a theme belongs to the eye, not the workspace)
 - **[shipped]** Errors as a dismissible toast stack rather than a banner that shoves every panel down
 - **[shipped]** Playwright smoke flow (`xtask smoke`) driving the built UI against a real server
 - **[planned]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them
@@ -265,7 +265,7 @@ test. No presets exist whose purpose is uncontrolled over-the-air disruption of 
 
 - **[shipped]** The device abstraction carries TX both ways — `Duplex` (`RxOnly`/`TxOnly`/`Half`/`Full`) and `tx_start` → `TxStream`; RX-only backends inherit the defaults and change nothing
 - **[shipped]** The HackRF's transmit path — bulk-OUT queue of 16 on the shared transport, the firmware's zero-filled end-of-burst marker, transmit VGA control, half-duplex arbitration in both directions, and a transfer policy that deliberately never re-sends a failed transmit transfer
-- **[shipped]** It is unreachable from outside the device layer, by construction — `tx_capable: false` on every backend, transmit VGA written to 0 dB on open, no wire type through which a client could ask, no `engine`/`server`/MCP/UI caller. No node kind emits the `tx` port type, so no edge into it can validate, and a test fails the day one does
+- **[shipped]** It is unreachable from outside the device layer, by construction — transmit VGA written to 0 dB on open, no wire type through which a client could ask, no `engine`/`server`/MCP/UI caller. `Capabilities.duplex` now states what the hardware *has* (a HackRF is `half`), which is what draws its reserved transmit input; the port emits nothing and accepts nothing. No node kind emits the `tx` port type, so no edge into it can validate, and a test fails the day one does
 - **[planned]** The authorized-use gate itself, and everything below it
 - **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
 - **[planned]** Modulators paired with each demod, for two-way, beacon and test use on licensed bands

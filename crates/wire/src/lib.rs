@@ -15,8 +15,8 @@ pub mod patch;
 pub mod rest;
 pub mod scan;
 pub mod state;
-pub mod station;
 pub mod workspace;
+pub mod workspace_state;
 pub mod ws;
 
 pub use channel::{
@@ -30,15 +30,16 @@ pub use decode::{
     NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame,
 };
 pub use device::{
-    Capabilities, DeviceInfo, DeviceSettings, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
+    Capabilities, DeviceInfo, DeviceSettings, Direction, Duplex, ExtraSetting, ExtraValue,
+    GainStage, GainValue, Range, StreamScope, StreamSettings,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame};
 pub use patch::{
-    ChannelNode, DeviceNode, DeviceRef, MAX_EDGES, MAX_NODES, NodeBody, NodeCategory, NodeTypeInfo,
-    PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking, PortCondition,
-    PortDirection, PortRef, PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RackCell,
-    RackLayout, RackSlot, Size,
+    ChannelNode, DeviceNode, DeviceRef, MAX_EDGES, MAX_NODES, MAX_STREAMS, NodeBody, NodeCategory,
+    NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking,
+    PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType, Position, RACK_COLS,
+    RACK_ROWS, RackCell, RackLayout, RackSlot, Size, port_stream, stream_port,
 };
 pub use rest::{
     ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse,
@@ -52,11 +53,13 @@ pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
 pub use state::{DeviceSet, DeviceSetStatus, RecordingStatus, StateSnapshot};
-pub use station::{STATION_STATE_VERSION, StationChannel, StationDevice, StationState};
 pub use workspace::{
     CreateWorkspaceRequest, MAX_NAME_LEN, PatchApplyReport, PatchBinding, PatchRefusal,
     UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,
     WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
+};
+pub use workspace_state::{
+    WORKSPACE_STATE_VERSION, WorkspaceChannel, WorkspaceDevice, WorkspaceState,
 };
 pub use ws::{ClientCommand, ServerEvent, StateScope, StreamKind};
 
@@ -87,10 +90,57 @@ mod contract_tests {
             device_set: 1,
             fps: 20,
             bins: 1024,
+            stream: 2,
         };
         let json = serde_json::to_string(&cmd).unwrap();
         let back: ClientCommand = serde_json::from_str(&json).unwrap();
         assert_eq!(cmd, back);
+    }
+
+    /// Every body that gained a `stream` field must keep reading a payload that predates it as
+    /// stream 0 — the only stream a single-stream radio has — or old clients and stored rows
+    /// would be refused for naming nothing.
+    #[test]
+    fn stream_fields_default_to_zero_for_older_peers() {
+        let cmd: ClientCommand = serde_json::from_str(
+            r#"{"type":"SubscribeSpectrum","data":{"device_set":1,"fps":20,"bins":1024}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            cmd,
+            ClientCommand::SubscribeSpectrum {
+                device_set: 1,
+                fps: 20,
+                bins: 1024,
+                stream: 0,
+            }
+        );
+
+        let record: RecordRequest = serde_json::from_str(r#"{"action":"start"}"#).unwrap();
+        assert_eq!(record.stream, 0);
+
+        let create: CreateChannelRequest =
+            serde_json::from_str(r#"{"settings":{"params":{"type":"nfm","settings":{}}}}"#)
+                .unwrap();
+        assert_eq!(create.stream, 0);
+
+        let info: ChannelInfo =
+            serde_json::from_str(r#"{"id":3,"settings":{"params":{"type":"nfm","settings":{}}}}"#)
+                .unwrap();
+        assert_eq!(info.stream, 0);
+
+        let recording: RecordingStatus = serde_json::from_str(
+            r#"{"file":"rec","started_at":"2026-08-09T12:00:00Z","samples":1,"bytes":8,"overruns":0}"#,
+        )
+        .unwrap();
+        assert_eq!(recording.stream, 0);
+
+        // Stream 0 is stated, never elided: `#[serde(default)]` reads the past, it does not
+        // write it, so a current peer always sees which stream it was given.
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["stream"], 0);
+        let json = serde_json::to_value(&recording).unwrap();
+        assert_eq!(json["stream"], 0);
     }
 
     #[test]
@@ -311,6 +361,7 @@ mod contract_tests {
                 key: "siggen".to_owned(),
                 label: "Signal Generator".to_owned(),
                 serial: None,
+                profile: None,
             },
             capabilities: Capabilities {
                 freq_ranges: Vec::new(),
@@ -320,7 +371,10 @@ mod contract_tests {
                 antennas: Vec::new(),
                 bandwidths: Vec::new(),
                 extra: Vec::new(),
-                tx_capable: false,
+                duplex: Duplex::RxOnly,
+                rx_streams: 1,
+                tx_streams: 0,
+                per_stream: StreamScope::default(),
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,
@@ -356,6 +410,7 @@ mod contract_tests {
 
         set.recording = Some(RecordingStatus {
             file: "rec-20260809-120000".to_owned(),
+            stream: 0,
             started_at: "2026-08-09T12:00:00Z".to_owned(),
             samples: 2_400_000,
             bytes: 19_200_000,
@@ -380,6 +435,7 @@ mod contract_tests {
     fn record_request_action_shape() {
         let json = serde_json::to_value(RecordRequest {
             action: RecordAction::Start,
+            stream: 0,
         })
         .unwrap();
         assert_eq!(json["action"], "start");

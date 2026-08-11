@@ -2,7 +2,7 @@
 // cache must merge exactly like the server, or accumulated edits drift from the applied state.
 import { describe, expect, it } from "vitest";
 import type { DeviceSettings, StateSnapshot } from "./types";
-import { mergeSettings, patchTargetExists } from "./useDevicePatch";
+import { forStream, mergeSettings, patchTargetExists } from "./useDevicePatch";
 
 function gain(stage: string, value_db: number) {
   return { stage, value_db };
@@ -37,6 +37,69 @@ describe("mergeSettings", () => {
     expect(next.center_hz).toBe(100_000_000);
     expect(next.bandwidth).toBe(1_750_000);
     expect(mergeSettings(next, {}).bandwidth).toBe(1_750_000);
+  });
+
+  it("merges stream overrides by index, and each entry's gains by stage", () => {
+    const current: DeviceSettings = {
+      streams: [
+        { stream: 0, center_hz: 100_000_000, gains: [gain("LNA", 16.0)] },
+        { stream: 1, center_hz: 433_920_000 },
+      ],
+    };
+    const next = mergeSettings(current, {
+      streams: [
+        { stream: 0, gains: [gain("LNA", 24.0), gain("VGA", 10.0)] },
+        { stream: 2, antenna: "RX2" },
+      ],
+    });
+    expect(next.streams).toEqual([
+      { stream: 0, center_hz: 100_000_000, gains: [gain("LNA", 24.0), gain("VGA", 10.0)] },
+      { stream: 1, center_hz: 433_920_000 },
+      { stream: 2, antenna: "RX2" },
+    ]);
+  });
+
+  // Edge case 3 of the per-stream design: the radio-wide centre is the default for lanes with
+  // no override, so retuning it must not silently wipe the overrides that exist.
+  it("keeps stream overrides across a radio-wide retune", () => {
+    const current: DeviceSettings = {
+      center_hz: 100_000_000,
+      streams: [{ stream: 1, center_hz: 433_920_000 }],
+    };
+    const next = mergeSettings(current, { center_hz: 145_500_000 });
+    expect(next.center_hz).toBe(145_500_000);
+    expect(next.streams).toEqual([{ stream: 1, center_hz: 433_920_000 }]);
+  });
+});
+
+// Mirrors the `DeviceSettings::for_stream` tests (crates/wire): each `StreamScope` flag gates
+// exactly its own setting, so an override for a setting the radio shares never applies.
+describe("forStream", () => {
+  const settings: DeviceSettings = {
+    center_hz: 100_000_000,
+    antenna: "RX",
+    gains: [gain("LNA", 16.0)],
+    streams: [{ stream: 1, center_hz: 433_920_000, antenna: "RX2", gains: [gain("LNA", 24.0)] }],
+  };
+
+  it("applies only the scoped settings of a lane's override", () => {
+    const lane = forStream(settings, 1, { tuning: true });
+    expect(lane.center_hz).toBe(433_920_000);
+    expect(lane.antenna).toBe("RX");
+    expect(lane.gains).toEqual([gain("LNA", 16.0)]);
+    expect(lane.streams).toBeUndefined();
+
+    const gainOnly = forStream(settings, 1, { gain: true, antenna: true });
+    expect(gainOnly.center_hz).toBe(100_000_000);
+    expect(gainOnly.antenna).toBe("RX2");
+    expect(gainOnly.gains).toEqual([gain("LNA", 24.0)]);
+  });
+
+  it("resolves a lane without an override to the radio-wide settings", () => {
+    const lane = forStream(settings, 0, { tuning: true, gain: true, antenna: true });
+    expect(lane.center_hz).toBe(100_000_000);
+    expect(lane.antenna).toBe("RX");
+    expect(lane.gains).toEqual([gain("LNA", 16.0)]);
   });
 });
 

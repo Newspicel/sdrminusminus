@@ -11,8 +11,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use sdrmm_device::{DeviceDriver, DeviceError, RxSink, Sample, SdrDevice, Worker};
-use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, GainStage, GainValue};
+use sdrmm_device::{DeviceDriver, DeviceError, RxSink, Sample, SdrDevice, Worker, single_rx_sink};
+use sdrmm_wire::{
+    Capabilities, DeviceInfo, DeviceSettings, Duplex, GainStage, GainValue, StreamScope,
+};
 use soapysdr::{Direction, ErrorCode};
 
 mod caps;
@@ -86,6 +88,9 @@ fn device_info(args: &soapysdr::Args) -> DeviceInfo {
         key: args_key(args),
         label,
         serial,
+        // Soapy has to open the device to answer any of this, and probing must stay cheap: the
+        // picker shows an unknown radio as unknown rather than guessing it can run a template.
+        profile: None,
     }
 }
 
@@ -250,7 +255,10 @@ impl SoapyDevice {
             antennas: device.antennas(dir, RX_CHANNEL).map_err(map_err)?,
             bandwidths: caps::discrete_points(&bw_ranges),
             extra: caps::extra_settings(soapy_driver),
-            tx_capable: false,
+            duplex: Duplex::RxOnly,
+            rx_streams: 1,
+            tx_streams: 0,
+            per_stream: StreamScope::default(),
         };
 
         // Settings start as the hardware's current state so clients render reality, not a
@@ -349,7 +357,8 @@ impl SdrDevice for SoapyDevice {
         Ok(())
     }
 
-    fn rx_start(&mut self, sink: RxSink) -> Result<(), DeviceError> {
+    fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+        let sink = single_rx_sink(sinks)?;
         if self.worker.is_running() {
             return Err(DeviceError::AlreadyStreaming);
         }

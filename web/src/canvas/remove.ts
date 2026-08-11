@@ -3,8 +3,8 @@
 // is the only gesture that does, and without it a removed channel would keep running in the
 // engine forever and a radio could never be closed at all.
 import { deleteChannel, deleteDeviceSet } from "../lib/api";
-import { sourcesOf } from "./binding";
-import type { Station } from "./context";
+import { iqSourceOf } from "./binding";
+import type { Workspace } from "./context";
 import { nodeOf } from "./graph";
 
 /**
@@ -15,18 +15,21 @@ import { nodeOf } from "./graph";
  * still streaming. Every path that removes a node goes through here (the face's ✕, Backspace,
  * the context menu), so the three cannot drift into meaning different things.
  */
-export async function closeEngineObjects(station: Station, ids: readonly string[]): Promise<void> {
+export async function closeEngineObjects(
+  workspace: Workspace,
+  ids: readonly string[],
+): Promise<void> {
   for (const id of ids) {
-    const node = nodeOf(station.graph, id);
+    const node = nodeOf(workspace.graph, id);
     if (node?.kind === "device") {
-      const set = station.devices.get(id);
+      const set = workspace.devices.get(id);
       if (set !== undefined) {
         await deleteDeviceSet(set.id);
       }
     } else if (node?.kind === "channel") {
-      const channel = station.channels.get(id);
-      const owner = sourcesOf(station.graph, id, "iq")[0];
-      const set = owner === undefined ? undefined : station.devices.get(owner);
+      const channel = workspace.channels.get(id);
+      const owner = iqSourceOf(workspace.graph, id)?.source;
+      const set = owner === undefined ? undefined : workspace.devices.get(owner);
       if (channel !== undefined && set !== undefined) {
         await deleteChannel(set.id, channel.id);
       }

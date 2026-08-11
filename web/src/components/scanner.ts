@@ -84,6 +84,16 @@ export function holdCandidates(set: DeviceSet | null): readonly ChannelInfo[] {
   return set?.channels ?? [];
 }
 
+/** Why this radio cannot be scanned, or `null`. A sweep owns the whole radio's tuning, and a
+ * radio whose streams tune independently has no such thing to own — the server refuses the
+ * start (PLAN §18), and the panel says so up front instead of surfacing a raw 400 after the
+ * click. */
+export function scanRefusal(set: DeviceSet | null): string | null {
+  return set?.capabilities.per_stream?.tuning === true
+    ? "This radio tunes each receive stream independently, so a sweep has no single tuning to drive."
+    : null;
+}
+
 export function formatMhz(hz: number): string {
   return `${(hz / 1e6).toFixed(4)} MHz`;
 }

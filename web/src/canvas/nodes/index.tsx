@@ -24,7 +24,7 @@ type Face = ComponentType<{ node: PatchNode }>;
  * A pinned face keeps its place on the canvas (CANVAS §5, amended): pinning adds a face to the
  * operate view, it does not take it out of the patch — a node that turned into a "pinned →"
  * placeholder left a hole where the operator had put an instrument, and made the patch a worse
- * picture of the station for having operated it.
+ * picture of the workspace for having operated it.
  *
  * The rule it replaces existed to avoid two live surfaces for one instrument. Two of the three
  * costs are gone: the patch and the rack are alternate views, so only one is mounted at a time,

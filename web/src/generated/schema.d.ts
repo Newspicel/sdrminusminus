@@ -685,15 +685,41 @@ export interface components {
         Capabilities: {
             antennas: string[];
             bandwidths: number[];
+            /**
+             * @description Which directions this radio has, and whether it can run them together. Receive-only
+             *     unless a backend says otherwise, so a device cannot advertise a transmitter by omission.
+             *     This is the *hardware's* shape, not a permission: PLAN §12a gates transmit behind an
+             *     authorized-use switch that does not exist, so a `half` radio still transmits nothing.
+             */
+            duplex?: components["schemas"]["Duplex"];
             extra?: components["schemas"]["ExtraSetting"][];
             /** @description Tunable center-frequency ranges in Hz (multiple = discontiguous tuner ranges). */
             freq_ranges: components["schemas"]["Range"][];
             gains: components["schemas"]["GainStage"][];
+            /**
+             * @description Which settings each receive stream holds on its own. Which settings are per-stream is a
+             *     property of the *radio* — a coherent array shares one tuning by definition while a
+             *     two-daughterboard USRP genuinely has two — so the radio declares it, the same way it
+             *     declares gains and antennas.
+             */
+            per_stream?: components["schemas"]["StreamScope"];
+            /**
+             * Format: int32
+             * @description How many independent receive streams this radio delivers at once. One for an ordinary
+             *     SDR; a KrakenSDR is five coherent channels on one USB device, which is why this is a
+             *     count and not a bool. A device node draws one IQ output per stream.
+             */
+            rx_streams?: number;
             sample_rate_range?: null | components["schemas"]["Range"];
             /** @description Supported sample rates in samples/s. Empty means "continuous", use `sample_rate_range`. */
             sample_rates: number[];
-            /** @description True once TX is implemented; declared from day one, unused in the RX phases (PLAN §1). */
-            tx_capable?: boolean;
+            /**
+             * Format: int32
+             * @description How many independent transmit streams it accepts. Reported for symmetry and for the
+             *     device picker; the canvas still draws a single reserved transmit input, because there is
+             *     nothing to wire into it until PLAN §12a lands.
+             */
+            tx_streams?: number;
         };
         /** @description Static description of a channel type, surfaced to drive the "add channel" UI (PLAN §8). */
         ChannelDescriptor: {
@@ -747,6 +773,12 @@ export interface components {
             /** Format: int32 */
             id: number;
             settings: components["schemas"]["ChannelSettings"];
+            /**
+             * Format: int32
+             * @description Which of the device's receive streams feeds this channel. Defaults to 0 because a peer
+             *     that predates multi-stream devices names no stream and means the only one its radio has.
+             */
+            stream?: number;
         };
         /**
          * @description A channel node's payload. The *type* is topology — it decides the node's ports — while the
@@ -858,14 +890,27 @@ export interface components {
                  * @description Requested frame rate; server clamps to its supported range.
                  */
                 fps: number;
+                /**
+                 * Format: int32
+                 * @description Which receive stream's spectrum. Defaults to 0 so a client that predates
+                 *     multi-stream devices keeps its subscription; which stream a binary frame carries is
+                 *     implicit in this subscription, never a frame header field.
+                 */
+                stream?: number;
             };
             /** @enum {string} */
             type: "SubscribeSpectrum";
         } | {
-            /** @description Stop the spectrum stream for a device set. */
+            /**
+             * @description Stop one receive stream's spectrum. `stream` defaults to 0, so a client that predates
+             *     multi-stream radios ends the subscription it started; without it, unsubscribing one scope
+             *     would silence every other lane of the same radio on this connection.
+             */
             data: {
                 /** Format: int32 */
                 device_set: number;
+                /** Format: int32 */
+                stream?: number;
             };
             /** @enum {string} */
             type: "UnsubscribeSpectrum";
@@ -909,6 +954,13 @@ export interface components {
         /** @description `POST /api/devicesets/{ds}/channels` — add a channel to a device set. */
         CreateChannelRequest: {
             settings: components["schemas"]["ChannelSettings"];
+            /**
+             * Format: int32
+             * @description Which of the device's receive streams the channel taps. Defaults to 0 so a client that
+             *     predates multi-stream devices keeps meaning the only stream its radio has; out of range
+             *     is a bad request naming the count, never a silent fallback.
+             */
+            stream?: number;
         };
         /** @description `POST /api/devicesets` — open a device into a new device set. */
         CreateDeviceSetRequest: {
@@ -1052,18 +1104,44 @@ export interface components {
             key: string;
             /** @description Human label for the device picker. */
             label: string;
+            profile?: null | components["schemas"]["DeviceProfile"];
             /** @description Serial number when the driver exposes one (used to collapse probe duplicates, PLAN §6). */
             serial?: string | null;
         };
         /**
          * @description A device node's payload: the radio it names, or nothing yet.
          *
-         *     Unbound is a first-class state, not an error — it is the empty node a fresh station starts on,
+         *     Unbound is a first-class state, not an error — it is the empty node a fresh workspace starts on,
          *     and it renders the device picker. Bound-but-absent is the other one: controls disabled,
          *     wires kept, never silently rebound (CANVAS §3).
          */
         DeviceNode: {
             device?: null | components["schemas"]["DeviceRef"];
+        };
+        /**
+         * @description The part of a radio's capability that is a property of the model rather than the unit.
+         *
+         *     Split out so it can be answered twice from one declaration: by a probe, which has only a USB
+         *     descriptor, and by [`Capabilities::profile`] on a radio that is already open. Nothing
+         *     constructs it by hand — it is always a projection of a full capability set, which is what
+         *     keeps the two from drifting.
+         */
+        DeviceProfile: {
+            duplex: components["schemas"]["Duplex"];
+            /** @description Tunable centre-frequency ranges in Hz (multiple = discontiguous tuner ranges). */
+            freq_ranges: components["schemas"]["Range"][];
+            /**
+             * @description Which settings each stream holds on its own — a property of the model, so the picker can
+             *     tell a coherent array from a bank of independent tuners without opening the radio.
+             */
+            per_stream?: components["schemas"]["StreamScope"];
+            /** Format: int32 */
+            rx_streams: number;
+            sample_rate_range?: null | components["schemas"]["Range"];
+            /** @description Supported sample rates in samples/s. Empty means "continuous", use `sample_rate_range`. */
+            sample_rates: number[];
+            /** Format: int32 */
+            tx_streams: number;
         };
         /**
          * @description A device named by durable identity (CANVAS §3), never by an engine or probe id: those are
@@ -1124,11 +1202,21 @@ export interface components {
             ppm?: number | null;
             /** Format: double */
             sample_rate?: number | null;
+            /**
+             * @description Per-stream overrides, by stream index. Only the fields [`Capabilities::per_stream`] marks
+             *     as per-stream are read here; the rest are the radio's and live above.
+             */
+            streams?: components["schemas"]["StreamSettings"][];
         };
         /** @description `GET /api/devices` — discovered hardware across all drivers (PLAN §5). */
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
         };
+        /**
+         * @description One signal direction.
+         * @enum {string}
+         */
+        Direction: "rx" | "tx";
         /** @description One diagnostic line. */
         DoctorCheck: {
             /** @description What was actually found. */
@@ -1149,6 +1237,16 @@ export interface components {
             /** @description Server version (`CARGO_PKG_VERSION`). */
             version: string;
         };
+        /**
+         * @description What a radio's hardware can do, and whether it can do it at once.
+         *
+         *     It lives here rather than in the device crate because it is the answer to "what *kind* of
+         *     radio is this" that a workspace template filters on and the canvas draws ports from — the
+         *     arbitration that uses it ([`sdrmm-device`'s `DuplexState`]) is a separate thing, and stays
+         *     with the backends.
+         * @enum {string}
+         */
+        Duplex: "rx_only" | "tx_only" | "half" | "full";
         /**
          * @description Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a
          *     path segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing
@@ -1317,7 +1415,7 @@ export interface components {
             ports: components["schemas"]["PortSpec"][];
         };
         /**
-         * @description `POST /api/workspaces/{id}/apply` — what applying the station did.
+         * @description `POST /api/workspaces/{id}/apply` — what applying the workspace did.
          *
          *     Apply is additive and idempotent: it opens the radios the graph names and adds the channels it
          *     draws, and never closes or deletes anything. Removing a node is a gesture with its own
@@ -1363,7 +1461,7 @@ export interface components {
             from: components["schemas"]["PortRef"];
             to: components["schemas"]["PortRef"];
         };
-        /** @description The station as a graph (CANVAS §1). */
+        /** @description The workspace as a graph (CANVAS §1). */
         PatchGraph: {
             edges?: components["schemas"]["PatchEdge"][];
             nodes: components["schemas"]["PatchNode"][];
@@ -1452,6 +1550,14 @@ export interface components {
             /** @description [`PortSpec::name`] on that node. */
             port: string;
         };
+        /**
+         * @description How many of a port a node really has. A repeating port is a *family*: the catalog is
+         *     per-build static and cannot see how many streams a radio delivers, so it ships the base spec
+         *     with this flag and whoever can see the backing expands it — one port per stream, named by
+         *     [`stream_port`].
+         * @enum {string}
+         */
+        PortRepeat: "once" | "per_rx_stream" | "per_tx_stream";
         /** @description One port of a node type. */
         PortSpec: {
             condition?: components["schemas"]["PortCondition"];
@@ -1471,6 +1577,7 @@ export interface components {
              */
             note?: string | null;
             port_type: components["schemas"]["PortType"];
+            repeat?: components["schemas"]["PortRepeat"];
         };
         /**
          * @description What a wire carries. Hue encodes this and only this (`DESIGN.md` §2), so the set stays small
@@ -1647,6 +1754,13 @@ export interface components {
             samples: number;
             /** @description RFC3339 UTC. */
             started_at: string;
+            /**
+             * Format: int32
+             * @description Which of the device's receive streams is being recorded. Defaults to 0 because a
+             *     status from before multi-stream devices names no stream and means the only one its
+             *     radio had.
+             */
+            stream?: number;
         };
         /**
          * @description `POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream
@@ -1654,6 +1768,12 @@ export interface components {
          */
         RecordRequest: {
             action: components["schemas"]["RecordAction"];
+            /**
+             * Format: int32
+             * @description Which receive stream a start records — one recording per set, on a named stream.
+             *     Defaults to 0, the only stream a single-stream radio has.
+             */
+            stream?: number;
         };
         RttyParams: {
             /** Format: double */
@@ -1798,10 +1918,19 @@ export interface components {
             /** @enum {string} */
             type: "StateChanged";
         } | {
-            /** @description A subscribed binary stream is now active with this stream id (see [`crate::frame`]). */
+            /**
+             * @description A subscribed spectrum stream is now active with this stream id (see [`crate::frame`]).
+             *
+             *     The id is allocated per connection, exactly like an audio one: a multi-stream radio can
+             *     have several lanes watched at once, so the device-set id is no longer enough to tell two
+             *     spectra apart. `stream` names the lane this id carries — which is how the client knows
+             *     which of its scopes the frames belong to, since the frame header carries only the id.
+             */
             data: {
                 /** Format: int32 */
                 device_set: number;
+                /** Format: int32 */
+                stream?: number;
                 /** Format: int32 */
                 stream_id: number;
             };
@@ -1970,6 +2099,41 @@ export interface components {
          */
         StreamKind: "spectrum" | "audio";
         /**
+         * @description Which device settings each receive stream holds on its own, rather than sharing with the rest
+         *     of the radio. All-false — the default, and what every capability set from before this field
+         *     describes — is the single-stream radio.
+         *
+         *     Sample rate is deliberately absent and stays shared: one device, one clock domain. Channel
+         *     rate validation, the recorder's SigMF `core:sample_rate` and the DSP lanes all assume it.
+         */
+        StreamScope: {
+            /** @description Each stream selects its own antenna port. */
+            antenna?: boolean;
+            /**
+             * @description Each stream has its own gain stages. True on nearly every multi-stream radio, including
+             *     the coherent arrays: per-channel gain calibration is how an array is levelled.
+             */
+            gain?: boolean;
+            /**
+             * @description Each stream tunes independently. False on a coherent array — the streams share one
+             *     tuner reference and tuning them apart is what a coherent array must never do — and true
+             *     on a radio with a synthesizer per stream.
+             */
+            tuning?: boolean;
+        };
+        /**
+         * @description One stream's overrides of the radio-wide [`DeviceSettings`]. Absent fields fall back to the
+         *     radio-wide value — [`DeviceSettings::for_stream`] is the one place that resolution lives.
+         */
+        StreamSettings: {
+            antenna?: string | null;
+            /** Format: double */
+            center_hz?: number | null;
+            gains?: components["schemas"]["GainValue"][];
+            /** Format: int32 */
+            stream: number;
+        };
+        /**
          * @description What a decoded sub-GHz burst turned out to be (PLAN §8b).
          * @enum {string}
          */
@@ -2046,7 +2210,7 @@ export interface components {
             modulation?: components["schemas"]["SubghzModulation"];
         };
         /**
-         * @description One built-in station template (PLAN §10: the template gallery). Read-only and
+         * @description One built-in workspace template (PLAN §10: the template gallery). Read-only and
          *     device-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry
          *     applies to whatever hardware is open, provided the device can tune it.
          */
@@ -2057,6 +2221,19 @@ export interface components {
             channels: components["schemas"]["ChannelSettings"][];
             /** @description One line for the gallery card. */
             description: string;
+            /**
+             * @description Which direction the radio has to have. Every built-in template receives; the field is
+             *     here because "what kind of radio does this need" is the question the picker asks, and a
+             *     transmit template must not be offered on a receiver the day one exists.
+             */
+            direction?: components["schemas"]["Direction"];
+            /**
+             * @description Whether `sample_rate` is the only rate that works, rather than a starting point. ADS-B
+             *     fills its whole 2 MHz channel, so a resampled one decodes nothing (PLAN §18) — a radio
+             *     whose rate menu misses 2 Msps cannot run it at all, while an FM template is happy at
+             *     anything wide enough.
+             */
+            exact_rate?: boolean;
             /** @description The "what am I looking at" text shown once it is applied (PLAN §10). */
             explainer: string;
             /** @description Stable slug used in `POST /api/templates/{id}/apply`. */
@@ -2073,6 +2250,20 @@ export interface components {
             patch?: null | components["schemas"]["PatchGraph"];
             /** Format: double */
             sample_rate: number;
+            /**
+             * @description Devices this template can actually run on, as `driver:key` handles — the server's answer,
+             *     computed against each probed radio's [`crate::DeviceProfile`], so the gallery offers a
+             *     device only when the template fits it.
+             *
+             *     A radio whose driver reports no profile is *included*: unknown is not the same as
+             *     unsuitable, and hiding a device because its backend cannot answer cheaply would make the
+             *     picker lie. Empty on the static table; filled in per request.
+             *
+             *     Always serialized, unlike the other quiet fields: "no attached radio can run this" is a
+             *     real answer the gallery has to render, and eliding it would make it arrive as the absence
+             *     that means "nobody asked".
+             */
+            supported_devices?: string[];
         };
         /** @description `GET /api/templates`. */
         TemplatesResponse: {
@@ -2100,11 +2291,11 @@ export interface components {
              */
             rds?: boolean;
         };
-        /** @description `GET /api/workspaces/{id}` — the row plus its station. */
+        /** @description `GET /api/workspaces/{id}` — the row plus its workspace. */
         WorkspaceDetail: components["schemas"]["WorkspaceInfo"] & {
             snapshot: components["schemas"]["WorkspaceSnapshot"];
         };
-        /** @description `GET /api/workspaces` list entry — the projection a switcher needs, without the station. */
+        /** @description `GET /api/workspaces` list entry — the projection a switcher needs, without the workspace. */
         WorkspaceInfo: {
             /** @description RFC3339 UTC. */
             created_at: string;
@@ -3143,7 +3334,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Built-in station templates (read-only; presets are the writable kind) */
+            /** @description Built-in workspace templates (read-only; presets are the writable kind) */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3432,7 +3623,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Workspace activated for every client */
+            /** @description Workspace activated for every client. The hardware is reconciled to it: radios this workspace does not name are closed, channels it does not draw are dropped, and the radios it keeps are put back where it was left. Apply opens the rest */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -3471,7 +3662,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The station was brought up: radios opened, channels added, and what could not be satisfied. Additive and idempotent — nothing is closed or deleted, so calling it twice changes nothing */
+            /** @description The workspace was brought up: radios opened, channels added, and what could not be satisfied. Additive and idempotent — nothing is closed or deleted, so calling it twice changes nothing */
             200: {
                 headers: {
                     [name: string]: unknown;

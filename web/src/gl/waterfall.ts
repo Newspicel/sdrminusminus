@@ -438,7 +438,7 @@ function acquire(): Shared {
  * the same dead object forever, and every later shader compile fails with an empty log. React
  * StrictMode runs mount→unmount→mount, so releasing eagerly would kill the renderer it is about
  * to rebuild. By the next macrotask the second mount has already called `acquire`, which
- * cancels this; a station whose last scope really was removed has not.
+ * cancels this; a workspace whose last scope really was removed has not.
  */
 function release(): void {
   if (teardown !== 0 || shared === null) {
@@ -508,7 +508,7 @@ function build(canvas: HTMLCanvasElement, gl: WebGL2RenderingContext): Shared {
  * A GPU or driver reset took the context, and with it every plot's history. `preventDefault` is
  * what asks the browser for it back: without a handler that calls it the browser never tries,
  * and the canvas stays poisoned for good (see `release`) — one reset then blacks out every scope
- * in the station until a reload, which is the very failure this module exists to prevent.
+ * in the workspace until a reload, which is the very failure this module exists to prevent.
  *
  * A deliberate teardown fires this same event. `release` clears `shared` before it calls
  * `loseContext`, so the test below tells the two apart and a teardown is never rebuilt.

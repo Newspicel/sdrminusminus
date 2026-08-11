@@ -50,7 +50,7 @@ async fn record_siggen(engine: &Engine, rate: f64, min_samples: u64) -> Finalize
             },
         )
         .unwrap();
-    engine.start_recording(ds).unwrap();
+    engine.start_recording(ds, 0).unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let snap = engine.snapshot();
@@ -91,6 +91,7 @@ async fn recorded_siggen_replays_and_demodulates() {
     let ch = engine
         .add_channel(
             ds,
+            0,
             ChannelSettings {
                 offset_hz: NFM_CARRIER_OFFSET_HZ,
                 squelch_db: None,
@@ -113,7 +114,7 @@ async fn playback_streams_spectrum_frames() {
     let ds = engine
         .create_device_set(&format!("virtual:file:{}", finalized.stem.display()))
         .unwrap();
-    let mut rx = engine.subscribe_spectrum(ds).unwrap();
+    let mut rx = engine.subscribe_spectrum(ds, 0).unwrap();
     let snap = tokio::time::timeout(Duration::from_secs(3), rx.recv())
         .await
         .expect("spectrum within timeout")

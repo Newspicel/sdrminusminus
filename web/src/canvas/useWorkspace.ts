@@ -1,4 +1,4 @@
-// The active station as the canvas sees it: the workspace list for the switcher, the active
+// The active workspace as the canvas sees it: the workspace list for the switcher, the active
 // patch, and the writes that persist it (PLAN §10, CANVAS §4). Server state lives in TanStack
 // Query only — WS `StateChanged { workspaces }` invalidates, nothing polls.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -21,13 +21,13 @@ import type {
 } from "../lib/types";
 import { pruneRack } from "./graph";
 
-export interface StationState {
+export interface WorkspaceStore {
   workspaces: WorkspaceInfo[];
   active: WorkspaceDetail | null;
   /** A write that failed — surfaced rather than swallowed, since a rejected write means the
    * patch on screen is not the one that is stored. */
   error: string | null;
-  /** Edit the active station. The edit is a *function* of the current snapshot, not a snapshot:
+  /** Edit the active workspace. The edit is a *function* of the current snapshot, not a snapshot:
    * two changes can land within one round trip (a node drag and the wire it ended on), and the
    * second must build on the first rather than on what the caller happened to be rendering. */
   save: (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => void;
@@ -37,12 +37,12 @@ export interface StationState {
   /** Bring the engine up to the patch (CANVAS §2). Additive and idempotent server-side. */
   apply: () => void;
   applied: PatchApplyReport | null;
-  /** The list has not answered yet — distinct from "there are no stations", which is a real
+  /** The list has not answered yet — distinct from "there are no workspaces", which is a real
    * state the server reports after the last one is deleted. */
   pending: boolean;
 }
 
-export function useStation(): StationState {
+export function useWorkspace(): WorkspaceStore {
   const queryClient = useQueryClient();
   const list = useQuery(workspacesQuery());
   const activeId = list.data?.active ?? null;
@@ -150,11 +150,11 @@ export function useStation(): StationState {
       .catch(() => undefined);
   }, [applyAsync]);
 
-  // Applying is idempotent, so it runs once per station that becomes active: opening the app on
-  // a station whose radios are attached should give you the station, not an empty canvas waiting
+  // Applying is idempotent, so it runs once per workspace that becomes active: opening the app on
+  // a workspace whose radios are attached should give you the workspace, not an empty canvas waiting
   // to be clicked into life.
   //
-  // Keyed on the *loaded* station, not on the id the list reports: `apply` reads the id off the
+  // Keyed on the *loaded* workspace, not on the id the list reports: `apply` reads the id off the
   // detail query, which is still resolving on the render the list first names one, so an effect
   // keyed on that id would fire once into a no-op and mark itself done.
   const applied = useRef<number | null>(null);

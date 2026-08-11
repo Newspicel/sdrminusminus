@@ -82,7 +82,7 @@ async fn decode_first(
     let offset_hz = settings.offset_hz;
     let mut rx = engine.subscribe_decoded();
     let ds = engine.create_device_set(device_id).unwrap();
-    let ch = engine.add_channel(ds, settings).unwrap();
+    let ch = engine.add_channel(ds, 0, settings).unwrap();
 
     let found = tokio::time::timeout(DECODE_TIMEOUT, async {
         loop {
@@ -557,6 +557,7 @@ async fn adsb_is_rejected_above_the_rate_its_slicer_can_use() {
     let err = engine
         .add_channel(
             ds,
+            0,
             ChannelSettings {
                 offset_hz: 0.0,
                 squelch_db: None,
@@ -671,7 +672,7 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
 
     let mut rx = engine.subscribe_decoded();
     let ds = engine.create_device_set(&device).unwrap();
-    let ch = engine.add_channel(ds, settings(offset_hz)).unwrap();
+    let ch = engine.add_channel(ds, 0, settings(offset_hz)).unwrap();
 
     // Let the picture accrete, then move 5 kHz — still inside the 200 kHz channel, so the
     // same station keeps decoding and any surviving state would be plainly visible.

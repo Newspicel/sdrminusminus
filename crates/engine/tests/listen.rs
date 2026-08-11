@@ -70,7 +70,7 @@ async fn nfm_channel_demodulates_the_test_carrier() {
     let engine = engine();
     let ds = set_at_test_rate(&engine);
     let ch = engine
-        .add_channel(ds, nfm(NFM_CARRIER_OFFSET_HZ, None))
+        .add_channel(ds, 0, nfm(NFM_CARRIER_OFFSET_HZ, None))
         .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
     assert_tone_dominates(&settle_then_collect_second(&mut rx).await);
@@ -84,6 +84,7 @@ async fn am_channel_demodulates_the_test_carrier() {
     let ch = engine
         .add_channel(
             ds,
+            0,
             settings(
                 ChannelParams::Am(AmParams::default()),
                 AM_CARRIER_OFFSET_HZ,
@@ -103,6 +104,7 @@ async fn wfm_channel_demodulates_the_test_carrier() {
     let ch = engine
         .add_channel(
             ds,
+            0,
             settings(
                 ChannelParams::Wfm(WfmParams::default()),
                 WFM_CARRIER_OFFSET_HZ,
@@ -120,7 +122,7 @@ async fn squelch_gates_empty_spectrum_and_patch_reopens() {
     let engine = engine();
     let ds = set_at_test_rate(&engine);
     let ch = engine
-        .add_channel(ds, nfm(QUIET_OFFSET_HZ, Some(-20.0)))
+        .add_channel(ds, 0, nfm(QUIET_OFFSET_HZ, Some(-20.0)))
         .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
 
@@ -140,7 +142,9 @@ async fn squelch_gates_empty_spectrum_and_patch_reopens() {
 async fn patch_channel_offset_retunes_onto_the_carrier() {
     let engine = engine();
     let ds = set_at_test_rate(&engine);
-    let ch = engine.add_channel(ds, nfm(QUIET_OFFSET_HZ, None)).unwrap();
+    let ch = engine
+        .add_channel(ds, 0, nfm(QUIET_OFFSET_HZ, None))
+        .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
     collect_packets(&mut rx, SETTLE_PACKETS).await;
 
@@ -162,7 +166,7 @@ async fn type_change_keeps_the_audio_subscription_alive() {
     let engine = engine();
     let ds = set_at_test_rate(&engine);
     let ch = engine
-        .add_channel(ds, nfm(AM_CARRIER_OFFSET_HZ, None))
+        .add_channel(ds, 0, nfm(AM_CARRIER_OFFSET_HZ, None))
         .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
     collect_packets(&mut rx, SETTLE_PACKETS).await;
@@ -188,7 +192,7 @@ async fn device_rate_change_rebuilds_channels_and_keeps_audio() {
     let engine = engine();
     let ds = set_at_test_rate(&engine);
     let ch = engine
-        .add_channel(ds, nfm(NFM_CARRIER_OFFSET_HZ, None))
+        .add_channel(ds, 0, nfm(NFM_CARRIER_OFFSET_HZ, None))
         .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
     assert_tone_dominates(&settle_then_collect_second(&mut rx).await);
@@ -217,7 +221,7 @@ async fn audio_packets_are_contiguous_and_timestamped() {
     let engine = engine();
     let ds = set_at_test_rate(&engine);
     let ch = engine
-        .add_channel(ds, nfm(NFM_CARRIER_OFFSET_HZ, None))
+        .add_channel(ds, 0, nfm(NFM_CARRIER_OFFSET_HZ, None))
         .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
 

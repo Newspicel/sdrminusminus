@@ -1,29 +1,22 @@
 // SigMF recordings browser (PLAN §11: files on disk are the source of truth; the list is the
-// reconciled index, WS-invalidated on scope "recordings"). Play opens the pair as a
-// `virtual:file:` playback set — the same create-and-select flow as DeviceBar's open buttons.
+// reconciled index, WS-invalidated on scope "recordings"). A recording plays back through a
+// `virtual:file:` device, so opening one is the same gesture as opening a radio: it draws a
+// source node on the canvas, and apply is what starts it.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createDeviceSet, deleteRecording, RECORDINGS_KEY, recordingsQuery } from "../lib/api";
+import { deleteRecording, RECORDINGS_KEY, recordingsQuery } from "../lib/api";
 import { pushToast } from "../lib/toasts";
+import type { RecordingInfo } from "../lib/types";
 import { BTN } from "./controls";
 import { formatMhz } from "./format";
 import { formatBytes, formatDuration } from "./recordings";
 
-export function RecordingsPanel({ onSelect }: { onSelect: (ds: number) => void }) {
+export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo) => void }) {
   const queryClient = useQueryClient();
   const recordings = useQuery(recordingsQuery());
 
   const invalidate = (): void => {
     void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });
   };
-  // A failed open must surface here (CLAUDE.md: no silent failure) — the WS state event never
-  // fires for a set that was never created.
-  const playMut = useMutation({
-    mutationFn: createDeviceSet,
-    onSuccess: (id) => {
-      onSelect(id);
-    },
-    onError: (e) => pushToast(e.message),
-  });
   const deleteMut = useMutation({
     mutationFn: deleteRecording,
     onError: (e) => pushToast(e.message),
@@ -41,13 +34,8 @@ export function RecordingsPanel({ onSelect }: { onSelect: (ds: number) => void }
               {formatDuration(r.duration_s)} · {formatBytes(r.bytes)}
             </div>
           </div>
-          <button
-            type="button"
-            className={BTN}
-            disabled={playMut.isPending}
-            onClick={() => playMut.mutate(r.device_id)}
-          >
-            Play
+          <button type="button" className={BTN} onClick={() => onOpen(r)}>
+            Open as source
           </button>
           <button
             type="button"
