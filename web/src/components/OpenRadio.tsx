@@ -6,7 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { devicesQuery, doctorQuery } from "../lib/api";
 import type { DeviceInfo } from "../lib/types";
-import { BTN, BTN_PRIMARY, BTN_QUIET } from "./controls";
+import { BTN, BTN_PRIMARY, BTN_QUIET, FIELD, LABEL } from "./controls";
+import { Select } from "./Select";
 
 function deviceRank(device: DeviceInfo): number {
   return device.driver === "virtual" ? 1 : 0;
@@ -26,19 +27,98 @@ export function deviceId(device: DeviceInfo): string {
   return `${device.driver}:${device.key}`;
 }
 
-/** The discovered devices, one button each, with the states discovery itself can be in. The
- * caller decides what choosing one does. */
+/** The protocols a radio elsewhere on the network can be reached over. Both are named, never
+ * discovered — neither has any discovery — so this list is also the whole of what the picker can
+ * offer before an address is typed. */
+export const NETWORK_BACKENDS = [
+  { driver: "rtltcp", label: "rtl_tcp", placeholder: "192.168.1.5:1234" },
+  { driver: "spyserver", label: "SpyServer", placeholder: "192.168.1.5:5555" },
+] as const;
+
+/** The `driver:key` that opens a network radio, or `null` when there is nothing usable to send.
+ *
+ * Only the refusals that need no knowledge are made here — an empty address, one with a space in
+ * it. What the key *canonicalizes* to is the server's to decide: it defaults the port and
+ * lower-cases the host, and the caller learns the result back from the device the open returns.
+ * Deciding it here would be a second address parser to keep in step with the backend's, and the
+ * patch would then store a key the probe never reports. */
+export function networkDeviceId(driver: string, address: string): string | null {
+  // A pasted `rtl_tcp://host:1234` is the address with a scheme in front of it; an IPv6 literal
+  // never matches, because a scheme needs the slashes. The underscore is not one a URL scheme may
+  // contain, but it is what people type for this one.
+  const trimmed = address.trim().replace(/^[a-z][a-z0-9+._-]*:\/\//i, "");
+  if (trimmed === "" || /\s/.test(trimmed)) {
+    return null;
+  }
+  return `${driver}:${trimmed}`;
+}
+
+/** Naming a radio that is somewhere else. Folded away by default: it is the rarer path, and an
+ * address field above the list of what is actually plugged in would read as the main one. */
+function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: boolean }) {
+  const [driver, setDriver] = useState<string>(NETWORK_BACKENDS[0].driver);
+  const [address, setAddress] = useState("");
+  const backend = NETWORK_BACKENDS.find((b) => b.driver === driver) ?? NETWORK_BACKENDS[0];
+  const id = networkDeviceId(driver, address);
+
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (id !== null) {
+          onAdd(id);
+        }
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <span className={LABEL}>Via</span>
+        <Select
+          label="Network protocol"
+          className="w-full"
+          value={driver}
+          options={NETWORK_BACKENDS.map((b) => ({ value: b.driver, label: b.label }))}
+          onChange={setDriver}
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          className={`${FIELD} w-full`}
+          type="text"
+          aria-label="Radio address"
+          placeholder={backend.placeholder}
+          value={address}
+          onChange={(event) => setAddress(event.target.value)}
+        />
+        <button type="submit" className={BTN} disabled={busy || id === null}>
+          Add
+        </button>
+      </div>
+      <p className="text-xs text-ink-dim">
+        The port may be left off — {backend.label} defaults to{" "}
+        {backend.placeholder.split(":").pop()}.
+      </p>
+    </form>
+  );
+}
+
+/** The discovered devices, one button each, with the states discovery itself can be in — plus the
+ * one radio no discovery can find, which is the one on another machine. The caller decides what
+ * choosing one does. */
 export function DeviceChoices({
   onChoose,
+  onAddNetwork,
   busy = false,
   error = null,
 }: {
   onChoose: (device: DeviceInfo) => void;
+  onAddNetwork: (deviceId: string) => void;
   busy?: boolean;
   error?: string | null;
 }) {
   const devices = useQuery(devicesQuery());
   const [showDoctor, setShowDoctor] = useState(false);
+  const [showNetwork, setShowNetwork] = useState(false);
   const found = rankDevices(devices.data?.devices ?? []);
 
   return (
@@ -70,6 +150,15 @@ export function DeviceChoices({
           {error}
         </p>
       )}
+
+      <button
+        type="button"
+        className={`${BTN_QUIET} self-center`}
+        onClick={() => setShowNetwork(!showNetwork)}
+      >
+        {showNetwork ? "Hide network radio" : "Radio on the network?"}
+      </button>
+      {showNetwork && <AddNetworkRadio onAdd={onAddNetwork} busy={busy} />}
 
       <button
         type="button"

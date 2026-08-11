@@ -281,6 +281,9 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         None => tracing::info!("no token configured: LAN-trusted, unauthenticated (PLAN §12)"),
     }
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
+    // Before the first probe a client can see: a network receiver a stored workspace names is
+    // discoverable by nobody, and this is what puts it back in the device list.
+    workspace::adopt_named_devices(&engine, &store);
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(config.options.token.as_deref());
     state.db_path = config.db_path.clone();

@@ -180,6 +180,25 @@ pub trait DeviceDriver: Send + Sync {
     fn probe(&self) -> Vec<DeviceInfo>;
     /// Open one device for exclusive use.
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError>;
+
+    /// Adopt a device this driver can address but no probe can find, from its key alone.
+    ///
+    /// A network receiver is named, not discovered: neither rtl_tcp nor SpyServer has a
+    /// discovery protocol, so the only thing that can produce `10.0.0.5:1234` is an operator
+    /// typing it. Everything above this crate still works in probe results — a device set is
+    /// faulted when its device leaves the probe list, and a stored workspace binds by matching
+    /// one — so a driver that adopts a key must also report it from [`DeviceDriver::probe`]
+    /// afterwards, for as long as it is willing to open it.
+    ///
+    /// The key returned in [`DeviceInfo::key`] is the canonical one and may differ from the key
+    /// asked for (a defaulted port, a lowercased host). Callers must use it rather than the one
+    /// they passed, or the id they hold will not be the id the probe reports.
+    ///
+    /// The default refuses everything, which is right for every backend that enumerates real
+    /// hardware: there, a key no probe found names a device that is not attached.
+    fn resolve(&self, _key: &str) -> Option<DeviceInfo> {
+        None
+    }
 }
 
 /// A live transmit burst: samples in, nothing out.
