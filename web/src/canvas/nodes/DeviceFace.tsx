@@ -11,9 +11,10 @@
 // PLAN §12a reserves — while everything it produces leaves on the right.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BTN, BTN_QUIET, CHIP, LABEL } from "../../components/controls";
-import { tuningRange } from "../../components/dial";
+import { isTunable, tuningRange } from "../../components/dial";
 import { DIAL_ID, FrequencyDial } from "../../components/FrequencyDial";
 import { DeviceChoices, deviceId } from "../../components/OpenRadio";
+import { PlaybackTransport } from "../../components/PlaybackTransport";
 import { RadioSettings } from "../../components/RadioSettings";
 import { createDeviceSet, STATE_KEY, stateQuery } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
@@ -90,6 +91,8 @@ export function refLabel(reference: DeviceRef): string {
 function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning: boolean }) {
   const { applyPatch } = useDevicePatch();
   const active = useFaceActive();
+  const range = tuningRange(set.capabilities);
+  const pinned = !isTunable(range);
   return (
     <div className="@container flex flex-col gap-1 border-b border-line p-2">
       {tunerDials(set).map((dial) => (
@@ -100,8 +103,8 @@ function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning
           <FrequencyDial
             id={deviceDialId(node, dial.stream)}
             hz={dial.hz}
-            range={tuningRange(set.capabilities)}
-            disabled={scanning}
+            range={range}
+            disabled={scanning || pinned}
             wheelTunes={active}
             onTune={(hz) => applyPatch(set.id, tuneDelta(set.capabilities, dial.stream, hz))}
           />
@@ -237,6 +240,8 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       <FaceBody>
         <div className="flex min-h-full flex-col">
           <Tuner node={node.id} set={set} scanning={scanning} />
+
+          {set.playback != null && <PlaybackTransport set={set} status={set.playback} />}
 
           <div className="p-2">
             <RadioSettings active={set} />

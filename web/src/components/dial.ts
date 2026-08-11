@@ -28,6 +28,14 @@ export function tuningRange(caps: Capabilities): Range {
   };
 }
 
+/** Whether the dial can move at all. A recording is pinned to the centre it was captured at,
+ * and a fixed-frequency receiver reports the same shape: one range of one point. A dial that
+ * turns but has every value refused is worse than a readout — and each refused retune still
+ * costs a round trip and a state refresh. */
+export function isTunable(range: Range): boolean {
+  return range.max > range.min;
+}
+
 /** Places to render, highest first, sized to the widest frequency the device can reach. */
 export function dialPlaces(maxHz: number): readonly number[] {
   const needed = maxHz >= 1 ? Math.floor(Math.log10(maxHz)) : 0;

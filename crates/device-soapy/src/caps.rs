@@ -352,6 +352,7 @@ mod tests {
             antennas: vec!["RX".to_string()],
             bandwidths: Vec::new(),
             extra: extra_settings("rtlsdr"),
+            ppm: true,
             duplex: Duplex::RxOnly,
             rx_streams: 1,
             tx_streams: 0,

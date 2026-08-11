@@ -917,6 +917,66 @@
         }
       }
     },
+    "/api/devicesets/{ds}/playback": {
+      "post": {
+        "operationId": "control_playback",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The transport after the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The set's device is a radio, not a recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devicesets/{ds}/record": {
       "post": {
         "operationId": "record_device_set",
@@ -1298,6 +1358,68 @@
           },
           "400": {
             "description": "Invalid path parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recording not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/recordings/{id}/download": {
+      "get": {
+        "operationId": "download_recording",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Recording id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RecordingFormat"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The recording as a downloadable file, streamed with an exact `Content-Length`",
+            "content": {
+              "application/x-tar": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "audio/wav": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown format, or a recording the requested container cannot express (a WAV needs a sample rate and cf32 samples)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2689,6 +2811,10 @@
           "per_stream": {
             "$ref": "#/components/schemas/StreamScope",
             "description": "Which settings each receive stream holds on its own. Which settings are per-stream is a\nproperty of the *radio* — a coherent array shares one tuning by definition while a\ntwo-daughterboard USRP genuinely has two — so the radio declares it, the same way it\ndeclares gains and antennas."
+          },
+          "ppm": {
+            "type": "boolean",
+            "description": "Whether the radio has a frequency-correction setting at all. Several do not — HackRF has\nno correction register, SpyServer's protocol carries no such field, a Soapy tuner without\na `CORR` component cannot apply one — and their backends already refuse `ppm` outright,\nwhile a recording and the signal generator swallow it and do nothing. Without this the\nclient drew the control on every device, so a knob that could only error, or only lie,\nlooked exactly like one that worked.\n\nDefaults to *unsupported* for the same reason `duplex` defaults to receive-only: a\ncapability must be declared, never advertised by omission."
           },
           "rx_streams": {
             "type": "integer",
@@ -4161,6 +4287,17 @@
             "description": "Cumulative device samples dropped at the capture ring since the set opened. Growth\nmeans the DSP thread cannot keep up — audio and spectrum have gaps even while\n`status` stays `running` (PLAN §5 backpressure; CLAUDE.md no-silent-failure).",
             "minimum": 0
           },
+          "playback": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PlaybackStatus",
+                "description": "Replay transport, on a set whose device is a recording rather than a radio."
+              }
+            ]
+          },
           "recording": {
             "oneOf": [
               {
@@ -5177,6 +5314,63 @@
           }
         }
       },
+      "PlaybackAction": {
+        "type": "string",
+        "description": "What a [`PlaybackRequest`] should do.",
+        "enum": [
+          "play",
+          "pause",
+          "stop",
+          "seek"
+        ]
+      },
+      "PlaybackRequest": {
+        "type": "object",
+        "description": "`POST /api/devicesets/{ds}/playback` — drive the replay transport of a set whose device is\na recording. Looping is not an action here: it is the `loop` device setting, applied like\nany other (see [`crate::PlaybackStatus`]).",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/PlaybackAction"
+          },
+          "position_samples": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Where [`PlaybackAction::Seek`] should land, in samples from the start; clamped to the\nend of the recording. Ignored by every other action, and absent means the start.",
+            "minimum": 0
+          }
+        }
+      },
+      "PlaybackStatus": {
+        "type": "object",
+        "description": "Transport of a device set replaying a recording (`virtual:file:`). Absent on a live radio:\nthere is no position to seek in a signal that is still arriving.\n\nWhether it loops is *not* here — that is `loop` in [`DeviceSettings::extra`], a setting the\nradio carries and a workspace saves. Pause and position are the opposite: reopening a patch\nmust not restore a paused transport, so they live only in this live status.",
+        "required": [
+          "position_samples",
+          "total_samples",
+          "paused"
+        ],
+        "properties": {
+          "paused": {
+            "type": "boolean"
+          },
+          "position_samples": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Samples replayed from the start of the recording.",
+            "minimum": 0
+          },
+          "total_samples": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Samples the recording holds. Read off the data file, so a crash-truncated pair reports\nwhat can actually be replayed rather than what its metadata claims.",
+            "minimum": 0
+          }
+        }
+      },
       "PocsagBaud": {
         "type": "string",
         "description": "Bit rate of a POCSAG transmission. Pagers on one frequency may use several, so `Auto`\n(the default) locks onto whichever preamble it finds.",
@@ -5628,6 +5822,14 @@
             "minimum": 0
           }
         }
+      },
+      "RecordingFormat": {
+        "type": "string",
+        "description": "Container a recording is downloaded in. A query field rather than a path segment (unlike\n[`ExportFormat`]): the format is optional here, and giving a path segment a default would\nmean two routes for one resource.",
+        "enum": [
+          "sigmf",
+          "wav"
+        ]
       },
       "RecordingInfo": {
         "type": "object",

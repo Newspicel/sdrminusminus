@@ -2,8 +2,9 @@
 // body while the server is down, which openapi-fetch surfaces as `{ error: undefined }` /
 // a plain string — previously read as success, crashing on `data.id` and reporting deletes
 // as applied.
-import { describe, expect, it } from "vitest";
-import { unwrap } from "./api";
+import { afterEach, describe, expect, it } from "vitest";
+import { recordingDownloadUrl, unwrap } from "./api";
+import { setToken } from "./auth";
 
 describe("unwrap", () => {
   it("returns the data of an ok response", () => {
@@ -32,5 +33,29 @@ describe("unwrap", () => {
   it("surfaces a non-JSON error body as text", () => {
     const result = { error: "Bad Gateway", response: new Response(null, { status: 502 }) };
     expect(() => unwrap(result)).toThrow("HTTP 502: Bad Gateway");
+  });
+});
+
+describe("recordingDownloadUrl", () => {
+  afterEach(() => setToken(null));
+
+  it("leaves the server's default format out of the URL", () => {
+    expect(recordingDownloadUrl(7, "sigmf")).toBe("/api/recordings/7/download");
+  });
+
+  it("names any other container", () => {
+    expect(recordingDownloadUrl(7, "wav")).toBe("/api/recordings/7/download?format=wav");
+  });
+
+  // The browser navigates to this href, so it cannot carry an Authorization header; against a
+  // tokened server the download 401s unless the token rides in the query.
+  it("carries the token, joining an existing query correctly", () => {
+    setToken("s3cret/token");
+    expect(recordingDownloadUrl(7, "sigmf")).toBe(
+      "/api/recordings/7/download?token=s3cret%2Ftoken",
+    );
+    expect(recordingDownloadUrl(7, "wav")).toBe(
+      "/api/recordings/7/download?format=wav&token=s3cret%2Ftoken",
+    );
   });
 });

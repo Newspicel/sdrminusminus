@@ -1,4 +1,23 @@
-import type { DeviceSet, RecordingStatus } from "../lib/types";
+import type { DeviceSet, RecordingFormat, RecordingStatus } from "../lib/types";
+
+// What each container costs the operator, said once so the panel and the canvas agree. The
+// archive is the one that survives a round trip back into sdr--; the WAV is for other tools.
+export const downloadFormats: ReadonlyArray<{
+  format: RecordingFormat;
+  label: string;
+  hint: string;
+}> = [
+  {
+    format: "sigmf",
+    label: ".sigmf",
+    hint: "SigMF archive — metadata and samples, exactly as recorded",
+  },
+  {
+    format: "wav",
+    label: ".wav",
+    hint: "I/Q as a float WAV for HDSDR, SDR# or Audacity — keeps the samples, but only the center frequency and start time of the metadata",
+  },
+];
 
 export type RecordControl =
   | { kind: "idle"; canStart: boolean }

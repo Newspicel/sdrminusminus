@@ -52,14 +52,15 @@ pub use rest::{
     ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse,
     ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
     CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
-    DecoderLogResponse, DeletedCount, DevicesResponse, ExportFormat, PresetInfo, PresetSnapshot,
-    RecordAction, RecordRequest, RecordingInfo, RecordingsResponse, TemplateInfo,
+    DecoderLogResponse, DeletedCount, DevicesResponse, ExportFormat, PlaybackAction,
+    PlaybackRequest, PresetInfo, PresetSnapshot, RecordAction, RecordRequest,
+    RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse, TemplateInfo,
     TemplatesResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
-pub use state::{DeviceSet, DeviceSetStatus, RecordingStatus, StateSnapshot};
+pub use state::{DeviceSet, DeviceSetStatus, PlaybackStatus, RecordingStatus, StateSnapshot};
 pub use workspace::{
     CreateWorkspaceRequest, MAX_NAME_LEN, PatchApplyReport, PatchBinding, PatchRefusal,
     UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,
@@ -387,6 +388,7 @@ mod contract_tests {
                 antennas: Vec::new(),
                 bandwidths: Vec::new(),
                 extra: Vec::new(),
+                ppm: false,
                 duplex: Duplex::RxOnly,
                 rx_streams: 1,
                 tx_streams: 0,
@@ -399,7 +401,60 @@ mod contract_tests {
             error: None,
             recording: None,
             scanner: None,
+            playback: None,
         }
+    }
+
+    /// A capability set that predates the field describes a radio that never declared a
+    /// frequency correction, and the client must not draw one on that guess — the same rule
+    /// `duplex` follows, where a device cannot advertise a transmitter by omission.
+    #[test]
+    fn an_undeclared_ppm_capability_reads_as_unsupported() {
+        let json = serde_json::to_value(sample_device_set()).unwrap();
+        let mut caps = json["capabilities"].clone();
+        caps.as_object_mut().unwrap().remove("ppm");
+        assert!(
+            !serde_json::from_value::<Capabilities>(caps).unwrap().ppm,
+            "an absent capability is not a supported one"
+        );
+
+        // And when it is declared it survives the trip, in both directions.
+        for supported in [true, false] {
+            let mut set = sample_device_set();
+            set.capabilities.ppm = supported;
+            let json = serde_json::to_value(&set).unwrap();
+            assert_eq!(json["capabilities"]["ppm"], supported);
+            assert_eq!(
+                serde_json::from_value::<DeviceSet>(json)
+                    .unwrap()
+                    .capabilities
+                    .ppm,
+                supported
+            );
+        }
+    }
+
+    /// A radio has no transport, and the field is what the client keys its player strip on:
+    /// it must stay off the wire entirely rather than serialize as an explicit null that a
+    /// `!= null` check would read as "this is a recording".
+    #[test]
+    fn a_set_without_a_transport_omits_the_playback_field() {
+        let json = serde_json::to_value(sample_device_set()).unwrap();
+        assert!(json.get("playback").is_none());
+
+        let mut set = sample_device_set();
+        set.playback = Some(PlaybackStatus {
+            position_samples: 4_096,
+            total_samples: 48_000,
+            paused: true,
+        });
+        let json = serde_json::to_value(&set).unwrap();
+        assert_eq!(json["playback"]["position_samples"], 4_096);
+        assert_eq!(json["playback"]["paused"], true);
+        assert_eq!(
+            serde_json::from_value::<DeviceSet>(json).unwrap().playback,
+            set.playback
+        );
     }
 
     /// `overruns` was added after M1: snapshots from older peers omit it and must read as 0,

@@ -14,7 +14,10 @@ use std::{
 
 use axum::Router;
 use sdrmm_engine::Engine;
-use tower_http::cors::CorsLayer;
+use tower_http::{
+    compression::predicate::{NotForContentType, Predicate},
+    cors::CorsLayer,
+};
 use utoipa_swagger_ui::SwaggerUi;
 
 /// Hotplug probe cadence (PLAN §16 M1). Public so the desktop shell, which embeds the router
@@ -187,7 +190,18 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Write
         // megabyte of repetitive JSON and compresses about seventeen to one — but every JSON
         // response here is the same shape of text, and the binary frame streams go over the
         // WebSocket, which this does not touch.
-        .layer(tower_http::compression::CompressionLayer::new());
+        //
+        // Recording downloads are the exception: I/Q floats barely compress, so gzipping one
+        // burns a core to save nothing, and — worse — compressing a response drops its
+        // `Content-Length`, which is exactly the header that gives a multi-gigabyte download
+        // a progress bar and an honest truncation check.
+        .layer(
+            tower_http::compression::CompressionLayer::new().compress_when(
+                tower_http::compression::predicate::DefaultPredicate::new()
+                    .and(NotForContentType::const_new("application/x-tar"))
+                    .and(NotForContentType::const_new("audio/wav")),
+            ),
+        );
 
     if options.dev_cors {
         app = app.layer(CorsLayer::very_permissive());
@@ -380,7 +394,24 @@ mod tests {
         uri: &str,
         body: Option<&str>,
     ) -> (StatusCode, Bytes) {
+        let (status, _, bytes) = request_parts(app, method, uri, body, &[]).await;
+        (status, bytes)
+    }
+
+    /// The full response. Downloads are the reason this exists: their contract is in the
+    /// headers (`Content-Length`, `Content-Disposition`, and *no* `Content-Encoding`), not
+    /// only in the bytes.
+    async fn request_parts(
+        app: Router,
+        method: &str,
+        uri: &str,
+        body: Option<&str>,
+        headers: &[(&str, &str)],
+    ) -> (StatusCode, axum::http::HeaderMap, Bytes) {
         let mut builder = Request::builder().method(method).uri(uri);
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
         let body = match body {
             Some(json) => {
                 builder = builder.header("content-type", "application/json");
@@ -393,13 +424,14 @@ mod tests {
             .await
             .expect("response");
         let status = response.status();
+        let headers = response.headers().clone();
         let bytes = response
             .into_body()
             .collect()
             .await
             .expect("body")
             .to_bytes();
-        (status, bytes)
+        (status, headers, bytes)
     }
 
     async fn create_virtual_set(app: &Router) -> u32 {
@@ -438,8 +470,10 @@ mod tests {
             "/api/bookmarks",
             "/api/bookmarks/{id}",
             "/api/devicesets/{ds}/record",
+            "/api/devicesets/{ds}/playback",
             "/api/recordings",
             "/api/recordings/{id}",
+            "/api/recordings/{id}/download",
             "/api/decoderlog",
             "/api/decoderlog/export/{format}",
             "/api/workspaces/{id}/apply",
@@ -1013,6 +1047,281 @@ mod tests {
             .expect("the playback set survived the refusal");
         assert!(set.channels.is_empty());
         assert_eq!(set.settings.center_hz, Some(100_000_000.0));
+    }
+
+    /// A device set replaying a finalized recording — what the canvas transport drives.
+    async fn playback_set(app: &Router, rec: &sdrmm_wire::RecordingInfo) -> u32 {
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/devicesets",
+            Some(&format!(r#"{{"device_id":"{}"}}"#, rec.device_id)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        serde_json::from_slice::<CreatedId>(&body).expect("json").id
+    }
+
+    async fn playback(app: &Router, ds: u32, body: &str) -> (StatusCode, Bytes) {
+        request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/playback"),
+            Some(body),
+        )
+        .await
+    }
+
+    /// The transport is what the player face is wired to: pause holds, seek lands where it was
+    /// told, stop returns to the start, and every answer matches what `GET /api/state` then
+    /// reports — the face reads the snapshot, not the response.
+    #[tokio::test]
+    async fn playback_transport_pauses_seeks_and_stops() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let rec = recorded(&app).await;
+        let ds = playback_set(&app, &rec).await;
+
+        let reported = |app: &Router| {
+            let app = app.clone();
+            async move {
+                get_state(&app)
+                    .await
+                    .device_sets
+                    .into_iter()
+                    .find(|set| set.id == ds)
+                    .expect("the playback set is listed")
+                    .playback
+                    .expect("a replaying set reports a transport")
+            }
+        };
+
+        let initial = reported(&app).await;
+        assert!(!initial.paused);
+        assert_eq!(initial.total_samples, rec.samples);
+
+        let (status, body) = playback(&app, ds, r#"{"action":"pause"}"#).await;
+        assert_eq!(status, StatusCode::OK);
+        let paused: sdrmm_wire::PlaybackStatus = serde_json::from_slice(&body).expect("json");
+        assert!(paused.paused);
+        assert_eq!(reported(&app).await, paused);
+
+        let (status, body) = playback(
+            &app,
+            ds,
+            &format!(
+                r#"{{"action":"seek","position_samples":{}}}"#,
+                rec.samples / 2
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let sought: sdrmm_wire::PlaybackStatus = serde_json::from_slice(&body).expect("json");
+        assert_eq!(sought.position_samples, rec.samples / 2);
+        assert_eq!(reported(&app).await, sought);
+
+        let (status, body) = playback(&app, ds, r#"{"action":"stop"}"#).await;
+        assert_eq!(status, StatusCode::OK);
+        let stopped: sdrmm_wire::PlaybackStatus = serde_json::from_slice(&body).expect("json");
+        assert!(stopped.paused);
+        assert_eq!(stopped.position_samples, 0);
+
+        let (status, _) = playback(&app, ds, r#"{"action":"play"}"#).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!reported(&app).await.paused);
+    }
+
+    /// A live radio has no transport, and the refusal has to say so rather than pretend the
+    /// request landed — the face keys its player strip on exactly this being absent.
+    #[tokio::test]
+    async fn a_radio_has_no_transport_to_drive() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+
+        let set = get_state(&app)
+            .await
+            .device_sets
+            .into_iter()
+            .find(|set| set.id == ds)
+            .expect("set listed");
+        assert_eq!(set.playback, None);
+
+        let (status, body) = playback(&app, ds, r#"{"action":"pause"}"#).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            String::from_utf8_lossy(&body).contains("not a recording"),
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+
+        let (status, _) = playback(&app, 9_999, r#"{"action":"pause"}"#).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// One finalized recording, ready to be downloaded.
+    async fn recorded(app: &Router) -> sdrmm_wire::RecordingInfo {
+        let ds = create_virtual_set(app).await;
+        record(app, ds, "start").await;
+        wait_for_recorded_samples(app, ds, 1_024).await;
+        record(app, ds, "stop").await;
+        list_recordings(app).await.remove(0)
+    }
+
+    fn header_value(headers: &axum::http::HeaderMap, name: &str) -> String {
+        headers
+            .get(name)
+            .map(|value| value.to_str().expect("ascii header").to_string())
+            .unwrap_or_default()
+    }
+
+    /// The default download is the lossless one: the pair in a `.sigmf` tar, under a directory
+    /// named for the recording. The archive's own shape is `sdrmm-recorder`'s to prove — what
+    /// matters here is that the HTTP contract around it holds.
+    #[tokio::test]
+    async fn download_serves_the_pair_as_a_sigmf_archive() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let rec = recorded(&app).await;
+
+        let (status, headers, body) = request_parts(
+            app,
+            "GET",
+            &format!("/api/recordings/{}/download", rec.id),
+            None,
+            &[],
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(header_value(&headers, "content-type"), "application/x-tar");
+        assert_eq!(
+            header_value(&headers, "content-disposition"),
+            format!("attachment; filename=\"{}.sigmf\"", rec.file)
+        );
+        // The promised length has to be the delivered length, or a client cannot tell a
+        // finished download from a severed one.
+        assert_eq!(
+            header_value(&headers, "content-length"),
+            body.len().to_string()
+        );
+        assert!(
+            body.starts_with(format!("{}/", rec.file).as_bytes()),
+            "first tar header names the recording's directory"
+        );
+        assert_eq!(&body[257..263], b"ustar\0");
+    }
+
+    /// `?format=wav` hands the same samples to HDSDR and Audacity: two-channel 32-bit float at
+    /// the recorded rate, payload byte-identical to the `.sigmf-data`.
+    #[tokio::test]
+    async fn download_serves_iq_as_a_float_wav() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let rec = recorded(&app).await;
+
+        let (status, headers, body) = request_parts(
+            app,
+            "GET",
+            &format!("/api/recordings/{}/download?format=wav", rec.id),
+            None,
+            &[],
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(header_value(&headers, "content-type"), "audio/wav");
+        assert_eq!(
+            header_value(&headers, "content-disposition"),
+            format!("attachment; filename=\"{}.wav\"", rec.file)
+        );
+        assert_eq!(
+            header_value(&headers, "content-length"),
+            body.len().to_string()
+        );
+        assert_eq!(&body[..4], b"RIFF");
+        assert_eq!(&body[8..12], b"WAVE");
+        assert_eq!(&body[12..16], b"fmt ");
+        // WAVE_FORMAT_IEEE_FLOAT, two channels, at the set's 2.048 Msps.
+        assert_eq!(u16::from_le_bytes([body[20], body[21]]), 3);
+        assert_eq!(u16::from_le_bytes([body[22], body[23]]), 2);
+        assert_eq!(
+            u32::from_le_bytes([body[24], body[25], body[26], body[27]]),
+            2_048_000
+        );
+        assert_eq!(
+            body.len() as u64,
+            230 + rec.samples * sdrmm_recorder::BYTES_PER_SAMPLE,
+            "header plus every recorded sample"
+        );
+    }
+
+    /// Gzipping I/Q floats saves nothing and costs a core, and compressing at all would strip
+    /// the `Content-Length` a long download needs.
+    #[tokio::test]
+    async fn downloads_are_never_compressed() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let rec = recorded(&app).await;
+
+        for format in ["sigmf", "wav"] {
+            let (status, headers, body) = request_parts(
+                app.clone(),
+                "GET",
+                &format!("/api/recordings/{}/download?format={format}", rec.id),
+                None,
+                &[("accept-encoding", "gzip, deflate, br")],
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(header_value(&headers, "content-encoding"), "", "{format}");
+            assert_eq!(
+                header_value(&headers, "content-length"),
+                body.len().to_string(),
+                "{format}"
+            );
+        }
+
+        // The exclusion is by content type, so JSON must still compress.
+        let (_, headers, _) = request_parts(
+            app,
+            "GET",
+            "/api/state",
+            None,
+            &[("accept-encoding", "gzip")],
+        )
+        .await;
+        assert_eq!(header_value(&headers, "content-encoding"), "gzip");
+    }
+
+    #[tokio::test]
+    async fn downloading_an_unknown_recording_or_format_fails_cleanly() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let app = recording_router(dir.path());
+        let rec = recorded(&app).await;
+
+        let (status, _) = request(app.clone(), "GET", "/api/recordings/9999/download", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = request(
+            app.clone(),
+            "GET",
+            &format!("/api/recordings/{}/download?format=flac", rec.id),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // Indexed but gone from disk: a 404, not a body that dies mid-transfer.
+        std::fs::remove_file(sdrmm_recorder::data_path(&dir.path().join(&rec.file)))
+            .expect("remove data");
+        let (status, _) = request(
+            app,
+            "GET",
+            &format!("/api/recordings/{}/download", rec.id),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

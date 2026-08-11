@@ -24,6 +24,7 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** mdBook docs site + Pages deploy
 - **[shipped]** RustSec advisories are a CI gate (`xtask audit`, policy in `deny.toml`) covering the whole graph, Tauri shell included. It runs as its own job because a new advisory lands on RustSec's schedule, not on a pull request's. Standing exception: `RUSTSEC-2024-0429` (`glib` `VariantStrIter` unsoundness), unreachable here and unfixable below gtk4 — see `deny.toml`
 - **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
+- **[planned]** A native Save-As dialog for downloads in the desktop shell. The shell installs no `on_download` handler, so wry's default applies: a recording lands silently in the OS download directory (`~/Downloads`, `$XDG_DOWNLOAD_DIR`, `%USERPROFILE%\Downloads`), deduplicated as `name (1)`, with no dialog and no progress — and on Windows wry's `SetHandled(true)` suppresses even WebView2's own flyout. The gap that matters is failure: an export aborts its body rather than truncate, and that abort is invisible here. A Rust-side `tauri-plugin-dialog` handler would keep the shell's no-IPC stance, but a blocking dialog on the main thread needs care
 - **[shipped]** Signed and notarised macOS bundles — a Developer ID Application certificate and the App Store notary service, driven by six repository secrets the release workflow passes through to Tauri
 - **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one
 - **[skipped]** Mobile/phone layouts — every mobile path was deleted with the M6 shell; pointer, keyboard and laptop-class viewport are assumed everywhere
@@ -111,9 +112,11 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[shipped]** Recordings finalized on device fault, set removal and process exit; a writer fault surfaces as a hard error instead of a silent drop
 - **[shipped]** Recordings browser — rate, duration, size, guarded delete, and Play as the ordinary device-open flow (a finalized recording probes as a device, so replay needed no new endpoints)
 - **[shipped]** Files on disk are the source of truth; the SQLite index reconciles against them, serialized against delete and stop
+- **[shipped]** Recording download in two containers — a `.sigmf` archive (POSIX tar, lossless, re-openable as a device) and a two-channel float `.wav` with an `auxi` chunk for HDSDR/SDR#/Audacity, RF64 past the 4 GiB RIFF ceiling. Both stream off the blocking pool with an exact `Content-Length`, copy the samples verbatim, are excluded from gzip, and fail the transfer rather than truncate it
 - **[shipped]** Decoder log persisted server-side — indexed, composable filters (kind, set, time window, free text, limit), batched writer with a retry queue and periodic prune, and lag/overflow reported as a visible `dropped` count
 - **[shipped]** Decoder log export as a real CSV/JSON download with RFC4180 quoting
 - **[shipped]** Recorder as a node face, gated on its receiver running, with a live elapsed/size/overruns readout
+- **[shipped]** Replay transport on a recording's device node — play/pause, stop-to-start, loop, and a scrubbable position against a live clock. Driven by atomic stores on a handle shared with the capture thread, so a pause lands mid-block and a snapshot never waits on the device lock; pause and position stay out of the saved workspace, `loop` stays the device setting it always was
 - **[planned]** Per-channel sinks — audio recording, baseband file, UDP out to external tools
 - **[planned]** RF replay-capture workflow — record a burst, annotate it, analyze it
 - **[planned]** **IQ time machine** — rolling ring buffer, retro-record the last N seconds after the fact

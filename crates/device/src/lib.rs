@@ -10,7 +10,7 @@
 //! destructive fault path ever hears about it. A backend supplies what genuinely differs — how
 //! to point *its* radio at a stream, and what *its* ADC codes mean — and nothing else.
 
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use num_complex::Complex;
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, StreamScope};
@@ -280,11 +280,22 @@ pub trait SdrDevice: Send {
             "this device does not transmit".to_string(),
         ))
     }
+
+    /// The replay transport, on a device that is a recording rather than a radio. `None` is the
+    /// default, so only a playback backend has to think about it.
+    ///
+    /// The handle is shared, not copied: the control plane keeps it after the device has moved
+    /// into its capture runtime, which is what lets a pause or a seek land — and a position be
+    /// read for the snapshot — without taking the lock the capture thread is holding.
+    fn playback(&self) -> Option<Arc<PlaybackShared>> {
+        None
+    }
 }
 
 pub mod capture;
 pub mod convert;
 pub mod duplex;
+pub mod playback;
 pub mod registry;
 pub mod restart;
 pub mod worker;
@@ -293,6 +304,7 @@ pub use capture::{
 };
 pub use convert::{LutConverter, SampleConverter};
 pub use duplex::DuplexState;
+pub use playback::PlaybackShared;
 pub use registry::DeviceRegistry;
 pub use restart::{Recovery, RestartPolicy, SILENT_STREAM_TIMEOUT};
 pub use sdrmm_wire::{Direction, Duplex};
@@ -356,6 +368,7 @@ mod tests {
             antennas: Vec::new(),
             bandwidths: Vec::new(),
             extra: Vec::new(),
+            ppm: false,
             duplex: Duplex::RxOnly,
             rx_streams,
             tx_streams: 0,

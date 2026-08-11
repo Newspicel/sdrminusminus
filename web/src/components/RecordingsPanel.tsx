@@ -3,12 +3,12 @@
 // `virtual:file:` device, so opening one is the same gesture as opening a radio: it draws a
 // source node on the canvas, and apply is what starts it.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { deleteRecording, RECORDINGS_KEY, recordingsQuery } from "../lib/api";
+import { deleteRecording, RECORDINGS_KEY, recordingDownloadUrl, recordingsQuery } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { RecordingInfo } from "../lib/types";
 import { BTN } from "./controls";
 import { formatMhz } from "./format";
-import { formatBytes, formatDuration } from "./recordings";
+import { downloadFormats, formatBytes, formatDuration } from "./recordings";
 
 export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo) => void }) {
   const queryClient = useQueryClient();
@@ -37,6 +37,17 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
           <button type="button" className={BTN} onClick={() => onOpen(r)}>
             Open as source
           </button>
+          {downloadFormats.map(({ format, label, hint }) => (
+            <a
+              key={format}
+              className={BTN}
+              href={recordingDownloadUrl(r.id, format)}
+              title={hint}
+              download
+            >
+              {label}
+            </a>
+          ))}
           <button
             type="button"
             className={`${BTN} hover:border-danger hover:text-danger`}

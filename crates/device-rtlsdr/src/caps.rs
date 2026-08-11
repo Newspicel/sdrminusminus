@@ -212,6 +212,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         // dongle. `BANDWIDTH_MAX_HZ` still bounds what `apply` will write.
         bandwidths: Vec::new(),
         extra: extra_settings(board),
+        ppm: true,
         duplex: Duplex::RxOnly,
         rx_streams: 1,
         tx_streams: 0,
@@ -673,6 +674,9 @@ mod tests {
         assert_eq!(caps.antennas, vec!["RX".to_string()]);
         assert!(caps.bandwidths.is_empty());
         assert_eq!(caps.duplex, Duplex::RxOnly);
+        // The dongle's crystal is exactly what a ppm correction is for, and this backend
+        // programs it (`set_freq_correction`), so the control is offered here.
+        assert!(caps.ppm);
         assert_eq!(caps.rx_streams, 1);
         assert_eq!(caps.gains.len(), 1);
         assert_eq!(caps.gains[0].name, "TUNER");

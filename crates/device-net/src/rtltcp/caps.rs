@@ -141,6 +141,7 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
         // command for it at all.
         bandwidths: Vec::new(),
         extra: extra_settings(),
+        ppm: true,
         duplex: Duplex::RxOnly,
         rx_streams: 1,
         tx_streams: 0,

@@ -8,6 +8,7 @@ import { forStream, useDevicePatch } from "../lib/useDevicePatch";
 import { Checkbox } from "./Checkbox";
 import { formatHz } from "./format";
 import { NumberField } from "./NumberField";
+import { LOOP_SETTING } from "./playback";
 import { Select, withCurrent } from "./Select";
 import { Slider } from "./Slider";
 import { useDebouncedCommit } from "./useDebouncedCommit";
@@ -26,6 +27,11 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
   const sampleRate = settings.sample_rate ?? 0;
   const rateRange = caps.sample_rate_range;
   const bandwidth = settings.bandwidth ?? caps.bandwidths[0] ?? 0;
+  // A replaying set draws `loop` as a transport button instead; two controls for one setting
+  // would be two places to read the same answer, and they would disagree mid-flight.
+  const extras = (caps.extra ?? []).filter(
+    (setting) => active.playback == null || setting.name !== LOOP_SETTING,
+  );
   // A setting the radio scopes per-stream moves out of the shared rows and into one block per
   // lane, named after the IQ port it feeds — one control per thing the radio can actually hold,
   // never a shared knob quietly writing four lanes at once (Capabilities::per_stream).
@@ -41,7 +47,12 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
     <div className="flex flex-col gap-2">
       <div className={ROW}>
         <span className="legend">Rate</span>
-        {caps.sample_rates.length > 0 ? (
+        {caps.sample_rates.length === 1 && rateRange == null ? (
+          // One rate and nothing to pick between it and: a recording plays at the rate it was
+          // captured at, and a single-rate receiver says the same thing. A dropdown of one is
+          // a control that cannot act, so this is a readout.
+          <span className="font-mono text-xs text-ink">{formatMsps(sampleRate)}</span>
+        ) : caps.sample_rates.length > 0 ? (
           <Select
             label="Sample rate"
             className="w-full"
@@ -152,18 +163,24 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
         );
       })}
 
-      <div className={ROW}>
-        <span className="legend">PPM</span>
-        <NumberField
-          label="Frequency correction (ppm)"
-          value={settings.ppm ?? 0}
-          step={1}
-          onCommit={(ppm) => applyPatch(active.id, { ppm })}
-          className="w-20"
-        />
-      </div>
+      {/* Only where the radio has a correction to make. HackRF has no register for one and
+          SpyServer's protocol no field, so their backends refuse it; a recording and the signal
+          generator swallow it and do nothing. Drawn everywhere, the knob looked identical
+          whether it worked, errored, or lied. */}
+      {caps.ppm && (
+        <div className={ROW}>
+          <span className="legend">PPM</span>
+          <NumberField
+            label="Frequency correction (ppm)"
+            value={settings.ppm ?? 0}
+            step={1}
+            onCommit={(ppm) => applyPatch(active.id, { ppm })}
+            className="w-20"
+          />
+        </div>
+      )}
 
-      {(caps.extra ?? []).map((setting) => (
+      {extras.map((setting) => (
         <ExtraControl
           key={setting.name}
           setting={setting}

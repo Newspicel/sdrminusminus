@@ -277,6 +277,10 @@
   box-shadow: none;
   font-size: inherit;
   color: inherit;
+  /* The library paints `cursor: grab` across the whole node. Only the title bar drags one, so
+     only the title bar claims the hand (see `NodeShell`) — everywhere else the cursor has to be
+     free to say what that control actually does. */
+  cursor: default;
 }
 
 .react-flow__handle {

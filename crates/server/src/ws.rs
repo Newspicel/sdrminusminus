@@ -1548,6 +1548,7 @@ mod tests {
                     antennas: Vec::new(),
                     bandwidths: Vec::new(),
                     extra: Vec::new(),
+                    ppm: false,
                     duplex: sdrmm_wire::Duplex::RxOnly,
                     rx_streams: 1,
                     tx_streams: 0,

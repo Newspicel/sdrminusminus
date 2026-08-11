@@ -580,6 +580,7 @@ impl DeviceDriver for PagingDriver {
                 antennas: Vec::new(),
                 bandwidths: Vec::new(),
                 extra: Vec::new(),
+                ppm: false,
                 duplex: Duplex::RxOnly,
                 rx_streams: 2,
                 tx_streams: 0,

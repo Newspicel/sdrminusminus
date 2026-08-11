@@ -8,12 +8,15 @@
 //! that lists recordings keys on the final `.sigmf-meta` (see [`scan_stems`]), so an
 //! in-progress or crashed recording is never listed or played.
 
+mod export;
+
 use std::{
     fs::{self, File},
     io::{BufReader, Read, Seek, Write},
     path::{Path, PathBuf},
 };
 
+pub use export::{Export, ExportKind};
 use num_complex::Complex;
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +45,14 @@ pub enum SigmfError {
     /// this stem; the caller must pick a different one instead of sharing files.
     #[error("stem `{}` is already claimed by another recording", .0.display())]
     StemTaken(PathBuf),
+    /// The recording is fine, but the requested export container cannot express it — see
+    /// [`ExportKind`] for what each one carries.
+    #[error("cannot export `{}` as {format}: {reason}", .stem.display())]
+    Unexportable {
+        stem: PathBuf,
+        format: &'static str,
+        reason: &'static str,
+    },
 }
 
 /// The `global` object: recording-wide metadata. Field names carry the mandatory `core:`
@@ -138,6 +149,11 @@ fn with_suffix(stem: &Path, suffix: &str) -> PathBuf {
     let mut name = stem.as_os_str().to_owned();
     name.push(suffix);
     PathBuf::from(name)
+}
+
+/// Parse `<stem>.sigmf-meta`.
+pub(crate) fn read_meta(stem: &Path) -> Result<SigmfMeta, SigmfError> {
+    Ok(serde_json::from_str(&fs::read_to_string(meta_path(stem))?)?)
 }
 
 /// Stems (directory-joined, extension-less) of every finalized recording in `dir`, sorted
@@ -332,7 +348,7 @@ pub struct SigmfReader {
 impl SigmfReader {
     /// Open and validate `<stem>.sigmf-meta` + `<stem>.sigmf-data`.
     pub fn open(stem: &Path) -> Result<Self, SigmfError> {
-        let meta: SigmfMeta = serde_json::from_str(&fs::read_to_string(meta_path(stem))?)?;
+        let meta = read_meta(stem)?;
         if meta.global.datatype != DATATYPE_CF32_LE {
             return Err(SigmfError::UnsupportedDatatype(meta.global.datatype));
         }
@@ -384,6 +400,23 @@ impl SigmfReader {
         self.data.rewind()?;
         self.pos = 0;
         Ok(())
+    }
+
+    /// Seek to a sample index, clamped to the end of the data. Clamped rather than refused: a
+    /// scrub to the far end of a recording that a torn tail made shorter than its metadata
+    /// claims should land at the end, not fail the transport.
+    pub fn seek_to(&mut self, sample: u64) -> Result<(), SigmfError> {
+        let target = sample.min(self.total_samples);
+        self.data
+            .seek(std::io::SeekFrom::Start(target * BYTES_PER_SAMPLE))?;
+        self.pos = target;
+        Ok(())
+    }
+
+    /// Samples read so far — the playback position.
+    #[must_use]
+    pub fn position(&self) -> u64 {
+        self.pos
     }
 }
 

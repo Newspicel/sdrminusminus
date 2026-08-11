@@ -2,6 +2,7 @@
 //! generated TypeScript client — is produced from these signatures, never hand-written.
 
 use axum::{
+    body::Body,
     extract::{
         FromRequest, FromRequestParts, State,
         rejection::{JsonRejection, PathRejection, QueryRejection},
@@ -10,7 +11,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use sdrmm_engine::EngineError;
-use sdrmm_recorder::{SigmfMeta, SigmfReader, data_path, meta_path, scan_stems};
+use sdrmm_recorder::{
+    Export, ExportKind, SigmfMeta, SigmfReader, data_path, meta_path, scan_stems,
+};
 use sdrmm_wire::{
     ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, BandPlan, BandRegionMatch,
     BandRegionsResponse, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
@@ -18,10 +21,11 @@ use sdrmm_wire::{
     CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
     DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
     DoctorReport, ExportFormat, LocateQuery, NodeBody, PatchApplyReport, PatchBinding,
-    PatchCatalog, PatchRefusal, PresetInfo, PresetSnapshot, RecordAction, RecordRequest,
-    RecordingStatus, RecordingsResponse, ScanAction, ScanRequest, ScannerStatus, ServerEvent,
-    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, UpdateWorkspaceRequest,
-    WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus, PresetInfo, PresetSnapshot,
+    RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus,
+    RecordingsResponse, ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope,
+    StateSnapshot, TemplateInfo, TemplatesResponse, UpdateWorkspaceRequest, WorkspaceDetail,
+    WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -668,6 +672,30 @@ async fn record_device_set(
 }
 
 #[utoipa::path(
+    post, path = "/api/devicesets/{ds}/playback",
+    params(("ds" = u32, Path, description = "Device set id")),
+    request_body = PlaybackRequest,
+    responses(
+        (status = 200, description = "The transport after the request", body = PlaybackStatus),
+        (
+            status = 400,
+            description = "The set's device is a radio, not a recording",
+            body = ApiError,
+        ),
+        (status = 404, description = "Device set not found", body = ApiError),
+    ),
+)]
+async fn control_playback(
+    State(state): State<AppState>,
+    Path(ds): Path<u32>,
+    Json(request): Json<PlaybackRequest>,
+) -> Result<Json<PlaybackStatus>, AppError> {
+    // Atomic stores on a shared handle — no device I/O, so unlike the other device-set calls
+    // this one has no reason to leave the tokio worker.
+    Ok(Json(state.engine.control_playback(ds, &request)?))
+}
+
+#[utoipa::path(
     get, path = "/api/recordings",
     responses((
         status = 200,
@@ -691,6 +719,115 @@ async fn list_recordings(
     })
     .await??;
     Ok(Json(RecordingsResponse { recordings }))
+}
+
+#[utoipa::path(
+    get, path = "/api/recordings/{id}/download",
+    params(("id" = i64, Path, description = "Recording id"), RecordingDownloadQuery),
+    responses(
+        (
+            status = 200,
+            description = "The recording as a downloadable file, streamed with an exact \
+                           `Content-Length`",
+            content(
+                (String = "application/x-tar"),
+                (String = "audio/wav"),
+            ),
+        ),
+        (
+            status = 400,
+            description = "Unknown format, or a recording the requested container cannot \
+                           express (a WAV needs a sample rate and cf32 samples)",
+            body = ApiError,
+        ),
+        (status = 404, description = "Recording not found", body = ApiError),
+    ),
+)]
+async fn download_recording(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(query): Query<RecordingDownloadQuery>,
+) -> Result<Response, AppError> {
+    let engine = state.engine.clone();
+    let store = state.store.clone();
+    let gate = state.recordings_gate.clone();
+    let kind = match query.format {
+        RecordingFormat::Sigmf => ExportKind::SigmfArchive,
+        RecordingFormat::Wav => ExportKind::Wav,
+    };
+    // Opened on the blocking pool, and opened *before* the response starts: a missing pair
+    // has to become a 404 rather than a body that dies three gigabytes in.
+    let export = tokio::task::spawn_blocking(move || -> Result<Export, AppError> {
+        let _gate = lock_gate(&gate);
+        let name = store.recording_stem(id)?;
+        let dir = engine
+            .recordings_dir()
+            .ok_or_else(|| AppError::not_found(format!("recording {id} not found")))?;
+        Export::open(&dir.join(&name), kind).map_err(|err| export_error(id, err))
+    })
+    .await??;
+
+    let content_length = export.byte_len();
+    let headers = [
+        (header::CONTENT_TYPE, export.content_type().to_string()),
+        (header::CONTENT_LENGTH, content_length.to_string()),
+        (
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", export.file_name()),
+        ),
+    ];
+    Ok((headers, Body::from_stream(export_stream(export))).into_response())
+}
+
+/// A recording that vanished between the index and the disk is a 404; one the container
+/// cannot express is the caller's choice to fix, not the server's fault.
+fn export_error(id: i64, err: sdrmm_recorder::SigmfError) -> AppError {
+    match err {
+        sdrmm_recorder::SigmfError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
+            AppError::not_found(format!("recording {id} not found"))
+        }
+        sdrmm_recorder::SigmfError::Unexportable { .. } => AppError::bad_request(err.to_string())
+            .with_detail(
+                "download it as `format=sigmf`, which carries any recording verbatim".to_string(),
+            ),
+        other => AppError::internal(format!("export recording {id}: {other}")),
+    }
+}
+
+/// Pump the export off the blocking pool in chunks. File reads of this size must not run on a
+/// tokio worker, and the bounded channel is what makes the download obey backpressure: a slow
+/// client parks the reader instead of pulling a whole recording into memory.
+fn export_stream(
+    mut export: Export,
+) -> impl futures::Stream<Item = Result<Vec<u8>, std::io::Error>> + Send + 'static {
+    /// Big enough that a gigabyte-scale download is not millions of wakeups, small enough
+    /// that a few concurrent downloads stay well inside a sane memory budget.
+    const CHUNK: usize = 256 * 1024;
+
+    let (tx, rx) = tokio::sync::mpsc::channel(4);
+    tokio::task::spawn_blocking(move || {
+        loop {
+            let mut chunk = vec![0u8; CHUNK];
+            let read = match std::io::Read::read(&mut export, &mut chunk) {
+                Ok(0) => return,
+                Ok(read) => read,
+                // The error rides the stream so the body aborts: the `Content-Length` has
+                // already promised more, and a client must see a broken transfer, not a
+                // truncated recording that looks whole.
+                Err(err) => {
+                    let _ = tx.blocking_send(Err(err));
+                    return;
+                }
+            };
+            chunk.truncate(read);
+            if tx.blocking_send(Ok(chunk)).is_err() {
+                return;
+            }
+        }
+    });
+    futures::stream::unfold(rx, |mut rx| async move {
+        rx.recv().await.map(|chunk| (chunk, rx))
+    })
 }
 
 #[utoipa::path(
@@ -1622,6 +1759,7 @@ async fn get_doctor(State(state): State<AppState>) -> Result<Json<DoctorReport>,
         ClientCommand,
         PresetSnapshot,
         ExportFormat,
+        RecordingFormat,
         TemplateInfo,
         ScannerStatus,
     )),
@@ -1646,8 +1784,10 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_bookmarks, create_bookmark))
         .routes(routes!(delete_bookmark))
         .routes(routes!(record_device_set))
+        .routes(routes!(control_playback))
         .routes(routes!(list_recordings))
         .routes(routes!(delete_recording))
+        .routes(routes!(download_recording))
         .routes(routes!(list_decoder_log, clear_decoder_log))
         .routes(routes!(export_decoder_log))
         .routes(routes!(scan_device_set))

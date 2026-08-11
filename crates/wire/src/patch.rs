@@ -1016,6 +1016,7 @@ mod tests {
             antennas: Vec::new(),
             bandwidths: Vec::new(),
             extra: Vec::new(),
+            ppm: false,
             duplex,
             rx_streams,
             tx_streams,

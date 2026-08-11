@@ -223,6 +223,7 @@ fn siggen_capabilities() -> Capabilities {
         antennas: vec!["RX".to_string()],
         bandwidths: Vec::new(),
         extra: Vec::new(),
+        ppm: false,
         duplex: Duplex::RxOnly,
         rx_streams: 1,
         tx_streams: 0,

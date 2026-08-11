@@ -132,7 +132,15 @@ export function NodeShell({
           handleClassName="!size-2 !rounded-none !border-accent !bg-panel"
         />
       )}
-      <header className="flex h-6.5 shrink-0 items-center gap-2 border-b border-line bg-panel-2 pr-1">
+      {/* The one place the node can be dragged from, so the one place that says so: the grab
+          cursor is the affordance, and the library's default of painting it over the whole card
+          promised a drag on every button inside the face. The buttons in here opt back out —
+          they are pressed, not dragged. */}
+      <header
+        className={`flex h-6.5 shrink-0 items-center gap-2 border-b border-line bg-panel-2 pr-1 ${
+          surface === "canvas" ? "cursor-grab active:cursor-grabbing" : ""
+        }`}
+      >
         <span aria-hidden className={`h-full w-1 ${CATEGORY_STRIP[category]}`} />
         <span className="legend truncate text-ink-dim">{node.label ?? title}</span>
         {subtitle !== undefined && (
@@ -173,11 +181,13 @@ export function NodeShell({
           opts out: without `nodrag nowheel`, dragging a gain slider drags the node and scrolling
           a digit zooms the canvas instead of tuning. The header keeps both, so the node is
           dragged by its title bar — the patch-editor convention.
-          The opt-out is only claimed by the *active* face: over every other one the wheel and the
-          drag belong to the camera, so the patch stays navigable from wherever the pointer is. */}
+          `nodrag` is unconditional: a face is not a drag handle whether or not it is selected,
+          and a body that quietly moved the card was what put a grab cursor on every control in
+          it. `nopan nowheel` stay conditional — over an inactive face the wheel and the drag
+          belong to the camera, so the patch stays navigable from wherever the pointer is. */}
       <div
-        className={`flex min-h-0 flex-1 flex-col overflow-hidden ${
-          active ? "nodrag nopan nowheel" : ""
+        className={`flex min-h-0 flex-1 flex-col overflow-hidden nodrag ${
+          active ? "nopan nowheel" : ""
         }`}
       >
         <Active value={active}>{children}</Active>

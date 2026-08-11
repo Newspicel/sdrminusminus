@@ -260,6 +260,22 @@ export interface paths {
         patch: operations["patch_device"];
         trace?: never;
     };
+    "/api/devicesets/{ds}/playback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["control_playback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devicesets/{ds}/record": {
         parameters: {
             query?: never;
@@ -399,6 +415,22 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["delete_recording"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/recordings/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["download_recording"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -979,6 +1011,18 @@ export interface components {
              */
             per_stream?: components["schemas"]["StreamScope"];
             /**
+             * @description Whether the radio has a frequency-correction setting at all. Several do not — HackRF has
+             *     no correction register, SpyServer's protocol carries no such field, a Soapy tuner without
+             *     a `CORR` component cannot apply one — and their backends already refuse `ppm` outright,
+             *     while a recording and the signal generator swallow it and do nothing. Without this the
+             *     client drew the control on every device, so a knob that could only error, or only lie,
+             *     looked exactly like one that worked.
+             *
+             *     Defaults to *unsupported* for the same reason `duplex` defaults to receive-only: a
+             *     capability must be declared, never advertised by omission.
+             */
+            ppm?: boolean;
+            /**
              * Format: int32
              * @description How many independent receive streams this radio delivers at once. One for an ordinary
              *     SDR; a KrakenSDR is five coherent channels on one USB device, which is why this is a
@@ -1529,6 +1573,7 @@ export interface components {
              *     `status` stays `running` (PLAN §5 backpressure; CLAUDE.md no-silent-failure).
              */
             overruns?: number;
+            playback?: null | components["schemas"]["PlaybackStatus"];
             recording?: null | components["schemas"]["RecordingStatus"];
             scanner?: null | components["schemas"]["ScannerStatus"];
             settings: components["schemas"]["DeviceSettings"];
@@ -1977,6 +2022,47 @@ export interface components {
             reason: string;
         };
         /**
+         * @description What a [`PlaybackRequest`] should do.
+         * @enum {string}
+         */
+        PlaybackAction: "play" | "pause" | "stop" | "seek";
+        /**
+         * @description `POST /api/devicesets/{ds}/playback` — drive the replay transport of a set whose device is
+         *     a recording. Looping is not an action here: it is the `loop` device setting, applied like
+         *     any other (see [`crate::PlaybackStatus`]).
+         */
+        PlaybackRequest: {
+            action: components["schemas"]["PlaybackAction"];
+            /**
+             * Format: int64
+             * @description Where [`PlaybackAction::Seek`] should land, in samples from the start; clamped to the
+             *     end of the recording. Ignored by every other action, and absent means the start.
+             */
+            position_samples?: number | null;
+        };
+        /**
+         * @description Transport of a device set replaying a recording (`virtual:file:`). Absent on a live radio:
+         *     there is no position to seek in a signal that is still arriving.
+         *
+         *     Whether it loops is *not* here — that is `loop` in [`DeviceSettings::extra`], a setting the
+         *     radio carries and a workspace saves. Pause and position are the opposite: reopening a patch
+         *     must not restore a paused transport, so they live only in this live status.
+         */
+        PlaybackStatus: {
+            paused: boolean;
+            /**
+             * Format: int64
+             * @description Samples replayed from the start of the recording.
+             */
+            position_samples: number;
+            /**
+             * Format: int64
+             * @description Samples the recording holds. Read off the data file, so a crash-truncated pair reports
+             *     what can actually be replayed rather than what its metadata claims.
+             */
+            total_samples: number;
+        };
+        /**
          * @description Bit rate of a POCSAG transmission. Pagers on one frequency may use several, so `Auto`
          *     (the default) locks onto whichever preamble it finds.
          * @enum {string}
@@ -2185,6 +2271,13 @@ export interface components {
          * @enum {string}
          */
         RecordAction: "start" | "stop";
+        /**
+         * @description Container a recording is downloaded in. A query field rather than a path segment (unlike
+         *     [`ExportFormat`]): the format is optional here, and giving a path segment a default would
+         *     mean two routes for one resource.
+         * @enum {string}
+         */
+        RecordingFormat: "sigmf" | "wav";
         /**
          * @description One finalized SigMF recording in the library (PLAN §11: the files on disk are the source
          *     of truth; this row is its SQLite index entry).
@@ -3567,6 +3660,51 @@ export interface operations {
             };
         };
     };
+    control_playback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device set id */
+                ds: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaybackRequest"];
+            };
+        };
+        responses: {
+            /** @description The transport after the request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybackStatus"];
+                };
+            };
+            /** @description The set's device is a radio, not a recording */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device set not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     record_device_set: {
         parameters: {
             query?: never;
@@ -3908,6 +4046,50 @@ export interface operations {
                 content?: never;
             };
             /** @description Invalid path parameter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Recording not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    download_recording: {
+        parameters: {
+            query?: {
+                format?: components["schemas"]["RecordingFormat"];
+            };
+            header?: never;
+            path: {
+                /** @description Recording id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recording as a downloadable file, streamed with an exact `Content-Length` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-tar": string;
+                    "audio/wav": string;
+                };
+            };
+            /** @description Unknown format, or a recording the requested container cannot express (a WAV needs a sample rate and cf32 samples) */
             400: {
                 headers: {
                     [name: string]: unknown;

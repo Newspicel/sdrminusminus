@@ -89,6 +89,9 @@ pub(crate) fn capabilities() -> Capabilities {
                 default: false,
             },
         ],
+        // No frequency-correction register on any board revision, which is why `validate`
+        // refuses `ppm` outright rather than accepting a correction it cannot make.
+        ppm: false,
         duplex: Duplex::Half,
         rx_streams: 1,
         tx_streams: 1,
@@ -607,6 +610,9 @@ mod tests {
                 "ppm {ppm} must be rejected"
             );
         }
+        // And the capability has to say so, or the client draws a control whose every value
+        // this refusal will reject.
+        assert!(!capabilities().ppm);
     }
 
     fn filter_of(bandwidth: f64) -> Result<Option<FilterWidth>, DeviceError> {

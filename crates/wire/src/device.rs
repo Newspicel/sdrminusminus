@@ -282,6 +282,17 @@ pub struct Capabilities {
     pub bandwidths: Vec<f64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra: Vec<ExtraSetting>,
+    /// Whether the radio has a frequency-correction setting at all. Several do not — HackRF has
+    /// no correction register, SpyServer's protocol carries no such field, a Soapy tuner without
+    /// a `CORR` component cannot apply one — and their backends already refuse `ppm` outright,
+    /// while a recording and the signal generator swallow it and do nothing. Without this the
+    /// client drew the control on every device, so a knob that could only error, or only lie,
+    /// looked exactly like one that worked.
+    ///
+    /// Defaults to *unsupported* for the same reason `duplex` defaults to receive-only: a
+    /// capability must be declared, never advertised by omission.
+    #[serde(default)]
+    pub ppm: bool,
     /// Which directions this radio has, and whether it can run them together. Receive-only
     /// unless a backend says otherwise, so a device cannot advertise a transmitter by omission.
     /// This is the *hardware's* shape, not a permission: PLAN §12a gates transmit behind an
@@ -486,6 +497,7 @@ mod tests {
             antennas: vec!["RX".to_string()],
             bandwidths: Vec::new(),
             extra: Vec::new(),
+            ppm: false,
             duplex,
             rx_streams: 1,
             tx_streams: 0,

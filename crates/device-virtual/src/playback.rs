@@ -11,7 +11,9 @@ use std::{
 
 use arc_swap::ArcSwap;
 use num_complex::Complex;
-use sdrmm_device::{DeviceError, RxSink, SdrDevice, Worker, check_stream_settings, single_rx_sink};
+use sdrmm_device::{
+    DeviceError, PlaybackShared, RxSink, SdrDevice, Worker, check_stream_settings, single_rx_sink,
+};
 use sdrmm_recorder::{SigmfError, SigmfReader};
 use sdrmm_wire::{
     Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, Range, StreamScope,
@@ -35,6 +37,9 @@ pub struct FilePlayback {
     capabilities: Capabilities,
     settings: DeviceSettings,
     shared: Arc<ArcSwap<PlaybackParams>>,
+    /// Pause, position and seek. Separate from `shared` because the control plane keeps this
+    /// after the device is gone into its runtime, and because it is written from both sides.
+    transport: Arc<PlaybackShared>,
     worker: Worker,
 }
 
@@ -80,6 +85,7 @@ impl FilePlayback {
                 name: LOOP_SETTING.to_string(),
                 default: true,
             }],
+            ppm: false,
             duplex: Duplex::RxOnly,
             rx_streams: 1,
             tx_streams: 0,
@@ -100,6 +106,10 @@ impl FilePlayback {
             capabilities,
             settings,
             shared: Arc::new(ArcSwap::from_pointee(PlaybackParams { looping: true })),
+            // From the data file, not the metadata: a crash-truncated pair must report the
+            // length that can actually be replayed, or the transport bar promises samples the
+            // reader will never reach.
+            transport: Arc::new(PlaybackShared::new(reader.total_samples())),
             worker: Worker::new(),
         })
     }
@@ -174,6 +184,7 @@ impl SdrDevice for FilePlayback {
     fn rx_start(&mut self, sinks: Vec<RxSink>) -> Result<(), DeviceError> {
         let mut sink = single_rx_sink(sinks)?;
         let shared = self.shared.clone();
+        let transport = self.transport.clone();
         let stem = self.stem.clone();
         let sample_rate = self.sample_rate;
         self.worker.start("sdrmm-playback-rx", move |running| {
@@ -191,6 +202,20 @@ impl SdrDevice for FilePlayback {
             let mut next = Instant::now();
             'stream: while running.load(Ordering::Acquire) {
                 let params = *shared.load_full();
+                if let Some(target) = transport.take_seek()
+                    && let Err(err) = reader.seek_to(target)
+                {
+                    sink.fail(DeviceError::Io(err.to_string()));
+                    return;
+                }
+                // A paused transport consumes nothing and emits nothing — the spectrum freezes
+                // where it stood, which is the honest picture of a stopped tape. It still has
+                // to wake on a resume, a seek or a stop, so the park is one block long.
+                if transport.paused() {
+                    std::thread::sleep(Duration::from_secs_f64(BLOCK_SECS));
+                    next = Instant::now();
+                    continue;
+                }
                 let mut filled = 0;
                 while filled < block.len() {
                     match reader.read_block(&mut block[filled..]) {
@@ -212,12 +237,14 @@ impl SdrDevice for FilePlayback {
                 if filled > 0 {
                     sink.push(&block[..filled]);
                 }
+                transport.set_position(reader.position());
                 if filled < block.len() {
                     // End of data with looping off: hold silent (the spectrum freezes —
-                    // honest idle), but keep watching so re-enabling `loop` resumes at 0.
+                    // honest idle), but keep watching so re-enabling `loop`, or scrubbing back
+                    // into the recording, resumes it.
                     while running.load(Ordering::Acquire) {
                         std::thread::sleep(Duration::from_secs_f64(BLOCK_SECS));
-                        if shared.load_full().looping {
+                        if shared.load_full().looping || transport.seek_pending() {
                             next = Instant::now();
                             continue 'stream;
                         }
@@ -240,6 +267,10 @@ impl SdrDevice for FilePlayback {
     fn rx_stop(&mut self) {
         self.worker.stop();
     }
+
+    fn playback(&self) -> Option<Arc<PlaybackShared>> {
+        Some(self.transport.clone())
+    }
 }
 
 #[cfg(test)]
@@ -247,7 +278,7 @@ mod tests {
     use std::{fs, sync::mpsc, time::Duration};
 
     use sdrmm_recorder::{SigmfWriter, data_path, meta_path};
-    use sdrmm_wire::StreamSettings;
+    use sdrmm_wire::{PlaybackAction, PlaybackRequest, StreamSettings};
     use tempfile::TempDir;
 
     use super::*;
@@ -302,6 +333,136 @@ mod tests {
             assert_eq!(x.re.to_bits(), y.re.to_bits(), "re mismatch at {i}");
             assert_eq!(x.im.to_bits(), y.im.to_bits(), "im mismatch at {i}");
         }
+    }
+
+    fn transport(action: PlaybackAction, position_samples: Option<u64>) -> PlaybackRequest {
+        PlaybackRequest {
+            action,
+            position_samples,
+        }
+    }
+
+    /// Pause has to stop the tape, not mute it: a paused transport that kept reading would run
+    /// off the end of the recording while the operator was looking at a frozen spectrum.
+    #[test]
+    fn pause_stops_consuming_and_play_resumes_where_it_stopped() {
+        let dir = TempDir::new().unwrap();
+        let recorded = tone(250_000);
+        let stem = record(dir.path(), "paused", &recorded);
+
+        let mut dev = FilePlayback::open(&stem).unwrap();
+        let control = dev.playback().expect("a recording has a transport");
+        assert_eq!(control.status().total_samples, 250_000);
+
+        let rx = start(&mut dev);
+        let before = collect(&rx, 1);
+        control.control(&transport(PlaybackAction::Pause, None));
+
+        // Whatever block was already in flight may still land; after that, silence.
+        while rx.recv_timeout(Duration::from_millis(200)).is_ok() {}
+        let at_pause = control.status();
+        assert!(at_pause.paused);
+        assert!(at_pause.position_samples >= before.len() as u64);
+        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());
+
+        control.control(&transport(PlaybackAction::Play, None));
+        let after = collect(&rx, 1);
+        assert!(!control.status().paused);
+        assert!(
+            control.status().position_samples > at_pause.position_samples,
+            "playback resumed"
+        );
+        assert!(!after.is_empty());
+        dev.rx_stop();
+    }
+
+    #[test]
+    fn stop_pauses_and_rewinds_so_play_starts_over() {
+        let dir = TempDir::new().unwrap();
+        let recorded = tone(250_000);
+        let stem = record(dir.path(), "stopped", &recorded);
+
+        let mut dev = FilePlayback::open(&stem).unwrap();
+        let control = dev.playback().unwrap();
+        let rx = start(&mut dev);
+        collect(&rx, 1);
+
+        control.control(&transport(PlaybackAction::Stop, None));
+        while rx.recv_timeout(Duration::from_millis(200)).is_ok() {}
+        let stopped = control.status();
+        assert!(stopped.paused);
+        assert_eq!(stopped.position_samples, 0);
+
+        // Playing again yields the head of the recording, not the middle.
+        control.control(&transport(PlaybackAction::Play, None));
+        assert_bits_eq(&recorded[..1_000], &collect(&rx, 1_000)[..1_000]);
+        dev.rx_stop();
+    }
+
+    /// A seek must land on the sample asked for, so the samples that follow are the ones the
+    /// operator scrubbed to — an off-by-a-block transport is worse than none.
+    #[test]
+    fn a_seek_replays_from_exactly_that_sample() {
+        let dir = TempDir::new().unwrap();
+        let recorded = tone(250_000);
+        let stem = record(dir.path(), "sought", &recorded);
+
+        let mut dev = FilePlayback::open(&stem).unwrap();
+        let control = dev.playback().unwrap();
+        // Paused first, so the seek is not raced by the block the worker is already reading.
+        control.control(&transport(PlaybackAction::Pause, None));
+        let rx = start(&mut dev);
+        while rx.recv_timeout(Duration::from_millis(200)).is_ok() {}
+
+        control.control(&transport(PlaybackAction::Seek, Some(100_000)));
+        assert_eq!(control.status().position_samples, 100_000);
+        control.control(&transport(PlaybackAction::Play, None));
+
+        assert_bits_eq(&recorded[100_000..101_000], &collect(&rx, 1_000)[..1_000]);
+        dev.rx_stop();
+    }
+
+    /// Parked at the end with looping off, a scrub backwards has to wake the worker — the park
+    /// only watched the `loop` flag, so a seek would have sat there unnoticed.
+    #[test]
+    fn seeking_back_wakes_a_transport_parked_at_the_end() {
+        let dir = TempDir::new().unwrap();
+        let recorded = tone(2_000);
+        let stem = record(dir.path(), "parked", &recorded);
+
+        let mut dev = FilePlayback::open(&stem).unwrap();
+        dev.apply(&loop_setting(false)).unwrap();
+        let control = dev.playback().unwrap();
+        let rx = start(&mut dev);
+        assert_bits_eq(&recorded, &collect(&rx, 2_000));
+        assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
+
+        control.control(&transport(PlaybackAction::Seek, Some(0)));
+        assert_bits_eq(&recorded, &collect(&rx, 2_000));
+        dev.rx_stop();
+    }
+
+    /// The position is what the progress bar draws; it has to track the samples actually
+    /// delivered, and wrap with the recording rather than run past its end.
+    #[test]
+    fn the_reported_position_follows_playback_and_wraps_with_the_loop() {
+        let dir = TempDir::new().unwrap();
+        let recorded = tone(50_000);
+        let stem = record(dir.path(), "position", &recorded);
+
+        let mut dev = FilePlayback::open(&stem).unwrap();
+        let control = dev.playback().unwrap();
+        let rx = start(&mut dev);
+
+        collect(&rx, 25_000);
+        let status = control.status();
+        assert!(status.position_samples > 0);
+        assert!(status.position_samples <= 50_000, "never past the end");
+
+        // Two full passes: looping is on by default, so the position wraps instead of running on.
+        collect(&rx, 100_000);
+        assert!(control.status().position_samples <= 50_000);
+        dev.rx_stop();
     }
 
     #[test]
@@ -365,6 +526,10 @@ mod tests {
             &caps.extra[..],
             [ExtraSetting::Bool { name, default: true }] if name == LOOP_SETTING
         ));
+        // The recorded centre is a single point and there is no oscillator to correct, so the
+        // dial and the ppm field are both readouts on this device, not controls.
+        assert_eq!(caps.freq_ranges[0].min, caps.freq_ranges[0].max);
+        assert!(!caps.ppm);
         assert_eq!(dev.settings().center_hz, Some(100_000_000.0));
         assert_eq!(dev.settings().sample_rate, Some(250_000.0));
     }

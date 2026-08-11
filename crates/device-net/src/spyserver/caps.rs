@@ -101,6 +101,7 @@ pub(crate) fn capabilities(
         antennas: Vec::new(),
         bandwidths: Vec::new(),
         extra,
+        ppm: false,
         duplex: Duplex::RxOnly,
         rx_streams: 1,
         tx_streams: 0,

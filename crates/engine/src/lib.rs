@@ -18,13 +18,13 @@ use std::{
 };
 
 use sdrmm_channels::{ChannelCtx, ChannelError};
-use sdrmm_device::{DeviceError, DeviceRegistry, check_stream_settings};
+use sdrmm_device::{DeviceError, DeviceRegistry, PlaybackShared, check_stream_settings};
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
     Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DecodedRecord,
-    DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, RecordingStatus, ScanSettings,
-    ScannerStatus, ServerEvent, StateScope, StateSnapshot,
+    DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, PlaybackRequest, PlaybackStatus,
+    RecordingStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope, StateSnapshot,
 };
 use tokio::sync::broadcast;
 
@@ -424,6 +424,11 @@ struct DeviceSetState {
     overruns: Vec<Arc<AtomicU64>>,
     /// Overrun count already surfaced to clients; the hotplug tick diffs against it.
     overruns_seen: u64,
+    /// Replay transport, on a set whose device is a recording; `None` for a radio. Held here
+    /// rather than reached through the runtime for the same reason as `overruns`: a snapshot
+    /// reads it on every emit and must never wait on a device lock, and a pause has to land
+    /// while the capture thread is mid-block.
+    playback: Option<Arc<PlaybackShared>>,
     /// Control-plane mutex around the runtime: device I/O (`apply`, `stop`) happens under it,
     /// never under the engine-wide `inner` lock, so a wedged device stalls only its own set.
     /// Never hold `inner` and this lock at once — clone the `Arc` under `inner`, drop `inner`,
@@ -448,6 +453,7 @@ impl DeviceSetState {
             error: self.error.clone(),
             recording: self.recording.as_ref().map(|r| r.status(overruns)),
             scanner: self.scanner.as_ref().map(ScannerState::status),
+            playback: self.playback.as_deref().map(PlaybackShared::status),
         }
     }
 
@@ -932,6 +938,7 @@ impl Engine {
             }
         };
         let capabilities = device.capabilities().clone();
+        let playback = device.playback();
         // A reconnect is a create followed by a patch, and it projects state the same way
         // both of those do: the fresh device's own settings as the base, the stored ones
         // merged over them. Reading `device.settings()` alone would depend on every backend
@@ -1006,6 +1013,9 @@ impl Engine {
             state.settings = settings;
             state.status = DeviceSetStatus::Running;
             state.error = None;
+            // The reopened device brought a fresh transport; the old handle belongs to a
+            // capture that is being torn down and would report a frozen position forever.
+            state.playback = playback;
             let rebuilds: Vec<RebuildEntry> = state
                 .channels
                 .iter()
@@ -1128,6 +1138,9 @@ impl Engine {
         let (info, device) = self.registry.open(device_id)?;
         let capabilities = device.capabilities().clone();
         let settings = device.settings().clone();
+        // Taken before the device moves into its runtime — afterwards it is behind the capture
+        // lock, which the snapshot path must never wait on.
+        let playback = device.playback();
 
         // Reserve the id before the runtime exists: the fatal handler must name its device
         // set, and `creating` membership lets `mark_device_fault` stash a fault raised before
@@ -1181,6 +1194,7 @@ impl Engine {
                     cmd_txs,
                     overruns,
                     overruns_seen: 0,
+                    playback,
                     runtime: Arc::new(Mutex::new(runtime)),
                 },
             );
@@ -2086,6 +2100,41 @@ impl Engine {
         Ok(status)
     }
 
+    /// Drive a replaying set's transport (play, pause, stop, seek) and return the state it
+    /// leaves behind.
+    ///
+    /// The whole call is atomic stores on a shared handle, so unlike `apply` it never touches
+    /// the device or its lock: a pause lands while the capture thread is mid-block, and it
+    /// cannot be stalled by a wedged device.
+    pub fn control_playback(
+        &self,
+        ds: u32,
+        request: &PlaybackRequest,
+    ) -> Result<PlaybackStatus, EngineError> {
+        let status = {
+            let mut inner = self.lock();
+            let state = inner
+                .device_sets
+                .get_mut(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            let playback = state.playback.as_deref().ok_or_else(|| {
+                EngineError::Device(DeviceError::Unsupported(
+                    "this device is a radio, not a recording: there is nothing to seek in a \
+                     signal that is still arriving"
+                        .to_string(),
+                ))
+            })?;
+            playback.control(request);
+            let status = playback.status();
+            inner.revision += 1;
+            status
+        };
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
+        Ok(status)
+    }
+
     /// The device set's current sample rate, or `None` if it is gone — the scan thread's
     /// "is this set still mine to drive" check.
     pub(crate) fn scan_sample_rate(&self, ds: u32) -> Option<f64> {
@@ -2244,6 +2293,7 @@ mod tests {
             antennas: Vec::new(),
             bandwidths: Vec::new(),
             extra: Vec::new(),
+            ppm: false,
             duplex: Duplex::RxOnly,
             rx_streams: 1,
             tx_streams: 0,

@@ -25,8 +25,11 @@ import type {
   ExportFormat,
   PatchApplyReport,
   PatchCatalog,
+  PlaybackAction,
+  PlaybackStatus,
   PresetInfo,
   RecordAction,
+  RecordingFormat,
   RecordingStatus,
   RecordingsResponse,
   ScannerStatus,
@@ -226,6 +229,28 @@ export async function recordDeviceSet(
       body: { action, stream },
     }),
   );
+}
+
+/** Drive a replaying set's transport. `position_samples` is only read by `seek`. */
+export async function controlPlayback(
+  ds: number,
+  action: PlaybackAction,
+  positionSamples?: number,
+): Promise<PlaybackStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/playback", {
+      params: { path: { ds } },
+      body: { action, position_samples: positionSamples },
+    }),
+  );
+}
+
+/** A plain href for the download link, like {@link decoderLogExportUrl} — the browser has to
+ * navigate to it for `Content-Disposition` to apply, and cannot set an auth header on the way,
+ * so the token rides in the query. `sigmf` is the server's default and stays out of the URL. */
+export function recordingDownloadUrl(id: number, format: RecordingFormat): string {
+  const path = `/api/recordings/${id}/download`;
+  return withToken(format === "sigmf" ? path : `${path}?format=${format}`);
 }
 
 export async function deleteRecording(id: number): Promise<void> {

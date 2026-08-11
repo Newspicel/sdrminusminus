@@ -10,6 +10,7 @@ export function Slider({
   max,
   step,
   onChange,
+  onCommit,
   className,
 }: {
   label: string;
@@ -18,6 +19,9 @@ export function Slider({
   max: number;
   step?: number;
   onChange: (value: number) => void;
+  /** Fired once on release instead of per pixel, for a sweep whose every intermediate value
+   * would be a real request — a playback seek, not a gain the DSP can take continuously. */
+  onCommit?: (value: number) => void;
   /** Width is the caller's: a settings row wants the column, a channel header wants 80px. */
   className?: string;
 }) {
@@ -34,6 +38,11 @@ export function Slider({
       onValueChange={(next) => {
         if (typeof next === "number") {
           onChange(next);
+        }
+      }}
+      onValueCommitted={(next) => {
+        if (typeof next === "number") {
+          onCommit?.(next);
         }
       }}
     >

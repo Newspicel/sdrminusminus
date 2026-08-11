@@ -44,6 +44,22 @@ pub struct RecordingStatus {
     pub error: Option<String>,
 }
 
+/// Transport of a device set replaying a recording (`virtual:file:`). Absent on a live radio:
+/// there is no position to seek in a signal that is still arriving.
+///
+/// Whether it loops is *not* here — that is `loop` in [`DeviceSettings::extra`], a setting the
+/// radio carries and a workspace saves. Pause and position are the opposite: reopening a patch
+/// must not restore a paused transport, so they live only in this live status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PlaybackStatus {
+    /// Samples replayed from the start of the recording.
+    pub position_samples: u64,
+    /// Samples the recording holds. Read off the data file, so a crash-truncated pair reports
+    /// what can actually be replayed rather than what its metadata claims.
+    pub total_samples: u64,
+    pub paused: bool,
+}
+
 /// One opened device and everything hosted on it (PLAN §2: "one device set per opened device").
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceSet {
@@ -68,6 +84,9 @@ pub struct DeviceSet {
     /// [`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scanner: Option<ScannerStatus>,
+    /// Replay transport, on a set whose device is a recording rather than a radio.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playback: Option<PlaybackStatus>,
 }
 
 /// Full state snapshot for initial load (PLAN §5 `GET /api/state`).

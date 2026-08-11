@@ -146,6 +146,56 @@ pub struct RecordingsResponse {
     pub recordings: Vec<RecordingInfo>,
 }
 
+/// `POST /api/devicesets/{ds}/playback` — drive the replay transport of a set whose device is
+/// a recording. Looping is not an action here: it is the `loop` device setting, applied like
+/// any other (see [`crate::PlaybackStatus`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PlaybackRequest {
+    pub action: PlaybackAction,
+    /// Where [`PlaybackAction::Seek`] should land, in samples from the start; clamped to the
+    /// end of the recording. Ignored by every other action, and absent means the start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position_samples: Option<u64>,
+}
+
+/// What a [`PlaybackRequest`] should do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PlaybackAction {
+    Play,
+    Pause,
+    /// Pause and return to the start, in one step.
+    Stop,
+    Seek,
+}
+
+/// Container a recording is downloaded in. A query field rather than a path segment (unlike
+/// [`ExportFormat`]): the format is optional here, and giving a path segment a default would
+/// mean two routes for one resource.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingFormat {
+    /// The SigMF pair packed into one `.sigmf` tar (SigMF v1.2.6 §"Rules for SigMF Archive
+    /// files"). Lossless: extract it and the pair is exactly what was recorded, replayable
+    /// through `virtual:file:`.
+    #[default]
+    Sigmf,
+    /// Interleaved I/Q as a two-channel 32-bit-float `.wav`, for HDSDR, SDR#, Audacity and
+    /// `ffmpeg`. The samples survive exactly; of the metadata only the center frequency and
+    /// the start time do.
+    Wav,
+}
+
+/// `GET /api/recordings/{id}/download`.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::IntoParams,
+)]
+#[into_params(parameter_in = Query)]
+pub struct RecordingDownloadQuery {
+    #[serde(default)]
+    pub format: RecordingFormat,
+}
+
 /// One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not
 /// scroll-back-only). The typed `event` is stored verbatim so an export loses nothing;
 /// `kind`, `summary` and `station` are the indexed projections the list view filters on.
@@ -385,6 +435,7 @@ mod tests {
             antennas: Vec::new(),
             bandwidths: Vec::new(),
             extra: Vec::new(),
+            ppm: false,
             duplex,
             rx_streams: 1,
             tx_streams: 0,

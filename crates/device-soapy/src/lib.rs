@@ -247,6 +247,13 @@ impl SoapyDevice {
             });
         }
         let bw_ranges = device.bandwidth_range(dir, RX_CHANNEL).map_err(map_err)?;
+        // Probed before the capabilities are built, so the flag the client renders from and the
+        // check `apply` refuses on are the same value — a tuner that advertised a correction it
+        // then rejected would be the exact bug this capability exists to remove.
+        let ppm_supported = device
+            .list_frequencies(dir, RX_CHANNEL)
+            .map(|components| components.iter().any(|c| c == "CORR"))
+            .unwrap_or(false);
         let capabilities = Capabilities {
             freq_ranges: caps::freq_ranges(&freq_ranges),
             sample_rates,
@@ -255,6 +262,7 @@ impl SoapyDevice {
             antennas: device.antennas(dir, RX_CHANNEL).map_err(map_err)?,
             bandwidths: caps::discrete_points(&bw_ranges),
             extra: caps::extra_settings(soapy_driver),
+            ppm: ppm_supported,
             duplex: Duplex::RxOnly,
             rx_streams: 1,
             tx_streams: 0,
@@ -265,11 +273,6 @@ impl SoapyDevice {
         // guess. Query failures leave the field unset rather than failing the open.
         let mut settings = DeviceSettings::default();
         read_settings_from_device(&device, &capabilities.gains, &mut settings);
-
-        let ppm_supported = device
-            .list_frequencies(dir, RX_CHANNEL)
-            .map(|components| components.iter().any(|c| c == "CORR"))
-            .unwrap_or(false);
 
         Ok(Self {
             device,
