@@ -491,9 +491,15 @@ the hue is a grouping cue, never the identification.
 **Gestures.** The ruler is `data-plot-chrome`, so the plot declines it: a click identifies, and
 it can never retune a running radio the way a click on the trace does. The popover names the
 frequency, then one section per lane — band, service, authority, edges, channel step, notes —
-and unrolls what the winning layer covers ("over ITU: Land mobile"), which is the whole point of
-resolving the layers rather than flattening them. Tuning is the one explicit button in it, and
-it carries the band's suggested mode in its label so the click is never a surprise.
+and unrolls everything the winner covers, which is the whole point of resolving the layers
+rather than flattening them. Two things it shows because the tables are now *generated* from the
+regulators' own documents: the official wording under the operator's name (`MOBILER
+SEEFUNKDIENST` under "Marine VHF") and the row's identifier in its source (`Eintrag 27001`), so
+a claim on this ruler can be checked against the publication it came from. `also X` marks a
+co-allocation from the same layer, `over ITU: X` a layer underneath; a secondary allocation
+carries a chip saying so, because it means "you may use this if nobody else is". Tuning is the
+one explicit button, and it carries the band's suggested mode in its label so the click is never
+a surprise.
 
 **Keyboard.** The ruler is a pointer instrument; a lane row is one target, not one per band. The
 band explorer in the library drawer is the keyboard route to the same table — searchable, and

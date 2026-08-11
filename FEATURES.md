@@ -84,15 +84,19 @@ is a deliberate no. Within each section, shipped comes first.
 The dial and the plot were built so this could hang off them without rework, and it did.
 
 - **[shipped]** Band-plan / allocation layer overlaid on the spectrum and searchable
-- **[shipped]** Layered scopes, most-specific-wins: **World** (ITU Regions 1/2/3 + global services) → **Germany** (BNetzA Frequenzplan) → **US** (FCC), **UK** (Ofcom), EU CEPT — one module and one registry line per importer, resolved by a sweep that keeps what each layer covers instead of overwriting it
+- **[shipped]** Layered scopes, most-specific-wins: **World** (ITU Regions 1/2/3 + global services) → **Germany** (BNetzA Frequenzplan) → **US** (FCC), **UK** (Ofcom), EU CEPT — a JSON document and one registry line per layer, resolved by an active-set sweep that keeps everything each layer covers instead of overwriting it
 - **[shipped]** Region chosen in settings, held per browser like the theme; a "detect" button resolves the browser's coordinate to a region server-side, and says so when only the ITU region could be decided
 - **[shipped]** Band ruler with coloured allocation blocks; click-to-identify popover (service, allocation, authority, suggested mode, channel step, notes, and the layers the winner covers)
 - **[shipped]** Searchable band explorer ("show me marine VHF", "70 cm ham", "145.500") — word scoring, so filler words cost nothing, and a query that reads as a frequency is resolved as one
 - **[shipped]** One-click "tune here with the suggested mode" — moves the selected channel inside the passband, retunes the receiver outside it, and patches the node's type with the engine's so the face stays bound
 - **[shipped]** Amateur band plans (IARU R1) overlay, as a lane of its own rather than an override — an IARU plan divides a band the regulator already allocated
-- **[planned]** The tables are curated extracts, not transcriptions; the national layers name a handful of bands each, and the ITU regional layers only where they differ
+- **[shipped]** Re-runnable importers with per-row provenance — `cargo xtask bandplan` parses each regulator's own publication into the layer documents the server reads, and every row carries the identifier it had in the source (`Eintrag 27001`, `FREQ_00001`). Ofcom's JSON (1522 rows) and the BNetzA Frequenzplan PDF (1877 rows) are generated; a run reports every service name it could not classify rather than quietly filing it under "other"
+- **[shipped]** Primary vs secondary allocations, read off the capitalisation both the ITU and BNetzA tables encode it in — a secondary service must accept interference from every primary one
+- **[shipped]** Co-allocations: where a regulator gives one range to several services at once, all of them survive into the block and the popover lists them
+- **[planned]** The FCC importer — one PDF yields ITU Regions 1/2/3 *and* the US table, but `pdftotext -layout` lays each page out independently, so its columns shift between a header page and its continuation. It needs word coordinates (`-bbox-layout`); until then ITU and US stay curated
+- **[planned]** A CEPT importer — EFIS publishes the ECA table and may expose it machine-readably (`efis.cept.org`, unreachable from the network this was written on). CEPT and IARU R1 are curated meanwhile
 - **[planned]** GPS auto-select from a receiver's own position — the browser's location needs a secure context, which a plain-HTTP LAN server does not have, and there is no GPS source node yet
-- **[planned]** User-extendable and override-able entries; re-runnable importers with per-row provenance (a layer names its source document; a row does not)
+- **[planned]** User-extendable and override-able entries
 - **[planned]** Community overlays, "band plan of the day"
 
 ## 6. Recording, capture & replay
