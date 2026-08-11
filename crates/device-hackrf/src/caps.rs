@@ -8,7 +8,7 @@ use sdrmm_wire::{
     StreamScope,
 };
 
-use crate::driver::Config;
+use crate::driver::{Config, FILTER_WIDTHS_HZ, snap_filter_width};
 
 /// The HackRF has one SMA port shared by RX and TX; the list exists so the capability UI has
 /// a name for it, and so a preset captured elsewhere round-trips.
@@ -75,12 +75,10 @@ pub(crate) fn capabilities() -> Capabilities {
             },
         ],
         antennas: vec![ANTENNA.to_string()],
-        // The driver ties the MAX2837 baseband filter to the sample rate — its
-        // `set_sample_rate_hz` issues BASEBAND_FILTER_BANDWIDTH_SET with the same value and
-        // there is no independent setter — so there is no bandwidth to offer. An
-        // empty list here means "no such control", and [`validate`] rejects one rather than
-        // accepting a value nothing would honour.
-        bandwidths: Vec::new(),
+        // The MAX2837's filter has no continuous cutoff: these sixteen widths are the only ones
+        // its register encodes, which is why this is a list and not a range. Leaving it alone
+        // lets the filter follow the sample rate (see `FILTER_MATCH_RATE_HZ`).
+        bandwidths: FILTER_WIDTHS_HZ.iter().copied().map(f64::from).collect(),
         extra: vec![
             ExtraSetting::Bool {
                 name: AMP_SETTING.to_string(),
@@ -98,6 +96,12 @@ pub(crate) fn capabilities() -> Capabilities {
     }
 }
 
+/// The value of `bandwidth` that asks for whatever width the sample rate implies, the same
+/// "0 means automatic" the RTL-SDR backend takes. It is not in [`Capabilities::bandwidths`]:
+/// that list is what the filter can be *set* to, and a select offering "0 Hz" would read as a
+/// width rather than as the absence of one.
+const FILTER_MATCH_RATE_HZ: f64 = 0.0;
+
 /// The hardware writes one validated delta turns into. `None` is an untouched knob; every
 /// `Some` is already in the unit and on the grid the device takes, so [`validate`] cannot be
 /// followed by a rejection from the driver.
@@ -105,10 +109,21 @@ pub(crate) fn capabilities() -> Capabilities {
 pub(crate) struct Applied {
     pub(crate) frequency_hz: Option<u64>,
     pub(crate) sample_rate_hz: Option<u32>,
+    pub(crate) filter: Option<FilterWidth>,
     pub(crate) lna_gain_db: Option<u8>,
     pub(crate) vga_gain_db: Option<u8>,
     pub(crate) amp: Option<bool>,
     pub(crate) bias_tee: Option<bool>,
+}
+
+/// What a delta asked of the baseband filter. Applied *after* the sample rate, which moves the
+/// filter itself — so a delta carrying both lands on the width it asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FilterWidth {
+    /// Whatever the sample rate implies, resolved by the driver against the rate it now holds.
+    MatchRate,
+    /// This exact width, already snapped onto the MAX2837's table.
+    Hz(u32),
 }
 
 /// Quantise a gain onto the stage's hardware grid. The MAX2837 gain registers only take 8 dB
@@ -176,12 +191,20 @@ pub(crate) fn validate(
         ));
     }
 
-    // Same reasoning: the baseband filter follows the sample rate (see `capabilities`), so
-    // an explicit bandwidth would be dropped rather than applied.
-    if delta.bandwidth.is_some() {
-        return Err(DeviceError::Unsupported(
-            "bandwidth: the HackRF baseband filter follows sample_rate".to_string(),
-        ));
+    // Snapped rather than refused, for the same reason a gain is: the widths are a hardware
+    // grid, not a contract, and `settings()` reports back the one that landed. The bounds *are*
+    // a contract, so a request outside them is still a refusal.
+    if let Some(bandwidth) = delta.bandwidth {
+        let widest = FILTER_WIDTHS_HZ[FILTER_WIDTHS_HZ.len() - 1];
+        applied.filter = Some(if bandwidth == FILTER_MATCH_RATE_HZ {
+            FilterWidth::MatchRate
+        } else if bandwidth.is_finite() && bandwidth > 0.0 && bandwidth <= f64::from(widest) {
+            FilterWidth::Hz(snap_filter_width(bandwidth.round() as u32))
+        } else {
+            return Err(DeviceError::Unsupported(format!(
+                "bandwidth {bandwidth} outside 0..{widest} Hz (0 matches sample_rate)"
+            )));
+        });
     }
 
     if let Some(antenna) = &delta.antenna
@@ -241,14 +264,18 @@ pub(crate) fn validate(
 /// Mirror the driver's record of the last successfully applied configuration into the wire
 /// model. This is the only path that writes `settings()`, so a snapped gain and a batch that
 /// failed halfway are both reported as what the hardware actually holds — never as what was
-/// asked for. `ppm`/`bandwidth` stay unset because [`validate`] refuses them.
+/// asked for. `ppm` stays unset because [`validate`] refuses it.
+///
+/// The filter reports its width whether it was asked for or carried there by the rate: the
+/// MAX2837 is always at *some* width, and reporting nothing would leave the control the client
+/// renders showing a value the radio is not at.
 pub(crate) fn settings_from_config(config: &Config) -> DeviceSettings {
     DeviceSettings {
         center_hz: Some(config.frequency_hz as f64),
         sample_rate: Some(f64::from(config.sample_rate_hz)),
         ppm: None,
         antenna: Some(ANTENNA.to_string()),
-        bandwidth: None,
+        bandwidth: Some(f64::from(config.filter_width_hz)),
         gains: vec![
             GainValue {
                 stage: LNA_STAGE.to_string(),
@@ -342,8 +369,12 @@ mod tests {
         assert_eq!(caps.gains[1].name, "VGA");
         assert_eq!(caps.gains[1].range.step, Some(2.0));
         assert_eq!(caps.antennas, vec!["RX".to_string()]);
-        // No independent baseband-filter setter exists, so no bandwidth may be advertised.
-        assert!(caps.bandwidths.is_empty());
+        // Exactly the MAX2837's own widths, ascending — the select the client renders is this
+        // list, so an entry the register cannot encode would be an unselectable option.
+        assert_eq!(caps.bandwidths.len(), 16);
+        assert_eq!(caps.bandwidths.first(), Some(&1.75e6));
+        assert_eq!(caps.bandwidths.last(), Some(&28e6));
+        assert!(caps.bandwidths.windows(2).all(|pair| pair[0] < pair[1]));
         assert_eq!(
             caps.extra.iter().map(extra_name).collect::<Vec<_>>(),
             vec!["amp", "bias_tee"]
@@ -394,6 +425,7 @@ mod tests {
             center_hz: Some(433_920_000.0),
             sample_rate: Some(8_000_000.0),
             antenna: Some("RX".to_string()),
+            bandwidth: Some(5_000_000.0),
             gains: vec![gain("LNA", 24.0), gain("VGA", 20.0)],
             extra: vec![extra_bool("amp", true), extra_bool("bias_tee", false)],
             ..DeviceSettings::default()
@@ -403,6 +435,7 @@ mod tests {
             Applied {
                 frequency_hz: Some(433_920_000),
                 sample_rate_hz: Some(8_000_000),
+                filter: Some(FilterWidth::Hz(5_000_000)),
                 lna_gain_db: Some(24),
                 vga_gain_db: Some(20),
                 amp: Some(true),
@@ -560,27 +593,73 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_ppm_and_bandwidth_the_hardware_cannot_honour() {
-        for delta in [
-            DeviceSettings {
-                ppm: Some(1.5),
+    fn validate_rejects_ppm_the_hardware_cannot_honour() {
+        for ppm in [1.5, 0.0] {
+            let delta = DeviceSettings {
+                ppm: Some(ppm),
                 ..DeviceSettings::default()
-            },
-            DeviceSettings {
-                ppm: Some(0.0),
-                ..DeviceSettings::default()
-            },
-            DeviceSettings {
-                bandwidth: Some(5e6),
-                ..DeviceSettings::default()
-            },
-        ] {
+            };
             assert!(
                 matches!(
                     validate(&delta, &capabilities()),
                     Err(DeviceError::Unsupported(_))
                 ),
-                "{delta:?} must be rejected"
+                "ppm {ppm} must be rejected"
+            );
+        }
+    }
+
+    fn filter_of(bandwidth: f64) -> Result<Option<FilterWidth>, DeviceError> {
+        let delta = DeviceSettings {
+            bandwidth: Some(bandwidth),
+            ..DeviceSettings::default()
+        };
+        validate(&delta, &capabilities()).map(|applied| applied.filter)
+    }
+
+    #[test]
+    fn validate_takes_every_listed_filter_width_as_it_is() {
+        for width in FILTER_WIDTHS_HZ {
+            assert_eq!(
+                filter_of(f64::from(width)).unwrap(),
+                Some(FilterWidth::Hz(width)),
+                "{width}"
+            );
+        }
+    }
+
+    /// A width between two register steps has no encoding, so it snaps down the way a gain
+    /// snaps onto the MAX2837's gain grid — and `settings()` reports where it landed.
+    #[test]
+    fn validate_snaps_a_width_between_two_register_steps() {
+        assert_eq!(filter_of(7.5e6).unwrap(), Some(FilterWidth::Hz(7e6 as u32)));
+        assert_eq!(filter_of(1.0).unwrap(), Some(FilterWidth::Hz(1_750_000)));
+        assert_eq!(
+            filter_of(27_999_999.0).unwrap(),
+            Some(FilterWidth::Hz(24_000_000))
+        );
+    }
+
+    /// Zero is the one value that is not a width: it asks for whatever the rate implies, the
+    /// same "0 means automatic" the RTL-SDR path takes. An *absent* bandwidth asks for nothing
+    /// at all, which is a different thing — the rate then carries the filter on its own.
+    #[test]
+    fn validate_reads_zero_as_matching_the_sample_rate() {
+        assert_eq!(filter_of(0.0).unwrap(), Some(FilterWidth::MatchRate));
+        assert_eq!(
+            validate(&DeviceSettings::default(), &capabilities())
+                .unwrap()
+                .filter,
+            None
+        );
+    }
+
+    #[test]
+    fn validate_rejects_a_width_no_filter_could_hold() {
+        for bad in [-1.0, 28_000_001.0, 1e9, f64::NAN, f64::INFINITY] {
+            assert!(
+                matches!(filter_of(bad), Err(DeviceError::Unsupported(_))),
+                "bandwidth {bad} must be rejected"
             );
         }
     }
@@ -633,6 +712,7 @@ mod tests {
             lna_gain_db: 16,
             vga_gain_db: 30,
             tx_vga_gain_db: 0,
+            filter_width_hz: 1_750_000,
             amp_enabled: true,
             bias_tee_enabled: false,
         };
@@ -641,13 +721,21 @@ mod tests {
         assert_eq!(settings.sample_rate, Some(2e6));
         assert_eq!(settings.antenna.as_deref(), Some("RX"));
         assert_eq!(settings.ppm, None);
-        assert_eq!(settings.bandwidth, None);
+        // The filter is always at *some* width, so it always reports one — whether it was asked
+        // for or carried there by the rate.
+        assert_eq!(settings.bandwidth, Some(1.75e6));
         assert_eq!(settings.gains, vec![gain("LNA", 16.0), gain("VGA", 30.0)]);
         assert_eq!(
             settings.extra,
             vec![extra_bool("amp", true), extra_bool("bias_tee", false)]
         );
         // Every reported value must be one the capability model can express back.
-        assert!(validate(&settings, &capabilities()).is_ok());
+        let round_trip = validate(&settings, &capabilities()).expect("reported settings re-apply");
+        // What a stored workspace does on restore. The rate alone would put the filter at
+        // 1.75 MHz here anyway, but the width the radio was actually at is what has to come
+        // back — a reported setting that re-applies as a *different* one is the whole defect
+        // `settings_from_config` exists to prevent.
+        assert_eq!(round_trip.sample_rate_hz, Some(2_000_000));
+        assert_eq!(round_trip.filter, Some(FilterWidth::Hz(1_750_000)));
     }
 }
