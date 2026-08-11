@@ -14,6 +14,11 @@ Tagged releases publish `sdrmm` archives (Linux x86_64/aarch64, macOS arm64/x86_
 x86_64), a multi-arch container image at `ghcr.io/newspicel/sdrminusminus`, and desktop
 installers (`.dmg`, `.deb`, `.AppImage`, `.msi`, `.exe`).
 
+The same artifacts are built nightly from `main` and published to the rolling
+[`nightly`](https://github.com/Newspicel/sdrminusminus/releases/tag/nightly) prerelease
+(`ghcr.io/newspicel/sdrminusminus:nightly`), on the nights `main` actually moved. Unstable by
+definition — its version is the build date, `YY.M.D`.
+
 To build it yourself you need the pinned nightly Rust toolchain (`rust-toolchain.toml` —
 `rustup` installs it on the first build), Node 24 and pnpm 11. SoapySDR is only needed for the
 default build: `libsoapysdr-dev` on Debian/Ubuntu, `brew install soapysdr` on macOS; build

@@ -17,11 +17,24 @@
 #    *succeeds* and ships a 503 "not built" page — a silent failure this pipeline prevents.
 #    `cargo xtask dist` does both, which is why one command reproduces a release artifact on a
 #    laptop; the Dockerfile has the same two steps as its own stages.
+#
+# Three modes, one pipeline — the build jobs are identical in all of them and only the `version`
+# job and the publish step know which is running:
+#
+#   tag       a real release, published from the tag's version
+#   schedule  a nightly, published over the rolling `nightly` prerelease — but only if main has
+#             moved since the last one, because a full matrix is twelve jobs and four of them
+#             are macOS
+#   dispatch  a rehearsal: builds and uploads everything, publishes nothing
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  schedule:
+    # 03:00 UTC. Nothing downstream cares about the exact hour; this one is outside both
+    # European and US working days, so a nightly is finished before anyone looks for it.
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -35,7 +48,8 @@ env:
   # ghcr rejects an uppercase reference and `github.repository` carries the owner's canonical
   # casing (`Newspicel/…`), so the name is lowercased at use rather than interpolated raw.
   IMAGE_NAME: ghcr.io/newspicel/sdrminusminus
-  # Bump together with the version in `web/package.json`'s packageManager field.
+  # Enforced by `xtask check` against web/package.json and the Dockerfile — these three
+  # are bumped by different tools and must move together.
   PNPM_VERSION: 11.15.1
   NODE_VERSION: 24
 
@@ -45,6 +59,8 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.stamp.outputs.version }}
+      # Every build job below hangs off this. Only a nightly can ever set it false.
+      changed: ${{ steps.stamp.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
       # Building xtask reaches sdrmm-server, so audiopus_sys' vendored libopus is compiled here
@@ -59,16 +75,38 @@ jobs:
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Dispatch runs are pipeline rehearsals and are never published, so they keep the
-          # manifest's own version. A `0.0.0-<sha>` would only fail the Windows MSI bundler,
-          # whose ProductVersion has no room for a prerelease field.
-          if [ "$REF_TYPE" = tag ]; then version="${REF_NAME#v}"; else version=0.0.0; fi
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            # The `nightly` tag is the marker: it points at the commit the last published
+            # nightly was built from. Resolving it through /commits/ rather than reading the
+            # ref dereferences the tag object, so this compares commit to commit.
+            previous="$(gh api "repos/$GITHUB_REPOSITORY/commits/nightly" --jq .sha 2>/dev/null || true)"
+            if [ "$previous" = "$GITHUB_SHA" ]; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "main is unchanged since the last nightly ($previous) — nothing to build."
+              exit 0
+            fi
+            # YY.M.D, and every part of that is forced. It has to be plain major.minor.patch
+            # with major <= 255, so neither `0.0.0-nightly.x` nor a four-digit year survives
+            # the MSI bundler (`xtask set-version` rejects both up front). This says which
+            # night a build came from, which is the whole point of running `sdrmm --version`
+            # on a nightly; the commit is in the release notes.
+            version="$(date -u +%y.%-m.%-d)"
+          elif [ "$REF_TYPE" = tag ]; then
+            version="${REF_NAME#v}"
+          else
+            # Dispatch runs are rehearsals and are never published, so they keep the manifest's
+            # own version.
+            version=0.0.0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
           cargo xtask set-version "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
       # Two files, and every build job below starts by checking them out over its own copy.
       - uses: actions/upload-artifact@v7
+        if: steps.stamp.outputs.changed == 'true'
         with:
           name: version-stamp
           path: |
@@ -80,6 +118,7 @@ jobs:
   binaries:
     name: sdrmm (${{ matrix.target }})
     needs: version
+    if: needs.version.outputs.changed == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -162,6 +201,7 @@ jobs:
   image:
     name: Image (${{ matrix.platform }})
     needs: version
+    if: needs.version.outputs.changed == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -222,6 +262,7 @@ jobs:
   image-manifest:
     name: Image manifest
     needs: [version, image]
+    if: needs.version.outputs.changed == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -242,10 +283,14 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
+          # The semver patterns need a tag ref and produce nothing on the other two triggers,
+          # which is why `latest` and `nightly` are raw and mutually exclusive: a nightly must
+          # never be what `docker pull` gives someone who asked for no tag at all.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=nightly,enable=${{ github.event_name == 'schedule' }}
             type=sha,enable=${{ github.ref_type != 'tag' }}
       - name: Create manifest list
         working-directory: /tmp/digests
@@ -260,6 +305,7 @@ jobs:
   desktop:
     name: Desktop (${{ matrix.label }})
     needs: version
+    if: needs.version.outputs.changed == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -357,8 +403,8 @@ jobs:
 
   release:
     name: GitHub Release
-    # workflow_dispatch runs stop at the uploaded artifacts; only a tag publishes.
-    if: github.ref_type == 'tag'
+    # workflow_dispatch runs stop at the uploaded artifacts; a tag and a nightly publish.
+    if: github.ref_type == 'tag' || github.event_name == 'schedule'
     needs: [version, binaries, image-manifest, desktop]
     runs-on: ubuntu-24.04
     permissions:
@@ -385,7 +431,8 @@ jobs:
       - uses: actions/attest-build-provenance@v4
         with:
           subject-path: "artifacts/*"
-      - name: Publish
+      - name: Publish release
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
@@ -396,4 +443,34 @@ jobs:
             --verify-tag \
             --generate-notes \
             --notes "Container image: \`docker pull ${IMAGE_NAME}:${VERSION}\`" \
+            $(find artifacts -type f | sort)
+
+      # Rolling, so the download URLs are stable and always point at the newest build. The tag
+      # is deleted with the release and recreated at this commit, which is also what makes it
+      # usable as the change marker the `version` job reads — the tag *is* the record of what
+      # the last nightly was built from.
+      - name: Publish nightly
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release delete nightly --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          notes=$(cat <<EOF
+          Automated build of \`main\` at ${GITHUB_SHA}, published $(date -u '+%Y-%m-%d %H:%M UTC').
+
+          Unstable by definition: this is whatever was on \`main\` last night, not a release.
+          It is replaced every night, so these download URLs always point at the newest build.
+
+          Container image: \`docker pull ${IMAGE_NAME}:nightly\`
+          EOF
+          )
+          # shellcheck disable=SC2046  # the find is an asset list, one argument per file
+          gh release create nightly \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Nightly $VERSION" \
+            --prerelease \
+            --notes "$notes" \
             $(find artifacts -type f | sort)

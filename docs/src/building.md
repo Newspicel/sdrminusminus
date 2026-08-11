@@ -61,3 +61,18 @@ which is what CI runs on every pull request — `apps/desktop` is outside the wo
 Versions come from one place: `[workspace.package] version` in the root `Cargo.toml`.
 `apps/desktop/tauri.conf.json` deliberately omits `version` so Tauri inherits that one, and the
 release pipeline stamps it from the git tag with `cargo xtask set-version`.
+
+A version must be a plain `major.minor.patch` with major and minor ≤ 255 and patch ≤ 65535.
+Those are the Windows MSI bundler's limits, and an MSI ProductVersion has no field a `-rc.1`
+suffix could occupy — so `set-version` rejects both up front rather than letting the tag build
+for twenty minutes and fail in the single job that bundles an installer.
+
+## Nightlies
+
+The release pipeline also runs on a schedule, publishing the full matrix over a rolling
+`nightly` prerelease and a `nightly` container tag. Nightlies are versioned `YY.M.D` (a
+four-digit year would exceed the MSI major limit above), so `sdrmm --version` names the night a
+build came from; the commit is in the release notes.
+
+It only spends runners when there is something to build: the `nightly` tag records the commit
+the last nightly was built from, and a run whose `main` matches it stops after the version job.

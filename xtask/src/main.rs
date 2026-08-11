@@ -173,6 +173,7 @@ fn check(root: &Path) -> Result<()> {
     // Ordered cheapest-first, and that ordering is load-bearing: formatting and the web lints
     // answer in seconds, clippy takes minutes from a cold cache, and CI pays for the whole job
     // either way. A misformatted pull request should not cost a full workspace build to say so.
+    check_toolchain_pins(root)?;
     run("cargo", &["fmt", "--all", "--", "--check"], root)?;
 
     // Web gate.
@@ -229,6 +230,87 @@ fn check(root: &Path) -> Result<()> {
     )
     .context("codegen drift: regenerate with `cargo xtask codegen` and commit")?;
     println!("check: all gates green");
+    Ok(())
+}
+
+/// Node and pnpm are pinned in four files, and nothing updates them together: `web/package.json`
+/// (`packageManager`), the Dockerfile's `FROM node:` and `pnpm@`, and each workflow's
+/// `NODE_VERSION`/`PNPM_VERSION`. Dependabot's docker ecosystem bumps the Dockerfile on its own,
+/// which would leave the container building the UI on one Node while CI and every release
+/// artifact built it on another — divergence that produces no error, just two different bundles.
+fn check_toolchain_pins(root: &Path) -> Result<()> {
+    let file = |rel: &str| -> Result<String> {
+        std::fs::read_to_string(root.join(rel)).with_context(|| format!("read {rel}"))
+    };
+    let pin = |text: &str, open: &str, close: &str, rel: &str, what: &str| -> Result<String> {
+        slice_between(text, open, close)
+            .map(str::to_string)
+            .with_context(|| format!("{rel} declares no {what} (looked for `{open}`)"))
+    };
+
+    let dockerfile = file("Dockerfile")?;
+    let package_json = file("web/package.json")?;
+
+    // web/package.json first in each list: its value is the one the error message names as
+    // canonical, and `packageManager` is the pin pnpm itself enforces at runtime.
+    let mut pnpm = vec![
+        (
+            "web/package.json".to_string(),
+            pin(
+                &package_json,
+                "\"packageManager\": \"pnpm@",
+                "\"",
+                "web/package.json",
+                "packageManager pin",
+            )?,
+        ),
+        (
+            "Dockerfile".to_string(),
+            pin(&dockerfile, "pnpm@", "\n", "Dockerfile", "pnpm pin")?,
+        ),
+    ];
+    let mut node = vec![(
+        "Dockerfile".to_string(),
+        pin(
+            &dockerfile,
+            "FROM node:",
+            "-slim",
+            "Dockerfile",
+            "node base image",
+        )?,
+    )];
+
+    for name in ["ci.yml", "release.yml"] {
+        let rel = format!(".github/workflows/{name}");
+        let text = file(&rel)?;
+        pnpm.push((
+            rel.clone(),
+            pin(&text, "PNPM_VERSION: ", "\n", &rel, "PNPM_VERSION")?,
+        ));
+        node.push((
+            rel.clone(),
+            pin(&text, "NODE_VERSION: ", "\n", &rel, "NODE_VERSION")?,
+        ));
+    }
+
+    agree("pnpm", &pnpm)?;
+    agree("the Node major", &node)
+}
+
+/// The text between the first `open` and the next `close` after it.
+fn slice_between<'a>(haystack: &'a str, open: &str, close: &str) -> Option<&'a str> {
+    Some(haystack.split_once(open)?.1.split_once(close)?.0.trim())
+}
+
+fn agree(what: &str, pins: &[(String, String)]) -> Result<()> {
+    let (canonical_at, canonical) = &pins[0];
+    for (at, value) in pins {
+        ensure!(
+            value == canonical,
+            "{what} is pinned to {canonical} in {canonical_at} but {value} in {at}. \
+             These are updated by different tools and must be changed together."
+        );
+    }
     Ok(())
 }
 
@@ -496,15 +578,27 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
 /// name an artifact one version and have it report another.
 fn set_version(root: &Path, version: &str) -> Result<()> {
     let version = version.strip_prefix('v').unwrap_or(version);
-    let (core, _pre) = version.split_once(['-', '+']).unwrap_or((version, ""));
-    let numeric: Vec<&str> = core.split('.').collect();
+    // Rejected here rather than at the far end of the matrix. Every bound below is the Windows
+    // MSI bundler's (`tauri-bundler`'s `validate_wix_version`), and MSI's ProductVersion has no
+    // field a prerelease or build-metadata suffix could go in — `0.2.0-rc.1` does not fail at
+    // the tag, it fails ~20 minutes later in the one job out of twelve that builds an installer.
+    let parts: Vec<&str> = version.split('.').collect();
+    let numeric: Vec<u64> = parts.iter().filter_map(|p| p.parse().ok()).collect();
     ensure!(
-        numeric.len() == 3
-            && numeric
-                .iter()
-                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())),
-        "`{version}` is not a semver version: need major.minor.patch, e.g. 0.2.0"
+        parts.len() == 3 && numeric.len() == 3,
+        "`{version}` is not a plain major.minor.patch version, e.g. 0.2.0. \
+         Suffixes are not usable: the Windows MSI bundler cannot express one."
     );
+    for (value, limit, field) in [
+        (numeric[0], 255, "major"),
+        (numeric[1], 255, "minor"),
+        (numeric[2], 65_535, "patch"),
+    ] {
+        ensure!(
+            value <= limit,
+            "`{version}` has a {field} of {value}: the Windows MSI bundler caps it at {limit}"
+        );
+    }
 
     let manifest_path = root.join("Cargo.toml");
     let manifest = std::fs::read_to_string(&manifest_path).context("read Cargo.toml")?;
