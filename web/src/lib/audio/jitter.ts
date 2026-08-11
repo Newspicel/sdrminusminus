@@ -1,8 +1,15 @@
 // Jitter-buffer scheduling for audio playback (PLAN §9: 60–100 ms target). This class is
 // injected into the AudioWorklet via `JitterBuffer.toString()` (see worklet.ts), so it must
 // stay fully self-contained: no imports, no references to anything in module scope.
+//
+// Everything is counted in sample frames, never in samples: the ring holds interleaved audio
+// and `read` deinterleaves it into one output per channel, so depth and timing mean the same
+// thing whatever layout the stream is in.
 export class JitterBuffer {
   private readonly buf: Float32Array;
+  private readonly channels: number;
+  /** Ring size in frames. */
+  private readonly capacity: number;
   private readonly target: number;
   /** Depth above which a sustained backlog counts as latency to shed, not jitter headroom. */
   private readonly trimAbove: number;
@@ -14,33 +21,42 @@ export class JitterBuffer {
   private buffering = true;
   private trimStreak = 0;
 
-  constructor(targetSamples: number, maxSamples: number) {
-    this.buf = new Float32Array(maxSamples);
-    this.target = Math.min(targetSamples, maxSamples);
-    this.trimAbove = Math.min(2 * this.target, maxSamples);
+  constructor(targetFrames: number, maxFrames: number, channels: number) {
+    this.channels = channels;
+    this.capacity = maxFrames;
+    this.buf = new Float32Array(maxFrames * channels);
+    this.target = Math.min(targetFrames, maxFrames);
+    this.trimAbove = Math.min(2 * this.target, maxFrames);
     this.trimHold = 10 * this.target;
   }
 
+  /** Buffered depth, in sample frames. */
   get buffered(): number {
     return this.length;
   }
 
   /**
-   * Append PCM. A push past capacity (tab sleep, network burst) sheds the oldest samples all
-   * the way back to `target` — merely staying under the cap would park playback ~maxSamples
-   * behind realtime for the rest of the stream. Sub-cap backlog that persists (repeated
-   * bursts ratcheting the depth up) is shed the same way once it outlasts `trimHold`.
+   * Append interleaved PCM. A push past capacity (tab sleep, network burst) sheds the oldest
+   * frames all the way back to `target` — merely staying under the cap would park playback
+   * ~maxFrames behind realtime for the rest of the stream. Sub-cap backlog that persists
+   * (repeated bursts ratcheting the depth up) is shed the same way once it outlasts `trimHold`.
    */
   push(chunk: Float32Array): void {
-    const cap = this.buf.length;
-    const start = chunk.length > cap ? chunk.length - cap : 0;
-    const n = chunk.length - start;
+    const cap = this.capacity;
+    const ch = this.channels;
+    const frames = Math.floor(chunk.length / ch);
+    const start = frames > cap ? frames - cap : 0;
+    const n = frames - start;
     if (this.length + n > cap) {
       this.dropOldest(this.length + n - this.target);
       this.trimStreak = 0;
     }
-    for (let i = start; i < chunk.length; i++) {
-      this.buf[this.writePos] = chunk[i] ?? 0;
+    for (let f = start; f < frames; f++) {
+      const src = f * ch;
+      const dst = this.writePos * ch;
+      for (let c = 0; c < ch; c++) {
+        this.buf[dst + c] = chunk[src + c] ?? 0;
+      }
       this.writePos = (this.writePos + 1) % cap;
     }
     this.length += n;
@@ -59,24 +75,40 @@ export class JitterBuffer {
   }
 
   /**
-   * Fill `out` with the next samples; silence while pre-buffering. An underrun (fewer buffered
-   * samples than `out` needs) pads with silence and re-enters buffering until `target` is
-   * reached again. Returns whether any real samples were written.
+   * Fill one output buffer per channel with the next frames; silence while pre-buffering. An
+   * underrun (fewer buffered frames than the outputs need) pads with silence and re-enters
+   * buffering until `target` is reached again. Returns whether any real frames were written.
    */
-  read(out: Float32Array): boolean {
+  read(outputs: Float32Array[]): boolean {
+    const wanted = outputs[0]?.length ?? 0;
     if (this.buffering) {
-      out.fill(0);
+      for (const out of outputs) {
+        out.fill(0);
+      }
       return false;
     }
-    const cap = this.buf.length;
-    const n = Math.min(out.length, this.length);
-    for (let i = 0; i < n; i++) {
-      out[i] = this.buf[this.readPos] ?? 0;
-      this.readPos = (this.readPos + 1) % cap;
+    const cap = this.capacity;
+    const ch = this.channels;
+    const n = Math.min(wanted, this.length);
+    for (let c = 0; c < outputs.length; c++) {
+      const out = outputs[c];
+      if (!out) {
+        continue;
+      }
+      // A stream with fewer channels than the output has feeds its last channel to the rest.
+      const lane = Math.min(c, ch - 1);
+      let pos = this.readPos;
+      for (let f = 0; f < n; f++) {
+        out[f] = this.buf[pos * ch + lane] ?? 0;
+        pos = (pos + 1) % cap;
+      }
+      if (n < wanted) {
+        out.fill(0, n);
+      }
     }
+    this.readPos = (this.readPos + n) % cap;
     this.length -= n;
-    if (n < out.length) {
-      out.fill(0, n);
+    if (n < wanted) {
       this.buffering = true;
     }
     return n > 0;
@@ -95,7 +127,7 @@ export class JitterBuffer {
     if (drop <= 0) {
       return;
     }
-    this.readPos = (this.readPos + drop) % this.buf.length;
+    this.readPos = (this.readPos + drop) % this.capacity;
     this.length -= drop;
   }
 }

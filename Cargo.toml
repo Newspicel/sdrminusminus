@@ -68,8 +68,11 @@ axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["compression-gzip", "cors", "fs", "trace"] }
 futures = "0.3"
-# WS client for exercising the hub in server tests only. Tracks the version axum's `ws`
-# feature uses (0.30 exists) so tungstenite isn't built twice just for tests.
+# WS client for exercising the hub in server tests only. Pinned to whatever axum's `ws` feature
+# resolves to — *not* to the newest release — so the graph holds one tungstenite and not two.
+# Newer versions exist; moving to one before axum does compiles the whole stack twice for the
+# benefit of a dev-dependency. Bump this when axum bumps, and not before (deny/dependabot both
+# know: see the ignore in .github/dependabot.yml).
 tokio-tungstenite = "0.29"
 
 # MCP server (PLAN §5, §18): streamable HTTP mounted on the same axum app. `schemars` derives

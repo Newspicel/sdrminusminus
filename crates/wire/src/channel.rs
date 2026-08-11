@@ -9,7 +9,7 @@ use utoipa::ToSchema;
 pub struct ChannelDescriptor {
     /// Stable type id, e.g. `"nfm"`, `"am"`, `"ssb"`, `"wfm"`.
     pub type_id: String,
-    /// Display name, e.g. `"NFM"`, `"WFM (mono)"`.
+    /// Display name, e.g. `"NFM"`, `"WFM (broadcast)"`.
     pub name: String,
     /// Nominal RF bandwidth the channel needs, in Hz.
     pub bandwidth_hz: f64,
@@ -24,6 +24,12 @@ pub struct ChannelDescriptor {
     /// uses it to pick the panel that renders the events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decoder_kind: Option<String>,
+    /// Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames
+    /// rather than as decoder events (ATV, PLAN §13). The client subscribes and mounts a video
+    /// panel on the channel's face when this is set. Defaults to `false`, which is every mode
+    /// that predates the video transport.
+    #[serde(default)]
+    pub has_video: bool,
     /// The type occupies its whole channel rate, so it runs only with the device tuned to
     /// exactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18).
     /// Reported so the canvas can refuse the wire where the operator draws it, naming the rate
@@ -73,6 +79,7 @@ impl Default for ChannelDescriptor {
             input_rate_hz: 0.0,
             has_audio: default_has_audio(),
             decoder_kind: None,
+            has_video: false,
             exact_rate_only: false,
             native_rate_max_hz: None,
             can_transmit: false,
@@ -100,16 +107,59 @@ fn default_deemphasis_us() -> f32 {
     50.0
 }
 
+fn default_stereo() -> bool {
+    true
+}
+
+/// What an NFM channel does about the subaudible signalling under the voice (PLAN §8).
+/// CTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating
+/// under it at 134.4 bit/s. Both are how a repeater tells its own users apart from the
+/// co-channel traffic 50 km away.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NfmToneMode {
+    /// Nothing is detected and nothing is gated — the audio path a channel had before this
+    /// setting existed, including its flat response down to DC.
+    #[default]
+    Off,
+    /// Report whatever tone or code is present without acting on it: what a listener wants
+    /// when the question is "what does this repeater use?".
+    Detect,
+    /// Pass audio only while [`NfmParams::ctcss_hz`] is present.
+    Ctcss,
+    /// Pass audio only while [`NfmParams::dcs_code`] is present.
+    Dcs,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct NfmParams {
     #[serde(default = "default_nfm_bandwidth_hz")]
     pub bandwidth_hz: f64,
+    #[serde(default)]
+    pub tone_mode: NfmToneMode,
+    /// The CTCSS tone to open on, in Hz. One of the 50 standard tones (EIA/TIA-603); anything
+    /// else is refused, because the detector only searches those.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctcss_hz: Option<f64>,
+    /// The DCS code to open on, as the three octal digits a radio displays — `23` for 023,
+    /// `754` for 754. One of the 83 standard codes.
+    ///
+    /// The standard list is not a convenience: the Golay code DCS is built on is cyclic, so
+    /// only a set with no rotation aliasing between its members can be read back unambiguously
+    /// from a continuously repeating word. A code's *inverse* is another code in the list —
+    /// 023 received through an inverted discriminator is 047 — so there is no polarity switch
+    /// here, and none on a radio either.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dcs_code: Option<u16>,
 }
 
 impl Default for NfmParams {
     fn default() -> Self {
         Self {
             bandwidth_hz: default_nfm_bandwidth_hz(),
+            tone_mode: NfmToneMode::default(),
+            ctcss_hz: None,
+            dcs_code: None,
         }
     }
 }
@@ -168,6 +218,10 @@ pub struct WfmParams {
     /// it costs a second demod chain on the same channel.
     #[serde(default)]
     pub rds: bool,
+    /// Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.
+    /// A station without a 19 kHz pilot still plays: L and R carry the same mono programme.
+    #[serde(default = "default_stereo")]
+    pub stereo: bool,
 }
 
 impl Default for WfmParams {
@@ -175,6 +229,7 @@ impl Default for WfmParams {
         Self {
             deemphasis_us: default_deemphasis_us(),
             rds: false,
+            stereo: default_stereo(),
         }
     }
 }
@@ -482,6 +537,104 @@ impl Default for SubghzParams {
     }
 }
 
+/// How an analog television transmission carries its video, and with it the polarity the
+/// demodulated signal arrives in (PLAN §13: ATV).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AtvModulation {
+    /// Amplitude modulation, *negative*: peak carrier is the sync tip and white is the trough,
+    /// which is what broadcast television and 70 cm amateur ATV transmit.
+    #[default]
+    Am,
+    /// Frequency modulation, *positive*: sync sits at the low end of the deviation. The 23 cm
+    /// and up bands, and satellite ATV.
+    Fm,
+}
+
+/// Scanning standard the transmission follows: how many lines make a frame and how fast they
+/// go by. Everything else the demodulator needs — porch widths, active window, blanked lines —
+/// derives from these two numbers plus the standard's own timings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AtvStandard {
+    /// 625 lines at 25 frames/s — CCIR System B/G geometry, 15 625 Hz lines.
+    #[default]
+    Ccir625,
+    /// 525 lines at 29.97 frames/s — EIA RS-170A, 15 734.264 Hz lines. Monochrome RS-170 runs
+    /// 15 750 Hz, a tenth of a percent away, which the sync tracker absorbs.
+    Eia525,
+    /// 405 lines at 25 frames/s — System A, and the narrow-band standard amateurs still use
+    /// where 625 lines will not fit the channel.
+    SystemA405,
+}
+
+impl AtvStandard {
+    /// Lines per frame, both fields together.
+    #[must_use]
+    pub fn lines(self) -> u16 {
+        match self {
+            Self::Ccir625 => 625,
+            Self::Eia525 => 525,
+            Self::SystemA405 => 405,
+        }
+    }
+
+    /// Line frequency in Hz — the rate horizontal sync arrives at.
+    #[must_use]
+    pub fn line_rate_hz(self) -> f64 {
+        match self {
+            Self::Ccir625 => 15_625.0,
+            Self::Eia525 => 15_734.264,
+            Self::SystemA405 => 10_125.0,
+        }
+    }
+
+    /// Frames per second, which is the line rate divided by the frame's lines.
+    #[must_use]
+    pub fn frame_rate_hz(self) -> f64 {
+        self.line_rate_hz() / f64::from(self.lines())
+    }
+}
+
+fn default_atv_bandwidth_hz() -> f64 {
+    1_500_000.0
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AtvParams {
+    #[serde(default)]
+    pub modulation: AtvModulation,
+    #[serde(default)]
+    pub standard: AtvStandard,
+    /// Video channel width in Hz. This *is* the horizontal resolution — a picture cannot carry
+    /// more detail per line than the bandwidth that delivered it — so it is the one knob worth
+    /// opening up when the channel is clean, bounded by the mode's IQ rate.
+    #[serde(default = "default_atv_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+    /// Invert the video polarity, for a transmission that keys the opposite way round from its
+    /// modulation's convention (see [`AtvModulation`]). A picture that comes out as a photographic
+    /// negative, with the sync tracker never locking, is what this fixes.
+    #[serde(default)]
+    pub invert: bool,
+    /// Weave the two fields into one frame at their real line positions. Off decodes each
+    /// vertical sync as a whole progressive frame, which is what non-interlaced amateur and
+    /// camera sources send.
+    #[serde(default = "default_true")]
+    pub interlace: bool,
+}
+
+impl Default for AtvParams {
+    fn default() -> Self {
+        Self {
+            modulation: AtvModulation::default(),
+            standard: AtvStandard::default(),
+            bandwidth_hz: default_atv_bandwidth_hz(),
+            invert: false,
+            interlace: true,
+        }
+    }
+}
+
 /// Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
 /// discriminated union on `type`, and `{"type":"nfm","settings":{}}` deserializes with
 /// every field at its default.
@@ -501,6 +654,7 @@ pub enum ChannelParams {
     Navtex(NavtexParams),
     Acars(AcarsParams),
     Subghz(SubghzParams),
+    Atv(AtvParams),
 }
 
 impl ChannelParams {
@@ -521,6 +675,7 @@ impl ChannelParams {
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
             Self::Subghz(_) => "subghz",
+            Self::Atv(_) => "atv",
         }
     }
 }

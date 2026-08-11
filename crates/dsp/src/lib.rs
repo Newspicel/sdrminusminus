@@ -30,14 +30,15 @@ pub use bits::{
 pub use ddc::{Ddc, DdcError, flat_bandwidth_hz, resamplable_bandwidth_hz};
 pub use decim::{Decimator, RealDecimator};
 pub use fec::{
-    RdsOffset, crc16_ccitt, crc16_x25, hdlc_fcs_ok, mode_s_append_parity, mode_s_fix_single_bit,
+    RdsOffset, crc16_ccitt, crc16_x25, golay23_encode, golay23_ok, hdlc_fcs_ok,
+    mode_s_append_overlaid_parity, mode_s_append_parity, mode_s_fix_single_bit, mode_s_overlay,
     mode_s_syndrome, pocsag_bch_decode, pocsag_bch_encode, rds_check_block, rds_encode_block,
     rds_syndrome,
 };
 pub use fir::{design_bandpass, design_gaussian, design_lowpass};
 pub use firc::FirC;
 pub use fm::FmDemod;
-pub use iir::{DcBlocker, Deemphasis, one_pole_coeff};
+pub use iir::{ComplexOnePole, DcBlocker, Deemphasis, Highpass, one_pole_coeff};
 pub use nco::Nco;
 pub use pll::{Costas, LoopFilter, Pll};
 pub use resamp::FracResampler;

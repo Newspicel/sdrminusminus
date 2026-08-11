@@ -16,6 +16,7 @@ pub(crate) enum VendorRequest {
     SetVgaGain = 20,
     SetTxVgaGain = 21,
     AntennaEnable = 23,
+    InitSweep = 26,
     GetBufferSize = 61,
 }
 
@@ -26,4 +27,6 @@ pub(crate) enum TransceiverMode {
     Off = 0,
     Receive = 1,
     Transmit = 2,
+    /// Receive while the firmware retunes itself between blocks (`hackrf_sweep`'s mode).
+    RxSweep = 5,
 }

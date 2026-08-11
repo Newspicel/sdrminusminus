@@ -3,20 +3,23 @@
 // (`onEvent`/`onStatus`/`onAudio`); subsystems that must observe the same events without
 // stealing those use the add/remove listener methods.
 //
-// Spectrum is a listener *set*, not a handler: a canvas can carry several scope faces (CANVAS
-// §1), and a single slot meant the last one mounted silently starved the others and cleared
-// their feed on unmount. Frames carry the device-set id as their stream id, so each listener
-// filters for its own.
+// Spectrum and video are listener *sets*, not handlers: a canvas can carry several scope faces
+// and several channel faces (CANVAS §1), and a single slot meant the last one mounted silently
+// starved the others and cleared their feed on unmount. Each listener filters on the stream id
+// the server allocated for its own subscription.
 
 import { withToken } from "./auth";
 import {
   type AudioFrame,
   decodeAudio,
   decodeSpectrum,
+  decodeVideo,
   FRAME_KIND_AUDIO_OPUS,
   FRAME_KIND_SPECTRUM,
+  FRAME_KIND_VIDEO_GRAY,
   frameKind,
   type SpectrumFrame,
+  type VideoFrame,
 } from "./frame";
 import type { ClientCommand, ServerEvent } from "./types";
 
@@ -35,6 +38,7 @@ export class SdrSocket {
   private readonly eventListeners = new Set<(event: ServerEvent) => void>();
   private readonly statusListeners = new Set<(connected: boolean) => void>();
   private readonly spectrumListeners = new Set<(frame: SpectrumFrame) => void>();
+  private readonly videoListeners = new Set<(frame: VideoFrame) => void>();
 
   onEvent: (event: ServerEvent) => void = () => {};
   onStatus: (connected: boolean) => void = () => {};
@@ -80,6 +84,14 @@ export class SdrSocket {
 
   removeSpectrumListener(listener: (frame: SpectrumFrame) => void): void {
     this.spectrumListeners.delete(listener);
+  }
+
+  addVideoListener(listener: (frame: VideoFrame) => void): void {
+    this.videoListeners.add(listener);
+  }
+
+  removeVideoListener(listener: (frame: VideoFrame) => void): void {
+    this.videoListeners.delete(listener);
   }
 
   addStatusListener(listener: (connected: boolean) => void): void {
@@ -169,6 +181,15 @@ export class SdrSocket {
         const frame = decodeAudio(buffer);
         if (frame) {
           this.onAudio(frame);
+        }
+        break;
+      }
+      case FRAME_KIND_VIDEO_GRAY: {
+        const frame = decodeVideo(buffer);
+        if (frame) {
+          for (const listener of this.videoListeners) {
+            listener(frame);
+          }
         }
         break;
       }

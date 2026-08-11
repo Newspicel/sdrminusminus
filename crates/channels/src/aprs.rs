@@ -353,6 +353,13 @@ fn parse_frame(frame: &[u8]) -> Option<AprsPacket> {
     Some(packet)
 }
 
+/// The 6 address characters without the SSID suffix [`decode_address`] appends. Mic-E reads
+/// them as data rather than as a callsign, and the SSID beside them carries a digipeater path
+/// this decoder has no use for.
+fn address_chars(call: &str) -> &str {
+    call.split('-').next().unwrap_or(call)
+}
+
 /// The TNC2 monitor line every APRS tool speaks: `SRC>DEST,PATH1,PATH2:info`.
 fn tnc2_line(packet: &AprsPacket) -> String {
     let mut line = String::with_capacity(packet.info.len() + 32);
@@ -385,17 +392,20 @@ struct Report {
 const TIMESTAMP_LEN: usize = 7;
 
 /// Fill in whatever the information field's data type identifier lets us read. Anything not
-/// recognised (status, messages, telemetry, Mic-E) leaves the packet with its raw info only.
+/// recognised (status, messages, telemetry) leaves the packet with its raw info only.
 fn apply_aprs(info: &[u8], packet: &mut AprsPacket) {
     let Some((kind, rest)) = info.split_first() else {
         return;
     };
-    let body = match kind {
-        b'!' | b'=' => Some(rest),
-        b'/' | b'@' => rest.get(TIMESTAMP_LEN..),
+    // Mic-E is the one form whose position is not in the information field alone: half of it
+    // is in the destination callsign, which is why it needs the packet rather than a slice.
+    let report = match *kind {
+        MIC_E_CURRENT | MIC_E_OLD | MIC_E_CURRENT_BETA | MIC_E_OLD_BETA => mic_e(rest, packet),
+        b'!' | b'=' => parse_position(rest),
+        b'/' | b'@' => rest.get(TIMESTAMP_LEN..).and_then(parse_position),
         _ => None,
     };
-    let Some(report) = body.and_then(parse_position) else {
+    let Some(report) = report else {
         return;
     };
     packet.lat = Some(report.lat);
@@ -540,6 +550,274 @@ fn compressed_course_speed(c: u8, s: u8) -> (Option<f64>, Option<f64>) {
     let course = f64::from(c - BASE91_MIN) * 4.0;
     let speed = 1.08_f64.powi(i32::from(s - BASE91_MIN)) - 1.0;
     (Some(course), Some(speed))
+}
+
+// ── Mic-E (APRS 1.0.1 ch. 10) ─────────────────────────────────────────────────────────────
+//
+// The one APRS form that is not a text format. The position is split across two fields that
+// were never meant to carry it: six latitude digits and three indicator bits ride in the
+// destination *callsign* (shifted ASCII, so every value stays a legal AX.25 address), and the
+// longitude, course, speed and symbol ride in an information field offset by 28 to keep it
+// almost printable. Neither half decodes without the other.
+
+/// Data type identifiers that open a Mic-E information field: current and old GPS data, and
+/// the two the Rev. 0 beta units send.
+const MIC_E_CURRENT: u8 = b'`';
+const MIC_E_OLD: u8 = b'\'';
+const MIC_E_CURRENT_BETA: u8 = 0x1C;
+const MIC_E_OLD_BETA: u8 = 0x1D;
+
+/// Longitude, speed/course, symbol code and symbol table id: the 8 bytes that must follow the
+/// data type identifier. Several of them are non-printing, and a link that drops those leaves
+/// a field that looks shorter than it is — which the spec says to ignore rather than decode a
+/// prefix of.
+const MIC_E_FIELD_LEN: usize = 8;
+
+/// Every value in the information field is transmitted with 28 added to it.
+const MIC_E_OFFSET: u8 = 28;
+
+/// Base-91 digits of the `xxx}` altitude are offset by 33, not by [`BASE91_MIN`]'s 33 for the
+/// same reason — but the datum is: metres above 10 km *below* mean sea level, the deepest
+/// ocean, so that no station on Earth needs a sign.
+const MIC_E_ALTITUDE_DATUM_M: i32 = 10_000;
+const MIC_E_ALTITUDE_LEN: usize = 4;
+const METRES_PER_FOOT: f64 = 0.304_8;
+
+/// How a destination character spells its message bit. The two tables of 1s are what makes a
+/// message standard or custom; `Zero` belongs to neither.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MessageBit {
+    Zero,
+    Standard,
+    Custom,
+}
+
+/// The half of a Mic-E report that rides in the destination callsign.
+struct MicEDestination {
+    /// Latitude magnitude in degrees; `north` carries the sign.
+    lat: f64,
+    north: bool,
+    /// The +100° the longitude degrees are computed with.
+    lon_offset: bool,
+    west: bool,
+    /// Trailing latitude digits blanked for position ambiguity, 0–4. The same count applies
+    /// to the longitude, which carries no ambiguity of its own.
+    ambiguity: usize,
+    /// The named message, or `None` where the three bits mix the two tables.
+    message: Option<&'static str>,
+}
+
+/// One destination character: its latitude digit (`None` under position ambiguity), the
+/// message bit it carries in bytes 1–3, and the indicator it carries in bytes 4–6 — one bit
+/// read three ways, as North, as +100° and as West.
+fn destination_char(c: u8) -> Option<(Option<u8>, MessageBit, bool)> {
+    match c {
+        b'0'..=b'9' => Some((Some(c - b'0'), MessageBit::Zero, false)),
+        b'A'..=b'J' => Some((Some(c - b'A'), MessageBit::Custom, false)),
+        b'K' => Some((None, MessageBit::Custom, false)),
+        b'L' => Some((None, MessageBit::Zero, false)),
+        b'P'..=b'Y' => Some((Some(c - b'P'), MessageBit::Standard, true)),
+        b'Z' => Some((None, MessageBit::Standard, true)),
+        _ => None,
+    }
+}
+
+const STANDARD_MESSAGES: [&str; 7] = [
+    "Priority",
+    "Special",
+    "Committed",
+    "Returning",
+    "In Service",
+    "En Route",
+    "Off Duty",
+];
+const CUSTOM_MESSAGES: [&str; 7] = [
+    "Custom-6", "Custom-5", "Custom-4", "Custom-3", "Custom-2", "Custom-1", "Custom-0",
+];
+
+/// Name the message the three bits select. All three zero is the emergency code in either
+/// table; a mixture of standard and custom 1s is a message the spec itself calls unknown, and
+/// naming it from one table would put words in an operator's mouth.
+fn message_type(bits: [MessageBit; 3]) -> Option<&'static str> {
+    let code = bits.iter().fold(0usize, |acc, &b| {
+        acc << 1 | usize::from(b != MessageBit::Zero)
+    });
+    if code == 0 {
+        return Some("Emergency");
+    }
+    let standard = bits.contains(&MessageBit::Standard);
+    let custom = bits.contains(&MessageBit::Custom);
+    match (standard, custom) {
+        (true, false) => STANDARD_MESSAGES.get(code - 1).copied(),
+        (false, true) => CUSTOM_MESSAGES.get(code - 1).copied(),
+        _ => None,
+    }
+}
+
+fn mic_e_destination(call: &str) -> Option<MicEDestination> {
+    let chars = address_chars(call).as_bytes();
+    if chars.len() != 6 {
+        return None;
+    }
+    let mut digits = [0u8; 6];
+    let mut bits = [MessageBit::Zero; 3];
+    let mut indicators = [false; 3];
+    let mut ambiguity = 0usize;
+    for (i, &c) in chars.iter().enumerate() {
+        let (digit, bit, indicator) = destination_char(c)?;
+        match digit {
+            // Ambiguity blanks digits from the right and a blanked digit is defined to read as
+            // zero, as it is in an uncompressed report; a digit *after* a blank is not
+            // ambiguity but a callsign that was never Mic-E.
+            Some(d) if ambiguity == 0 => digits[i] = d,
+            Some(_) => return None,
+            None => ambiguity += 1,
+        }
+        match i {
+            0..=2 => bits[i] = bit,
+            // A–K carry no indicator at all, so the spec does not use them here.
+            _ if bit == MessageBit::Custom => return None,
+            _ => indicators[i - 3] = indicator,
+        }
+    }
+    let degrees = f64::from(digits[0]) * 10.0 + f64::from(digits[1]);
+    let minutes = f64::from(digits[2]) * 10.0 + f64::from(digits[3]);
+    let hundredths = f64::from(digits[4]) * 10.0 + f64::from(digits[5]);
+    if degrees > 90.0 || minutes >= 60.0 {
+        return None;
+    }
+    Some(MicEDestination {
+        lat: degrees + (minutes + hundredths / 100.0) / 60.0,
+        north: indicators[0],
+        lon_offset: indicators[1],
+        west: indicators[2],
+        ambiguity,
+        message: message_type(bits),
+    })
+}
+
+/// Decode a Mic-E packet from its destination callsign and the information field after the
+/// data type identifier, naming the message on the packet as a side effect.
+fn mic_e(body: &[u8], packet: &mut AprsPacket) -> Option<Report> {
+    let destination = mic_e_destination(&packet.destination)?;
+    let report = mic_e_report(&destination, body)?;
+    packet.mic_e_message = destination.message.map(str::to_owned);
+    Some(report)
+}
+
+fn mic_e_report(destination: &MicEDestination, body: &[u8]) -> Option<Report> {
+    let field = body.get(..MIC_E_FIELD_LEN)?;
+    let value = |at: usize| field.get(at).and_then(|b| b.checked_sub(MIC_E_OFFSET));
+
+    let mut minutes = u32::from(value(1).filter(|&m| (10..=69).contains(&m))?);
+    // 0–9 minutes are encoded 60 higher, so that every byte of the field stays printable.
+    if minutes >= 60 {
+        minutes -= 60;
+    }
+    let mut hundredths = u32::from(value(2).filter(|&h| h <= 99)?);
+    let degrees = longitude_degrees(value(0)?, destination.lon_offset)?;
+    // Ambiguity is declared in the latitude and applies to the longitude unchanged: the same
+    // count of digits, from the right, carries no information.
+    if destination.ambiguity >= 1 {
+        hundredths -= hundredths % 10;
+    }
+    if destination.ambiguity >= 2 {
+        hundredths = 0;
+    }
+    if destination.ambiguity >= 3 {
+        minutes -= minutes % 10;
+    }
+    if destination.ambiguity >= 4 {
+        minutes = 0;
+    }
+    let lon = f64::from(degrees) + (f64::from(minutes) + f64::from(hundredths) / 100.0) / 60.0;
+    let (speed_kt, course_deg) = speed_course(value(3)?, value(4)?, value(5)?)?;
+    let symbol = symbol(*field.get(7)?, *field.get(6)?)?;
+    let status = body.get(MIC_E_FIELD_LEN..).unwrap_or_default();
+    let (comment, comment_alt_ft) = describe(mic_e_status(status));
+    Some(Report {
+        lat: if destination.north {
+            destination.lat
+        } else {
+            -destination.lat
+        },
+        lon: if destination.west { -lon } else { lon },
+        symbol,
+        course_deg,
+        speed_kt,
+        comment,
+        // An explicit `/A=` is the more precise statement of the two, as it is elsewhere.
+        altitude_ft: comment_alt_ft.or_else(|| mic_e_altitude_ft(status)),
+    })
+}
+
+/// Longitude degrees, 0–179. Four disjoint pieces of the byte range are folded into one
+/// number by the +100 the destination carries and two subtractions (APRS 1.0.1 ch. 10).
+fn longitude_degrees(raw: u8, offset: bool) -> Option<u32> {
+    if !(10..=99).contains(&raw) {
+        return None;
+    }
+    let mut degrees = u32::from(raw) + if offset { 100 } else { 0 };
+    if (180..=189).contains(&degrees) {
+        degrees -= 80;
+    } else if (190..=199).contains(&degrees) {
+        degrees -= 190;
+    }
+    Some(degrees)
+}
+
+/// Speed in knots and course in degrees, spread across three bytes: tens of knots, then units
+/// of knots *and* hundreds of degrees sharing a byte, then tens and units of degrees. The two
+/// subtractions at the end are what let the middle byte stay printable under either of the two
+/// encoding schemes in the field.
+fn speed_course(sp: u8, dc: u8, se: u8) -> Option<(Option<f64>, Option<f64>)> {
+    if sp > 99 || dc > 99 || se > 99 {
+        return None;
+    }
+    let mut speed = u32::from(sp) * 10 + u32::from(dc) / 10;
+    let mut course = u32::from(dc) % 10 * 100 + u32::from(se);
+    if speed >= 800 {
+        speed -= 800;
+    }
+    if course >= 400 {
+        course -= 400;
+    }
+    if course > 360 {
+        return None;
+    }
+    // 0° is "course unknown or indefinite" and 360° is due north (APRS 1.0.1 ch. 10), so the
+    // one value that must not be reported as a heading is the one that looks most like one.
+    let course_deg = (course != 0).then(|| f64::from(course % 360));
+    Some((Some(f64::from(speed)), course_deg))
+}
+
+/// The status text without the type code a Kenwood radio prefixes it with, which is a device
+/// marker rather than something the operator typed.
+fn mic_e_status(status: &[u8]) -> &[u8] {
+    match status.first().copied() {
+        // A telemetry flag here means the rest is telemetry channels, not text at all.
+        Some(MIC_E_CURRENT | MIC_E_OLD | MIC_E_OLD_BETA) => &[],
+        Some(b'>' | b']') => status.get(1..).unwrap_or_default(),
+        _ => status,
+    }
+}
+
+/// `xxx}` at the head of the status text: three base-91 digits of metres above 10 km below
+/// mean sea level. Only at the head — a `}` anywhere in free text would otherwise turn the
+/// three characters before it into an altitude.
+fn mic_e_altitude_ft(status: &[u8]) -> Option<i32> {
+    let field = mic_e_status(status).get(..MIC_E_ALTITUDE_LEN)?;
+    if *field.get(3)? != b'}' {
+        return None;
+    }
+    let mut metres = 0i32;
+    for &b in field.get(..3)? {
+        if !(BASE91_MIN..=BASE91_MAX).contains(&b) {
+            return None;
+        }
+        metres = metres * 91 + i32::from(b - BASE91_MIN);
+    }
+    Some(((f64::from(metres - MIC_E_ALTITUDE_DATUM_M) / METRES_PER_FOOT).round()) as i32)
 }
 
 fn symbol(table: u8, code: u8) -> Option<String> {
@@ -754,6 +1032,197 @@ fn baud(mode: AprsMode) -> f64 {
         AprsMode::Afsk1200 => AFSK_BAUD,
         AprsMode::G3ruh9600 => G3RUH_BAUD,
     }
+}
+
+// ── Mic-E reference encoder ───────────────────────────────────────────────────────────────
+
+/// Which of the two tables of 1s a Mic-E message bit is drawn from (APRS 1.0.1 ch. 10).
+///
+/// The encoder below shares no code with the decoder above it — its tables are written out
+/// forwards from the spec rather than inverted from the decoder's, because a generator that
+/// derived them from the thing under test could only ever agree with itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MicEBit {
+    #[default]
+    Zero,
+    Standard,
+    Custom,
+}
+
+/// A Mic-E position report, as the fields a transmitter holds before it packs them into a
+/// destination callsign and an information field.
+#[derive(Clone, Copy, Debug)]
+pub struct MicE<'a> {
+    pub lat: f64,
+    pub lon: f64,
+    /// 0–799 knots.
+    pub speed_kt: u32,
+    /// 0–360 degrees. 0 means "unknown or indefinite"; due north is 360.
+    pub course_deg: u32,
+    /// Symbol table identifier then symbol code, e.g. `/j` for a jeep — the order an APRS
+    /// symbol is quoted in, which is the reverse of the order Mic-E transmits it.
+    pub symbol: &'a str,
+    /// Message bits A, B and C.
+    pub bits: [MicEBit; 3],
+    /// Latitude digits blanked from the right for position ambiguity, 0–4.
+    pub ambiguity: usize,
+    /// Whatever follows the mandatory 8 bytes: status text, an altitude field, telemetry.
+    pub status: &'a str,
+}
+
+impl Default for MicE<'_> {
+    fn default() -> Self {
+        Self {
+            lat: 0.0,
+            lon: 0.0,
+            speed_kt: 0,
+            course_deg: 0,
+            symbol: "/>",
+            bits: [MicEBit::Zero; 3],
+            ambiguity: 0,
+            status: "",
+        }
+    }
+}
+
+impl MicE<'_> {
+    /// The destination callsign: six latitude digits, each carrying one further bit.
+    #[must_use]
+    pub fn destination(&self) -> String {
+        let digits = hundredths_of_a_minute(self.lat);
+        // Bytes 1–3 carry the message bits; 4–6 carry North, +100° and West.
+        let carried = [
+            self.bits[0],
+            self.bits[1],
+            self.bits[2],
+            indicator(self.lat >= 0.0),
+            indicator(!(10.0..100.0).contains(&self.lon.abs().trunc())),
+            indicator(self.lon < 0.0),
+        ];
+        (0..6)
+            .map(|i| {
+                let ambiguous = i + self.ambiguity >= 6;
+                encode_destination_char(digits[i], carried[i], ambiguous)
+            })
+            .collect()
+    }
+
+    /// The information field, data type identifier included.
+    #[must_use]
+    pub fn info(&self) -> String {
+        // Longitude degrees can need three digits, so only the minutes and hundredths of the
+        // split are read here; the degrees come from the value itself.
+        let digits = hundredths_of_a_minute(self.lon);
+        let minutes = u32::from(digits[2]) * 10 + u32::from(digits[3]);
+        let hundredths = u32::from(digits[4]) * 10 + u32::from(digits[5]);
+        let symbol = self.symbol.as_bytes();
+        let longitude = [
+            longitude_degrees_byte(self.lon.abs().trunc() as u32),
+            longitude_minutes_byte(minutes),
+            (hundredths + 28) as u8,
+        ];
+
+        let mut out = String::with_capacity(9 + self.status.len());
+        out.push('`');
+        for byte in longitude
+            .into_iter()
+            .chain(speed_course_bytes(self.speed_kt, self.course_deg))
+        {
+            out.push(char::from(byte));
+        }
+        // Transmitted symbol code first, table identifier second — the reverse of the order
+        // the pair is written in everywhere else in APRS.
+        out.push(char::from(symbol.get(1).copied().unwrap_or(b'>')));
+        out.push(char::from(symbol.first().copied().unwrap_or(b'/')));
+        out.push_str(self.status);
+        out
+    }
+}
+
+impl MicE<'_> {
+    /// The `xxx}` altitude field a status text may open with: metres above 10 km below mean
+    /// sea level, base 91, each digit offset by 33.
+    #[must_use]
+    pub fn altitude_field(alt_ft: i32) -> String {
+        let metres = (f64::from(alt_ft) * 0.304_8).round() as i32 + 10_000;
+        let clamped = metres.clamp(0, 91 * 91 * 91 - 1);
+        let digits = [clamped / (91 * 91), clamped / 91 % 91, clamped % 91];
+        digits
+            .iter()
+            .map(|&d| char::from(d as u8 + 33))
+            .chain(std::iter::once('}'))
+            .collect()
+    }
+}
+
+/// A latitude or longitude split into its six digits: two of degrees, two of minutes, two of
+/// hundredths of a minute. Longitude degrees can need three digits, so the first two are only
+/// meaningful for a latitude — the caller takes what it needs.
+fn hundredths_of_a_minute(degrees: f64) -> [u8; 6] {
+    let total = (degrees.abs() * 6_000.0).round() as u32;
+    let (deg, minutes, hundredths) = (total / 6_000, total / 100 % 60, total % 100);
+    [
+        (deg / 10 % 10) as u8,
+        (deg % 10) as u8,
+        (minutes / 10) as u8,
+        (minutes % 10) as u8,
+        (hundredths / 10) as u8,
+        (hundredths % 10) as u8,
+    ]
+}
+
+fn indicator(set: bool) -> MicEBit {
+    if set {
+        MicEBit::Standard
+    } else {
+        MicEBit::Zero
+    }
+}
+
+/// One destination character. The digit picks the offset within a range and the bit picks the
+/// range; an ambiguous digit picks the range's own placeholder.
+fn encode_destination_char(digit: u8, bit: MicEBit, ambiguous: bool) -> char {
+    let base = match bit {
+        MicEBit::Zero => b'0',
+        MicEBit::Standard => b'P',
+        MicEBit::Custom => b'A',
+    };
+    if ambiguous {
+        return char::from(match bit {
+            MicEBit::Zero => b'L',
+            MicEBit::Standard => b'Z',
+            MicEBit::Custom => b'K',
+        });
+    }
+    char::from(base + digit)
+}
+
+/// The four disjoint pieces of the d+28 range, chosen so the byte stays printable and the
+/// longitude offset in the destination completes the value.
+fn longitude_degrees_byte(degrees: u32) -> u8 {
+    let raw = match degrees {
+        0..=9 => degrees + 90,
+        10..=99 => degrees,
+        100..=109 => degrees - 20,
+        _ => degrees.saturating_sub(100),
+    };
+    (raw + 28).min(127) as u8
+}
+
+/// m+28. Minutes below 10 are sent 60 higher so that the byte stays printable.
+fn longitude_minutes_byte(minutes: u32) -> u8 {
+    let raw = if minutes < 10 { minutes + 60 } else { minutes };
+    (raw + 28) as u8
+}
+
+/// SP+28, DC+28 and SE+28. The +80 and +4 are the encoding scheme that keeps all three bytes
+/// printable; the receiver undoes them with the ≥ 800 and ≥ 400 subtractions.
+fn speed_course_bytes(speed_kt: u32, course_deg: u32) -> [u8; 3] {
+    let (tens, units) = (speed_kt.min(799) / 10, speed_kt.min(799) % 10);
+    let course = course_deg.min(360);
+    let sp = if tens < 20 { tens + 80 } else { tens };
+    let dc = units * 10 + course / 100 + 4;
+    [(sp + 28) as u8, (dc + 28) as u8, (course % 100 + 28) as u8]
 }
 
 impl AprsTx {
@@ -1195,10 +1664,13 @@ mod tests {
         assert_eq!(decoded[1].tnc2, "DL1ABC-2>APRS,WIDE1-1:>second");
     }
 
+    /// Both worked examples of APRS 1.0.1 ch. 10 in one frame. The destination `S32U6T` is the
+    /// chapter's destination example — 33°25.64'N, message bits 1/0/0 from the standard table,
+    /// longitude offset +0 — and `` `(_fn"Oj/ `` is its information-field example, which the
+    /// chapter decodes with a +100° offset. Under this destination's +0 the same bytes are
+    /// 12°07.74'W rather than the chapter's 112°, and everything else is its published answer.
     #[test]
-    fn mic_e_decodes_as_a_frame_without_a_position() {
-        // Mic-E encodes the position in the destination callsign and a binary information
-        // field; M4 decodes the frame but deliberately does not parse it.
+    fn the_spec_worked_example_decodes_to_its_published_values() {
         let frame = AprsTx::ui_frame("DL1ABC-7", "S32U6T", &["WIDE2-2"], "`(_fn\"Oj/");
         let packet = only(decode(
             AprsMode::Afsk1200,
@@ -1209,9 +1681,300 @@ mod tests {
         assert_eq!(packet.path, ["WIDE2-2"]);
         assert_eq!(packet.info, "`(_fn\"Oj/");
         assert_eq!(packet.tnc2, "DL1ABC-7>S32U6T,WIDE2-2:`(_fn\"Oj/");
+
+        let lat = packet.lat.unwrap();
+        assert!((lat - (33.0 + 25.64 / 60.0)).abs() < 1e-9, "lat {lat}");
+        let lon = packet.lon.unwrap();
+        assert!((lon + (12.0 + 7.74 / 60.0)).abs() < 1e-9, "lon {lon}");
+        assert_eq!(packet.speed_kt, Some(20.0));
+        assert_eq!(packet.course_deg, Some(251.0));
+        // The jeep from the primary table, quoted table-first though it is sent code-first.
+        assert_eq!(packet.symbol.as_deref(), Some("/j"));
+        assert_eq!(packet.mic_e_message.as_deref(), Some("Returning"));
+        assert_eq!(packet.comment, None);
+        assert_eq!(packet.altitude_ft, None);
+    }
+
+    /// The chapter's information-field example as it is actually written up: with the +100°
+    /// longitude offset its destination example does not set, giving 112°07.74'W.
+    #[test]
+    fn the_spec_longitude_example_needs_the_hundred_degree_offset() {
+        // `S32UVT` is the destination example with byte 5 moved into the P–Y range, which is
+        // the one change that turns the offset on.
+        let frame = AprsTx::ui_frame("DL1ABC-7", "S32UVT", &[], "`(_fn\"Oj/");
+        let packet = only(decode(
+            AprsMode::Afsk1200,
+            &keyed(AprsMode::Afsk1200, &frame),
+        ));
+        let lon = packet.lon.unwrap();
+        assert!((lon + (112.0 + 7.74 / 60.0)).abs() < 1e-9, "lon {lon}");
+        assert!((packet.lat.unwrap() - (33.0 + 25.64 / 60.0)).abs() < 1e-9);
+    }
+
+    fn mic_e_frame(report: &MicE) -> Vec<u8> {
+        AprsTx::ui_frame("DL1ABC-9", &report.destination(), &[], &report.info())
+    }
+
+    fn mic_e_packet(report: &MicE) -> AprsPacket {
+        only(decode(
+            AprsMode::Afsk1200,
+            &keyed(AprsMode::Afsk1200, &mic_e_frame(report)),
+        ))
+    }
+
+    /// Both halves of the encoding over the whole globe: the destination carries the latitude
+    /// and the hemispheres, the information field the longitude, and the four ranges the
+    /// longitude degrees are folded into are what a sign test alone would miss.
+    #[test]
+    fn mic_e_round_trips_positions_in_every_hemisphere_and_longitude_range() {
+        for (lat, lon) in [
+            (48.123_0, 11.516_67),   // the +0 offset range
+            (-33.875_0, -151.205_0), // southern, and 110–179° in the +100 range
+            (37.775_0, -122.418_3),  // 100–109°, the range folded by subtracting 80
+            (60.170_0, 5.183_3),     // 0–9°, the range folded by subtracting 190
+            (-1.283_3, 36.816_7),    // both minutes fields near zero
+            (0.0, 0.0),
+        ] {
+            let packet = mic_e_packet(&MicE {
+                lat,
+                lon,
+                ..MicE::default()
+            });
+            let (got_lat, got_lon) = (packet.lat.unwrap(), packet.lon.unwrap());
+            // A hundredth of a minute is the encoding's whole resolution.
+            assert!((got_lat - lat).abs() < 1.0 / 6_000.0, "{lat} -> {got_lat}");
+            assert!((got_lon - lon).abs() < 1.0 / 6_000.0, "{lon} -> {got_lon}");
+        }
+    }
+
+    /// Speed and course share a byte, and both fold through a subtraction at the top of their
+    /// range — so the values that matter are the ones on either side of the fold.
+    #[test]
+    fn mic_e_round_trips_speed_and_course() {
+        for (speed_kt, course_deg, expected_course) in [
+            (0, 0, None),
+            (20, 251, Some(251.0)),
+            (1, 1, Some(1.0)),
+            (199, 199, Some(199.0)),
+            (200, 200, Some(200.0)),
+            (799, 359, Some(359.0)),
+            // 360° is due north and 0° is "unknown", so only one of them is a heading.
+            (55, 360, Some(0.0)),
+        ] {
+            let packet = mic_e_packet(&MicE {
+                lat: 48.0,
+                lon: 11.0,
+                speed_kt,
+                course_deg,
+                ..MicE::default()
+            });
+            assert_eq!(
+                packet.speed_kt,
+                Some(f64::from(speed_kt)),
+                "{speed_kt} kt / {course_deg}°"
+            );
+            assert_eq!(
+                packet.course_deg, expected_course,
+                "{speed_kt} kt / {course_deg}°"
+            );
+        }
+    }
+
+    /// The 15 message codes, and the mixture the spec refuses to name.
+    #[test]
+    fn mic_e_names_every_message_code() {
+        use MicEBit::{Custom, Standard, Zero};
+        for (bits, name) in [
+            ([Standard, Standard, Standard], Some("Off Duty")),
+            ([Standard, Standard, Zero], Some("En Route")),
+            ([Standard, Zero, Standard], Some("In Service")),
+            ([Standard, Zero, Zero], Some("Returning")),
+            ([Zero, Standard, Standard], Some("Committed")),
+            ([Zero, Standard, Zero], Some("Special")),
+            ([Zero, Zero, Standard], Some("Priority")),
+            ([Zero, Zero, Zero], Some("Emergency")),
+            ([Custom, Custom, Custom], Some("Custom-0")),
+            ([Custom, Custom, Zero], Some("Custom-1")),
+            ([Custom, Zero, Custom], Some("Custom-2")),
+            ([Custom, Zero, Zero], Some("Custom-3")),
+            ([Zero, Custom, Custom], Some("Custom-4")),
+            ([Zero, Custom, Zero], Some("Custom-5")),
+            ([Zero, Zero, Custom], Some("Custom-6")),
+            // "If the A/B/C message identifier bits contain a mixture of Standard 1s and
+            // Custom 1s, the message type is unknown" — so it stays unnamed.
+            ([Standard, Custom, Zero], None),
+            ([Custom, Zero, Standard], None),
+        ] {
+            let packet = mic_e_packet(&MicE {
+                lat: 48.0,
+                lon: 11.0,
+                bits,
+                ..MicE::default()
+            });
+            assert_eq!(packet.mic_e_message.as_deref(), name, "{bits:?}");
+            // The position decodes whatever the message bits say.
+            assert!(packet.lat.is_some(), "{bits:?}");
+        }
+    }
+
+    /// Ambiguity is declared in the latitude and applies to the longitude too — the same
+    /// count of digits from the right, in a field that never mentions it.
+    #[test]
+    fn mic_e_position_ambiguity_blanks_both_coordinates() {
+        let (lat, lon) = (33.427_33, -112.129_0);
+        for (ambiguity, lat_hundredths, lon_hundredths) in [
+            (0usize, 25.64, 7.74),
+            (1, 25.60, 7.70),
+            (2, 25.00, 7.00),
+            (3, 20.00, 0.00),
+            (4, 0.00, 0.00),
+        ] {
+            let packet = mic_e_packet(&MicE {
+                lat,
+                lon,
+                ambiguity,
+                ..MicE::default()
+            });
+            let want_lat = 33.0 + lat_hundredths / 60.0;
+            let want_lon = -(112.0 + lon_hundredths / 60.0);
+            assert!(
+                (packet.lat.unwrap() - want_lat).abs() < 1e-9,
+                "ambiguity {ambiguity}: lat {:?}",
+                packet.lat
+            );
+            assert!(
+                (packet.lon.unwrap() - want_lon).abs() < 1e-9,
+                "ambiguity {ambiguity}: lon {:?}",
+                packet.lon
+            );
+        }
+    }
+
+    /// The status text's `xxx}` altitude, and the spec's own worked value for it.
+    #[test]
+    fn mic_e_altitude_decodes_from_the_status_text() {
+        assert_eq!(MicE::altitude_field(200), "\"4T}");
+        for alt_ft in [-30, 0, 200, 1_234, 38_000] {
+            let status = MicE::altitude_field(alt_ft);
+            let packet = mic_e_packet(&MicE {
+                lat: 48.0,
+                lon: 11.0,
+                status: &status,
+                ..MicE::default()
+            });
+            // The field is whole metres, so a foot is not recoverable to the foot.
+            let got = packet.altitude_ft.unwrap();
+            assert!((got - alt_ft).abs() <= 2, "{alt_ft} ft -> {got} ft");
+            assert_eq!(packet.comment.as_deref(), Some(status.as_str()));
+        }
+    }
+
+    /// A Kenwood radio stamps its own type code at the head of the status text, and the
+    /// altitude sits behind it.
+    #[test]
+    fn mic_e_altitude_survives_a_kenwood_type_code() {
+        for prefix in [">", "]"] {
+            let status = format!("{prefix}{} Hello", MicE::altitude_field(1_000));
+            let packet = mic_e_packet(&MicE {
+                lat: 48.0,
+                lon: 11.0,
+                status: &status,
+                ..MicE::default()
+            });
+            assert!(
+                (packet.altitude_ft.unwrap() - 1_000).abs() <= 2,
+                "{prefix}: {:?}",
+                packet.altitude_ft
+            );
+            assert_eq!(
+                packet.comment.as_deref(),
+                Some(format!("{} Hello", MicE::altitude_field(1_000)).as_str())
+            );
+        }
+    }
+
+    /// The altitude field is only an altitude field at the head of the status text. A `}`
+    /// further in is a character someone typed, and reading the three before it as base-91
+    /// would put a station 700 km up. Telemetry, likewise, is not a comment.
+    #[test]
+    fn mic_e_reads_neither_an_altitude_nor_a_comment_out_of_what_is_not_one() {
+        let packet = mic_e_packet(&MicE {
+            lat: 48.0,
+            lon: 11.0,
+            status: "not an altitude}",
+            ..MicE::default()
+        });
+        assert_eq!(packet.altitude_ft, None);
+        assert_eq!(packet.comment.as_deref(), Some("not an altitude}"));
+
+        // A telemetry flag where the status text would start means channels follow.
+        let packet = mic_e_packet(&MicE {
+            lat: 48.0,
+            lon: 11.0,
+            status: "'7200007100",
+            ..MicE::default()
+        });
+        assert_eq!(packet.comment, None);
+        assert_eq!(packet.altitude_ft, None);
+        assert!(packet.lat.is_some(), "telemetry must not lose the position");
+    }
+
+    /// An information field short of its 8 mandatory bytes is a packet whose non-printing
+    /// bytes were eaten in transit; the spec says to ignore it rather than decode a prefix.
+    #[test]
+    fn a_truncated_mic_e_field_yields_no_position() {
+        let frame = AprsTx::ui_frame("DL1ABC-9", "S32U6T", &[], "`(_fn\"O");
+        let packet = only(decode(
+            AprsMode::Afsk1200,
+            &keyed(AprsMode::Afsk1200, &frame),
+        ));
         assert_eq!(packet.lat, None);
-        assert_eq!(packet.lon, None);
-        assert_eq!(packet.symbol, None);
+        assert_eq!(packet.mic_e_message, None);
+        assert_eq!(packet.info, "`(_fn\"O");
+    }
+
+    /// A destination that is a plain callsign is not Mic-E data, however Mic-E the information
+    /// field looks — and inventing a latitude out of `APRS` would be worse than reading none.
+    #[test]
+    fn a_mic_e_information_field_under_an_ordinary_destination_decodes_nothing() {
+        for destination in ["APRS", "N0CALL", "S32U6"] {
+            let frame = AprsTx::ui_frame("DL1ABC-9", destination, &[], "`(_fn\"Oj/");
+            let packet = only(decode(
+                AprsMode::Afsk1200,
+                &keyed(AprsMode::Afsk1200, &frame),
+            ));
+            assert_eq!(packet.lat, None, "{destination}");
+            assert_eq!(packet.mic_e_message, None, "{destination}");
+        }
+    }
+
+    /// The generic digipeater path rides in the destination SSID, so a Mic-E destination is
+    /// routinely `S32U6T-3` — six data characters and a number that is not one of them.
+    #[test]
+    fn a_destination_ssid_does_not_disturb_the_six_data_characters() {
+        let frame = AprsTx::ui_frame("DL1ABC-9", "S32U6T-3", &[], "`(_fn\"Oj/");
+        let packet = only(decode(
+            AprsMode::Afsk1200,
+            &keyed(AprsMode::Afsk1200, &frame),
+        ));
+        assert_eq!(packet.destination, "S32U6T-3");
+        assert!((packet.lat.unwrap() - (33.0 + 25.64 / 60.0)).abs() < 1e-9);
+        assert_eq!(packet.mic_e_message.as_deref(), Some("Returning"));
+    }
+
+    /// The old-GPS identifier and the two the beta units send are the same format.
+    #[test]
+    fn every_mic_e_data_type_identifier_is_decoded() {
+        for id in ['`', '\'', '\u{1c}', '\u{1d}'] {
+            let info = format!("{id}(_fn\"Oj/");
+            let frame = AprsTx::ui_frame("DL1ABC-9", "S32U6T", &[], &info);
+            let packet = only(decode(
+                AprsMode::Afsk1200,
+                &keyed(AprsMode::Afsk1200, &frame),
+            ));
+            assert_eq!(packet.speed_kt, Some(20.0), "{id:?}");
+            assert!(packet.lat.is_some(), "{id:?}");
+        }
     }
 
     #[test]

@@ -43,7 +43,7 @@ class FakeSocket implements AudioSocket {
 }
 
 class FakeSink implements AudioSink {
-  pushed: { opus: number[]; timestampUs: number }[] = [];
+  pushed: { opus: number[]; timestampUs: number; channels: number }[] = [];
   conceals: number[] = [];
   volume: number;
   resets = 0;
@@ -55,11 +55,11 @@ class FakeSink implements AudioSink {
   ) {
     this.volume = volume;
   }
-  push(opus: Uint8Array, timestampUs: number): void {
-    this.pushed.push({ opus: Array.from(opus), timestampUs });
+  push(opus: Uint8Array, timestampUs: number, channels: number): void {
+    this.pushed.push({ opus: Array.from(opus), timestampUs, channels });
   }
-  conceal(samples: number): void {
-    this.conceals.push(samples);
+  conceal(frames: number): void {
+    this.conceals.push(frames);
   }
   setVolume(volume: number): void {
     this.volume = volume;
@@ -97,8 +97,13 @@ function stopped(streamId: number, kind: StreamKind = "audio"): ServerEvent {
   return { type: "StreamStopped", data: { stream_id: streamId, kind } };
 }
 
-function audioFrame(streamId: number, timestamp: bigint, bytes: number[]): AudioFrame {
-  return { streamId, seq: 0, timestamp, chLayout: 1, opus: Uint8Array.from(bytes) };
+function audioFrame(
+  streamId: number,
+  timestamp: bigint,
+  bytes: number[],
+  chLayout = 1,
+): AudioFrame {
+  return { streamId, seq: 0, timestamp, chLayout, opus: Uint8Array.from(bytes) };
 }
 
 describe("AudioEngine", () => {
@@ -141,8 +146,28 @@ describe("AudioEngine", () => {
     socket.onAudio(audioFrame(11, 24_000n, [3]));
     socket.onAudio(audioFrame(99, 0n, [4]));
 
-    expect(sinks[0]?.pushed).toEqual([{ opus: [1, 2], timestampUs: 1_000_000 }]);
-    expect(sinks[1]?.pushed).toEqual([{ opus: [3], timestampUs: 500_000 }]);
+    expect(sinks[0]?.pushed).toEqual([{ opus: [1, 2], timestampUs: 1_000_000, channels: 1 }]);
+    expect(sinks[1]?.pushed).toEqual([{ opus: [3], timestampUs: 500_000, channels: 1 }]);
+  });
+
+  // Layout is per frame, and the timestamps stay in sample frames across a change of it —
+  // so a stereo packet must not read as a loss gap on the frame clock.
+  it("hands each frame's channel layout to the sink without disturbing the clock", async () => {
+    engine.start(1, 2);
+    await flush();
+    socket.emit(started(1, 2, 10));
+
+    socket.onAudio(audioFrame(10, 0n, [1], 1));
+    socket.onAudio(audioFrame(10, 960n, [2], 2));
+    socket.onAudio(audioFrame(10, 1_920n, [3], 2));
+
+    expect(sinks[0]?.pushed).toEqual([
+      { opus: [1], timestampUs: 0, channels: 1 },
+      { opus: [2], timestampUs: 20_000, channels: 2 },
+      { opus: [3], timestampUs: 40_000, channels: 2 },
+    ]);
+    expect(sinks[0]?.conceals).toEqual([]);
+    expect(sinks[0]?.resets).toBe(1);
   });
 
   it("StreamStopped clears intent, closes the sink, and stops routing", async () => {
@@ -211,7 +236,7 @@ describe("AudioEngine", () => {
     expect(sinks[1]?.closed).toBe(false);
 
     socket.onAudio(audioFrame(0x8001, 0n, [7]));
-    expect(sinks[1]?.pushed).toEqual([{ opus: [7], timestampUs: 0 }]);
+    expect(sinks[1]?.pushed).toEqual([{ opus: [7], timestampUs: 0, channels: 1 }]);
     // The stale Stopped must not have cancelled the still-owed subscription.
     expect(socket.sent).toHaveLength(3);
   });
@@ -234,7 +259,7 @@ describe("AudioEngine", () => {
     // The rebind resets the sink: stale pre-disconnect audio must not play first.
     expect(sinks[0]?.resets).toBe(resetsAfterFirstBind + 1);
     socket.onAudio(audioFrame(20, 0n, [5]));
-    expect(sinks[0]?.pushed).toEqual([{ opus: [5], timestampUs: 0 }]);
+    expect(sinks[0]?.pushed).toEqual([{ opus: [5], timestampUs: 0, channels: 1 }]);
   });
 
   it("start while disconnected subscribes only once connected", async () => {

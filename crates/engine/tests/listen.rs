@@ -97,8 +97,12 @@ async fn am_channel_demodulates_the_test_carrier() {
     engine.remove_device_set(ds).unwrap();
 }
 
+/// WFM defaults to stereo, so this also drives the whole two-channel path end to end: PCM
+/// interleave, a stereo Opus encoder, and the frame clock staying in sample frames. The
+/// virtual device transmits no 19 kHz pilot, so it is the unlocked-pilot fallback that must
+/// come out — the same programme on both channels, sample for sample.
 #[tokio::test]
-async fn wfm_channel_demodulates_the_test_carrier() {
+async fn wfm_channel_demodulates_the_test_carrier_in_stereo() {
     let engine = engine();
     let ds = set_at_test_rate(&engine);
     let ch = engine
@@ -113,7 +117,68 @@ async fn wfm_channel_demodulates_the_test_carrier() {
         )
         .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
-    assert_tone_dominates(&settle_then_collect_second(&mut rx).await);
+    let channels = settle_then_collect_second(&mut rx).await;
+    assert_eq!(channels.len(), 2, "wfm defaults to a two-channel stream");
+    assert_tone_dominates(&channels);
+    // Opus is lossy and codes the two channels jointly, so "the same programme" is a level
+    // match, not bit equality: anything above a fraction of a percent is a real difference.
+    let difference: Vec<f32> = channels[0]
+        .iter()
+        .zip(&channels[1])
+        .map(|(l, r)| l - r)
+        .collect();
+    let (left, delta) = (rms(&channels[0]), rms(&difference));
+    assert!(
+        delta < 0.05 * left,
+        "no pilot on air, yet the channels differ: rms {delta} against {left}"
+    );
+    engine.remove_device_set(ds).unwrap();
+}
+
+/// Toggling stereo is a params patch, so it reaches the live pipeline as a settings command
+/// and never as a rebuild: the encoder has to change layout under a running stream, and the
+/// stream's timestamps have to keep counting sample frames on the far side of the switch.
+#[tokio::test]
+async fn wfm_stereo_toggle_changes_the_layout_of_the_live_stream() {
+    let engine = engine();
+    let ds = set_at_test_rate(&engine);
+    let wfm = |stereo: bool| {
+        settings(
+            ChannelParams::Wfm(WfmParams {
+                deemphasis_us: 50.0,
+                rds: false,
+                stereo,
+            }),
+            WFM_CARRIER_OFFSET_HZ,
+            None,
+        )
+    };
+    let ch = engine.add_channel(ds, 0, wfm(true)).unwrap();
+    let mut rx = engine.subscribe_audio(ds, ch).unwrap();
+    let stereo = collect_packets(&mut rx, SETTLE_PACKETS).await;
+    assert!(
+        stereo.iter().all(|p| p.channels == 2),
+        "stream did not start stereo"
+    );
+
+    engine.patch_channel(ds, ch, wfm(false)).unwrap();
+    // The command applies between blocks, so a few stereo packets are still in flight.
+    let mut waited = 0;
+    while collect_packets(&mut rx, 1).await[0].channels != 1 {
+        waited += 1;
+        assert!(waited < SETTLE_PACKETS, "layout never followed the patch");
+    }
+
+    let mono = collect_packets(&mut rx, SETTLE_PACKETS).await;
+    assert!(mono.iter().all(|p| p.channels == 1), "layout flapped back");
+    for pair in mono.windows(2) {
+        assert_eq!(pair[1].seq, pair[0].seq.wrapping_add(1), "seq gap");
+        assert_eq!(
+            pair[1].timestamp,
+            pair[0].timestamp + OPUS_FRAME_SAMPLES as u64,
+            "the frame clock did not survive the layout change"
+        );
+    }
     engine.remove_device_set(ds).unwrap();
 }
 
@@ -128,7 +193,7 @@ async fn squelch_gates_empty_spectrum_and_patch_reopens() {
 
     // Closed gate: PCM keeps flowing (jitter-buffer contract) but carries silence.
     let silence = settle_then_collect_second(&mut rx).await;
-    let level = rms(&silence);
+    let level = rms(&silence[0]);
     assert!(level < 0.01, "squelched audio rms {level}");
 
     engine

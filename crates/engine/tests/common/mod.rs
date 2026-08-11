@@ -34,15 +34,31 @@ pub async fn collect_packets(
     out
 }
 
-fn decode(packets: &[AudioPacket]) -> Vec<f32> {
-    let mut decoder = opus::Decoder::new(48_000, opus::Channels::Mono).expect("decoder");
-    let mut out = Vec::with_capacity(packets.len() * OPUS_FRAME_SAMPLES);
-    let mut frame = [0.0f32; OPUS_FRAME_SAMPLES];
+/// One vector per audio channel, deinterleaved. The layout comes from the packets themselves;
+/// a run whose layout changes part-way through would need two decoders, so it is a test bug
+/// here rather than something to paper over.
+fn decode(packets: &[AudioPacket]) -> Vec<Vec<f32>> {
+    let channels = usize::from(packets.first().map_or(1, |p| p.channels));
+    assert!(
+        packets.iter().all(|p| usize::from(p.channels) == channels),
+        "channel layout changed inside one collection"
+    );
+    let layout = if channels == 2 {
+        opus::Channels::Stereo
+    } else {
+        opus::Channels::Mono
+    };
+    let mut decoder = opus::Decoder::new(48_000, layout).expect("decoder");
+    let mut out = vec![Vec::with_capacity(packets.len() * OPUS_FRAME_SAMPLES); channels];
+    let mut frame = vec![0.0f32; OPUS_FRAME_SAMPLES * channels];
     for packet in packets {
-        let n = decoder
+        // Opus counts what it decoded in sample frames, whatever the layout.
+        let frames = decoder
             .decode_float(&packet.opus, &mut frame, false)
             .expect("opus decode");
-        out.extend_from_slice(&frame[..n]);
+        for (i, sample) in frame[..frames * channels].iter().enumerate() {
+            out[i % channels].push(*sample);
+        }
     }
     out
 }
@@ -59,17 +75,26 @@ fn goertzel_power(samples: &[f32], freq_hz: f64) -> f64 {
     coeff.mul_add(-(s1 * s2), s1 * s1 + s2 * s2)
 }
 
-pub fn assert_tone_dominates(audio: &[f32]) {
-    let tone = goertzel_power(audio, MOD_TONE_HZ);
-    let probes = [700.0, 1_500.0, 2_300.0].map(|f| goertzel_power(audio, f));
-    let mean = probes.iter().sum::<f64>() / probes.len() as f64;
-    assert!(
-        tone > 10.0 * mean,
-        "1 kHz tone does not dominate: tone {tone:.3e}, probe mean {mean:.3e} ({probes:?})"
-    );
+/// Every channel of the decoded audio must carry the virtual device's tone — a stereo mode
+/// that filled only one of them would still pass a check on the first.
+pub fn assert_tone_dominates(channels: &[Vec<f32>]) {
+    assert!(!channels.is_empty(), "no audio channels decoded");
+    for (index, audio) in channels.iter().enumerate() {
+        let tone = goertzel_power(audio, MOD_TONE_HZ);
+        let probes = [700.0, 1_500.0, 2_300.0].map(|f| goertzel_power(audio, f));
+        let mean = probes.iter().sum::<f64>() / probes.len() as f64;
+        assert!(
+            tone > 10.0 * mean,
+            "channel {index}: 1 kHz tone does not dominate: tone {tone:.3e}, \
+             probe mean {mean:.3e} ({probes:?})"
+        );
+    }
 }
 
-pub async fn settle_then_collect_second(rx: &mut broadcast::Receiver<AudioPacket>) -> Vec<f32> {
+/// One second of settled audio, deinterleaved: one vector per channel of the stream's layout.
+pub async fn settle_then_collect_second(
+    rx: &mut broadcast::Receiver<AudioPacket>,
+) -> Vec<Vec<f32>> {
     collect_packets(rx, SETTLE_PACKETS).await;
     decode(&collect_packets(rx, ONE_SECOND_PACKETS).await)
 }

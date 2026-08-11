@@ -1,11 +1,20 @@
-//! WFM mono: 240 kHz IQ → quadrature discriminator → de-emphasis → 5:1 decimate to 48 kHz.
-//! With `rds` set, the discriminator's composite is also tapped off — ahead of de-emphasis and
-//! the audio decimation, both of which destroy the 57 kHz subcarrier — into [`RdsDecoder`].
+//! WFM: 240 kHz IQ → quadrature discriminator → 5:1 decimate to 48 kHz → de-emphasis.
+//! With `stereo` set, the composite is also demultiplexed against the 19 kHz pilot into the
+//! L−R difference signal, and the channel's audio leaves as interleaved L/R.
+//! With `rds` set, the composite is tapped off into [`RdsDecoder`] as well.
+//!
+//! De-emphasis runs *after* the audio decimation, not on the composite: at 240 kHz it would
+//! flatten the 38 kHz difference subcarrier (−15 dB and rotated) before the stereo demux ever
+//! saw it. Being linear and time-invariant, it may equivalently be applied to the sum and
+//! difference signals separately, which is what keeps it off the interleaved output.
 
-use std::sync::LazyLock;
+use std::{f64::consts::FRAC_1_SQRT_2, sync::LazyLock};
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, Deemphasis, FmDemod, RealDecimator, design_lowpass};
+use sdrmm_dsp::{
+    ComplexOnePole, Decimator, Deemphasis, FmDemod, Nco, Pll, RealDecimator, design_lowpass,
+    one_pole_coeff,
+};
 use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, WfmParams};
 
 use crate::{
@@ -14,17 +23,42 @@ use crate::{
 };
 
 const DEVIATION_HZ: f64 = 75_000.0;
-/// Mono audio ends at 15 kHz; everything above (pilot, stereo subcarrier, RDS) is cut.
+/// Audio ends at 15 kHz; everything above (pilot, stereo subcarrier, RDS) is cut.
 const AUDIO_CUTOFF_HZ: f64 = 15_000.0;
 const DECIM_FACTOR: usize = 5;
-const DECIM_TAPS: usize = 127;
+/// A Blackman lowpass's transition half-width is 2.75/taps (see `dsp::fir`), so 199 taps put
+/// the stopband edge at 18.3 kHz — below the pilot. Fewer taps leave 19 kHz in the transition
+/// band, and with de-emphasis no longer damping the composite ahead of this filter, that is
+/// audible pilot whine in the mono sum.
+const DECIM_TAPS: usize = 199;
 /// The ±100 kHz channel edge sits at 0.417 of the 240 kHz rate; 65 taps put the stopband
 /// just inside Nyquist while keeping the per-sample cost sane at this rate.
 const CHANNEL_TAPS: usize = 65;
 
+/// Stereo pilot; the difference subcarrier is its second harmonic (ITU-R BS.450).
+const PILOT_HZ: f64 = 19_000.0;
+/// Per-stage corner of the cascade that isolates the mixed-down pilot. Its nearest composite
+/// neighbours are 4 kHz away (audio ends at 15 kHz, the difference subcarrier starts at
+/// 23 kHz), which three stages at this corner put ~55 dB down.
+const PILOT_CUTOFF_HZ: f64 = 400.0;
+const PILOT_STAGES: usize = 3;
+/// Pilot loop bandwidth and pull-in range, in Hz. The pilot is transmitter-locked to the
+/// subcarrier, so the loop only has to track the receiver's own clock error — narrow enough to
+/// ignore what leaks past the pilot filter, wide enough to acquire in a few tens of ms.
+const PILOT_LOOP_BW_HZ: f64 = 30.0;
+const PILOT_RANGE_HZ: f64 = 120.0;
+/// Lock quality that turns the difference signal on, and the lower one that turns it off
+/// again. Hysteresis, so a pilot flickering at the threshold cannot toggle the matrix.
+const LOCK_ON: f32 = 0.6;
+const LOCK_OFF: f32 = 0.4;
+/// Time constant of the ramp between mono and stereo, in seconds. Long enough that neither
+/// transition clicks, short enough that a station change does not leave the difference signal
+/// misapplied for audibly long.
+const BLEND_TAU_S: f64 = 0.05;
+
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "wfm".to_owned(),
-    name: "WFM (mono)".to_owned(),
+    name: "WFM (broadcast)".to_owned(),
     bandwidth_hz: 200_000.0,
     input_rate_hz: 240_000.0,
     has_audio: true,
@@ -38,8 +72,40 @@ pub struct WfmChannel {
     deemphasis: Deemphasis,
     decim: RealDecimator,
     demod_buf: Vec<f32>,
+    /// Sum signal at 48 kHz; only the stereo path needs it out of line, because the mono path
+    /// decimates straight into the channel's output.
+    sum: Vec<f32>,
+    /// Present only while `stereo` is set. Holds the pilot loop and the difference path.
+    stereo: Option<StereoDemux>,
     /// Present only while `rds` is set — a disabled decoder costs neither state nor cycles.
     rds: Option<RdsDecoder>,
+}
+
+/// Pilot recovery and L−R demodulation (ITU-R BS.450 pilot-tone system).
+///
+/// The pilot is mixed to DC and isolated there — a 400 Hz-wide filter at 19 kHz would need
+/// thousands of FIR taps, while at DC three complex one-pole sections do it — and a PLL tracks
+/// what is left. Rebuilding the analytic pilot as `conj(mix)·reference` puts its phase back at
+/// 19 kHz sample-accurately, and squaring it lands on the subcarrier: the multiplex's pilot is
+/// `cos(θ)`, so the difference subcarrier the standard's zero-crossing rule prescribes is
+/// `−sin(2θ) = −Im(P²)`. A quadrature slip there collapses the separation; a sign slip swaps
+/// the channels.
+struct StereoDemux {
+    pilot: Nco,
+    filter: ComplexOnePole,
+    pll: Pll,
+    /// L−R at the composite rate, before the audio decimation, and at 48 kHz after it.
+    difference: Vec<f32>,
+    side: Vec<f32>,
+    decim: RealDecimator,
+    /// Same de-emphasis as the sum path: applying it to sum and difference separately is
+    /// identical to applying it to L and R, and keeps both filters on contiguous buffers.
+    deemphasis: Deemphasis,
+    /// How much of the difference signal reaches the matrix, ramped rather than switched.
+    blend: f32,
+    blend_coeff: f32,
+    /// What `blend` is ramping towards: the hysteretic verdict on the pilot lock.
+    target: f32,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&WfmParams, ChannelError> {
@@ -65,7 +131,82 @@ fn deemphasis(p: &WfmParams) -> Result<Deemphasis, ChannelError> {
             p.deemphasis_us
         )));
     }
-    Ok(Deemphasis::new(DESCRIPTOR.input_rate_hz, p.deemphasis_us))
+    Ok(Deemphasis::new(f64::from(AUDIO_RATE), p.deemphasis_us))
+}
+
+/// The 240 kHz → 48 kHz audio decimation, built the same way for the sum and the difference
+/// signal: identical filters fed identical block lengths stay sample-aligned, which is what
+/// lets the matrix pair them.
+fn audio_decimator(rate: f64) -> RealDecimator {
+    RealDecimator::new(
+        &design_lowpass(DECIM_TAPS, AUDIO_CUTOFF_HZ / rate),
+        DECIM_FACTOR,
+    )
+}
+
+impl StereoDemux {
+    fn new(rate: f64, deemphasis: Deemphasis) -> Self {
+        Self {
+            pilot: Nco::new(PILOT_HZ as f32, rate as f32),
+            filter: ComplexOnePole::new(rate, PILOT_CUTOFF_HZ, PILOT_STAGES),
+            pll: Pll::new(
+                PILOT_LOOP_BW_HZ / rate,
+                FRAC_1_SQRT_2,
+                0.0,
+                PILOT_RANGE_HZ / rate,
+            ),
+            difference: Vec::new(),
+            side: Vec::new(),
+            decim: audio_decimator(rate),
+            deemphasis,
+            blend: 0.0,
+            blend_coeff: one_pole_coeff(f64::from(AUDIO_RATE), BLEND_TAU_S),
+            target: 0.0,
+        }
+    }
+
+    /// Interleave L/R into `out` from this block's composite and the sum path's 48 kHz output.
+    fn process(&mut self, composite: &[f32], sum: &[f32], out: &mut Vec<f32>) {
+        self.demodulate(composite);
+        self.decim.process(&self.difference, &mut self.side);
+        self.deemphasis.process(&mut self.side);
+
+        let lock = self.pll.lock();
+        if lock > LOCK_ON {
+            self.target = 1.0;
+        } else if lock < LOCK_OFF {
+            self.target = 0.0;
+        }
+        // Both decimators are the same filter fed the same block, so they emit the same count.
+        debug_assert_eq!(sum.len(), self.side.len(), "stereo paths drifted apart");
+        out.clear();
+        out.reserve(2 * sum.len());
+        for (&mid, &side) in sum.iter().zip(&self.side) {
+            self.blend += self.blend_coeff * (self.target - self.blend);
+            let side = side * self.blend;
+            out.push(mid + side);
+            out.push(mid - side);
+        }
+    }
+
+    /// L−R at the composite rate: the multiplex times the recovered 38 kHz subcarrier.
+    fn demodulate(&mut self, composite: &[f32]) {
+        self.difference.clear();
+        self.difference.reserve(composite.len());
+        for &sample in composite {
+            let carrier = self.pilot.next_sample();
+            let baseband = self
+                .filter
+                .process(Complex::new(sample, 0.0) * carrier.conj());
+            let reference = self.pll.process(baseband);
+            // The loop tracks the pilot at DC; multiplying its reference back by the mixer's
+            // own phasor is what returns the analytic pilot to 19 kHz without a second loop.
+            let analytic = carrier * reference;
+            let subcarrier = analytic * analytic;
+            // ×2 because the product of two unit sinusoids halves the amplitude.
+            self.difference.push(-2.0 * subcarrier.im * sample);
+        }
+    }
 }
 
 impl ChannelRx for WfmChannel {
@@ -79,23 +220,35 @@ impl ChannelRx for WfmChannel {
         let deemphasis = deemphasis(p)?;
         Ok(Self {
             demod: FmDemod::new(ctx.input_rate, DEVIATION_HZ),
-            deemphasis,
-            decim: RealDecimator::new(
-                &design_lowpass(DECIM_TAPS, AUDIO_CUTOFF_HZ / ctx.input_rate),
-                DECIM_FACTOR,
-            ),
+            decim: audio_decimator(ctx.input_rate),
             demod_buf: Vec::new(),
+            sum: Vec::new(),
+            stereo: p
+                .stereo
+                .then(|| StereoDemux::new(ctx.input_rate, deemphasis.clone())),
+            deemphasis,
             rds: p.rds.then(|| RdsDecoder::new(ctx.input_rate)),
         })
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
-        self.deemphasis = deemphasis(p)?;
+        let deemphasis = deemphasis(p)?;
+        self.deemphasis = deemphasis.clone();
+        let rate = DESCRIPTOR.input_rate_hz;
+        if p.stereo != self.stereo.is_some() {
+            // A freshly built decimator has no history, so it would emit fewer samples for the
+            // first block than the running one: restart both together, or the matrix pairs
+            // sum and difference samples from different instants for the rest of the stream.
+            self.decim = audio_decimator(rate);
+            self.stereo = p.stereo.then(|| StereoDemux::new(rate, deemphasis));
+        } else if let Some(stereo) = &mut self.stereo {
+            stereo.deemphasis = deemphasis;
+        }
         if !p.rds {
             self.rds = None;
         } else if self.rds.is_none() {
-            self.rds = Some(RdsDecoder::new(DESCRIPTOR.input_rate_hz));
+            self.rds = Some(RdsDecoder::new(rate));
         }
         Ok(())
     }
@@ -111,8 +264,17 @@ impl ChannelRx for WfmChannel {
         if let Some(rds) = &mut self.rds {
             rds.process(&self.demod_buf, &mut out.events);
         }
-        self.deemphasis.process(&mut self.demod_buf);
-        self.decim.process(&self.demod_buf, &mut out.audio_pcm);
+        match &mut self.stereo {
+            None => {
+                self.decim.process(&self.demod_buf, &mut out.audio_pcm);
+                self.deemphasis.process(&mut out.audio_pcm);
+            }
+            Some(stereo) => {
+                self.decim.process(&self.demod_buf, &mut self.sum);
+                self.deemphasis.process(&mut self.sum);
+                stereo.process(&self.demod_buf, &self.sum, &mut out.audio_pcm);
+            }
+        }
         clamp_full_scale(&mut out.audio_pcm);
         if !out.audio_pcm.is_empty() {
             out.audio_rate = AUDIO_RATE;
@@ -126,19 +288,41 @@ mod tests {
 
     use super::*;
     use crate::{
-        testgen::rds::{Station, transmission},
-        testutil::{dominant_tone, fm_iq, rms, run_ragged, settings},
+        testgen::{
+            rds::{Station, transmission},
+            tone_audio,
+            wfm::transmission as stereo_transmission,
+        },
+        testutil::{dominant_tone, fm_iq, rms, run_ragged, settings, split_stereo, tone_power},
     };
 
     const RATE: f64 = 240_000.0;
+    /// One second of programme: long enough for the pilot loop to lock and the stereo blend to
+    /// ramp in, with half a second of settled audio left to measure.
+    const RUN_SAMPLES: usize = 240_000;
+    const LEFT_HZ: f64 = 1_000.0;
+    const RIGHT_HZ: f64 = 3_000.0;
+
+    fn wfm_params(deemphasis_us: f32, rds: bool, stereo: bool) -> ChannelParams {
+        ChannelParams::Wfm(WfmParams {
+            deemphasis_us,
+            rds,
+            stereo,
+        })
+    }
 
     fn channel(deemphasis_us: f32) -> WfmChannel {
         WfmChannel::new(
             ChannelCtx { input_rate: RATE },
-            settings(ChannelParams::Wfm(WfmParams {
-                deemphasis_us,
-                rds: false,
-            })),
+            settings(wfm_params(deemphasis_us, false, false)),
+        )
+        .unwrap()
+    }
+
+    fn stereo_channel() -> WfmChannel {
+        WfmChannel::new(
+            ChannelCtx { input_rate: RATE },
+            settings(wfm_params(50.0, false, true)),
         )
         .unwrap()
     }
@@ -147,11 +331,22 @@ mod tests {
         ChannelSettings {
             offset_hz,
             squelch_db: None,
-            params: ChannelParams::Wfm(WfmParams {
-                deemphasis_us: 50.0,
-                rds,
-            }),
+            params: wfm_params(50.0, rds, false),
         }
+    }
+
+    /// A station carrying a different tone on each channel, `pilot` false making it mono.
+    fn two_tone_station(pilot: bool) -> Vec<Complex<f32>> {
+        let left = tone_audio(LEFT_HZ, 1.0, RATE, RUN_SAMPLES);
+        let right = tone_audio(RIGHT_HZ, 1.0, RATE, RUN_SAMPLES);
+        stereo_transmission(&left, &right, pilot, RATE)
+    }
+
+    /// The settled half of each channel of an interleaved run.
+    fn settled_channels(audio: &[f32]) -> (Vec<f32>, Vec<f32>) {
+        let (left, right) = split_stereo(audio);
+        let from = left.len() / 2;
+        (left[from..].to_vec(), right[from..].to_vec())
     }
 
     fn station() -> Station {
@@ -217,11 +412,8 @@ mod tests {
     #[test]
     fn apply_75_us_deemphasis_keeps_demodulating() {
         let mut chan = channel(50.0);
-        chan.apply(settings(ChannelParams::Wfm(WfmParams {
-            deemphasis_us: 75.0,
-            rds: false,
-        })))
-        .unwrap();
+        chan.apply(settings(wfm_params(75.0, false, false)))
+            .unwrap();
         let audio = run_ragged(&mut chan, &fm_iq(RATE, 1_000.0, DEVIATION_HZ, 240_000));
         let (freq, ratio) = dominant_tone(&audio[2_000..14_000], f64::from(AUDIO_RATE));
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
@@ -338,5 +530,133 @@ mod tests {
             first.groups >= 1,
             "an update was emitted before any group was decoded"
         );
+    }
+
+    #[test]
+    fn stereo_output_is_two_interleaved_channels() {
+        let mut chan = stereo_channel();
+        let iq = two_tone_station(true);
+        let audio = run_ragged(&mut chan, &iq);
+        assert_eq!(audio.len(), 2 * (iq.len() / DECIM_FACTOR));
+    }
+
+    /// The separation test: each channel must carry its own tone and almost none of the
+    /// other's. A quadrature slip in the recovered subcarrier collapses this to ~0 dB; a sign
+    /// slip swaps which tone lands where, which is why both are named.
+    #[test]
+    fn stereo_separates_the_two_programme_channels() {
+        let mut chan = stereo_channel();
+        let audio = run_ragged(&mut chan, &two_tone_station(true));
+        let (left, right) = settled_channels(&audio);
+
+        for (channel, own, other) in [(&left, LEFT_HZ, RIGHT_HZ), (&right, RIGHT_HZ, LEFT_HZ)] {
+            let (freq, ratio) = dominant_tone(channel, f64::from(AUDIO_RATE));
+            assert!((own - 5.0..own + 5.0).contains(&freq), "dominant {freq} Hz");
+            assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
+            let separation = tone_power(channel, own, f64::from(AUDIO_RATE))
+                / tone_power(channel, other, f64::from(AUDIO_RATE));
+            assert!(
+                separation > 100.0,
+                "{own} Hz channel carries {other} Hz only {} dB down",
+                10.0 * separation.log10()
+            );
+        }
+        // 45 % deviation through 50 µs de-emphasis: |H(1 kHz)| ≈ 0.954, |H(3 kHz)| ≈ 0.728.
+        assert!(
+            (0.27..0.34).contains(&rms(&left)),
+            "left rms {}",
+            rms(&left)
+        );
+        assert!(
+            (0.20..0.26).contains(&rms(&right)),
+            "right rms {}",
+            rms(&right)
+        );
+    }
+
+    /// A station with no pilot still plays: the difference signal is gated off, so both
+    /// channels carry the mono sum — bit for bit, not merely close.
+    #[test]
+    fn a_mono_station_plays_the_same_audio_on_both_channels() {
+        let mut chan = stereo_channel();
+        let audio = run_ragged(&mut chan, &two_tone_station(false));
+        let (left, right) = split_stereo(&audio);
+        assert_eq!(left, right, "unlocked pilot leaked into the matrix");
+        // The sum of the two tones is what a mono station transmits: both are in it, and
+        // between them they are essentially all of it (de-emphasis leaves 3 kHz the quieter).
+        let settled = &left[left.len() / 2..];
+        let shares: Vec<f64> = [LEFT_HZ, RIGHT_HZ]
+            .iter()
+            .map(|&freq| tone_power(settled, freq, f64::from(AUDIO_RATE)))
+            .collect();
+        assert!(
+            shares.iter().all(|&s| s > 0.3) && shares.iter().sum::<f64>() > 0.9,
+            "tone shares of the sum signal {shares:?}"
+        );
+    }
+
+    /// The pilot sits 4 kHz above the audio band and must not survive the decimation filter:
+    /// nothing de-emphasizes the composite ahead of it any more.
+    #[test]
+    fn the_pilot_does_not_reach_the_audio() {
+        let mut chan = channel(50.0);
+        let audio = run_ragged(&mut chan, &two_tone_station(true));
+        let settled = &audio[audio.len() / 2..];
+        let pilot = tone_power(settled, PILOT_HZ, f64::from(AUDIO_RATE));
+        assert!(pilot < 1e-6, "pilot share of the mono audio {pilot}");
+    }
+
+    /// Toggling stereo is a params patch, not a pipeline rebuild, so the switch happens inside
+    /// a running channel — and both layouts must come out intact on either side of it.
+    #[test]
+    fn stereo_can_be_switched_on_and_off_while_running() {
+        let iq = two_tone_station(true);
+        let mut chan = channel(50.0);
+        let mono = run_ragged(&mut chan, &iq);
+        assert_eq!(mono.len(), iq.len() / DECIM_FACTOR);
+
+        chan.apply(settings(wfm_params(50.0, false, true))).unwrap();
+        let audio = run_ragged(&mut chan, &iq);
+        assert_eq!(audio.len(), 2 * (iq.len() / DECIM_FACTOR));
+        let (left, _) = settled_channels(&audio);
+        let separation = tone_power(&left, LEFT_HZ, f64::from(AUDIO_RATE))
+            / tone_power(&left, RIGHT_HZ, f64::from(AUDIO_RATE));
+        assert!(separation > 100.0, "separation after switching on");
+
+        chan.apply(settings(wfm_params(50.0, false, false)))
+            .unwrap();
+        let audio = run_ragged(&mut chan, &iq);
+        assert_eq!(audio.len(), iq.len() / DECIM_FACTOR);
+        let (freq, _) = dominant_tone(&audio[audio.len() / 2..], f64::from(AUDIO_RATE));
+        assert!((995.0..1_005.0).contains(&freq), "mono dominant {freq} Hz");
+    }
+
+    /// RDS rides on the third harmonic of the same pilot the stereo matrix locks to. Running
+    /// both at once must leave each intact — and an RDS station's composite carries a pilot
+    /// but no difference signal, so its two channels are the same programme.
+    #[test]
+    fn rds_and_stereo_run_on_the_same_pilot() {
+        let mut chan = WfmChannel::new(
+            ChannelCtx { input_rate: RATE },
+            settings(wfm_params(50.0, true, true)),
+        )
+        .unwrap();
+        let (audio, events) = run_collecting(
+            &mut chan,
+            &transmission(&station(), 3.5, Some(1_000.0), RATE),
+        );
+
+        let update = last_update(&events);
+        assert_eq!(update.ps.as_deref(), Some("WFM+RDS"));
+        assert_eq!(update.block_errors, 0);
+
+        let (left, right) = settled_channels(&audio);
+        let (freq, ratio) = dominant_tone(&left, f64::from(AUDIO_RATE));
+        assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
+        assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
+        // No difference signal on the air, so what the matrix adds and subtracts is only what
+        // leaked into it: the two channels must stay within a fraction of a dB of each other.
+        let imbalance = (rms(&left) - rms(&right)).abs() / rms(&left);
+        assert!(imbalance < 0.05, "channel imbalance {imbalance}");
     }
 }

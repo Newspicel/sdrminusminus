@@ -19,15 +19,16 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use num_complex::Complex;
-use sdrmm_channels::{AprsTx, ChannelCtx, ChannelTx, TxPayload, testgen};
+use sdrmm_channels::{AprsTx, ChannelCtx, ChannelTx, MicE, MicEBit, TxPayload, testgen};
 use sdrmm_device::DeviceRegistry;
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, ChannelParams,
-    ChannelSettings, DecodedRecord, DecoderEvent, MorseParams, NavtexParams, PocsagBaud,
-    PocsagParams, RdsUpdate, RttyParams, SubghzEncoding, SubghzParams, WfmParams,
+    ChannelSettings, DecodedRecord, DecoderEvent, MorseParams, NavtexParams, NfmParams,
+    NfmToneMode, PocsagBaud, PocsagParams, RdsUpdate, RttyParams, SubghzEncoding, SubghzParams,
+    WfmParams,
 };
 use tempfile::TempDir;
 
@@ -276,6 +277,105 @@ async fn ais_position_survives_the_ddc_and_reaches_the_decoded_stream() {
     );
 }
 
+/// Mic-E's position is split between the destination callsign and a binary information field,
+/// so the whole pipeline has to carry both halves for either to mean anything.
+#[tokio::test]
+async fn a_mic_e_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = 40_000.0;
+
+    let report = MicE {
+        lat: 52.5,
+        lon: 13.4,
+        speed_kt: 42,
+        course_deg: 251,
+        symbol: "/j",
+        bits: [MicEBit::Standard; 3],
+        ..MicE::default()
+    };
+    let frame = AprsTx::ui_frame(
+        "DL1ABC-7",
+        &report.destination(),
+        &["WIDE2-2"],
+        &report.info(),
+    );
+    let mut iq = testgen::resample(
+        &aprs_burst(frame),
+        AprsTx::descriptor().input_rate_hz,
+        NARROW_DEVICE_RATE,
+    );
+    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+
+    let device = plant(dir.path(), "mice", iq, NARROW_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Aprs(AprsParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Aprs(p) if p.mic_e_message.is_some()),
+    )
+    .await;
+
+    let DecoderEvent::Aprs(packet) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(packet.source, "DL1ABC-7");
+    assert_eq!(packet.mic_e_message.as_deref(), Some("Off Duty"));
+    assert_eq!(packet.speed_kt, Some(42.0));
+    assert_eq!(packet.course_deg, Some(251.0));
+    assert_eq!(packet.symbol.as_deref(), Some("/j"));
+    let (lat, lon) = (packet.lat.unwrap(), packet.lon.unwrap());
+    assert!((lat - 52.5).abs() < 1e-3, "lat {lat}");
+    assert!((lon - 13.4).abs() < 1e-3, "lon {lon}");
+}
+
+/// Subaudible signalling is the one decoder whose events describe a channel rather than a
+/// message, and the one that shares a channel with audio — so the plumbing worth proving is
+/// that it reaches the decoded stream at all while the NFM audio path goes on working.
+#[tokio::test]
+async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = -30_000.0;
+
+    // Two seconds: the correlator bank names a tone after half of one.
+    let len = (NARROW_DEVICE_RATE * 2.0) as usize;
+    let audio = testgen::nfm::mix(
+        &testgen::nfm::ctcss_audio(88.5, 0.15, NARROW_DEVICE_RATE, len),
+        &testgen::tone_audio(1_000.0, 0.6, NARROW_DEVICE_RATE, len),
+    );
+    let mut iq = testgen::fm_modulate(&audio, 2_500.0, NARROW_DEVICE_RATE);
+    testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
+
+    let device = plant(dir.path(), "ctcss", iq, NARROW_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Nfm(NfmParams {
+                tone_mode: NfmToneMode::Ctcss,
+                ctcss_hz: Some(88.5),
+                ..NfmParams::default()
+            }),
+        },
+        |event| matches!(event, DecoderEvent::Tone(t) if t.ctcss_hz.is_some()),
+    )
+    .await;
+
+    let DecoderEvent::Tone(status) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(status.ctcss_hz, Some(88.5));
+    assert_eq!(status.dcs_code, None);
+    assert!(status.open, "the tone the channel was set to must open it");
+}
+
 /// ADS-B end to end at 2 Msps, the lowest rate that carries it — one sample per half-chip.
 #[tokio::test]
 async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
@@ -322,6 +422,46 @@ async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
     let (lat, lon) = (message.lat.unwrap(), message.lon.unwrap());
     assert!((lat - 52.2657).abs() < 0.02, "lat {lat}");
     assert!((lon - 3.9184).abs() < 0.02, "lon {lon}");
+}
+
+/// A roll-call reply carries its address only on the parity, so it is decodable only in the
+/// company of the frames that proved that address. The whole transmission has to reach the
+/// decoder in order for the last frame in it to mean anything.
+#[tokio::test]
+async fn a_mode_s_identity_reply_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let icao = 0x40_621D;
+
+    let frames = vec![
+        testgen::adsb::all_call_reply(icao, 5, 0),
+        testgen::adsb::identity_reply(icao, "7421", 0),
+        testgen::adsb::altitude_reply(icao, 24_000, 0),
+    ];
+    // A generous gap: a short frame is only scanned once a long frame's worth of samples sits
+    // behind it, so the transmission must not end on one.
+    let iq = testgen::adsb::transmission(&frames, 500.0, 0.8, ADSB_DEVICE_RATE);
+
+    let device = plant(dir.path(), "modes", iq, ADSB_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Adsb(AdsbParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Adsb(a) if a.df == 5),
+    )
+    .await;
+
+    let DecoderEvent::Adsb(message) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(message.icao, "40621D");
+    assert_eq!(message.squawk.as_deref(), Some("7421"));
+    // An identity reply has no ME field, so it has no type code either.
+    assert_eq!(message.type_code, None);
 }
 
 #[tokio::test]
@@ -632,6 +772,7 @@ async fn rds_station_survives_the_ddc_and_reaches_the_decoded_stream() {
             params: ChannelParams::Wfm(WfmParams {
                 deemphasis_us: 50.0,
                 rds: true,
+                stereo: false,
             }),
         },
         |event| matches!(event, DecoderEvent::Rds(u) if u.ps.is_some()),
@@ -692,6 +833,7 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
         params: ChannelParams::Wfm(WfmParams {
             deemphasis_us: 50.0,
             rds: true,
+            stereo: false,
         }),
     };
 
