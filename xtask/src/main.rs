@@ -606,6 +606,22 @@ fn decoder_fixtures() -> Vec<Fixture> {
         note: "subghz channel at +100 kHz -> 24-bit PWM 0A1B23, address 0A1B2 button 3".to_string(),
     });
 
+    // Wider and longer than the rest: a raster needs the device above the mode's 2 Msps channel,
+    // and a receiver has to hunt sync before it scans anything out, so two frames is the least
+    // that shows a picture on replay.
+    const ATV_RATE: f64 = 2_400_000.0;
+    let atv_params = sdrmm_wire::AtvParams::default();
+    out.push(Fixture {
+        stem: "atv_ccir625_2m4".to_string(),
+        iq: at(
+            testgen::atv::bars(&testgen::atv::AtvSource::new(&atv_params, ATV_RATE), 2),
+            200_000.0,
+            ATV_RATE,
+        ),
+        rate: ATV_RATE,
+        note: "atv channel at +200 kHz -> 625/25 AM, five vertical bars black to white".to_string(),
+    });
+
     out
 }
 

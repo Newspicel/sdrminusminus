@@ -44,6 +44,7 @@ import { pushToast } from "./lib/toasts";
 import type { PatchGraph, ServerEvent, StateScope } from "./lib/types";
 import { useChannelPatch } from "./lib/useChannelPatch";
 import { useDevicePatch } from "./lib/useDevicePatch";
+import { videoHub } from "./lib/video";
 import { SdrSocket } from "./lib/ws";
 
 /** Modes the `m` shortcut walks, in the order an operator sweeps them. Decoders are not in the
@@ -79,13 +80,16 @@ export function App() {
     s.addEventListener(useDecodedStore.getState().observe);
     // Scanner progress is its own high-rate event for the same reason (PLAN §13).
     s.addEventListener(useScannerStore.getState().observe);
-    // Spectrum is refcounted per device set so several scope faces share one stream.
+    // Spectrum and video are refcounted — per device set and per channel — so several faces
+    // watching the same thing share one stream instead of replacing each other's.
     spectrumHub.attach(s);
+    videoHub.attach(s);
     audioEngine.attach(s);
     setSocket(s);
     s.connect();
     return () => {
       spectrumHub.detach();
+      videoHub.detach();
       s.close();
     };
   }, []);

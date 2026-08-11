@@ -143,7 +143,9 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[shipped]** Mode changed in place on a live channel, keeping audio subscribers
 - **[shipped]** RDS — 19 kHz pilot PLL → 3rd harmonic → symbol sync → differential decode → offset-word block sync; groups 0A/0B (PS, TP/TA/MS, AF), 2A/2B (RadioText), PTY; emitted only when a field changes. **It decodes the synthesized fixture completely and has never decoded off air** — six real stations on two radios produced nothing, reproduced deterministically from a committed-out 8 s capture; the leading (untested) hypothesis is the stereo L−R subcarrier sitting against 57 kHz
 - **[planned]** WFM **stereo** — the audio path becomes two-channel end to end (PCM, Opus, frame layout, worklet)
-- **[planned]** ATV (analog TV)
+- **[shipped]** **ATV (analog TV)** — envelope (AM, negative-modulated) or discriminator (FM) → sync-tip/peak-white level tracking → pulse-width sync separation → per-line resampling into 8-bit luma. 625/25, 525/30 and 405/25 from their own timing tables; a flywheel that coasts through a sync the noise ate; interlace recovered from the half-line offset of the field's vertical sync; black clamped per line off its own back porch. Nothing reaches the picture until the line clock locks, so a dead channel shows nothing rather than a raster the decoder invented. **Specification-proven only** — it scans the synthesized raster from the reference modulator and has never seen a real transmission
+- **[shipped]** Video as a first-class stream — a `VIDEO_GRAY` binary WS frame kind, `SubscribeVideo` with per-connection ids drawn from the same media range audio uses, a refcounted client hub, and a canvas panel on the channel's own face. This is the transport WEFAX and SSTV were blocked on
+- **[planned]** ATV colour and the sound subcarrier — luma only today; chroma is left where it is in the video band
 - **[planned]** Notch and audio filters per channel
 - **[planned]** CTCSS/DCS detection on NFM; Selcall (CCIR/ZVEI)
 
@@ -198,7 +200,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 
 - **[planned]** NOAA APT; Meteor M-2 LRPT
 - **[planned]** Radiosonde (RS41 …) + map/log feature; later DFM, M10/M20, iMet
-- **[planned]** HF WEFAX — the DSP is the easy half; it needs an `IMAGE` binary frame kind, a server-side page store and a canvas panel first, which is a transport decision and not a decoder
+- **[planned]** HF WEFAX — the DSP is the easy half; the picture transport ATV shipped (§8) is now the half that exists, so what is left is the decoder plus a server-side page store for a mode whose picture takes minutes rather than milliseconds
 - **[planned]** SSTV RX; APRS weather aggregation
 
 ## 14. Broadcast & wideband digital

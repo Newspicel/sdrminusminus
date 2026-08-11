@@ -46,6 +46,15 @@ const RTTY_STOP_BITS: Options<NonNullable<ChannelParamsOf<"rtty">["stop_bits"]>>
   { value: "one_and_half", label: "1.5" },
   { value: "two", label: "2" },
 ];
+const ATV_MODULATIONS: Options<NonNullable<ChannelParamsOf<"atv">["modulation"]>> = [
+  { value: "am", label: "AM" },
+  { value: "fm", label: "FM" },
+];
+const ATV_STANDARDS: Options<NonNullable<ChannelParamsOf<"atv">["standard"]>> = [
+  { value: "ccir625", label: "625 / 25" },
+  { value: "eia525", label: "525 / 30" },
+  { value: "system_a405", label: "405 / 25" },
+];
 const DEEMPHASIS_US: Options<number> = [
   { value: 50, label: "50 µs" },
   { value: 75, label: "75 µs" },
@@ -517,6 +526,54 @@ function ModeControls({
             />
             µs
           </label>
+        </>
+      );
+    case "atv":
+      return (
+        <>
+          <Segmented
+            label="Modulation"
+            value={params.settings.modulation ?? "am"}
+            options={ATV_MODULATIONS}
+            onChange={(modulation) =>
+              onParams({ type: "atv", settings: { ...params.settings, modulation } })
+            }
+          />
+          <label className={LABEL}>
+            Lines
+            <Select
+              label="Scanning standard"
+              value={params.settings.standard ?? "ccir625"}
+              options={ATV_STANDARDS}
+              onChange={(standard) =>
+                onParams({ type: "atv", settings: { ...params.settings, standard } })
+              }
+            />
+          </label>
+          <label className={LABEL}>
+            BW
+            <BandwidthSelect
+              valueHz={params.settings.bandwidth_hz ?? 1_500_000}
+              optionsHz={[500_000, 1_000_000, 1_500_000, 1_600_000]}
+              onCommit={(bandwidth_hz) =>
+                onParams({ type: "atv", settings: { ...params.settings, bandwidth_hz } })
+              }
+            />
+          </label>
+          <Toggle
+            label="Interlace"
+            checked={params.settings.interlace ?? true}
+            onChange={(interlace) =>
+              onParams({ type: "atv", settings: { ...params.settings, interlace } })
+            }
+          />
+          <Toggle
+            label="Invert"
+            checked={params.settings.invert ?? false}
+            onChange={(invert) =>
+              onParams({ type: "atv", settings: { ...params.settings, invert } })
+            }
+          />
         </>
       );
     default:

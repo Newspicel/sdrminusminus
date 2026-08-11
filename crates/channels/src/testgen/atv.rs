@@ -1,0 +1,363 @@
+//! Reference ATV transmitter: a standards-timed analog raster, modulated the way the band it
+//! belongs to modulates it.
+//!
+//! Written from the standards' own timing tables in absolute microseconds — front porch, sync,
+//! back porch, active — and from their field-blanking structure in half-lines, which is where
+//! interlace lives: the two fields differ by exactly one half-line, and everything a receiver
+//! knows about which field it is looking at comes from that.
+//!
+//! Independent of [`crate::atv`] in method: this lays a raster out in time, while the decoder
+//! recovers one by classifying pulse widths. What the two share is the standard.
+
+use std::f64::consts::TAU;
+
+use num_complex::Complex;
+use sdrmm_wire::{AtvModulation, AtvParams, AtvStandard};
+
+/// Video levels, sync tip to peak white, as the standards define them: blanking sits 30 % of
+/// the way up and the picture occupies everything above it.
+const SYNC: f32 = 0.0;
+const BLANKING: f32 = 0.3;
+
+/// Peak-carrier fraction the picture is keyed down to at peak white. 87.5 % leaves white at
+/// 12.5 % of the sync tip, which is what broadcast negative modulation transmits.
+const AM_DEPTH: f64 = 0.875;
+
+/// Peak deviation of the FM form, in Hz. Small next to real FM ATV on purpose: Carson's rule
+/// has to keep the transmission inside the channel the test then filters it through.
+const FM_DEVIATION_HZ: f64 = 150_000.0;
+
+/// Luma of the vertical bars [`bars`] transmits, black to white.
+pub const BAR_LEVELS: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
+
+/// One standard's line, in seconds, and the vertical structure of one of its fields.
+#[derive(Clone, Copy, Debug)]
+struct Layout {
+    line_s: f64,
+    front_porch_s: f64,
+    sync_s: f64,
+    back_porch_s: f64,
+    active_s: f64,
+    /// Half-lines of equalizing pulses before the broad group, of broad pulses, and of
+    /// equalizing pulses after it.
+    pre_eq: u16,
+    broad: u16,
+    post_eq: u16,
+    /// Half-lines in one field: half the frame's lines, counted this way because the vertical
+    /// structure is on a half-line grid and the frame's is not.
+    field_half_lines: u16,
+    /// Whole lines of blanking between the vertical group and the first line of picture.
+    blank_after_group: u16,
+    /// Lines of picture in one field.
+    active_lines: u16,
+}
+
+fn layout(standard: AtvStandard) -> Layout {
+    let (sync_us, back_us, active_us, pre_eq, broad, post_eq, blank_after_group, active_lines) =
+        match standard {
+            // CCIR System B/G: 4.7 µs sync, 5.8 back porch, 51.95 active. Field blanking is
+            // 5 + 5 + 5 half-lines and the picture starts at line 23.
+            AtvStandard::Ccir625 => (4.7, 5.8, 51.95, 5, 5, 5, 15, 288),
+            // EIA RS-170A: 4.7 µs sync, 4.5 back porch, 52.6 active. Field blanking is
+            // 6 + 6 + 6 half-lines and the picture starts at line 21.
+            AtvStandard::Eia525 => (4.7, 4.5, 52.6, 6, 6, 6, 11, 240),
+            // System A: 9.0 µs sync, 5.8 back porch, 82.2 active. No equalizing pulses at all;
+            // four lines of broad pulses open the field and the picture starts at line 15.
+            AtvStandard::SystemA405 => (9.0, 5.8, 82.2, 0, 8, 0, 10, 188),
+        };
+    // The line period comes from the standard's line rate, not from a rounded figure: a frame
+    // that is a few samples long closes on the wrong sample and drifts a receiver every frame.
+    let line_s = 1.0 / standard.line_rate_hz();
+    Layout {
+        line_s,
+        // What the timed intervals leave over is the front porch, by construction.
+        front_porch_s: line_s - (sync_us + back_us + active_us) * 1e-6,
+        sync_s: sync_us * 1e-6,
+        back_porch_s: back_us * 1e-6,
+        active_s: active_us * 1e-6,
+        pre_eq,
+        broad,
+        post_eq,
+        field_half_lines: standard.lines(),
+        blank_after_group,
+        active_lines,
+    }
+}
+
+/// What a segment of the raster carries. Every one is either a half-line of the vertical
+/// structure or a whole line.
+#[derive(Clone, Copy)]
+enum Seg {
+    /// A half-line whose first half-sync marks time through the vertical interval.
+    Equalizing,
+    /// A half-line of the broad group: sync for all of it but the last sync width.
+    Broad,
+    /// A half-line of plain blanking, which is what carries the interlace offset.
+    HalfBlank,
+    /// A whole line, with picture in its active window or blanking instead.
+    Line { picture: bool },
+}
+
+/// A transmitter for one set of ATV settings at one sample rate.
+pub struct AtvSource {
+    rate: f64,
+    layout: Layout,
+    modulation: AtvModulation,
+    invert: bool,
+    interlace: bool,
+}
+
+impl AtvSource {
+    #[must_use]
+    pub fn new(params: &AtvParams, rate: f64) -> Self {
+        Self {
+            rate,
+            layout: layout(params.standard),
+            modulation: params.modulation,
+            invert: params.invert,
+            interlace: params.interlace,
+        }
+    }
+
+    /// The frame's segments. `second` selects the field whose vertical group arrives half a
+    /// line late — the only difference between the two, and the whole of interlace.
+    fn field(&self, second: bool) -> Vec<Seg> {
+        let l = self.layout;
+        let mut segs = Vec::new();
+        // The half-line that displaces this field's line grid. Emitted before the vertical
+        // group so the group itself, and with it the receiver's field-parity test, moves with it.
+        if second {
+            segs.push(Seg::HalfBlank);
+        }
+        segs.extend(std::iter::repeat_n(Seg::Equalizing, usize::from(l.pre_eq)));
+        segs.extend(std::iter::repeat_n(Seg::Broad, usize::from(l.broad)));
+        segs.extend(std::iter::repeat_n(Seg::Equalizing, usize::from(l.post_eq)));
+        let group = usize::from(second) + usize::from(l.pre_eq + l.broad + l.post_eq);
+        // Whole lines take two half-lines each; an odd remainder ends the field on a half-line,
+        // which is what puts the *next* field's group back on the other grid.
+        let remaining = usize::from(l.field_half_lines) - group;
+        let lines = remaining / 2;
+        for k in 0..lines {
+            let first = usize::from(l.blank_after_group);
+            segs.push(Seg::Line {
+                picture: k >= first && k < first + usize::from(l.active_lines),
+            });
+        }
+        if remaining % 2 == 1 {
+            segs.push(Seg::HalfBlank);
+        }
+        segs
+    }
+
+    /// Level of one segment at `u` seconds into it, `luma` sampled across the active window.
+    fn level(&self, seg: Seg, u: f64, luma: &dyn Fn(f64) -> f32) -> f32 {
+        let l = self.layout;
+        let half = l.line_s / 2.0;
+        match seg {
+            Seg::Equalizing => {
+                if u < l.sync_s / 2.0 {
+                    SYNC
+                } else {
+                    BLANKING
+                }
+            }
+            Seg::Broad => {
+                if u < half - l.sync_s {
+                    SYNC
+                } else {
+                    BLANKING
+                }
+            }
+            Seg::HalfBlank => BLANKING,
+            Seg::Line { picture } => {
+                let sync_end = l.front_porch_s + l.sync_s;
+                let active_start = sync_end + l.back_porch_s;
+                if u < l.front_porch_s || u >= active_start {
+                    if u >= active_start && picture {
+                        let x = (u - active_start) / l.active_s;
+                        return BLANKING + (1.0 - BLANKING) * luma(x.clamp(0.0, 1.0));
+                    }
+                    BLANKING
+                } else if u < sync_end {
+                    SYNC
+                } else {
+                    BLANKING
+                }
+            }
+        }
+    }
+
+    fn seg_seconds(&self, seg: Seg) -> f64 {
+        match seg {
+            Seg::Line { .. } => self.layout.line_s,
+            _ => self.layout.line_s / 2.0,
+        }
+    }
+
+    /// Render `frames` frames of `luma` as the video waveform, sync tip 0.0 to peak white 1.0.
+    fn video(&self, frames: u32, luma: &dyn Fn(f64) -> f32) -> Vec<f32> {
+        let mut segs = Vec::new();
+        for _ in 0..frames {
+            segs.extend(self.field(false));
+            // A progressive source repeats the same field structure: no half-line displacement,
+            // so a receiver weaves nothing and every vertical sync opens a whole picture.
+            segs.extend(self.field(self.interlace));
+        }
+        let mut out = Vec::new();
+        // Boundaries are tracked in fractional samples and rounded once, so a half-line offset
+        // survives a rate that does not divide the line period.
+        let mut start = 0.0f64;
+        for seg in segs {
+            let seconds = self.seg_seconds(seg);
+            let end = start + seconds * self.rate;
+            let first = start.round() as usize;
+            let count = end.round() as usize - first;
+            for k in 0..count {
+                let u = (first + k) as f64 - start;
+                out.push(self.level(seg, u / self.rate, luma));
+            }
+            start = end;
+        }
+        out
+    }
+
+    /// Modulate a video waveform onto complex baseband.
+    fn modulate(&self, video: &[f32]) -> Vec<Complex<f32>> {
+        let mut phase = 0.0f64;
+        video
+            .iter()
+            .map(|&v| {
+                // `invert` transmits the reversed polarity, which is what the receive-side
+                // setting of the same name exists to undo.
+                let m = f64::from(if self.invert { 1.0 - v } else { v });
+                match self.modulation {
+                    // Negative modulation: the sync tip is peak carrier and white is the trough.
+                    AtvModulation::Am => Complex::new((1.0 - AM_DEPTH * m) as f32, 0.0),
+                    AtvModulation::Fm => {
+                        phase += TAU * FM_DEVIATION_HZ * (2.0 * m - 1.0) / self.rate;
+                        Complex::from_polar(1.0, phase as f32)
+                    }
+                }
+            })
+            .collect()
+    }
+}
+
+/// `frames` frames of vertical bars at [`BAR_LEVELS`], as complex baseband IQ.
+#[must_use]
+pub fn bars(source: &AtvSource, frames: u32) -> Vec<Complex<f32>> {
+    let video = source.video(frames, &|x| {
+        let bar = ((x * BAR_LEVELS.len() as f64) as usize).min(BAR_LEVELS.len() - 1);
+        BAR_LEVELS[bar]
+    });
+    source.modulate(&video)
+}
+
+#[cfg(test)]
+mod tests {
+    use sdrmm_wire::AtvParams;
+
+    use super::*;
+
+    const RATE: f64 = 2_000_000.0;
+
+    fn source(standard: AtvStandard) -> AtvSource {
+        AtvSource::new(
+            &AtvParams {
+                standard,
+                ..AtvParams::default()
+            },
+            RATE,
+        )
+    }
+
+    /// A frame must be exactly the standard's own duration: the vertical structure is laid out
+    /// in half-lines and the picture in whole ones, and a raster that does not close on itself
+    /// would drift a receiver by a line a frame however good its flywheel is.
+    #[test]
+    fn a_frame_lasts_exactly_one_frame_period() {
+        for standard in [
+            AtvStandard::Ccir625,
+            AtvStandard::Eia525,
+            AtvStandard::SystemA405,
+        ] {
+            let src = source(standard);
+            let video = src.video(2, &|_| 1.0);
+            let want = 2.0 * RATE / standard.frame_rate_hz();
+            let got = video.len() as f64;
+            assert!(
+                (got - want).abs() <= 2.0,
+                "{standard:?}: {got} samples for two frames, expected {want}"
+            );
+        }
+    }
+
+    /// The two fields must differ by exactly one half-line, since that displacement is the only
+    /// thing a receiver can tell them apart by.
+    #[test]
+    fn the_second_field_is_displaced_by_half_a_line() {
+        let src = source(AtvStandard::Ccir625);
+        let first: f64 = src
+            .field(false)
+            .into_iter()
+            .map(|s| src.seg_seconds(s))
+            .sum();
+        let second: f64 = src
+            .field(true)
+            .into_iter()
+            .map(|s| src.seg_seconds(s))
+            .sum();
+        // Both fields last the same time — the displacement is where the group sits inside it.
+        assert!((first - second).abs() < 1e-12, "{first} vs {second}");
+        let group = |second: bool| {
+            src.field(second)
+                .into_iter()
+                .take_while(|s| !matches!(s, Seg::Broad))
+                .map(|s| src.seg_seconds(s))
+                .sum::<f64>()
+        };
+        let offset = group(true) - group(false);
+        assert!(
+            (offset - src.layout.line_s / 2.0).abs() < 1e-12,
+            "broad group moved by {offset} s, expected half a line"
+        );
+    }
+
+    /// Sync must be the lowest level in the waveform and white the highest, with blanking where
+    /// the standards put it — the levels every receiver slices against.
+    #[test]
+    fn levels_sit_where_the_standards_put_them() {
+        let src = source(AtvStandard::Ccir625);
+        let video = src.video(1, &|_| 1.0);
+        let lo = video.iter().copied().fold(f32::MAX, f32::min);
+        let hi = video.iter().copied().fold(f32::MIN, f32::max);
+        assert_eq!(lo, SYNC);
+        assert_eq!(hi, 1.0);
+        // The back porch of a line, which is blanking by construction. Counted from where the
+        // normal lines start — the vertical group sits on the half-line grid ahead of them.
+        let l = src.layout;
+        let at = |seconds: f64| video[(seconds * RATE) as usize];
+        let group = f64::from(l.pre_eq + l.broad + l.post_eq) * l.line_s / 2.0;
+        let line_start = group + 20.0 * l.line_s;
+        assert_eq!(
+            at(line_start + l.front_porch_s + l.sync_s + l.back_porch_s / 2.0),
+            BLANKING
+        );
+        assert_eq!(at(line_start + l.front_porch_s + l.sync_s / 2.0), SYNC);
+    }
+
+    /// Negative modulation is the claim the AM form makes: peak carrier at the sync tip, and
+    /// white keyed down to a small fraction of it.
+    #[test]
+    fn am_keys_sync_to_peak_carrier() {
+        let src = source(AtvStandard::Ccir625);
+        let iq = bars(&src, 1);
+        let peak = iq.iter().map(|s| s.norm()).fold(f32::MIN, f32::max);
+        let trough = iq.iter().map(|s| s.norm()).fold(f32::MAX, f32::min);
+        assert!((peak - 1.0).abs() < 1e-6, "peak {peak}");
+        assert!(
+            (trough - (1.0 - AM_DEPTH as f32)).abs() < 1e-6,
+            "trough {trough}"
+        );
+    }
+}

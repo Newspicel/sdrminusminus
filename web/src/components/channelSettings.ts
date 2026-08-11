@@ -35,6 +35,13 @@ export function channelDecoderKind(descriptor: ChannelDescriptor | undefined): s
   return descriptor?.decoder_kind ?? null;
 }
 
+/** Whether this channel scans out a picture, so its face mounts a video panel and subscribes.
+ * Absent (older server, or the type list not loaded yet) means no video, which is every mode
+ * that predates the transport. */
+export function channelHasVideo(descriptor: ChannelDescriptor | undefined): boolean {
+  return descriptor?.has_video ?? false;
+}
+
 /** How far the channel can be offset before its passband leaves the receiver's span: half the
  * span, less the half-bandwidth the channel itself occupies. `null` when the rate is unknown —
  * the offset field is then left unbounded rather than clamped to a guess. */
