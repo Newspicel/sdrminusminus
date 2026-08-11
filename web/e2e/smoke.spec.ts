@@ -163,6 +163,36 @@ test.describe("the workspace", () => {
     ).toBeGreaterThan(0);
     await expect(rackNode(page, "scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
 
+    // The plot's own toolbar, in the rack because a face there is always the active one
+    // (NodeShell) — so the plot's gestures are armed and this is where they used to swallow it.
+    // The plot captures the pointer on `pointerdown` to pan and tune, and a capture on the
+    // ancestor retargets the release: the button never saw a click, and the tune-on-click ran
+    // instead.
+    const scopePlot = rackNode(page, "scope");
+    // Where the radio sits: the shared centre and any per-stream override, because `tuneDelta`
+    // writes one or the other depending on what the radio scopes per stream.
+    const tunedTo = async (): Promise<string> => {
+      const state: StateSnapshot = await page.request.get("/api/state").then((r) => r.json());
+      const settings = state.device_sets[0]?.settings;
+      return JSON.stringify([settings?.center_hz ?? null, settings?.streams ?? []]);
+    };
+    const tuning = await tunedTo();
+
+    const maxHold = scopePlot.getByRole("button", { name: /max hold/i });
+    await maxHold.click();
+    await expect(maxHold).toHaveAttribute("aria-pressed", "true");
+    await maxHold.click();
+    await expect(maxHold).toHaveAttribute("aria-pressed", "false");
+
+    // The trigger is labelled with the colormap in force, so picking one shows in its name.
+    await scopePlot.getByRole("button", { name: /^magma$/i }).click();
+    await page.getByRole("button", { name: /^viridis$/i }).click();
+    await expect(scopePlot.getByRole("button", { name: /^viridis$/i })).toBeVisible();
+
+    // The point of all four clicks: none of them was a click on the *plot*. A radio that moved
+    // here is the actual complaint — the buttons were operating the scope.
+    expect(await tunedTo()).toBe(tuning);
+
     // Dragging the boundary between two faces makes one larger and the other smaller (CANVAS §5).
     // The whole point of the gesture is that it re-balances a full rack without a hole, so both
     // halves are asserted — and against the *stored* rack, since that is what survives a reload.

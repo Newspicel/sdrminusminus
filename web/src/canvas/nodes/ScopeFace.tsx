@@ -298,6 +298,12 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     if (!active || event.button !== 0 || plotRef.current === null || spanHz <= 0) {
       return;
     }
+    // The plot declines what is not its own surface, rather than every control stopping
+    // propagation: the popover is Base UI's, and its dismissal listens where a swallowed event
+    // would never arrive.
+    if (!onPlotSurface(event.target, plotRef.current)) {
+      return;
+    }
     const rect = plotRef.current.getBoundingClientRect();
     const at = pointerFraction(event.clientX);
     const grabbed = markerAt(set.channels, view, spanHz, at, GRAB_PX / rect.width);
@@ -386,7 +392,10 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onDoubleClick={(event) => {
-        if (!active || meta === null) {
+        // Guarded here too, and not only in `onPointerDown`: this path never consults the
+        // gesture, so two quick jabs at a toolbar button would recentre the radio.
+        const plot = plotRef.current;
+        if (!active || meta === null || plot === null || !onPlotSurface(event.target, plot)) {
           return;
         }
         const at = pointerFraction(event.clientX);
@@ -422,7 +431,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
         </span>
         {/* Bottom-left: the only corner of the plot no data occupies, so the toolbar costs the
             trace nothing. */}
-        <div className="pointer-events-auto flex items-center gap-1 self-start">
+        <div data-plot-chrome className="pointer-events-auto flex items-center gap-1 self-start">
           <Popover label={colormap} triggerClass={plotButton(false)} width="w-36">
             {(close) => (
               <div className="flex flex-col gap-0.5">
@@ -494,6 +503,7 @@ function Divider({
       role="separator"
       aria-orientation="horizontal"
       aria-label={`Trace and waterfall split, ${Math.round(fraction * 100)}% trace`}
+      data-plot-chrome
       className="group relative z-10 -my-1 h-[9px] shrink-0 cursor-row-resize"
       onPointerDown={(event) => {
         event.stopPropagation();
@@ -622,6 +632,27 @@ function markerAt(
     }
   }
   return best;
+}
+
+/**
+ * Whether a pointer that reached the plot's handlers actually landed on the plot. Two ways it did
+ * not, and the plot has to decline both: it captures the pointer to pan and tune, and a capture
+ * on the ancestor retargets the release, so a control underneath never sees a click and the
+ * tune-on-click runs in its place.
+ *
+ * Chrome drawn over the plot — the toolbar, the split handle — is marked, because it is inside
+ * the plot and hit-testing alone cannot tell it apart. A portalled popup is the other way round:
+ * React dispatches synthetic events up the *component* tree, so a popover this subtree renders
+ * into `document.body` bubbles in here from outside the plot entirely.
+ *
+ * Channel markers are deliberately neither: dragging one to tune is a plot gesture that begins on
+ * a marker, and the plot has to receive it.
+ */
+function onPlotSurface(target: EventTarget | null, plot: HTMLElement): boolean {
+  if (!(target instanceof Node) || !plot.contains(target)) {
+    return false;
+  }
+  return !(target instanceof Element) || target.closest("[data-plot-chrome]") === null;
 }
 
 function metaOf(frame: SpectrumFrame): FrameMeta {
