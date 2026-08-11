@@ -36,7 +36,7 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Auto-reconnect on replug — a faulted set whose radio re-enumerates is re-opened, its tuning re-applied and its channels rebuilt with ids, PCM identity and live audio subscriptions preserved
 - **[shipped]** Two-tier recovery — an in-place stream restart (measured 6.1–7.6 ms on the RTL-SDR, 0.8–1.2 ms on the HackRF, against ~1.6 s for a re-open) with a silent-stall detector on both radios, falling back to the engine's destructive fault path only when the restart budget is spent. Proven in three pieces (policy, transport, primitive); never yet driven by a genuinely halted pipe
 - **[shipped]** Soapy-free builds are a CI gate (`--no-default-features --features rtl-native,hackrf-native`)
-- **[planned]** Direct sampling (HF via RTL-SDR)
+- **[shipped]** Direct sampling (HF via RTL-SDR) — the tuner goes to standby and the RTL2832U's own downconverter becomes the dial, so a dongle whose tuner starts at 24 MHz hears DC–14.4 MHz. Offered as an `off`/`i`/`q` setting on every board but the Blog V4, which upconverts into the tuner instead and would lose its antenna if the tuner were bypassed. Switching modes carries the dial into the range the new mode can reach and reports where it landed; the tuner's gain and IF filter are recorded while bypassed and written back when it returns, so a faulted HF set reconnects onto the same configuration
 - **[planned]** HackRF independent baseband-filter bandwidth and hardware sweep mode
 - **[planned]** rtl_tcp / SpyServer client device
 - **[planned]** KiwiSDR client device
