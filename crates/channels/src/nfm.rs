@@ -1,16 +1,23 @@
 //! NFM voice: 48 kHz IQ → quadrature discriminator → voice-band lowpass. RF selectivity at
 //! `bandwidth_hz` is the host's channel filter (see [`crate::channel_filter`]); here the
 //! bandwidth only sets the deviation the discriminator is scaled to.
+//!
+//! [`NfmTx`] is the modulator that pairs with it. Neither carries pre- or de-emphasis: the two
+//! have to agree, and a flat pair is the one that round-trips.
 
-use std::sync::LazyLock;
+use std::{
+    collections::VecDeque,
+    f64::consts::{PI, TAU},
+    sync::LazyLock,
+};
 
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, FmDemod, RealDecimator, design_lowpass};
 use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, NfmParams};
 
 use crate::{
-    AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
-    check_input_rate, clamp_full_scale,
+    AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, ChannelTx,
+    TxPayload, check_input_rate, clamp_full_scale,
 };
 
 /// Fixed post-demod audio cutoff — voice content ends here regardless of channel spacing.
@@ -112,12 +119,166 @@ impl ChannelRx for NfmChannel {
     }
 }
 
+/// Rise and fall time of a keyed burst. A hard edge on a carrier throws sidebands far outside
+/// the channel; a couple of milliseconds of raised cosine keeps them inside it and is short
+/// enough that no syllable is lost to the ramp.
+const RAMP_MS: f64 = 2.0;
+
+/// Longest backlog [`NfmTx::submit`] will accept, as seconds of audio. A transmitter is a
+/// real-time device: a queue past this is a caller feeding it faster than the air can carry,
+/// and saying so beats growing without bound.
+const MAX_QUEUE_S: f64 = 5.0;
+
+/// Where a burst is in its envelope. The carrier is only at full amplitude in `Running`.
+enum Burst {
+    Idle,
+    /// Samples already emitted into the leading ramp.
+    Rising(usize),
+    Running,
+    /// Samples already emitted into the trailing ramp.
+    Falling(usize),
+}
+
+/// NFM modulator: queued voice → phase-accumulated FM on a constant-envelope carrier.
+///
+/// Written against the deviation and audio bandwidth [`NfmChannel`] demodulates, and sharing
+/// those constants with it, but no code — an error in the discriminator cannot cancel against
+/// one here.
+pub struct NfmTx {
+    rate: f64,
+    deviation_hz: f64,
+    ramp_len: usize,
+    max_queue: usize,
+    /// Band-limited by [`audio_lowpass`] on the way in, so `generate` only accumulates phase.
+    queue: VecDeque<f32>,
+    audio_lp: RealDecimator,
+    filtered: Vec<f32>,
+    burst: Burst,
+    phase: f64,
+}
+
+impl NfmTx {
+    /// Rising-edge envelope at ramp sample `k`, reaching exactly 1.0 at `ramp_len - 1`. The
+    /// falling edge reads it backwards.
+    fn ramp(&self, k: usize) -> f32 {
+        (0.5 * (1.0 - (PI * (k + 1) as f64 / self.ramp_len as f64).cos())) as f32
+    }
+
+    /// Envelope for the next sample, advancing the burst state; `None` once the transmitter has
+    /// nothing left to radiate.
+    fn next_envelope(&mut self) -> Option<f32> {
+        match self.burst {
+            Burst::Idle if self.queue.is_empty() => None,
+            Burst::Idle => {
+                self.burst = Burst::Rising(1);
+                Some(self.ramp(0))
+            }
+            // A drained queue ends the burst rather than splicing a gap into it: a transmitter
+            // starved of audio must stop radiating, not radiate whatever arrives next as if it
+            // were continuous.
+            Burst::Running if self.queue.is_empty() => {
+                self.burst = Burst::Falling(1);
+                Some(self.ramp(self.ramp_len - 1))
+            }
+            Burst::Running => Some(1.0),
+            Burst::Rising(k) => {
+                self.burst = if k + 1 < self.ramp_len {
+                    Burst::Rising(k + 1)
+                } else {
+                    Burst::Running
+                };
+                Some(self.ramp(k))
+            }
+            Burst::Falling(k) => {
+                self.burst = if k + 1 < self.ramp_len {
+                    Burst::Falling(k + 1)
+                } else {
+                    Burst::Idle
+                };
+                Some(self.ramp(self.ramp_len - 1 - k))
+            }
+        }
+    }
+}
+
+impl ChannelTx for NfmTx {
+    fn descriptor() -> &'static ChannelDescriptor {
+        &DESCRIPTOR
+    }
+
+    fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
+        check_input_rate(ctx, &DESCRIPTOR)?;
+        let p = params(&settings)?;
+        check_bandwidth(p)?;
+        Ok(Self {
+            rate: ctx.input_rate,
+            deviation_hz: deviation_hz(p),
+            ramp_len: (RAMP_MS / 1_000.0 * ctx.input_rate) as usize,
+            max_queue: (MAX_QUEUE_S * f64::from(AUDIO_RATE)) as usize,
+            queue: VecDeque::new(),
+            audio_lp: audio_lowpass(),
+            filtered: Vec::new(),
+            burst: Burst::Idle,
+            phase: 0.0,
+        })
+    }
+
+    fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
+        let p = params(&settings)?;
+        check_bandwidth(p)?;
+        self.deviation_hz = deviation_hz(p);
+        Ok(())
+    }
+
+    fn submit(&mut self, payload: TxPayload) -> Result<(), ChannelError> {
+        let TxPayload::Audio(mut pcm) = payload else {
+            return Err(ChannelError::InvalidPayload(
+                "nfm carries audio, not frames".to_owned(),
+            ));
+        };
+        if self.queue.len() + pcm.len() > self.max_queue {
+            return Err(ChannelError::InvalidPayload(format!(
+                "nfm transmit queue holds at most {MAX_QUEUE_S} s of audio, {} samples queued",
+                self.queue.len()
+            )));
+        }
+        // Clamped before the filter, so an over-range caller cannot over-deviate the carrier,
+        // and band-limited here rather than in `generate` — the hot path may not allocate.
+        clamp_full_scale(&mut pcm);
+        self.audio_lp.process(&pcm, &mut self.filtered);
+        self.queue.extend(self.filtered.iter().copied());
+        Ok(())
+    }
+
+    fn generate(&mut self, out: &mut [Complex<f32>]) -> usize {
+        let mut written = 0;
+        for slot in out {
+            let Some(envelope) = self.next_envelope() else {
+                break;
+            };
+            let audio = self.queue.pop_front().unwrap_or(0.0);
+            self.phase += TAU * self.deviation_hz * f64::from(audio) / self.rate;
+            if self.phase > TAU {
+                self.phase -= TAU;
+            } else if self.phase < -TAU {
+                self.phase += TAU;
+            }
+            *slot = Complex::from_polar(envelope, self.phase as f32);
+            written += 1;
+        }
+        written
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use sdrmm_wire::AmParams;
 
     use super::*;
-    use crate::testutil::{complex_noise, dominant_tone, fm_iq, rms, run_ragged, settings};
+    use crate::{
+        testgen::tone_audio,
+        testutil::{complex_noise, dominant_tone, fm_iq, rms, run_ragged, settings},
+    };
 
     const RATE: f64 = 48_000.0;
     /// Deviation matching the default 12.5 kHz bandwidth (bandwidth/5).
@@ -203,6 +364,158 @@ mod tests {
     #[test]
     fn wrong_input_rate_is_rejected() {
         let built = NfmChannel::new(
+            ChannelCtx {
+                input_rate: 240_000.0,
+            },
+            settings(ChannelParams::Nfm(NfmParams::default())),
+        );
+        assert!(matches!(built, Err(ChannelError::InvalidSettings(_))));
+    }
+
+    const fn ctx() -> ChannelCtx {
+        ChannelCtx { input_rate: RATE }
+    }
+
+    fn ramp_len() -> usize {
+        (RAMP_MS / 1_000.0 * RATE) as usize
+    }
+
+    fn transmitter() -> NfmTx {
+        NfmTx::new(ctx(), settings(ChannelParams::Nfm(NfmParams::default()))).unwrap()
+    }
+
+    /// Pull the whole burst out in fixed blocks, the way a transmit path feeds a radio, and stop
+    /// on the short fill that says the modulator is done.
+    fn drain(tx: &mut dyn ChannelTx) -> Vec<Complex<f32>> {
+        let mut iq = Vec::new();
+        let mut block = [Complex::new(0.0, 0.0); 1_024];
+        loop {
+            let n = tx.generate(&mut block);
+            iq.extend_from_slice(&block[..n]);
+            if n < block.len() {
+                return iq;
+            }
+        }
+    }
+
+    /// The pair's whole reason for existing: what the modulator sends, the demodulator hears.
+    #[test]
+    fn tx_round_trips_a_tone_through_the_demodulator() {
+        for bandwidth_hz in [12_500.0, 25_000.0] {
+            let params = ChannelParams::Nfm(NfmParams { bandwidth_hz });
+            let mut tx = NfmTx::new(ctx(), settings(params.clone())).unwrap();
+            tx.submit(TxPayload::Audio(tone_audio(1_000.0, 1.0, RATE, 24_000)))
+                .unwrap();
+            let iq = drain(&mut tx);
+            assert_eq!(
+                iq.len(),
+                24_000 + ramp_len(),
+                "{bandwidth_hz} Hz burst length"
+            );
+
+            let mut rx = NfmChannel::new(ctx(), settings(params)).unwrap();
+            let audio = run_ragged(&mut rx, &iq);
+            let window = &audio[2_000..20_000];
+            let (freq, ratio) = dominant_tone(window, RATE);
+            assert!(
+                (995.0..1_005.0).contains(&freq),
+                "{bandwidth_hz} Hz: {freq} Hz"
+            );
+            assert!(ratio > 10.0, "{bandwidth_hz} Hz: tone-to-rest {ratio}");
+            // Deviation tracks the channel plan on both sides, so a full-scale tone comes back
+            // full-scale at either spacing — not doubled at the wide one.
+            let amplitude = rms(window);
+            assert!(
+                (0.6..0.8).contains(&amplitude),
+                "{bandwidth_hz} Hz: rms {amplitude}"
+            );
+        }
+    }
+
+    /// Both ends moved to 25 kHz spacing still round-trip at full scale. A transmitter that
+    /// ignored `apply` would still be deviating ±2.5 kHz into a receiver now scaled to ±5 kHz,
+    /// and the tone would come back at half amplitude.
+    #[test]
+    fn tx_apply_rescales_deviation() {
+        let wide = settings(ChannelParams::Nfm(NfmParams {
+            bandwidth_hz: 25_000.0,
+        }));
+        let mut tx = transmitter();
+        tx.apply(wide.clone()).unwrap();
+        tx.submit(TxPayload::Audio(tone_audio(1_000.0, 1.0, RATE, 24_000)))
+            .unwrap();
+        let iq = drain(&mut tx);
+
+        let mut rx = channel();
+        rx.apply(wide).unwrap();
+        let amplitude = rms(&run_ragged(&mut rx, &iq)[2_000..20_000]);
+        assert!((0.6..0.8).contains(&amplitude), "rms {amplitude}");
+    }
+
+    #[test]
+    fn tx_ramps_the_burst_edges_and_holds_a_constant_envelope_between() {
+        let ramp = ramp_len();
+        let mut tx = transmitter();
+        tx.submit(TxPayload::Audio(vec![0.0; 4_800])).unwrap();
+        let iq = drain(&mut tx);
+
+        assert!(iq[0].norm() < 0.01, "first sample {}", iq[0].norm());
+        for (k, pair) in iq[..ramp].windows(2).enumerate() {
+            assert!(pair[1].norm() > pair[0].norm(), "rise not monotonic at {k}");
+        }
+        let tail = &iq[iq.len() - ramp..];
+        for (k, pair) in tail.windows(2).enumerate() {
+            assert!(pair[1].norm() < pair[0].norm(), "fall not monotonic at {k}");
+        }
+        assert!(
+            tail[ramp - 1].norm() < 0.01,
+            "last sample {}",
+            tail[ramp - 1].norm()
+        );
+        for (k, s) in iq[ramp..iq.len() - ramp].iter().enumerate() {
+            assert!(
+                (s.norm() - 1.0).abs() < 1e-5,
+                "envelope {} at {k}",
+                s.norm()
+            );
+        }
+    }
+
+    #[test]
+    fn tx_radiates_nothing_until_audio_is_submitted() {
+        let mut tx = transmitter();
+        let mut block = [Complex::new(9.0, 9.0); 64];
+        assert_eq!(tx.generate(&mut block), 0);
+        // `generate` writes to the head of the caller's buffer and reports how far it got; the
+        // rest is the caller's, not something to zero-fill.
+        assert_eq!(block[0], Complex::new(9.0, 9.0));
+    }
+
+    #[test]
+    fn tx_rejects_a_frame_payload() {
+        let mut tx = transmitter();
+        let err = tx.submit(TxPayload::Frame(vec![0x7E]));
+        assert!(matches!(err, Err(ChannelError::InvalidPayload(_))));
+    }
+
+    #[test]
+    fn tx_refuses_a_backlog_past_the_queue_bound() {
+        let mut tx = transmitter();
+        let over = (MAX_QUEUE_S * f64::from(AUDIO_RATE)) as usize + 1;
+        assert!(matches!(
+            tx.submit(TxPayload::Audio(vec![0.0; over])),
+            Err(ChannelError::InvalidPayload(_))
+        ));
+        // A refused payload is not a half-queued one.
+        let mut block = [Complex::new(0.0, 0.0); 16];
+        assert_eq!(tx.generate(&mut block), 0);
+    }
+
+    #[test]
+    fn tx_rejects_mismatched_params_and_input_rate() {
+        let built = NfmTx::new(ctx(), settings(ChannelParams::Am(AmParams::default())));
+        assert!(matches!(built, Err(ChannelError::InvalidSettings(_))));
+        let built = NfmTx::new(
             ChannelCtx {
                 input_rate: 240_000.0,
             },

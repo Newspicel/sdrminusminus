@@ -40,6 +40,12 @@ pub struct ChannelDescriptor {
     /// meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_rate_max_hz: Option<f64>,
+    /// The type ships a modulator as well as a demodulator, so a transmit channel of it can be
+    /// built (PLAN §20). Says only that the waveform exists — whether it may ever reach an
+    /// antenna is the authorized-use gate's question, and that gate has not been built.
+    /// Defaults to `false`, which is every receive-only type.
+    #[serde(default)]
+    pub can_transmit: bool,
 }
 
 impl ChannelDescriptor {
@@ -69,6 +75,7 @@ impl Default for ChannelDescriptor {
             decoder_kind: None,
             exact_rate_only: false,
             native_rate_max_hz: None,
+            can_transmit: false,
         }
     }
 }

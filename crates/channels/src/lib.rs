@@ -35,7 +35,7 @@ pub use am::AmChannel;
 pub use aprs::AprsChannel;
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
-pub use nfm::NfmChannel;
+pub use nfm::{NfmChannel, NfmTx};
 use num_complex::Complex;
 pub use pocsag::PocsagChannel;
 pub use rtty::RttyChannel;
@@ -139,14 +139,19 @@ pub enum ChannelError {
     UnknownType(String),
     #[error("invalid settings: {0}")]
     InvalidSettings(String),
+    #[error("{0} has no modulator")]
+    NoTransmitter(String),
+    #[error("invalid payload: {0}")]
+    InvalidPayload(String),
 }
 
-/// Construction context passed to a channel: the IQ rate it receives after the DDC. The
-/// engine decimates to the descriptor's `input_rate_hz` before construction; channels verify
-/// and refuse anything else. Grows as the plugin API matures (PLAN §8).
+/// Construction context passed to a channel: the rate of the IQ it exchanges with the host —
+/// what a [`ChannelRx`] receives from the DDC, and what a [`ChannelTx`] produces. The engine
+/// decimates to the descriptor's `input_rate_hz` before construction; channels verify and refuse
+/// anything else. Grows as the plugin API matures (PLAN §8).
 #[derive(Clone, Copy, Debug)]
 pub struct ChannelCtx {
-    /// Sample rate of the decimated IQ stream the channel will `process`, in Hz.
+    /// Sample rate of the channel's IQ stream, in Hz.
     pub input_rate: f64,
 }
 
@@ -202,9 +207,72 @@ pub trait ChannelRx: Send {
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs);
 }
 
+/// What a transmit channel was handed to send. The mirror of [`ChannelParams`]: one variant per
+/// class of thing a mode carries, and a channel refuses the variants it does not speak.
+///
+/// Frames are bytes rather than text because the framing — addresses, stuffing, checksums — is
+/// the protocol module's job, shared with the decoder that parses it back.
+pub enum TxPayload {
+    /// Mono PCM at [`AUDIO_RATE`] in ±1.0, for the analog modes. Out-of-range samples are
+    /// clamped rather than allowed to over-deviate the carrier.
+    Audio(Vec<f32>),
+    /// A finished protocol frame, for the data modes.
+    Frame(Vec<u8>),
+}
+
+/// A transmit channel: consumes payloads, produces the IQ that carries them (PLAN §20).
+///
+/// The mirror of [`ChannelRx`], and deliberately not the same trait — the two directions share
+/// their framing and their constants, not their state. A demodulator carries timing recovery,
+/// sync hunting and error correction that a modulator has no counterpart for, and forcing both
+/// onto one type would leave every receive-only mode implementing a refusal.
+///
+/// Building one radiates nothing. PLAN §12a gates every application-level transmit feature
+/// behind an authorized-use switch that has not been built, and until it is, nothing in
+/// `engine` or `server` calls [`create_tx`] and nothing above `sdrmm-device` holds the
+/// `TxStream` these samples would be handed to.
+pub trait ChannelTx: Send {
+    /// The same descriptor the receive side publishes — one type id, one set of rates, whichever
+    /// direction is being built.
+    fn descriptor() -> &'static ChannelDescriptor
+    where
+        Self: Sized;
+
+    fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError>
+    where
+        Self: Sized;
+
+    /// Reconfigure mode params in place, as [`ChannelRx::apply`] does.
+    fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError>;
+
+    /// Queue a payload. Control plane — called off the DSP thread, so this is where a channel
+    /// does its allocating and its framing.
+    ///
+    /// # Errors
+    /// [`ChannelError::InvalidPayload`] for a variant this mode does not carry, or when the
+    /// queue is too full to accept it. A transmitter that quietly dropped what it was asked to
+    /// send would look identical to one that sent it.
+    fn submit(&mut self, payload: TxPayload) -> Result<(), ChannelError>;
+
+    /// Hot path: fill `out` with the next samples of the burst, returning how many were written
+    /// to its head. No allocation, no locks — the same contract [`ChannelRx::process`] runs
+    /// under.
+    ///
+    /// A short fill ends the burst: the modulator wrote its last sample and has ramped the
+    /// carrier down. `0` means there is nothing queued, so the host may drop the transmitter.
+    /// Submitting again starts a new burst rather than resuming this one.
+    fn generate(&mut self, out: &mut [Complex<f32>]) -> usize;
+}
+
+type CreateRx = fn(ChannelCtx, ChannelSettings) -> Result<Box<dyn ChannelRx>, ChannelError>;
+type CreateTx = fn(ChannelCtx, ChannelSettings) -> Result<Box<dyn ChannelTx>, ChannelError>;
+
 struct Registration {
     descriptor: fn() -> &'static ChannelDescriptor,
-    create: fn(ChannelCtx, ChannelSettings) -> Result<Box<dyn ChannelRx>, ChannelError>,
+    create: CreateRx,
+    /// Populated for the modes that ship a modulator too; `None` is a receive-only type, and is
+    /// what [`ChannelDescriptor::can_transmit`] is derived from so the two cannot disagree.
+    create_tx: Option<CreateTx>,
 }
 
 fn boxed<C: ChannelRx + 'static>(
@@ -214,68 +282,88 @@ fn boxed<C: ChannelRx + 'static>(
     Ok(Box::new(C::new(ctx, settings)?))
 }
 
+fn boxed_tx<C: ChannelTx + 'static>(
+    ctx: ChannelCtx,
+    settings: ChannelSettings,
+) -> Result<Box<dyn ChannelTx>, ChannelError> {
+    Ok(Box::new(C::new(ctx, settings)?))
+}
+
 /// One row per demod module; both columns come from the same concrete type, so the
 /// descriptor list and the `create` dispatch share a single source (PLAN §8).
 const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: NfmChannel::descriptor,
         create: boxed::<NfmChannel>,
+        create_tx: Some(boxed_tx::<NfmTx>),
     },
     Registration {
         descriptor: AmChannel::descriptor,
         create: boxed::<AmChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: SsbChannel::descriptor,
         create: boxed::<SsbChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: WfmChannel::descriptor,
         create: boxed::<WfmChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: PocsagChannel::descriptor,
         create: boxed::<PocsagChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: AdsbChannel::descriptor,
         create: boxed::<AdsbChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: AisChannelRx::descriptor,
         create: boxed::<AisChannelRx>,
+        create_tx: None,
     },
     Registration {
         descriptor: AprsChannel::descriptor,
         create: boxed::<AprsChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: RttyChannel::descriptor,
         create: boxed::<RttyChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: MorseChannel::descriptor,
         create: boxed::<MorseChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: NavtexChannel::descriptor,
         create: boxed::<NavtexChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: AcarsChannel::descriptor,
         create: boxed::<AcarsChannel>,
+        create_tx: None,
     },
     Registration {
         descriptor: SubghzChannel::descriptor,
         create: boxed::<SubghzChannel>,
+        create_tx: None,
     },
 ];
 
 /// Descriptors for every compiled-in channel type (PLAN §8: static registry).
 ///
-/// `exact_rate_only` is derived here rather than written into each descriptor, from the same two
-/// functions the engine's admission check uses: the answer must not be able to disagree with the
-/// refusal it predicts.
+/// `exact_rate_only` and `can_transmit` are derived here rather than written into each
+/// descriptor, from the same registry columns the dispatch below reads: neither answer must be
+/// able to disagree with the refusal it predicts.
 #[must_use]
 pub fn descriptors() -> Vec<ChannelDescriptor> {
     REGISTRY
@@ -283,6 +371,7 @@ pub fn descriptors() -> Vec<ChannelDescriptor> {
         .map(|r| {
             let mut descriptor = (r.descriptor)().clone();
             descriptor.exact_rate_only = exact_rate_only(&descriptor);
+            descriptor.can_transmit = r.create_tx.is_some();
             descriptor
         })
         .collect()
@@ -309,12 +398,33 @@ pub fn create(
     ctx: ChannelCtx,
     settings: &ChannelSettings,
 ) -> Result<Box<dyn ChannelRx>, ChannelError> {
+    (find(settings)?.create)(ctx, settings.clone())
+}
+
+/// Build the transmit channel matching `settings.params` (PLAN §20).
+///
+/// Nothing above this crate calls this — see [`ChannelTx`] for why, and for what would have to
+/// exist first. The samples it produces reach a buffer, never an antenna.
+///
+/// # Errors
+/// [`ChannelError::NoTransmitter`] for a receive-only type, which is every type whose descriptor
+/// reports `can_transmit == false`.
+pub fn create_tx(
+    ctx: ChannelCtx,
+    settings: &ChannelSettings,
+) -> Result<Box<dyn ChannelTx>, ChannelError> {
+    let create = find(settings)?
+        .create_tx
+        .ok_or_else(|| ChannelError::NoTransmitter(settings.params.type_id().to_owned()))?;
+    create(ctx, settings.clone())
+}
+
+fn find(settings: &ChannelSettings) -> Result<&'static Registration, ChannelError> {
     let type_id = settings.params.type_id();
-    let registration = REGISTRY
+    REGISTRY
         .iter()
         .find(|r| (r.descriptor)().type_id == type_id)
-        .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))?;
-    (registration.create)(ctx, settings.clone())
+        .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()))
 }
 
 pub(crate) fn check_input_rate(
@@ -458,6 +568,46 @@ mod tests {
             let built = create(ctx, &settings(default_params(&d.type_id)));
             assert!(built.is_ok(), "{}: {:?}", d.type_id, built.err());
         }
+    }
+
+    /// The flag the canvas would draw a transmit port from must be the same fact `create_tx`
+    /// acts on — a type advertising a modulator it cannot build, or hiding one it can, is the
+    /// drift the derived column exists to prevent.
+    #[test]
+    fn can_transmit_matches_what_create_tx_will_build() {
+        for d in descriptors() {
+            let ctx = ChannelCtx {
+                input_rate: d.input_rate_hz,
+            };
+            let built = create_tx(ctx, &settings(default_params(&d.type_id)));
+            assert_eq!(
+                built.is_ok(),
+                d.can_transmit,
+                "{}: can_transmit {} but create_tx said {:?}",
+                d.type_id,
+                d.can_transmit,
+                built.err()
+            );
+            if !d.can_transmit {
+                assert!(
+                    matches!(built, Err(ChannelError::NoTransmitter(_))),
+                    "{} must refuse by naming the missing modulator",
+                    d.type_id
+                );
+            }
+        }
+    }
+
+    /// PLAN §20 wave 1: NFM is the one mode with a modulator so far. This is a reminder to
+    /// extend the list deliberately, not a cap.
+    #[test]
+    fn nfm_is_the_only_transmitting_type() {
+        let transmitting: Vec<String> = descriptors()
+            .into_iter()
+            .filter(|d| d.can_transmit)
+            .map(|d| d.type_id)
+            .collect();
+        assert_eq!(transmitting, ["nfm"]);
     }
 
     #[test]
