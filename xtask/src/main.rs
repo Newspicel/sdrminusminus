@@ -326,13 +326,14 @@ fn agree(what: &str, pins: &[(String, String)]) -> Result<()> {
 }
 
 /// The cargo flags a release artifact is built with: native RTL-SDR and HackRF compiled in
-/// (pure Rust, no C library to install), SoapySDR left out (`soapysdr-sys` dynamically links
-/// libSoapySDR, which PLAN §15 forbids as a launch dependency of a release artifact).
+/// (pure Rust, no C library to install) along with the rtl_tcp and SpyServer clients (`std::net`,
+/// no dependency at all), SoapySDR left out (`soapysdr-sys` dynamically links libSoapySDR, which
+/// PLAN §15 forbids as a launch dependency of a release artifact).
 fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
         "--features".to_string(),
-        "rtl-native,hackrf-native".to_string(),
+        "rtl-native,hackrf-native,net-client".to_string(),
     ]
 }
 

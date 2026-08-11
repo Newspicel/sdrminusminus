@@ -40,11 +40,11 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Hotplug detection by filtered re-enumeration + engine probe cross-check, with the fault path releasing the device so a replug can re-open it
 - **[shipped]** Auto-reconnect on replug — a faulted set whose radio re-enumerates is re-opened, its tuning re-applied and its channels rebuilt with ids, PCM identity and live audio subscriptions preserved
 - **[shipped]** Two-tier recovery — an in-place stream restart (measured 6.1–7.6 ms on the RTL-SDR, 0.8–1.2 ms on the HackRF, against ~1.6 s for a re-open) with a silent-stall detector on both radios, falling back to the engine's destructive fault path only when the restart budget is spent. Proven in three pieces (policy, transport, primitive); never yet driven by a genuinely halted pipe
-- **[shipped]** Soapy-free builds are a CI gate (`--no-default-features --features rtl-native,hackrf-native`)
+- **[shipped]** Soapy-free builds are a CI gate (`--no-default-features --features rtl-native,hackrf-native,net-client`)
 - **[shipped]** Direct sampling (HF via RTL-SDR) — the tuner goes to standby and the RTL2832U's own downconverter becomes the dial, so a dongle whose tuner starts at 24 MHz hears DC–14.4 MHz. Offered as an `off`/`i`/`q` setting on every board but the Blog V4, which upconverts into the tuner instead and would lose its antenna if the tuner were bypassed. Switching modes carries the dial into the range the new mode can reach and reports where it landed; the tuner's gain and IF filter are recorded while bypassed and written back when it returns, so a faulted HF set reconnects onto the same configuration. The register sequence follows librtlsdr line for line and every pure part of it is tested, but no modified dongle or Blog V3 has been attached — nothing has yet *heard* HF this way
 - **[shipped]** HackRF baseband filter as a control of its own — all sixteen MAX2837 widths offered, an off-grid request snapped down and *reported* at the width that landed, and a `0` that asks for whatever the sample rate implies. A rate change still carries the filter with it, but the width it lands on is now libhackrf's `0.75 × rate` rather than the rate itself: the old value asked for a filter wider than the passband it was there to bound, and no longer matched what the same radio does under `hackrf_transfer`
 - **[shipped]** HackRF hardware sweep mode — the firmware's `INIT_SWEEP` request and `RX_SWEEP` transceiver mode, the 16 KiB stamped-block framing, and a reader that hands out one located capture per block, half-duplex arbitrated against capture and transmit. Driver-level and Rust-only, like the transmit path: the plan encoding and the block parsing are golden-tested against libhackrf's and the firmware's own source, but no radio has run it and nothing above `device-hackrf` calls it yet (see §4)
-- **[planned]** rtl_tcp / SpyServer client device
+- **[shipped]** Network receivers — **rtl_tcp** and **SpyServer** clients, pure `std::net`, no new dependency. A remote is *named*, not discovered: an address typed into the device node is adopted by its driver, probed from then on, and restored from the stored workspace after a restart. A dropped connection is a stream failure, not a lost device — the capture supervisor re-dials and replays every setting before the first sample. rtl_tcp reports its tuner's own range and gain table; SpyServer reads its capability set off the handshake, including a locked server whose frequency range is the window it will let you slide inside. Exercised against in-process fake servers; not yet against a real rtl_tcp or SpyServer on the bench
 - **[planned]** KiwiSDR client device
 - **[planned]** Remote source/sink between sdr-- instances; local routing between device sets
 - **[planned]** Audio-input device (`cpal`) — soundcard as a receiver
@@ -164,10 +164,51 @@ The dial and the plot were built so this could hang off them without rework, and
 
 ## 9. Digital voice
 
-- **[planned]** DMR, D-Star, YSF, NXDN, P25, dPMR
-- **[planned]** M17, FreeDV
-- **[planned]** Trunking following — P25 / DMR Tier III control channel decode with auto-steered voice channels
+**These decode the call, not the voice.** Every mode below but M17 carries an AMBE-family
+vocoder, and this build ships none — no digital-voice channel produces audio. What they do
+recover is the signalling around the payload, which is what a scanner log is made of: who
+transmitted, to which talkgroup or callsign, on which colour code or network, encrypted or not.
+
+- **[shipped]** Shared C4FM front end — discriminator, root-raised-cosine matched filter, Gardner
+  symbol clock, and decision levels *measured* rather than assumed, so an under-deviated
+  transmitter decodes and one front end serves the ±1944 Hz 12.5 kHz modes and the ±1050 Hz
+  6.25 kHz ones alike
+- **[shipped]** DMR — all eight sync patterns, Golay(20,8) slot type, BPTC(196,96) signalling:
+  voice LC header, terminator, CSBK and data header, each confirmed by the Reed-Solomon or CRC
+  mask that names its own frame type. Talkgroup, radio ID, colour code, group/private,
+  encryption flag. **Late entry**: the BPTC(128,77) embedded link control is reassembled from
+  bursts B–E of a voice superframe, so a call joined in progress names itself within 240 ms
+- **[shipped]** M17 — the one mode that names both parties in the clear: link setup frame through
+  derandomiser, quadratic interleaver, P1 depuncturing, Viterbi and CRC-16, with base-40
+  callsigns, encryption flag and end-of-transmission
+- **[shipped]** System Fusion (YSF) — FICH through its interleaver, Viterbi, four Golay(24,12,8)
+  blocks and CRC-16: frame type, data mode and DG-ID, one log line per call rather than ten a
+  second
+- **[shipped]** P25 Phase 1 — frame sync, status-symbol stripping and the BCH(63,16,23) network
+  identifier: NAC and data unit id, so headers, calls, terminators and trunking blocks are
+  distinguished and a system is identified by its NAC
+- **[shipped]** dPMR — FS1/FS3/FS4 framing and the full header information field (descrambled,
+  de-interleaved, CRC-8 checked): called and calling IDs, colour code, individual versus group
+- **[shipped]** NXDN — frame sync word and link information channel at both channel widths
+  (6.25 kHz at 2400 symbols/s, 12.5 kHz at 4800): channel type, direction, frame shape
+- **[shipped]** D-Star — GMSK receiver plus the slow-data channel, which is how a receiver that
+  joined a call in progress gets the header: URCALL, MYCALL, repeater and the text message, all
+  behind the header's own CRC
+- **[shipped]** Every mode verified against its specification via a reference modulator that
+  encodes the real framing (the same BPTC, Golay, convolutional and CRC layers, in reverse), fed
+  through the decoder in ragged block splits, plus a noise-decodes-to-nothing test per mode.
+  **None has yet decoded a real signal** — the same caveat the ADS-B/AIS/ACARS/NAVTEX decoders
+  carry, and the constants most likely to be wrong are named in each module's header comment
+- **[planned]** Vocoder audio — AMBE+2/IMBE for the six, Codec2 for M17. The framing above is
+  what a vocoder would plug into
+- **[planned]** P25 link control and trunking blocks (LDU1 link control, TSBK), NXDN SACCH/FACCH
+  addressing, YSF callsigns, M17 stream LICH late entry — the layers below each mode's framing
+- **[planned]** FreeDV
+- **[planned]** Trunking following — P25 / DMR Tier III control channel decode with auto-steered
+  voice channels. Needs the control-channel payloads above first
 - **[planned]** Hardware AMBE dongle/server support
+- **[planned]** DMR repeater slot numbering — the CACH that names the timeslot is not decoded, so
+  a slot is reported only where the sync pattern itself names it (direct mode)
 
 ## 10. Aviation & marine
 

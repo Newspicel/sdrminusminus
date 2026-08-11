@@ -16,6 +16,10 @@ import {
   aprsMotion,
   buildTranscript,
   type DecoderScope,
+  dvKind,
+  dvMode,
+  dvNetwork,
+  dvParties,
   formatAge,
   formatAltFreqs,
   formatClock,
@@ -615,6 +619,59 @@ export function ToneView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
+/** Digital voice: one call per row, from whichever of the seven modes produced it. There is no
+ * audio to offer — none of these modes ships a vocoder here — so the row *is* the decode: who
+ * called whom, on which network, and what happened to the transmission. */
+export function DvView({ scope = {} }: { scope?: DecoderScope }) {
+  const records = recordsInScope(useDecodedKind("dv"), scope);
+
+  if (records.length === 0) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>No digital voice traffic.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={PANE}>
+      <div className="flex flex-col divide-y divide-line">
+        {records.map((r, i) => {
+          const f = r.event.data;
+          const network = dvNetwork(f);
+          const parties = dvParties(f);
+          const detail = [f.via == null ? null : `via ${f.via}`, f.opcode ?? null, f.text ?? null]
+            .filter((part) => part != null)
+            .join(" · ");
+          return (
+            <div key={`${r.at}-${i}`} className="flex flex-col gap-0.5 py-1">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="font-mono text-xs tabular-nums text-ink-dim">
+                  {formatClock(r.at)}
+                </span>
+                <span className="font-mono text-xs text-accent">{dvMode(f)}</span>
+                <span className="font-mono text-xs text-ink">{parties || dvKind(f)}</span>
+                {parties !== "" && (
+                  <span className="font-mono text-[10px] text-ink-dim">{dvKind(f)}</span>
+                )}
+                {network !== "" && (
+                  <span className="font-mono text-[10px] tabular-nums text-ink-dim">{network}</span>
+                )}
+                {f.encrypted === true && (
+                  <span className="font-mono text-[10px] text-warn">encrypted</span>
+                )}
+              </div>
+              {detail !== "" && (
+                <span className="pl-14 font-mono text-[10px] text-ink-dim">{detail}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** The view each decoder kind is read in. Keyed on the generated `DecoderKind`, so a decoder
  * added to `wire` fails to compile here until it has somewhere to be read. */
 const VIEWS: Record<DecoderKind, (scope: DecoderScope) => ReactNode> = {
@@ -629,6 +686,7 @@ const VIEWS: Record<DecoderKind, (scope: DecoderScope) => ReactNode> = {
   acars: (scope) => <AcarsView scope={scope} />,
   subghz: (scope) => <SubghzView scope={scope} />,
   tone: (scope) => <ToneView scope={scope} />,
+  dv: (scope) => <DvView scope={scope} />,
 };
 
 // `ChannelDescriptor.decoder_kind` is a bare string on the wire, so a server newer than this

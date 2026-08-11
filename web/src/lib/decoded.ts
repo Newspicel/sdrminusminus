@@ -301,6 +301,9 @@ function stationId(event: DecoderEvent): string | null {
     // Subaudible signalling describes the channel, not a station on it — the transmitter it
     // belongs to is whoever is keying up right now, and nothing in the event names them.
     case "tone":
+    // A digital-voice frame is an event in a call — a start, an end, a signalling block — and
+    // merging them forward would blur two calls from the same radio into one row.
+    case "dv":
       return null;
   }
 }

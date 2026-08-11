@@ -79,6 +79,53 @@ pub fn design_gaussian(sps: f64, bt: f64, span: usize) -> Vec<f32> {
     h.into_iter().map(|v| v as f32).collect()
 }
 
+/// Root-raised-cosine matched filter: `sps` samples per symbol, `alpha` the roll-off (0.2 for
+/// the C4FM digital-voice modes, 0.5 for M17), `span` symbol periods either side of the pulse.
+/// The tap count is `2·span·sps` rounded up to odd, so the pulse has a true centre tap.
+/// Normalized to unity DC gain, which keeps a demodulator's level estimate meaning what it did
+/// before the filter.
+#[must_use]
+pub fn design_rrc(sps: f64, alpha: f64, span: usize) -> Vec<f32> {
+    assert!(sps > 1.0, "need more than one sample per symbol");
+    assert!(
+        alpha > 0.0 && alpha <= 1.0,
+        "roll-off must be in (0, 1]: {alpha}"
+    );
+    assert!(span >= 1, "span must cover at least one symbol");
+    let mut taps = (2.0 * span as f64 * sps).round() as usize;
+    if taps.is_multiple_of(2) {
+        taps += 1;
+    }
+    let center = (taps - 1) as f64 / 2.0;
+    let mut h: Vec<f64> = (0..taps)
+        .map(|k| {
+            let t = (k as f64 - center) / sps;
+            rrc_pulse(t, alpha)
+        })
+        .collect();
+    let sum: f64 = h.iter().sum();
+    for v in &mut h {
+        *v /= sum;
+    }
+    h.into_iter().map(|v| v as f32).collect()
+}
+
+/// The RRC impulse response at `t` symbol periods, with its two removable singularities —
+/// at the origin, and at `t = ±1/(4α)` where the closed form divides by zero — evaluated as
+/// the limits they are.
+fn rrc_pulse(t: f64, alpha: f64) -> f64 {
+    if t.abs() < 1e-9 {
+        return 1.0 - alpha + 4.0 * alpha / PI;
+    }
+    if (t.abs() - 1.0 / (4.0 * alpha)).abs() < 1e-9 {
+        let x = PI / (4.0 * alpha);
+        return alpha / 2.0f64.sqrt() * ((1.0 + 2.0 / PI) * x.sin() + (1.0 - 2.0 / PI) * x.cos());
+    }
+    let pt = PI * t;
+    let numerator = ((1.0 - alpha) * pt).sin() + 4.0 * alpha * t * ((1.0 + alpha) * pt).cos();
+    numerator / (pt * (1.0 - (4.0 * alpha * t).powi(2)))
+}
+
 fn sinc(x: f64) -> f64 {
     if x.abs() < 1e-12 {
         1.0

@@ -1138,6 +1138,34 @@ export interface components {
             settings: components["schemas"]["AtvParams"];
             /** @enum {string} */
             type: "atv";
+        } | {
+            settings: components["schemas"]["DmrParams"];
+            /** @enum {string} */
+            type: "dmr";
+        } | {
+            settings: components["schemas"]["DstarParams"];
+            /** @enum {string} */
+            type: "dstar";
+        } | {
+            settings: components["schemas"]["YsfParams"];
+            /** @enum {string} */
+            type: "ysf";
+        } | {
+            settings: components["schemas"]["NxdnParams"];
+            /** @enum {string} */
+            type: "nxdn";
+        } | {
+            settings: components["schemas"]["P25Params"];
+            /** @enum {string} */
+            type: "p25";
+        } | {
+            settings: components["schemas"]["DpmrParams"];
+            /** @enum {string} */
+            type: "dpmr";
+        } | {
+            settings: components["schemas"]["M17Params"];
+            /** @enum {string} */
+            type: "m17";
         };
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
@@ -1373,6 +1401,10 @@ export interface components {
             data: components["schemas"]["ToneSquelchStatus"];
             /** @enum {string} */
             kind: "tone";
+        } | {
+            data: components["schemas"]["DvFrame"];
+            /** @enum {string} */
+            kind: "dv";
         };
         /**
          * @description One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not
@@ -1538,6 +1570,15 @@ export interface components {
          * @enum {string}
          */
         Direction: "rx" | "tx";
+        DmrParams: {
+            slots?: components["schemas"]["DmrSlots"];
+        };
+        /**
+         * @description Which DMR timeslot a channel reports. Both slots share one 12.5 kHz carrier in 30 ms
+         *     alternation, so the receiver always hears both; this only decides what reaches the log.
+         * @enum {string}
+         */
+        DmrSlots: "both" | "one" | "two";
         /** @description One diagnostic line. */
         DoctorCheck: {
             /** @description What was actually found. */
@@ -1558,6 +1599,10 @@ export interface components {
             /** @description Server version (`CARGO_PKG_VERSION`). */
             version: string;
         };
+        /** @description dPMR (C4FM, 2400 symbols/s, 6.25 kHz). */
+        DpmrParams: Record<string, never>;
+        /** @description D-Star (GMSK, 4800 bit/s). */
+        DstarParams: Record<string, never>;
         /**
          * @description What a radio's hardware can do, and whether it can do it at once.
          *
@@ -1568,6 +1613,84 @@ export interface components {
          * @enum {string}
          */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
+        /**
+         * @description One decoded digital-voice frame — the *metadata* of a call, not its audio.
+         *
+         *     No mode here produces sound: DMR, D-Star, YSF, NXDN, P25 and dPMR all carry AMBE-family
+         *     vocoder frames and this build ships no vocoder, and M17's Codec2 payload is not decoded
+         *     either (see FEATURES §9). What a decoder does recover is everything *around* the voice —
+         *     who keyed up, on which talkgroup, over which repeater, with what encryption — which is what
+         *     a scanner log is actually made of. Fields are `Option` because which of them exist is a
+         *     property of the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR
+         *     voice header the reverse.
+         */
+        DvFrame: {
+            /**
+             * Format: int32
+             * @description The mode's network discriminator, under whichever name it publishes: DMR colour code,
+             *     NXDN/dPMR RAN or colour code, P25 NAC, YSF has none.
+             */
+            color_code?: number | null;
+            /**
+             * Format: int32
+             * @description Numeric destination: talkgroup for a group call, radio ID for a private one.
+             */
+            destination?: number | null;
+            destination_call?: string | null;
+            /**
+             * @description Set when the frame says its payload is encrypted. `Some(false)` is a positive statement
+             *     that it is in the clear; `None` means the frame did not say.
+             */
+            encrypted?: boolean | null;
+            /**
+             * Format: int32
+             * @description Bit errors the frame's error-correcting codes repaired — the honest signal-quality
+             *     readout, since a mode with no audio has no other.
+             */
+            errors_corrected: number;
+            /** @description True for a talkgroup call, false for a call addressed to one radio. */
+            group_call?: boolean | null;
+            kind: components["schemas"]["DvFrameKind"];
+            mode: components["schemas"]["DvMode"];
+            /**
+             * @description Name of the signalling opcode for a control frame — "group voice channel grant",
+             *     "preamble", … — as its specification names it.
+             */
+            opcode?: string | null;
+            /**
+             * Format: int32
+             * @description TDMA timeslot, 1 or 2 — DMR only; every other mode here is single-slot.
+             */
+            slot?: number | null;
+            /**
+             * Format: int32
+             * @description Numeric source address — DMR/NXDN/dPMR radio ID, P25 source unit.
+             */
+            source?: number | null;
+            /** @description Source callsign — the modes that address by callsign rather than by number. */
+            source_call?: string | null;
+            /**
+             * @description Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta
+             *     field.
+             */
+            text?: string | null;
+            /** @description The repeater or reflector the call is routed through: D-Star RPT1/RPT2. */
+            via?: string | null;
+        };
+        /**
+         * @description What the burst was carrying. Every mode distinguishes these four, whatever it calls them:
+         *     the frame that opens a transmission and names the parties, the voice frames that follow,
+         *     the one that closes it, and the signalling that travels outside a call.
+         * @enum {string}
+         */
+        DvFrameKind: "header" | "voice" | "terminator" | "control" | "data";
+        /**
+         * @description Which digital-voice mode a [`DvFrame`] was heard on (PLAN §13 wave 3). One event type
+         *     serves all of them because the *question* is the same in every mode — who is talking, to
+         *     whom, on which network — and only the names for it differ.
+         * @enum {string}
+         */
+        DvMode: "dmr" | "dstar" | "ysf" | "nxdn" | "p25" | "dpmr" | "m17";
         /**
          * @description Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a
          *     path segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing
@@ -1620,6 +1743,8 @@ export interface components {
          * @enum {string}
          */
         ItuRegion: "r1" | "r2" | "r3";
+        /** @description M17 (C4FM, 4800 symbols/s, RRC 0.5). */
+        M17Params: Record<string, never>;
         MorseParams: {
             /**
              * Format: double
@@ -1769,6 +1894,17 @@ export interface components {
             needs_channel_type?: boolean;
             ports: components["schemas"]["PortSpec"][];
         };
+        /**
+         * @description The two NXDN channel widths. They are different radios as far as the receiver is
+         *     concerned: 6.25 kHz halves both the symbol rate and the deviation of the 12.5 kHz one.
+         * @enum {string}
+         */
+        NxdnBandwidth: "narrow" | "wide";
+        NxdnParams: {
+            bandwidth?: components["schemas"]["NxdnBandwidth"];
+        };
+        /** @description P25 Phase 1 (C4FM, 4800 symbols/s). */
+        P25Params: Record<string, never>;
         /**
          * @description `POST /api/workspaces/{id}/apply` — what applying the workspace did.
          *
@@ -2741,6 +2877,8 @@ export interface components {
             active?: number | null;
             workspaces: components["schemas"]["WorkspaceInfo"][];
         };
+        /** @description System Fusion (C4FM, 4800 symbols/s). */
+        YsfParams: Record<string, never>;
     };
     responses: never;
     parameters: never;

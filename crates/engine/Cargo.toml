@@ -13,12 +13,16 @@ workspace = true
 # Every hardware backend is a feature (PLAN §3). The native ones are default-on because they
 # are pure Rust and are what makes a release artifact launch with no C dependency (PLAN §15);
 # `soapy` is default-on for development but omitted from release builds, so
-# `--no-default-features --features rtl-native,hackrf-native` must build a Soapy-free binary.
+# `--no-default-features --features rtl-native,hackrf-native,net-client` must build a Soapy-free
+# binary.
 [features]
-default = ["soapy", "rtl-native", "hackrf-native"]
+default = ["soapy", "rtl-native", "hackrf-native", "net-client"]
 soapy = ["dep:sdrmm-device-soapy"]
 rtl-native = ["dep:sdrmm-device-rtlsdr"]
 hackrf-native = ["dep:sdrmm-device-hackrf"]
+# rtl_tcp and SpyServer clients. Pure `std::net`, so it costs a release artifact nothing and is
+# part of the Soapy-free build (PLAN §15).
+net-client = ["dep:sdrmm-device-net"]
 
 [dependencies]
 sdrmm-wire.workspace = true
@@ -28,6 +32,7 @@ sdrmm-device-virtual.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
 sdrmm-device-rtlsdr = { workspace = true, optional = true }
 sdrmm-device-hackrf = { workspace = true, optional = true }
+sdrmm-device-net = { workspace = true, optional = true }
 sdrmm-channels.workspace = true
 sdrmm-recorder.workspace = true
 opus.workspace = true

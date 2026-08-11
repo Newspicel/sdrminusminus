@@ -9,6 +9,7 @@ members = [
     "crates/device-soapy",
     "crates/device-rtlsdr",
     "crates/device-hackrf",
+    "crates/device-net",
     "crates/channels",
     "crates/recorder",
     "crates/engine",
@@ -29,6 +30,7 @@ default-members = [
     "crates/device-soapy",
     "crates/device-rtlsdr",
     "crates/device-hackrf",
+    "crates/device-net",
     "crates/channels",
     "crates/recorder",
     "crates/engine",
@@ -55,6 +57,7 @@ sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
 sdrmm-device-rtlsdr = { path = "crates/device-rtlsdr" }
 sdrmm-device-hackrf = { path = "crates/device-hackrf" }
+sdrmm-device-net = { path = "crates/device-net" }
 sdrmm-channels = { path = "crates/channels" }
 sdrmm-recorder = { path = "crates/recorder" }
 # default-features = false so binaries opt into `soapy` themselves — a member manifest cannot
@@ -165,6 +168,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-hackrf]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-net]
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-virtual]

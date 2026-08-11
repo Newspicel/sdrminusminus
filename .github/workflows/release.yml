@@ -381,7 +381,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
-          args: --target ${{ matrix.target }} --no-default-features --features rtl-native,hackrf-native --bundles ${{ matrix.bundles }}
+          args: --target ${{ matrix.target }} --no-default-features --features rtl-native,hackrf-native,net-client --bundles ${{ matrix.bundles }}
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
       # — and the release job below treats every downloaded entry as a file to attach.

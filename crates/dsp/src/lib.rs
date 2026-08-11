@@ -9,6 +9,7 @@ pub mod fec;
 pub mod fir;
 pub mod firc;
 pub mod fm;
+pub mod fsk4;
 pub mod iir;
 pub mod nco;
 pub mod pll;
@@ -30,14 +31,19 @@ pub use bits::{
 pub use ddc::{Ddc, DdcError, flat_bandwidth_hz, resamplable_bandwidth_hz};
 pub use decim::{Decimator, RealDecimator};
 pub use fec::{
-    RdsOffset, crc16_ccitt, crc16_x25, golay23_encode, golay23_ok, hdlc_fcs_ok,
+    RdsOffset,
+    block::{CyclicCode, ParityCode},
+    bptc::{Bptc128, Bptc196},
+    conv::Viterbi5,
+    crc16_ccitt, crc16_msb, crc16_msb_bits, crc16_x25, golay23_encode, golay23_ok, hdlc_fcs_ok,
     mode_s_append_overlaid_parity, mode_s_append_parity, mode_s_fix_single_bit, mode_s_overlay,
     mode_s_syndrome, pocsag_bch_decode, pocsag_bch_encode, rds_check_block, rds_encode_block,
-    rds_syndrome,
+    rds_syndrome, rs129_parity,
 };
-pub use fir::{design_bandpass, design_gaussian, design_lowpass};
+pub use fir::{design_bandpass, design_gaussian, design_lowpass, design_rrc};
 pub use firc::FirC;
 pub use fm::FmDemod;
+pub use fsk4::Fsk4Demod;
 pub use iir::{ComplexOnePole, DcBlocker, Deemphasis, Highpass, one_pole_coeff};
 pub use nco::Nco;
 pub use pll::{Costas, LoopFilter, Pll};
