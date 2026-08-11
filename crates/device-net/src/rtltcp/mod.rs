@@ -172,15 +172,22 @@ impl CaptureRadio for RtlRadio {
         // Before the first sample: a re-dialled server hands back a dongle at its power-on
         // defaults, and anything pushed downstream before the replay lands would be samples from a
         // frequency nobody asked for.
-        for (command, param) in lock(&self.remote).replay() {
+        //
+        // The replay and the publication are one step, under the guard `apply` also holds. This
+        // runs on the supervisor's restart thread while `apply` runs on the control thread, and a
+        // setting recorded into `remote` after this replay read it would find no connection to go
+        // out on — leaving the radio a setting behind what `settings()` reports, silently.
+        let remote = lock(&self.remote);
+        for (command, param) in remote.replay() {
             connection.send(&frame(command, param))?;
         }
+        *lock(&self.connection) = Some(connection.clone());
+        drop(remote);
         tracing::debug!(
             endpoint = %self.endpoint,
             tuner = greeting.tuner.name(),
             "rtl_tcp stream armed"
         );
-        *lock(&self.connection) = Some(connection.clone());
         Ok(RtlTcpStream::new(connection, self.pool.clone()))
     }
 
@@ -247,15 +254,16 @@ impl SdrDevice for RtlTcpDevice {
     }
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
-        let (next, batch) = {
-            let remote = *lock(&self.radio.remote);
-            caps::validate(settings, &self.capabilities, remote, self.gain_table)?
-        };
+        // Held across the send, because `arm` replays this same state into a fresh connection
+        // under it: that is what makes a batch either reach the live connection or be replayed by
+        // the restart that is taking its place, and never neither.
+        let mut remote = lock(&self.radio.remote);
+        let (next, batch) = caps::validate(settings, &self.capabilities, *remote, self.gain_table)?;
         // Recorded before the send, and kept even when the send fails: a write that fails means
         // the connection is dying, and the reconnect that follows replays this state into the
         // fresh one. The error is still returned, because until that happens the radio is not
         // where the caller was told to expect it.
-        *lock(&self.radio.remote) = next;
+        *remote = next;
         self.settings = next.wire();
         self.radio.send(&batch)?;
         Ok(())
