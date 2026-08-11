@@ -23,3 +23,9 @@ thiserror.workspace = true
 
 [dev-dependencies]
 rustfft.workspace = true
+# BER/limits harness for the phase-0 DMR baseline (MODEM-PLAN §7); dev-only until phase 3
+# puts modem engines on the receive path.
+sdrmm-modem.workspace = true
+# Dev-dependency on ourselves so integration tests see `testgen` (gated on `test-signals`,
+# which `#[cfg(test)]` alone does not enable for tests/ targets).
+sdrmm-channels = { workspace = true, features = ["test-signals"] }

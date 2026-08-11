@@ -1,0 +1,60 @@
+{
+  "label": "ideal BPSK, RRC α=0.35 span=8 sps=8, matched filter, known timing, uncoded BER, seed 0x5eed",
+  "points": [
+    {
+      "ebn0_db": 0.0,
+      "errors": 10221,
+      "trials": 131072
+    },
+    {
+      "ebn0_db": 1.0,
+      "errors": 10039,
+      "trials": 176128
+    },
+    {
+      "ebn0_db": 2.0,
+      "errors": 10109,
+      "trials": 270336
+    },
+    {
+      "ebn0_db": 3.0,
+      "errors": 10058,
+      "trials": 438272
+    },
+    {
+      "ebn0_db": 4.0,
+      "errors": 10027,
+      "trials": 806912
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 10014,
+      "trials": 1699840
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 10007,
+      "trials": 4214784
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 10000,
+      "trials": 12865536
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 9688,
+      "trials": 50003968
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 1657,
+      "trials": 50003968
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 218,
+      "trials": 50003968
+    }
+  ]
+}

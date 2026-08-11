@@ -1,0 +1,72 @@
+# The nightly full-measurement run (MODEM-PLAN §4.4 CI policy). Pull requests pay only for the
+# smoke tier — the always-on unit tests and curve-prefix/limits-spot-check gates that ride
+# inside `xtask check` / `xtask test` like any other test. The full sweeps, full limits tables,
+# the perf gate and the nightly BER grids run here on a schedule, where a many-minute
+# measurement is nobody's review-latency problem. Every step is a plain cargo invocation a
+# developer can run unchanged; `workflow_dispatch` makes "run the nightly now" a button.
+#
+# Ubuntu only, deliberately (no macOS): measurements gate on statistics against committed
+# thresholds, not on platform behaviour, and the perf gate compares only on the host that
+# wrote its baseline — on any other silicon it prints a skip note rather than flagging foreign
+# hardware as an engine regression (see `sdrmm_modem::ber::perf`).
+name: Nightly
+
+on:
+  schedule:
+    # ~03:00 UTC, off the whole hour: GitHub delays or drops on-the-hour cron load spikes.
+    - cron: "7 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  # Never cancel a measurement mid-sweep: a manual dispatch queues behind the scheduled run
+  # instead of killing it, and overlap is rare enough that waiting is the cheaper policy.
+  cancel-in-progress: false
+
+jobs:
+  measurements:
+    name: Full measurements (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # Installs the pinned nightly + rustfmt/clippy from rust-toolchain.toml.
+      - run: rustup show
+      # Its own cache key: everything here builds in release, so sharing the gate's
+      # debug-profile cache would just thrash both.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly
+      # `-- --ignored` selects exactly the tests the crate marks as nightly-tier: the full
+      # BPSK-vs-erfc calibration gate and the perf-baseline comparison. `write_perf_baseline`
+      # is excluded by name — it rewrites the committed baseline file the comparison reads,
+      # which on a runner would both race the compare test and quietly turn the gate into
+      # measured-vs-just-measured. It is run deliberately, on the reference host only.
+      - name: modem full gates
+        run: cargo test -p sdrmm-modem --release -- --ignored --skip write_perf_baseline
+      # The DMR pre-migration reference (MODEM-PLAN §7 phase 0): full steady + burst sweeps
+      # and the limits table re-measured and guarded point-wise against the committed
+      # artifacts in crates/channels/baselines/dmr/.
+      - name: channels full baselines
+        run: cargo test -p sdrmm-channels --release -- --ignored
+      # The harness calibration entry over its full 0–10 dB grid, written as JSON + CSV and
+      # judged against the exact erfc form — a FAIL is a nonzero exit, no output parsing.
+      - name: ber curves (full grid)
+        run: cargo run -p xtask -- ber bpsk-ideal --full
+      # Criterion in --test mode: every bench target runs once, proving the perf harness
+      # stays buildable and runnable. The measured numbers gate above via the committed JSON
+      # baselines; a shared runner's Criterion timings would be noise, so none are recorded.
+      - name: benches stay runnable
+        run: cargo bench -p sdrmm-modem -- --test
+      # `xtask ber` writes its files even on FAIL — a failing curve is exactly the one worth
+      # looking at, and without this it dies with the runner.
+      - name: keep the measured curves
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ber-curves
+          path: target/ber
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,51 @@
+{
+  "entry": "dmr-current-chain",
+  "seed": 3417,
+  "sensitivity_db_1e2": 16.88868487965445,
+  "sensitivity_db_1e3": null,
+  "sensitivity_db_1e4": null,
+  "rows": [
+    {
+      "axis": "static CFO",
+      "unit": "Hz",
+      "threshold": 1921.875,
+      "criterion": "BER <= 3e-2 at sensitivity(3e-2) + 6 dB (documented 4.3 override: the chain's continuous-mode floor sits above the 1e-3 default)"
+    },
+    {
+      "axis": "frequency drift",
+      "unit": "Hz/s",
+      "threshold": 7500.0,
+      "criterion": "BER <= 3e-2 at sensitivity(3e-2) + 6 dB (documented 4.3 override: the chain's continuous-mode floor sits above the 1e-3 default)"
+    },
+    {
+      "axis": "sample clock",
+      "unit": "ppm",
+      "threshold": 23046.875,
+      "criterion": "BER <= 3e-2 at sensitivity(3e-2) + 6 dB (documented 4.3 override: the chain's continuous-mode floor sits above the 1e-3 default)"
+    },
+    {
+      "axis": "static timing offset",
+      "unit": "samples",
+      "threshold": 10.0,
+      "criterion": "BER <= 3e-2 at sensitivity(3e-2) + 6 dB (documented 4.3 override: the chain's continuous-mode floor sits above the 1e-3 default)"
+    },
+    {
+      "axis": "dead time",
+      "unit": "symbols",
+      "threshold": 1024.0,
+      "criterion": "BER <= 3e-2 at sensitivity(3e-2) + 6 dB (documented 4.3 override: the chain's continuous-mode floor sits above the 1e-3 default)"
+    },
+    {
+      "axis": "burst shortening",
+      "unit": "payload symbols removed (of 108)",
+      "threshold": 69.0,
+      "criterion": "BER <= 3e-2 at sensitivity(3e-2) + 6 dB (documented 4.3 override: the chain's continuous-mode floor sits above the 1e-3 default)"
+    },
+    {
+      "axis": "level step",
+      "unit": "dB attenuation of alternate bursts",
+      "threshold": 7.3125,
+      "criterion": "BER <= 3e-2 at sensitivity(3e-2) + 6 dB (documented 4.3 override: the chain's continuous-mode floor sits above the 1e-3 default)"
+    }
+  ]
+}

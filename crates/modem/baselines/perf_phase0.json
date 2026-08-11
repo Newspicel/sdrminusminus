@@ -1,0 +1,16 @@
+[
+  {
+    "bench": "fsk4_dmr_48k",
+    "msamples_per_s": 24.31416236508077,
+    "realtime_factor": 506.54504927251605,
+    "config": "48 kHz, 4800 baud, ±1944 Hz outer deviation, RRC α=0.2 span 8",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "symbol_sync_8sps",
+    "msamples_per_s": 554.9452475502501,
+    "realtime_factor": 14451.69915495443,
+    "config": "8 sps, loop_bw 0.01, RRC α=0.35 shaped BPSK",
+    "host": "aarch64-macos"
+  }
+]

@@ -1,0 +1,24 @@
+[package]
+name = "sdrmm-modem"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+sdrmm-dsp.workspace = true
+num-complex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "perf"
+harness = false

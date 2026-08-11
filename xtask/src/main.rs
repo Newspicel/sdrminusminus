@@ -14,6 +14,8 @@ use clap::{Parser, Subcommand};
 use num_complex::Complex;
 
 mod bandplan;
+mod ber;
+mod catalog;
 mod icons;
 
 #[derive(Parser)]
@@ -48,6 +50,18 @@ enum Cmd {
         /// tens of megabytes and change a few times a year.
         #[arg(long)]
         offline: bool,
+    },
+    /// Measure one modem-harness entry's BER curve and write it as JSON + CSV (MODEM-PLAN
+    /// §3.1), with PASS/FAIL against the entry's oracle. FAIL exits nonzero.
+    Ber {
+        /// Harness entry to sweep, e.g. `bpsk-ideal`. An unknown name lists the known ones.
+        entry: String,
+        /// Output directory (default `target/ber/`).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// The nightly grid (0–10 dB in 1 dB steps) instead of the fast smoke subset.
+        #[arg(long)]
+        full: bool,
     },
     /// Re-render every icon from `assets/icon.svg` (run after changing the mark, commit the
     /// output). Not part of `check`: the renders are committed precisely so no build needs a
@@ -86,6 +100,7 @@ fn main() -> Result<()> {
         Cmd::Smoke => smoke(&root()),
         Cmd::Fixtures => fixtures(&root()),
         Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
+        Cmd::Ber { entry, out, full } => ber::run(&root(), &entry, out.as_deref(), full),
         Cmd::Icons => icons::icons(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
@@ -200,6 +215,7 @@ fn check(root: &Path) -> Result<()> {
     // answer in seconds, clippy takes minutes from a cold cache, and CI pays for the whole job
     // either way. A misformatted pull request should not cost a full workspace build to say so.
     check_toolchain_pins(root)?;
+    catalog::check(root)?;
     run("cargo", &["fmt", "--all", "--", "--check"], root)?;
 
     // Web gate.

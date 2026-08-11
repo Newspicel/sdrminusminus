@@ -1,0 +1,70 @@
+{
+  "label": "dmr burst uncoded, testgen c4fm -> BurstModel 132/156 sym TDMA -> channel filter -> Fsk4Demod + SyncLevels, sync+preamble overhead in Eb, dead time excluded, release, uncoded BER, seed 0xd5b",
+  "points": [
+    {
+      "ebn0_db": 6.0,
+      "errors": 3571,
+      "trials": 15552
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 3515,
+      "trials": 12960
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 3135,
+      "trials": 15552
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 3006,
+      "trials": 15552
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 3358,
+      "trials": 18144
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 3035,
+      "trials": 20736
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 3046,
+      "trials": 196992
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 3016,
+      "trials": 285120
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 3018,
+      "trials": 360288
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 3011,
+      "trials": 469152
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 3000,
+      "trials": 606528
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 3015,
+      "trials": 684288
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 3000,
+      "trials": 769824
+    }
+  ]
+}

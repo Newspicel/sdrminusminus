@@ -1,0 +1,80 @@
+{
+  "label": "dmr steady uncoded, testgen c4fm -> channel filter -> Fsk4Demod, 88-symbol preamble + 24-symbol sync overhead in Eb, release, uncoded BER, seed 0xd59",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 3516,
+      "trials": 20480
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 4412,
+      "trials": 20480
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 3463,
+      "trials": 20480
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 4051,
+      "trials": 36864
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 3276,
+      "trials": 69632
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 3446,
+      "trials": 49152
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 3034,
+      "trials": 77824
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 3112,
+      "trials": 135168
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 3043,
+      "trials": 94208
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 3022,
+      "trials": 114688
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 3046,
+      "trials": 163840
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 3008,
+      "trials": 262144
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 3002,
+      "trials": 225280
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 3003,
+      "trials": 311296
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 3035,
+      "trials": 331776
+    }
+  ]
+}

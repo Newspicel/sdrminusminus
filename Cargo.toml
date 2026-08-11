@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/wire",
     "crates/dsp",
+    "crates/modem",
     "crates/usb-stream",
     "crates/device",
     "crates/device-virtual",
@@ -24,6 +25,7 @@ members = [
 default-members = [
     "crates/wire",
     "crates/dsp",
+    "crates/modem",
     "crates/usb-stream",
     "crates/device",
     "crates/device-virtual",
@@ -51,6 +53,7 @@ rust-version = "1.99"
 # Internal crates
 sdrmm-wire = { path = "crates/wire" }
 sdrmm-dsp = { path = "crates/dsp" }
+sdrmm-modem = { path = "crates/modem" }
 sdrmm-usb-stream = { path = "crates/usb-stream" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
@@ -128,6 +131,9 @@ clap = { version = "4", features = ["derive", "env"] }
 # Scoped temp dirs for filesystem tests (SigMF IO, recordings REST); dev-dependency only.
 tempfile = "3"
 
+# Performance baselines for the modem catalog (MODEM-PLAN §4.2); dev-dependency only.
+criterion = "0.7"
+
 # `cargo xtask icons` rasterises assets/icon.svg; xtask only, nothing shipped links it.
 # No default features: the mark is paths, and `text` would pull a whole font database into a
 # tool that never lays out a glyph. It re-exports the `tiny_skia` the pixmaps come from.
@@ -158,6 +164,9 @@ codegen-units = 1
 opt-level = 3
 
 [profile.dev.package.sdrmm-dsp]
+opt-level = 3
+
+[profile.dev.package.sdrmm-modem]
 opt-level = 3
 
 [profile.dev.package.sdrmm-channels]

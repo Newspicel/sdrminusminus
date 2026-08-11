@@ -24,6 +24,8 @@ sdrmm-device-virtual.workspace = true
 sdrmm-channels = { workspace = true, features = ["test-signals"] }
 # The APRS fixture is keyed by the real modulator, which is configured with wire types.
 sdrmm-wire.workspace = true
+# `ber` sweeps the modem measurement harness's entries into curve files (MODEM-PLAN §3.1).
+sdrmm-modem.workspace = true
 num-complex.workspace = true
 clap.workspace = true
 anyhow.workspace = true
