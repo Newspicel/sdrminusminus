@@ -670,6 +670,42 @@ export interface components {
             mode?: components["schemas"]["AprsMode"];
         };
         /**
+         * @description How an analog television transmission carries its video, and with it the polarity the
+         *     demodulated signal arrives in (PLAN §13: ATV).
+         * @enum {string}
+         */
+        AtvModulation: "am" | "fm";
+        AtvParams: {
+            /**
+             * Format: double
+             * @description Video channel width in Hz. This *is* the horizontal resolution — a picture cannot carry
+             *     more detail per line than the bandwidth that delivered it — so it is the one knob worth
+             *     opening up when the channel is clean, bounded by the mode's IQ rate.
+             */
+            bandwidth_hz?: number;
+            /**
+             * @description Weave the two fields into one frame at their real line positions. Off decodes each
+             *     vertical sync as a whole progressive frame, which is what non-interlaced amateur and
+             *     camera sources send.
+             */
+            interlace?: boolean;
+            /**
+             * @description Invert the video polarity, for a transmission that keys the opposite way round from its
+             *     modulation's convention (see [`AtvModulation`]). A picture that comes out as a photographic
+             *     negative, with the sync tracker never locking, is what this fixes.
+             */
+            invert?: boolean;
+            modulation?: components["schemas"]["AtvModulation"];
+            standard?: components["schemas"]["AtvStandard"];
+        };
+        /**
+         * @description Scanning standard the transmission follows: how many lines make a frame and how fast they
+         *     go by. Everything else the demodulator needs — porch widths, active window, blanked lines —
+         *     derives from these two numbers plus the standard's own timings.
+         * @enum {string}
+         */
+        AtvStandard: "ccir625" | "eia525" | "system_a405";
+        /**
          * @description `GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before
          *     its first real request (PLAN §12: optional single shared token).
          */
@@ -761,6 +797,13 @@ export interface components {
              *     Defaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour.
              */
             has_audio?: boolean;
+            /**
+             * @description Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames
+             *     rather than as decoder events (ATV, PLAN §13). The client subscribes and mounts a video
+             *     panel on the channel's face when this is set. Defaults to `false`, which is every mode
+             *     that predates the video transport.
+             */
+            has_video?: boolean;
             /**
              * Format: double
              * @description IQ rate the demod expects from the DDC, in Hz.
@@ -859,6 +902,10 @@ export interface components {
             settings: components["schemas"]["SubghzParams"];
             /** @enum {string} */
             type: "subghz";
+        } | {
+            settings: components["schemas"]["AtvParams"];
+            /** @enum {string} */
+            type: "atv";
         };
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
@@ -948,6 +995,30 @@ export interface components {
             };
             /** @enum {string} */
             type: "UnsubscribeAudio";
+        } | {
+            /**
+             * @description Start receiving pictures from a channel that produces them (`ChannelDescriptor.has_video`);
+             *     answered with `VideoStreamStarted`. A channel with no video refuses rather than opening a
+             *     stream that would never carry a frame.
+             */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+            };
+            /** @enum {string} */
+            type: "SubscribeVideo";
+        } | {
+            /** @description Stop the video stream for a channel. */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+            };
+            /** @enum {string} */
+            type: "UnsubscribeVideo";
         };
         /**
          * @description `GET /api/clients` — how many clients share this server right now (PLAN §16 M5
@@ -1999,6 +2070,22 @@ export interface components {
             type: "AudioStreamStarted";
         } | {
             /**
+             * @description A subscribed video stream is now active, carrying the channel's pictures as
+             *     [`crate::VideoFrame`]s. Ids come from the same per-connection media range audio uses, so
+             *     the client demuxes on `(kind, stream_id)` exactly as it does there.
+             */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+                /** Format: int32 */
+                stream_id: number;
+            };
+            /** @enum {string} */
+            type: "VideoStreamStarted";
+        } | {
+            /**
              * @description A subscribed stream stopped; `kind` says which one, since spectrum and audio ids
              *     come from different spaces.
              */
@@ -2136,13 +2223,12 @@ export interface components {
             revision: number;
         };
         /**
-         * @description Which binary stream a control event refers to. Spectrum stream ids are device-set ids
-         *     (< 0x8000) and audio ids are connection-allocated from `0x8000..=0xFFFF`, but only the
-         *     pair `(kind, stream_id)` identifies a stream — events must carry the kind or a spectrum
-         *     stop is indistinguishable from an audio stop.
+         * @description Which binary stream a control event refers to. Every id is allocated per connection, from a
+         *     range per class, but only the pair `(kind, stream_id)` identifies a stream — events must
+         *     carry the kind or a spectrum stop is indistinguishable from an audio one.
          * @enum {string}
          */
-        StreamKind: "spectrum" | "audio";
+        StreamKind: "spectrum" | "audio" | "video";
         /**
          * @description Which device settings each receive stream holds on its own, rather than sharing with the rest
          *     of the radio. All-false — the default, and what every capability set from before this field

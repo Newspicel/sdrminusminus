@@ -19,10 +19,20 @@
 //! AUDIO_OPUS payload:
 //!   u8  ch_layout       (1 = mono)
 //!   u8[] opus           (one Opus packet, to end of frame)
+//! VIDEO_GRAY payload:
+//!   u16 width
+//!   u16 height
+//!   u8[width·height] luma  (row-major from the top line, 0 = black)
 //! ```
 //!
 //! AUDIO_OPUS timestamps count 48 kHz-domain samples since the channel's audio started
 //! (PLAN §9: demods emit 48 kHz PCM before Opus encoding).
+//!
+//! VIDEO_GRAY timestamps count channel-rate IQ samples since the channel started, so a gap
+//! between pictures is legible as the time it really was. The picture is 8-bit luma and
+//! uncompressed: it is one frame per field of an analog scan, sized by what the channel's
+//! bandwidth resolved, and a codec between the demodulator and the canvas would cost more
+//! than the bytes it saved on a desktop link.
 
 /// Protocol version in every frame header. Bump on any layout change.
 pub const PROTOCOL_VERSION: u8 = 1;
@@ -37,6 +47,7 @@ pub enum FrameKind {
     Spectrum = 0,
     AudioOpus = 1,
     IqF32 = 2,
+    VideoGray = 3,
 }
 
 impl FrameKind {
@@ -46,6 +57,7 @@ impl FrameKind {
             0 => Some(Self::Spectrum),
             1 => Some(Self::AudioOpus),
             2 => Some(Self::IqF32),
+            3 => Some(Self::VideoGray),
             _ => None,
         }
     }
@@ -123,6 +135,41 @@ impl AudioFrame<'_> {
         buf.extend_from_slice(&self.timestamp.to_le_bytes());
         buf.push(self.ch_layout);
         buf.extend_from_slice(self.opus);
+        buf
+    }
+}
+
+/// One decoded picture ready to encode: 8-bit luma, row-major, `width · height` bytes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VideoFrame<'a> {
+    pub stream_id: u16,
+    pub seq: u32,
+    /// Channel-rate sample count when the picture completed.
+    pub timestamp: u64,
+    pub width: u16,
+    pub height: u16,
+    pub luma: &'a [u8],
+}
+
+impl VideoFrame<'_> {
+    /// Serialized length: header + the geometry + one byte per pixel.
+    #[must_use]
+    pub fn encoded_len(&self) -> usize {
+        HEADER_LEN + 2 + 2 + self.luma.len()
+    }
+
+    /// Encode into a fresh little-endian byte buffer.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf = Vec::with_capacity(self.encoded_len());
+        buf.push(PROTOCOL_VERSION);
+        buf.push(FrameKind::VideoGray as u8);
+        buf.extend_from_slice(&self.stream_id.to_le_bytes());
+        buf.extend_from_slice(&self.seq.to_le_bytes());
+        buf.extend_from_slice(&self.timestamp.to_le_bytes());
+        buf.extend_from_slice(&self.width.to_le_bytes());
+        buf.extend_from_slice(&self.height.to_le_bytes());
+        buf.extend_from_slice(self.luma);
         buf
     }
 }
@@ -211,5 +258,45 @@ mod tests {
         assert_eq!(ts, 96_000);
         assert_eq!(layout, 1);
         assert_eq!(out, opus);
+    }
+
+    /// Decode just enough to prove the layout matches the documented offsets.
+    fn decode_video(buf: &[u8]) -> (u8, FrameKind, u16, u32, u64, u16, u16, Vec<u8>) {
+        let ver = buf[0];
+        let kind = FrameKind::from_u8(buf[1]).expect("known kind");
+        let stream_id = u16::from_le_bytes([buf[2], buf[3]]);
+        let seq = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+        let timestamp = u64::from_le_bytes(buf[8..16].try_into().unwrap());
+        let width = u16::from_le_bytes([buf[16], buf[17]]);
+        let height = u16::from_le_bytes([buf[18], buf[19]]);
+        let luma = buf[20..].to_vec();
+        (ver, kind, stream_id, seq, timestamp, width, height, luma)
+    }
+
+    #[test]
+    fn video_roundtrip() {
+        let luma: Vec<u8> = (0..(8u32 * 4)).map(|i| (i * 7) as u8).collect();
+        let frame = VideoFrame {
+            stream_id: 0x8001,
+            seq: 9,
+            timestamp: 2_000_000,
+            width: 8,
+            height: 4,
+            luma: &luma,
+        };
+        let buf = frame.encode();
+        assert_eq!(buf.len(), frame.encoded_len());
+
+        let (ver, kind, sid, seq, ts, width, height, out) = decode_video(&buf);
+        assert_eq!(ver, PROTOCOL_VERSION);
+        assert_eq!(kind, FrameKind::VideoGray);
+        assert_eq!(sid, 0x8001);
+        assert_eq!(seq, 9);
+        assert_eq!(ts, 2_000_000);
+        assert_eq!((width, height), (8, 4));
+        assert_eq!(out, luma);
+        // The payload length is what the geometry claims, so a client can size its ImageData
+        // from the header alone.
+        assert_eq!(out.len(), usize::from(width) * usize::from(height));
     }
 }

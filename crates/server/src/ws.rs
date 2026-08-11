@@ -1,5 +1,5 @@
 //! WebSocket hub (PLAN §5): one socket per client carrying JSON events + client commands and
-//! binary spectrum/audio frames. A single writer task owns the sink; event and
+//! binary spectrum/audio/video frames. A single writer task owns the sink; event and
 //! per-subscription stream tasks feed it through a bounded mpsc. Stream tasks *await* that
 //! send: a full queue backpressures the task, its broadcast receiver lags, and tokio's
 //! broadcast sheds the oldest entries — drop-oldest per connection (PLAN §5). Control events
@@ -19,8 +19,10 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{decimate_max, quantize_db};
-use sdrmm_engine::{AudioPacket, Engine, SpectrumSnapshot, adaptive_db_window};
-use sdrmm_wire::{AudioFrame, ClientCommand, ServerEvent, SpectrumFrame, StateScope, StreamKind};
+use sdrmm_engine::{AudioPacket, Engine, SpectrumSnapshot, VideoPacket, adaptive_db_window};
+use sdrmm_wire::{
+    AudioFrame, ClientCommand, ServerEvent, SpectrumFrame, StateScope, StreamKind, VideoFrame,
+};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::AppState;
@@ -31,15 +33,19 @@ const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
 /// `ch_layout` header byte for mono audio frames (PLAN §5 frame layout).
 const CH_LAYOUT_MONO: u8 = 1;
-/// Audio stream ids live in `AUDIO_ID_BASE..=u16::MAX` and spectrum ids in `0..AUDIO_ID_BASE`, so
-/// the two can never collide on one connection.
+/// Per-channel media ids — audio and video alike — live in `MEDIA_ID_BASE..=u16::MAX` and
+/// spectrum ids in `0..MEDIA_ID_BASE`, so no two streams on one connection can collide.
 ///
 /// A spectrum id used to *be* the device-set id, which a multi-stream radio broke: several lanes
-/// of one set can be watched at once, and they need ids of their own to be told apart. Both kinds
-/// are now allocated per connection and reported in the `…StreamStarted` event that answers the
+/// of one set can be watched at once, and they need ids of their own to be told apart. Every kind
+/// is now allocated per connection and reported in the `…StreamStarted` event that answers the
 /// subscribe.
-const AUDIO_ID_BASE: u16 = 0x8000;
-/// First spectrum id. Ids run `SPECTRUM_ID_BASE..AUDIO_ID_BASE`.
+///
+/// Audio and video share one range and one allocator rather than splitting it: a client keys a
+/// sink on `(kind, id)`, and one space is what lets a channel's picture and its sound be told
+/// apart from every other channel's without reasoning about which half of the range they fell in.
+const MEDIA_ID_BASE: u16 = 0x8000;
+/// First spectrum id. Ids run `SPECTRUM_ID_BASE..MEDIA_ID_BASE`.
 const SPECTRUM_ID_BASE: u16 = 0;
 
 pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
@@ -134,9 +140,11 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     // of a multi-stream device, so a subscribe on one lane must not replace another's.
     let mut spectra: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
     let mut next_spectrum_id: u16 = SPECTRUM_ID_BASE;
-    // Audio streams keyed by (device_set, channel); resubscribing replaces the running task.
+    // Audio and video streams keyed by (device_set, channel); resubscribing replaces the
+    // running task. Ids come from one counter across both, so `(kind, id)` is unique per socket.
     let mut audio: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
-    let mut next_audio_id: u16 = AUDIO_ID_BASE;
+    let mut video: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
+    let mut next_media_id: u16 = MEDIA_ID_BASE;
 
     while let Some(Ok(msg)) = ws_rx.next().await {
         match msg {
@@ -176,7 +184,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                 let live = |id: u16| spectra.values().any(|(sid, _)| *sid == id);
                                 match alloc_stream_id(
                                     &mut next_spectrum_id,
-                                    SPECTRUM_ID_BASE..=AUDIO_ID_BASE - 1,
+                                    SPECTRUM_ID_BASE..=MEDIA_ID_BASE - 1,
                                     live,
                                 ) {
                                     Some(stream_id) => {
@@ -251,10 +259,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     };
                                     let _ = out_tx.send(text_event(&stopped)).await;
                                 }
-                                let live = |id: u16| audio.values().any(|(sid, _)| *sid == id);
+                                let live = |id: u16| media_id_live(&audio, &video, id);
                                 match alloc_stream_id(
-                                    &mut next_audio_id,
-                                    AUDIO_ID_BASE..=u16::MAX,
+                                    &mut next_media_id,
+                                    MEDIA_ID_BASE..=u16::MAX,
                                     live,
                                 ) {
                                     Some(stream_id) => {
@@ -269,7 +277,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     }
                                     None => {
                                         let err = ServerEvent::Error {
-                                            message: "no free audio stream ids on this connection"
+                                            message: "no free media stream ids on this connection"
                                                 .to_string(),
                                         };
                                         let _ = out_tx.send(text_event(&err)).await;
@@ -296,6 +304,74 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             let _ = out_tx.send(text_event(&stopped)).await;
                         }
                     }
+                    Ok(ClientCommand::SubscribeVideo {
+                        device_set,
+                        channel,
+                    }) => {
+                        let subscribe = {
+                            let engine = engine.clone();
+                            tokio::task::spawn_blocking(move || {
+                                engine.subscribe_video(device_set, channel)
+                            })
+                            .await
+                        };
+                        match flatten_join(subscribe) {
+                            Ok(rx) => {
+                                // Replacing a running stream for this (ds, ch): stop the old id
+                                // loudly first, exactly as the audio path does.
+                                if let Some((old_id, old)) = video.remove(&(device_set, channel)) {
+                                    old.abort();
+                                    let stopped = ServerEvent::StreamStopped {
+                                        stream_id: old_id,
+                                        kind: StreamKind::Video,
+                                    };
+                                    let _ = out_tx.send(text_event(&stopped)).await;
+                                }
+                                let live = |id: u16| media_id_live(&audio, &video, id);
+                                match alloc_stream_id(
+                                    &mut next_media_id,
+                                    MEDIA_ID_BASE..=u16::MAX,
+                                    live,
+                                ) {
+                                    Some(stream_id) => {
+                                        let started = ServerEvent::VideoStreamStarted {
+                                            stream_id,
+                                            device_set,
+                                            channel,
+                                        };
+                                        let _ = out_tx.send(text_event(&started)).await;
+                                        let task = spawn_video(stream_id, rx, out_tx.clone());
+                                        video.insert((device_set, channel), (stream_id, task));
+                                    }
+                                    None => {
+                                        let err = ServerEvent::Error {
+                                            message: "no free media stream ids on this connection"
+                                                .to_string(),
+                                        };
+                                        let _ = out_tx.send(text_event(&err)).await;
+                                    }
+                                }
+                            }
+                            Err(message) => {
+                                let _ = out_tx
+                                    .send(text_event(&ServerEvent::Error { message }))
+                                    .await;
+                            }
+                        }
+                    }
+                    Ok(ClientCommand::UnsubscribeVideo {
+                        device_set,
+                        channel,
+                    }) => {
+                        if let Some((stream_id, task)) = video.remove(&(device_set, channel)) {
+                            task.abort();
+                            let stopped = ServerEvent::StreamStopped {
+                                stream_id,
+                                kind: StreamKind::Video,
+                            };
+                            let _ = out_tx.send(text_event(&stopped)).await;
+                        }
+                    }
                     Err(_) => {
                         let err = ServerEvent::Error {
                             message: "invalid command".to_string(),
@@ -313,6 +389,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         task.abort();
     }
     for (_, (_, task)) in audio {
+        task.abort();
+    }
+    for (_, (_, task)) in video {
         task.abort();
     }
     events.abort();
@@ -342,8 +421,8 @@ fn flatten_join<T>(
 /// live stream on this connection, so a long-lived socket can never hand a live id to a second
 /// stream. `None` only once every id in the range is live.
 ///
-/// One allocator for both kinds: spectrum and audio draw from disjoint ranges (see
-/// [`AUDIO_ID_BASE`]) but the rule is identical, and two copies of it would be two places for the
+/// One allocator for every kind: spectrum and the media streams draw from disjoint ranges (see
+/// [`MEDIA_ID_BASE`]) but the rule is identical, and two copies of it would be two places for the
 /// wrap to be wrong.
 fn alloc_stream_id(
     next: &mut u16,
@@ -617,6 +696,64 @@ fn spawn_audio(
     })
 }
 
+/// Whether `id` is bound to a live media stream of either kind on this connection. One check
+/// across both maps, because both draw from [`MEDIA_ID_BASE`].
+fn media_id_live(
+    audio: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
+    video: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
+    id: u16,
+) -> bool {
+    audio
+        .values()
+        .chain(video.values())
+        .any(|(sid, _)| *sid == id)
+}
+
+/// Per-subscription task: forward the channel's pictures as binary [`VideoFrame`]s with the same
+/// drop-oldest backpressure as [`spawn_audio`]. A shed picture is simply a frame the client never
+/// draws — unlike audio there is nothing to conceal a gap from, so the next one is the whole
+/// recovery.
+fn spawn_video(
+    stream_id: u16,
+    mut rx: broadcast::Receiver<VideoPacket>,
+    out_tx: mpsc::Sender<Message>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(packet) => {
+                    let frame = VideoFrame {
+                        stream_id,
+                        seq: packet.seq,
+                        timestamp: packet.timestamp,
+                        width: packet.picture.width,
+                        height: packet.picture.height,
+                        luma: &packet.picture.luma,
+                    }
+                    .encode();
+
+                    // Awaited on purpose: backpressure lags the broadcast receiver and the
+                    // oldest pictures are shed (drop-oldest, PLAN §5).
+                    if out_tx.send(Message::Binary(frame.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => {
+                    // The channel or its device set was removed. Tell the client the stream
+                    // ended (no silent termination, CLAUDE.md).
+                    let stopped = ServerEvent::StreamStopped {
+                        stream_id,
+                        kind: StreamKind::Video,
+                    };
+                    let _ = out_tx.send(text_event(&stopped)).await;
+                    break;
+                }
+            }
+        }
+    })
+}
+
 fn text_event(ev: &ServerEvent) -> Message {
     Message::Text(encode_event(ev))
 }
@@ -724,6 +861,111 @@ mod tests {
             offset_hz,
             squelch_db: None,
             params: ChannelParams::Nfm(NfmParams::default()),
+        }
+    }
+
+    fn atv_channel() -> ChannelSettings {
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Atv(sdrmm_wire::AtvParams::default()),
+        }
+    }
+
+    /// The video subscription's lifecycle, and the rule that keeps a panel honest: a channel that
+    /// scans out pictures gets an id from the same media range audio does — never one already in
+    /// use by an audio stream on this socket — and a channel that scans out nothing is refused
+    /// rather than handed a stream that would stay empty.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn video_lifecycle_shares_the_media_id_space_and_refuses_silent_channels() {
+        let engine = test_engine();
+        let ds = engine
+            .create_device_set("virtual:siggen")
+            .expect("device set");
+        let voice = engine
+            .add_channel(ds, 0, nfm_channel(0.0))
+            .expect("nfm channel");
+        let picture = engine
+            .add_channel(ds, 0, atv_channel())
+            .expect("atv channel");
+        let mut ws = connect(engine).await;
+
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Hello { .. }
+        ));
+
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeAudio {
+                device_set: ds,
+                channel: voice,
+            },
+        )
+        .await;
+        let audio_id = match next_event(&mut ws).await {
+            ServerEvent::AudioStreamStarted { stream_id, .. } => stream_id,
+            other => panic!("expected AudioStreamStarted, got {other:?}"),
+        };
+
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeVideo {
+                device_set: ds,
+                channel: picture,
+            },
+        )
+        .await;
+        let video_id = match next_event(&mut ws).await {
+            ServerEvent::VideoStreamStarted {
+                stream_id,
+                device_set,
+                channel,
+            } => {
+                assert!(
+                    stream_id >= MEDIA_ID_BASE,
+                    "video id {stream_id:#x} collides with the spectrum range"
+                );
+                assert_eq!((device_set, channel), (ds, picture));
+                stream_id
+            }
+            other => panic!("expected VideoStreamStarted, got {other:?}"),
+        };
+        assert_ne!(
+            video_id, audio_id,
+            "a live audio id must not be handed to a video stream"
+        );
+
+        send(
+            &mut ws,
+            &ClientCommand::UnsubscribeVideo {
+                device_set: ds,
+                channel: picture,
+            },
+        )
+        .await;
+        match next_event(&mut ws).await {
+            ServerEvent::StreamStopped { stream_id, kind } => {
+                assert_eq!(stream_id, video_id);
+                assert_eq!(kind, StreamKind::Video);
+            }
+            other => panic!("expected StreamStopped, got {other:?}"),
+        }
+
+        // A mode with no picture: the refusal has to name the mode, not just say no.
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeVideo {
+                device_set: ds,
+                channel: voice,
+            },
+        )
+        .await;
+        match next_event(&mut ws).await {
+            ServerEvent::Error { message } => {
+                assert!(message.contains("no video"), "unhelpful: {message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
         }
     }
 
@@ -870,7 +1112,7 @@ mod tests {
         send(
             &mut ws,
             &ClientCommand::SubscribeSpectrum {
-                device_set: u32::from(AUDIO_ID_BASE),
+                device_set: u32::from(MEDIA_ID_BASE),
                 fps: 30,
                 bins: 64,
                 stream: 0,
@@ -944,7 +1186,7 @@ mod tests {
                 channel,
             } => {
                 assert!(
-                    stream_id >= AUDIO_ID_BASE,
+                    stream_id >= MEDIA_ID_BASE,
                     "audio id {stream_id:#x} collides with spectrum range"
                 );
                 assert_eq!(device_set, ds);
@@ -968,7 +1210,7 @@ mod tests {
             other => panic!("expected AudioStreamStarted, got {other:?}"),
         };
         assert_ne!(second_id, first_id);
-        assert!(second_id >= AUDIO_ID_BASE);
+        assert!(second_id >= MEDIA_ID_BASE);
 
         send(
             &mut ws,
@@ -989,26 +1231,26 @@ mod tests {
 
     #[test]
     fn audio_id_allocator_wraps_within_range_and_skips_live_ids() {
-        let mut next = AUDIO_ID_BASE;
-        let live = [AUDIO_ID_BASE, AUDIO_ID_BASE + 1];
+        let mut next = MEDIA_ID_BASE;
+        let live = [MEDIA_ID_BASE, MEDIA_ID_BASE + 1];
         assert_eq!(
-            alloc_stream_id(&mut next, AUDIO_ID_BASE..=u16::MAX, |id| live.contains(&id)),
-            Some(AUDIO_ID_BASE + 2)
+            alloc_stream_id(&mut next, MEDIA_ID_BASE..=u16::MAX, |id| live.contains(&id)),
+            Some(MEDIA_ID_BASE + 2)
         );
 
         let mut next = u16::MAX;
         assert_eq!(
-            alloc_stream_id(&mut next, AUDIO_ID_BASE..=u16::MAX, |_| false),
+            alloc_stream_id(&mut next, MEDIA_ID_BASE..=u16::MAX, |_| false),
             Some(u16::MAX)
         );
         assert_eq!(
-            next, AUDIO_ID_BASE,
+            next, MEDIA_ID_BASE,
             "must wrap into the audio range, not to 0"
         );
 
-        let mut next = AUDIO_ID_BASE;
+        let mut next = MEDIA_ID_BASE;
         assert_eq!(
-            alloc_stream_id(&mut next, AUDIO_ID_BASE..=u16::MAX, |_| true),
+            alloc_stream_id(&mut next, MEDIA_ID_BASE..=u16::MAX, |_| true),
             None
         );
     }
@@ -1074,7 +1316,7 @@ mod tests {
     async fn audio_forwarder_sheds_oldest_and_delivers_newest() {
         let (tx, rx) = broadcast::channel::<AudioPacket>(4);
         let (out_tx, mut out_rx) = mpsc::channel::<Message>(1);
-        let task = spawn_audio(AUDIO_ID_BASE, rx, out_tx);
+        let task = spawn_audio(MEDIA_ID_BASE, rx, out_tx);
 
         let last_seq = 20u32;
         for seq in 0..=last_seq {

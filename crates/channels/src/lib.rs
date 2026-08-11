@@ -1,14 +1,15 @@
 //! `sdrmm-channels` — the `ChannelRx` plugin surface (PLAN §8). Depends only on `dsp` + `wire`.
 //! Phase-1 analog demodulators plus the wave-1 and wave-2 data decoders (PLAN §13): NFM, AM,
-//! SSB, WFM mono (+RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse, NAVTEX, ACARS, sub-GHz. Each mode is one module whose
-//! descriptor and constructor sit in the same [`REGISTRY`] row, so the "add channel" UI and
-//! `create` dispatch cannot drift apart.
+//! SSB, WFM mono (+RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse, NAVTEX, ACARS, sub-GHz and
+//! ATV. Each mode is one module whose descriptor and constructor sit in the same [`REGISTRY`]
+//! row, so the "add channel" UI and `create` dispatch cannot drift apart.
 
 mod acars;
 mod adsb;
 mod ais;
 mod am;
 mod aprs;
+mod atv;
 mod morse;
 mod navtex;
 mod nfm;
@@ -35,6 +36,7 @@ pub use adsb::AdsbChannel;
 pub use ais::AisChannelRx;
 pub use am::{AmChannel, AmTx};
 pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
+pub use atv::AtvChannel;
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};
@@ -85,6 +87,7 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::Navtex(_) => navtex::occupied_band(),
         ChannelParams::Acars(p) => acars::occupied_band(p),
         ChannelParams::Subghz(p) => subghz::occupied_band(p),
+        ChannelParams::Atv(p) => atv::occupied_band(p),
     }
 }
 
@@ -131,6 +134,7 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::Navtex(_) => Ok(navtex::channel_filter()),
         ChannelParams::Acars(p) => acars::channel_filter(p),
         ChannelParams::Subghz(p) => subghz::channel_filter(p),
+        ChannelParams::Atv(p) => atv::channel_filter(p),
     }
 }
 
@@ -157,8 +161,18 @@ pub struct ChannelCtx {
     pub input_rate: f64,
 }
 
-/// Sink a channel writes into each `process` call: demodulated audio, typed events, and
-/// low-rate IQ taps for the analyzer (PLAN §8). Buffers are reused across calls by the host.
+/// One picture a video channel scanned out: 8-bit luma, row-major from the top line, exactly
+/// `width · height` bytes. Grayscale because that is what an analog raster carries once the
+/// colour subcarrier is left alone (PLAN §13: ATV decodes luma).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VideoPicture {
+    pub width: u16,
+    pub height: u16,
+    pub luma: Vec<u8>,
+}
+
+/// Sink a channel writes into each `process` call: demodulated audio, typed events, pictures,
+/// and low-rate IQ taps for the analyzer (PLAN §8). Buffers are reused across calls by the host.
 #[derive(Default)]
 pub struct ChannelOutputs {
     /// Interleaved/mono PCM plus its sample rate, when the channel produced audio this block.
@@ -167,6 +181,10 @@ pub struct ChannelOutputs {
     /// Typed decoder frames produced this block (PLAN §5). The host stamps them with time and
     /// frequency; a decoder never formats or serializes on the DSP thread.
     pub events: Vec<DecoderEvent>,
+    /// Pictures completed this block. A `Vec` rather than one slot because a block is sized by
+    /// the device's USB transfers, not by the raster: nothing stops one from spanning two
+    /// fields, and the second picture must not be the one that silently vanishes.
+    pub video: Vec<VideoPicture>,
     /// Decimated IQ for scope/constellation panels.
     pub iq_tap: Vec<Complex<f32>>,
 }
@@ -177,6 +195,7 @@ impl ChannelOutputs {
         self.audio_pcm.clear();
         self.audio_rate = 0;
         self.events.clear();
+        self.video.clear();
         self.iq_tap.clear();
     }
 }
@@ -373,6 +392,11 @@ const REGISTRY: &[Registration] = &[
         create: boxed::<SubghzChannel>,
         create_tx: None,
     },
+    Registration {
+        descriptor: AtvChannel::descriptor,
+        create: boxed::<AtvChannel>,
+        create_tx: None,
+    },
 ];
 
 /// Descriptors for every compiled-in channel type (PLAN §8: static registry).
@@ -479,8 +503,9 @@ mod tests {
     use std::collections::HashSet;
 
     use sdrmm_wire::{
-        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, ChannelParams, MorseParams,
-        NavtexParams, NfmParams, PocsagParams, RttyParams, SsbParams, SubghzParams, WfmParams,
+        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvParams, ChannelParams,
+        MorseParams, NavtexParams, NfmParams, PocsagParams, RttyParams, SsbParams, SubghzParams,
+        WfmParams,
     };
 
     use super::*;
@@ -501,6 +526,7 @@ mod tests {
             "navtex" => ChannelParams::Navtex(NavtexParams::default()),
             "acars" => ChannelParams::Acars(AcarsParams::default()),
             "subghz" => ChannelParams::Subghz(SubghzParams::default()),
+            "atv" => ChannelParams::Atv(AtvParams::default()),
             other => panic!("unexpected type id {other}"),
         }
     }
@@ -508,13 +534,13 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 13);
+        assert_eq!(all.len(), 14);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
             HashSet::from([
                 "nfm", "am", "ssb", "wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse",
-                "navtex", "acars", "subghz",
+                "navtex", "acars", "subghz", "atv",
             ])
         );
         for d in &all {
@@ -532,22 +558,30 @@ mod tests {
                 "navtex" => (600.0, 8_000.0),
                 "acars" => (12_500.0, 48_000.0),
                 "subghz" => (150_000.0, 250_000.0),
+                "atv" => (1_500_000.0, 2_000_000.0),
                 other => panic!("unexpected type id {other}"),
             };
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);
             assert_eq!(d.input_rate_hz, rate, "{}", d.type_id);
             assert!(!d.name.is_empty(), "{}", d.type_id);
-            // Every channel type must be useful for something: audio, decoded frames, or
-            // both — WFM decodes RDS beside its audio, NFM the subaudible tone under it.
+            // Every channel type must be useful for something: audio, decoded frames, or a
+            // picture. Several do more than one — WFM decodes RDS beside its audio, NFM the
+            // subaudible tone under it.
             assert!(
-                d.has_audio || d.decoder_kind.is_some(),
-                "{} produces neither audio nor decoder events",
+                d.has_audio || d.decoder_kind.is_some() || d.has_video,
+                "{} produces neither audio, decoder events nor video",
                 d.type_id
             );
             assert_eq!(
                 d.has_audio,
                 matches!(d.type_id.as_str(), "nfm" | "am" | "ssb" | "wfm"),
                 "{} audio flag does not match its mode class",
+                d.type_id
+            );
+            assert_eq!(
+                d.has_video,
+                d.type_id == "atv",
+                "{} video flag does not match its mode class",
                 d.type_id
             );
         }

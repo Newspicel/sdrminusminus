@@ -20,10 +20,10 @@ pub mod workspace_state;
 pub mod ws;
 
 pub use channel::{
-    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams,
-    ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, MorseParams, NavtexParams,
-    NfmParams, NfmToneMode, PocsagBaud, PocsagParams, RttyParams, RttyStopBits, Sideband,
-    SsbParams, SubghzModulation, SubghzParams, WfmParams,
+    AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvModulation,
+    AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings,
+    MorseParams, NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams, RttyParams,
+    RttyStopBits, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, MorseText,
@@ -35,7 +35,7 @@ pub use device::{
     GainStage, GainValue, Range, StreamScope, StreamSettings,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
-pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame};
+pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame, VideoFrame};
 pub use patch::{
     ChannelNode, DeviceNode, DeviceRef, MAX_EDGES, MAX_NODES, MAX_STREAMS, NodeBody, NodeCategory,
     NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking,
