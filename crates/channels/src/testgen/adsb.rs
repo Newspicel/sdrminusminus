@@ -1,5 +1,5 @@
-//! ADS-B reference modulator (PLAN §14): DF17 extended squitters, PPM-modulated onto complex
-//! baseband at 1 Mbit/s.
+//! Mode S reference modulator (PLAN §14): DF17 extended squitters and the DF4/5/11/20/21
+//! replies a transponder sends, PPM-modulated onto complex baseband at 1 Mbit/s.
 //!
 //! The CPR, Gillham and 6-bit-callsign encoders here are written straight from DO-260B rather
 //! than reused from [`crate::adsb`]. That is deliberate: NL(lat) is the closed form here and a
@@ -9,7 +9,7 @@
 use std::f64::consts::{PI, TAU};
 
 use num_complex::Complex;
-use sdrmm_dsp::mode_s_append_parity;
+use sdrmm_dsp::{mode_s_append_overlaid_parity, mode_s_append_parity};
 
 /// 6-bit identification charset (DO-260B §2.2.3.2.5.2).
 const IDENT_CHARSET: &[u8; 64] =
@@ -35,14 +35,29 @@ pub fn squitter(icao: u32, me: [u8; 7]) -> Vec<u8> {
     frame
 }
 
-fn put_bits(me: &mut [u8; 7], offset: usize, len: usize, value: u64) {
+fn put_bits(target: &mut [u8], offset: usize, len: usize, value: u64) {
     for i in 0..len {
         if value >> (len - 1 - i) & 1 == 1 {
             let bit = offset + i;
-            if let Some(byte) = me.get_mut(bit / 8) {
+            if let Some(byte) = target.get_mut(bit / 8) {
                 *byte |= 0x80 >> (bit % 8);
             }
         }
+    }
+}
+
+/// 8 six-bit characters at `offset`, upper-cased and space-padded — how both the extended
+/// squitter's identification field and the BDS 2,0 register spell a callsign.
+fn put_callsign(target: &mut [u8], offset: usize, callsign: &str) {
+    for (i, ch) in callsign
+        .chars()
+        .chain(std::iter::repeat(' '))
+        .take(8)
+        .enumerate()
+    {
+        let upper = ch.to_ascii_uppercase() as u8;
+        let code = IDENT_CHARSET.iter().position(|&c| c == upper).unwrap_or(0);
+        put_bits(target, offset + i * 6, 6, code as u64);
     }
 }
 
@@ -52,16 +67,7 @@ fn put_bits(me: &mut [u8; 7], offset: usize, len: usize, value: u64) {
 pub fn me_identification(callsign: &str) -> [u8; 7] {
     let mut me = [0u8; 7];
     put_bits(&mut me, 0, 5, 4);
-    for (i, ch) in callsign
-        .chars()
-        .chain(std::iter::repeat(' '))
-        .take(8)
-        .enumerate()
-    {
-        let upper = ch.to_ascii_uppercase() as u8;
-        let code = IDENT_CHARSET.iter().position(|&c| c == upper).unwrap_or(0);
-        put_bits(&mut me, 8 + i * 6, 6, code as u64);
-    }
+    put_callsign(&mut me, 8, callsign);
     me
 }
 
@@ -137,6 +143,110 @@ pub fn me_velocity(ground_speed_kt: f64, track_deg: f64, vertical_rate_fpm: i32)
     let rate = (f64::from(vertical_rate_fpm.abs()) / 64.0).round() as u64;
     put_bits(&mut me, 37, 9, (rate + 1).min(511));
     me
+}
+
+/// The BDS 2,0 Comm-B register: the register's own code followed by the same 8 six-bit
+/// characters an identification squitter sends (DO-181E §2.2.19.1.12).
+#[must_use]
+pub fn mb_identification(callsign: &str) -> [u8; 7] {
+    let mut mb = [0u8; 7];
+    put_bits(&mut mb, 0, 8, 0x20);
+    put_callsign(&mut mb, 8, callsign);
+    mb
+}
+
+/// An all-call reply (DF11): the address in the clear, and the parity keyed with the
+/// identifier of the interrogator that triggered it.
+#[must_use]
+pub fn all_call_reply(icao: u32, capability: u64, interrogator: u32) -> Vec<u8> {
+    let mut frame = vec![0u8; 4];
+    put_bits(&mut frame, 0, 5, 11);
+    put_bits(&mut frame, 5, 3, capability);
+    put_bits(&mut frame, 8, 24, u64::from(icao));
+    mode_s_append_overlaid_parity(&mut frame, interrogator);
+    frame
+}
+
+/// A surveillance altitude reply (DF4).
+#[must_use]
+pub fn altitude_reply(icao: u32, alt_ft: i32, flight_status: u64) -> Vec<u8> {
+    reply(4, icao, flight_status, altitude_field13(alt_ft), None)
+}
+
+/// A surveillance identity reply (DF5) carrying the four octal squawk digits.
+///
+/// # Panics
+/// If `squawk` is not four octal digits.
+#[must_use]
+pub fn identity_reply(icao: u32, squawk: &str, flight_status: u64) -> Vec<u8> {
+    reply(5, icao, flight_status, identity_field13(squawk), None)
+}
+
+/// A Comm-B altitude reply (DF20): a [`altitude_reply`] with 56 further bits of register.
+#[must_use]
+pub fn comm_b_altitude_reply(icao: u32, alt_ft: i32, flight_status: u64, mb: [u8; 7]) -> Vec<u8> {
+    reply(20, icao, flight_status, altitude_field13(alt_ft), Some(mb))
+}
+
+/// A Comm-B identity reply (DF21): an [`identity_reply`] with 56 further bits of register.
+///
+/// # Panics
+/// If `squawk` is not four octal digits.
+#[must_use]
+pub fn comm_b_identity_reply(icao: u32, squawk: &str, flight_status: u64, mb: [u8; 7]) -> Vec<u8> {
+    reply(21, icao, flight_status, identity_field13(squawk), Some(mb))
+}
+
+/// A reply to a roll-call interrogation: DF(5) FS(3) DR(5) UM(6) then the 13-bit AC or ID
+/// field, optionally 56 bits of Comm-B, and the parity with the address keyed onto it. DR and
+/// UM are left at "no request" and "no information", which is what a transponder with nothing
+/// pending sends.
+fn reply(df: u64, icao: u32, flight_status: u64, field13: u64, mb: Option<[u8; 7]>) -> Vec<u8> {
+    let mut frame = vec![0u8; 4];
+    put_bits(&mut frame, 0, 5, df);
+    put_bits(&mut frame, 5, 3, flight_status);
+    put_bits(&mut frame, 19, 13, field13);
+    if let Some(mb) = mb {
+        frame.extend_from_slice(&mb);
+    }
+    mode_s_append_overlaid_parity(&mut frame, icao);
+    frame
+}
+
+/// The 13-bit AC field of a surveillance reply: the extended squitter's 12-bit field with the
+/// M bit — metric units, which nothing sends — inserted clear after A4.
+fn altitude_field13(alt_ft: i32) -> u64 {
+    let ac12 = barometric_field(alt_ft);
+    (ac12 & 0xFC0) << 1 | (ac12 & 0x03F)
+}
+
+/// The 13-bit ID field, from four octal digits. Each digit's bits are named for their weight
+/// and interleaved with the others': C1 A1 C2 A2 C4 A4 X B1 D1 B2 D2 B4 D4.
+///
+/// # Panics
+/// If `squawk` is not four octal digits.
+fn identity_field13(squawk: &str) -> u64 {
+    let digits: Vec<u64> = squawk
+        .chars()
+        .filter_map(|c| c.to_digit(8))
+        .map(u64::from)
+        .collect();
+    let [a, b, c, d] = digits[..] else {
+        panic!("squawk must be four octal digits, got {squawk:?}")
+    };
+    let mut field = 0u64;
+    // (weight bit of the digit, index in the field), most significant index first.
+    for (value, places) in [
+        (a, [1, 3, 5]),
+        (b, [7, 9, 11]),
+        (c, [0, 2, 4]),
+        (d, [8, 10, 12]),
+    ] {
+        for (weight, index) in places.into_iter().enumerate() {
+            field |= (value >> weight & 1) << (12 - index);
+        }
+    }
+    field
 }
 
 /// The 12-bit AC field: 25 ft steps with the Q bit set, Gillham-coded 100 ft steps above

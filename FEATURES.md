@@ -158,7 +158,8 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 
 ## 10. Aviation & marine
 
-- **[shipped]** ADS-B + map — level-relative preamble correlation, Mode S CRC-24 with single-bit repair, DF17/18 only, identification, airborne/surface CPR position, velocity, Gillham and 25 ft altitude, bounded per-ICAO CPR cache
+- **[shipped]** ADS-B + map — level-relative preamble correlation, Mode S CRC-24 with single-bit repair, identification, airborne/surface CPR position, velocity, Gillham and 25 ft altitude, bounded per-ICAO CPR cache
+- **[shipped]** Mode S beyond the extended squitter — DF11 all-call replies, DF4/20 altitude and DF5/21 identity (squawk) replies, plus the BDS 2,0 callsign a Comm-B reply may carry. A roll-call reply keys its address onto the parity and so proves nothing by itself: it is decoded only when that address was proved in the clear (DF11/17/18) within the last minute, and single-bit repair is confined to the bare-parity formats where it cannot invent a different aircraft
 - **[shipped]** ADS-B at **any receiver rate 2–4 MHz** — the decoder meets the radio instead of the radio meeting the decoder: per-chip half-chip boundaries, eight sub-sample phase tables arbitrated by the CRC, and overlap-weighted energy per half-chip. Measured 0% → 100% at 2.048 Msps off-grid and band-limited (98% at 34 dB SNR); 2.000 Msps keeps a physical half-sample blind spot that real 2.048 receivers do not have
 - **[shipped]** AIS + map — GMSK via discriminator and Gaussian matched filter, NRZI + HDLC + CRC-16/X-25, types 1/2/3/5/18/24, `!AIVDM` output
 - **[shipped]** ACARS — MSK on an AM carrier, mirrored-spectrum tolerant, strict validation: character parity *and* the ARINC 618 CRC both pass or the block is dropped, uplink/downlink field layouts distinguished

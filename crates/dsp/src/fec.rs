@@ -90,18 +90,51 @@ pub fn mode_s_syndrome(frame: &[u8]) -> u32 {
     mode_s_crc(frame)
 }
 
+/// The value a frame's parity field was keyed with (ICAO Annex 10 Vol IV §3.1.2.3.3.2).
+///
+/// Most downlink formats do not transmit their parity bare: DF4/5/20/21 overlay the aircraft
+/// address on it (the AP field) and DF11 overlays the interrogator identifier (PI), so the
+/// receiver recovers the overlay by XOR-ing the field with the parity it computed itself. A
+/// frame whose parity really is bare — DF17/18 — returns 0, which is [`mode_s_syndrome`]'s
+/// zero by another name.
+///
+/// This is *not* the syndrome: the syndrome runs the recovered value on through the register
+/// and comes out as `value·x^24 mod g`, which is a fine "is it zero" test and a useless
+/// address.
+///
+/// `None` for anything that is not a 7- or 14-byte transmission.
+#[must_use]
+pub fn mode_s_overlay(frame: &[u8]) -> Option<u32> {
+    if frame.len() != MODE_S_SHORT_LEN && frame.len() != MODE_S_LONG_LEN {
+        return None;
+    }
+    let (body, field) = frame.split_at(frame.len() - MODE_S_PARITY_LEN);
+    let &[hi, mid, lo] = field else { return None };
+    let parity = u32::from(hi) << 16 | u32::from(mid) << 8 | u32::from(lo);
+    Some(mode_s_crc(body) ^ parity)
+}
+
 /// Append the 3 Mode S parity bytes to a 4- or 11-byte message body (used by test signals).
 ///
 /// # Panics
 /// If `body` is not a valid Mode S message body.
 pub fn mode_s_append_parity(body: &mut Vec<u8>) {
+    mode_s_append_overlaid_parity(body, 0);
+}
+
+/// [`mode_s_append_parity`] with `overlay` (an aircraft address or an interrogator identifier)
+/// keyed onto the parity field, which is what every downlink format but DF17/18 transmits.
+///
+/// # Panics
+/// If `body` is not a valid Mode S message body.
+pub fn mode_s_append_overlaid_parity(body: &mut Vec<u8>, overlay: u32) {
     assert!(
         body.len() == MODE_S_SHORT_LEN - MODE_S_PARITY_LEN
             || body.len() == MODE_S_LONG_LEN - MODE_S_PARITY_LEN,
         "mode s message body must be 4 or 11 bytes, got {}",
         body.len()
     );
-    let parity = mode_s_crc(body);
+    let parity = mode_s_crc(body) ^ (overlay & MODE_S_MASK);
     body.extend_from_slice(&[(parity >> 16) as u8, (parity >> 8) as u8, parity as u8]);
 }
 
@@ -422,6 +455,35 @@ mod tests {
         assert_ne!(mode_s_syndrome(&[0; 8]), 0);
         assert_ne!(mode_s_syndrome(&[]), 0);
         assert_eq!(mode_s_fix_single_bit(&mut [0; 8]), None);
+        assert_eq!(mode_s_overlay(&[0; 8]), None);
+        assert_eq!(mode_s_overlay(&[]), None);
+    }
+
+    /// The whole basis on which a DF4/5/20/21 reply can be attributed to an aircraft: the
+    /// address the transmitter keyed onto the parity comes back out of it exactly.
+    #[test]
+    fn an_overlaid_address_comes_back_out_of_the_parity() {
+        for overlay in [0x00_0001, 0x3C_6444, 0x48_40D6, 0xFF_FFFF] {
+            for body in [vec![0x20, 0x00, 0x19, 0x10], squitter_body()] {
+                let mut frame = body;
+                mode_s_append_overlaid_parity(&mut frame, overlay);
+                assert_eq!(mode_s_overlay(&frame), Some(overlay));
+                // The syndrome is *not* the address, which is why this function exists.
+                assert_ne!(mode_s_syndrome(&frame), overlay);
+            }
+        }
+    }
+
+    /// A bare-parity frame is the zero overlay, so one function answers both questions.
+    #[test]
+    fn a_bare_parity_frame_reads_as_a_zero_overlay() {
+        let mut frame = squitter_body();
+        mode_s_append_parity(&mut frame);
+        assert_eq!(mode_s_overlay(&frame), Some(0));
+        assert_eq!(mode_s_syndrome(&frame), 0);
+
+        flip(&mut frame, 42);
+        assert_ne!(mode_s_overlay(&frame), Some(0));
     }
 
     #[test]

@@ -30,9 +30,9 @@ pub use bits::{
 pub use ddc::{Ddc, DdcError, flat_bandwidth_hz, resamplable_bandwidth_hz};
 pub use decim::{Decimator, RealDecimator};
 pub use fec::{
-    RdsOffset, crc16_ccitt, crc16_x25, hdlc_fcs_ok, mode_s_append_parity, mode_s_fix_single_bit,
-    mode_s_syndrome, pocsag_bch_decode, pocsag_bch_encode, rds_check_block, rds_encode_block,
-    rds_syndrome,
+    RdsOffset, crc16_ccitt, crc16_x25, hdlc_fcs_ok, mode_s_append_overlaid_parity,
+    mode_s_append_parity, mode_s_fix_single_bit, mode_s_overlay, mode_s_syndrome,
+    pocsag_bch_decode, pocsag_bch_encode, rds_check_block, rds_encode_block, rds_syndrome,
 };
 pub use fir::{design_bandpass, design_gaussian, design_lowpass};
 pub use firc::FirC;
