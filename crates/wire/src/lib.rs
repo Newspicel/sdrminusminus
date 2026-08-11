@@ -332,10 +332,12 @@ mod contract_tests {
         assert_eq!(lost["data"]["count"], 7);
     }
 
-    /// `has_audio` post-dates M3: snapshots from older peers omit it and must keep reading
-    /// as an audio channel, while decoders serialize it explicitly.
+    /// `has_audio` post-dates M3 and `can_transmit` post-dates it again: snapshots from older
+    /// peers omit both. The audio flag must read back as an audio channel, and the transmit flag
+    /// must read back as receive-only — a peer that cannot say whether it modulates has not
+    /// claimed that it does.
     #[test]
-    fn channel_descriptor_has_audio_defaults_true() {
+    fn channel_descriptor_flags_default_for_older_peers() {
         let mut json = serde_json::json!({
             "type_id": "nfm",
             "name": "NFM",
@@ -345,12 +347,15 @@ mod contract_tests {
         let back: ChannelDescriptor = serde_json::from_value(json.clone()).unwrap();
         assert!(back.has_audio);
         assert_eq!(back.decoder_kind, None);
+        assert!(!back.can_transmit);
 
         json["has_audio"] = serde_json::json!(false);
         json["decoder_kind"] = serde_json::json!("adsb");
+        json["can_transmit"] = serde_json::json!(true);
         let back: ChannelDescriptor = serde_json::from_value(json).unwrap();
         assert!(!back.has_audio);
         assert_eq!(back.decoder_kind.as_deref(), Some("adsb"));
+        assert!(back.can_transmit);
     }
 
     fn sample_device_set() -> DeviceSet {

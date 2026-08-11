@@ -1030,10 +1030,7 @@ mod tests {
                 name: "NFM".to_owned(),
                 bandwidth_hz: 12_500.0,
                 input_rate_hz: 48_000.0,
-                has_audio: true,
-                decoder_kind: None,
-                exact_rate_only: false,
-                native_rate_max_hz: None,
+                ..ChannelDescriptor::default()
             },
             ChannelDescriptor {
                 type_id: "adsb".to_owned(),
@@ -1042,8 +1039,8 @@ mod tests {
                 input_rate_hz: 2_000_000.0,
                 has_audio: false,
                 decoder_kind: Some("adsb".to_owned()),
-                exact_rate_only: false,
                 native_rate_max_hz: Some(4_000_000.0),
+                ..ChannelDescriptor::default()
             },
         ]
     }
