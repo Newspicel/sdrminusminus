@@ -13,6 +13,8 @@ use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use num_complex::Complex;
 
+mod icons;
+
 #[derive(Parser)]
 #[command(name = "xtask", about = "sdr-- workspace tasks")]
 struct Cli {
@@ -38,6 +40,10 @@ enum Cmd {
     Smoke,
     /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
     Fixtures,
+    /// Re-render every icon from `assets/icon.svg` (run after changing the mark, commit the
+    /// output). Not part of `check`: the renders are committed precisely so no build needs a
+    /// rasteriser, and re-rendering them to compare would defeat that.
+    Icons,
     /// Build the self-contained release archive for this host (PLAN §15).
     Dist {
         /// Cross-compile for this target triple instead of the host.
@@ -70,11 +76,21 @@ fn main() -> Result<()> {
         Cmd::Audit => audit(&root()),
         Cmd::Smoke => smoke(&root()),
         Cmd::Fixtures => fixtures(&root()),
+        Cmd::Icons => icons::icons(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
         Cmd::SetVersion { version } => set_version(&root(), &version),
     }
 }
+
+/// How to spawn pnpm. `CreateProcess` applies no PATHEXT search, so on Windows the bare name
+/// resolves to pnpm's extensionless shell script — not an executable image — and every web step
+/// dies with "program not found". Naming the shim is what finds it; std applies the batch-file
+/// quoting rules once the extension is explicit (CVE-2024-24576).
+#[cfg(windows)]
+const PNPM: &str = "pnpm.cmd";
+#[cfg(not(windows))]
+const PNPM: &str = "pnpm";
 
 /// Workspace root = xtask's parent directory.
 fn root() -> PathBuf {
@@ -99,7 +115,7 @@ fn codegen(root: &Path) -> Result<()> {
         .context("create generated dir")?;
 
     run(
-        "pnpm",
+        PNPM,
         &[
             "--dir",
             "web",
@@ -119,7 +135,7 @@ fn codegen(root: &Path) -> Result<()> {
 fn dev(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
     // Vite (HMR) proxies /api to the server; the server serves the API + WS on :8080.
-    let mut vite = Command::new("pnpm");
+    let mut vite = Command::new(PNPM);
     vite.args(["--dir", "web", "dev"]).current_dir(root);
     // Detach Vite from the terminal: it must not read the TTY it shares with the server
     // and the shell (a non-foreground reader is stopped by SIGTTIN, and an orphaned one
@@ -178,13 +194,13 @@ fn check(root: &Path) -> Result<()> {
 
     // Web gate.
     ensure_web_deps(root)?;
-    run("pnpm", &["--dir", "web", "exec", "biome", "ci", "."], root)?;
+    run(PNPM, &["--dir", "web", "exec", "biome", "ci", "."], root)?;
     run(
-        "pnpm",
+        PNPM,
         &["--dir", "web", "exec", "oxlint", "--type-aware"],
         root,
     )?;
-    run("pnpm", &["--dir", "web", "exec", "tsgo", "--noEmit"], root)?;
+    run(PNPM, &["--dir", "web", "exec", "tsgo", "--noEmit"], root)?;
 
     // Rust gate (default members; the Tauri app is `xtask desktop`, see workspace manifest).
     run(
@@ -329,7 +345,7 @@ fn release_features() -> [String; 3] {
 /// Shared by `check` and `dist` so they can never build the UI differently.
 fn web_build(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
-    run("pnpm", &["--dir", "web", "build"], root)
+    run(PNPM, &["--dir", "web", "build"], root)
 }
 
 /// `web/dist` exists *and holds a UI*. `crates/server/build.rs` creates the directory when it
@@ -635,7 +651,7 @@ fn set_version(root: &Path, version: &str) -> Result<()> {
 fn test(root: &Path) -> Result<()> {
     run("cargo", &["test", "--all-targets"], root)?;
     ensure_web_deps(root)?;
-    run("pnpm", &["--dir", "web", "test"], root)?;
+    run(PNPM, &["--dir", "web", "test"], root)?;
     Ok(())
 }
 
@@ -662,11 +678,7 @@ fn audit(root: &Path) -> Result<()> {
 fn smoke(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
     web_build(root)?;
-    run(
-        "pnpm",
-        &["--dir", "web", "exec", "playwright", "test"],
-        root,
-    )?;
+    run(PNPM, &["--dir", "web", "exec", "playwright", "test"], root)?;
     Ok(())
 }
 
@@ -1034,7 +1046,7 @@ fn ensure_web_deps(root: &Path) -> Result<()> {
         return Ok(());
     }
     run(
-        "pnpm",
+        PNPM,
         &["--dir", "web", "install", "--frozen-lockfile"],
         root,
     )

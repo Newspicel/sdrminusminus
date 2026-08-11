@@ -1,3 +1,5 @@
+<img src="assets/icon.svg" alt="" width="96" height="96">
+
 # sdr--
 
 A modular, client–server software-defined radio receiver.
@@ -52,6 +54,7 @@ on <http://localhost:5173>, proxying `/api` and the WebSocket to the server.
 | `cargo xtask smoke` | The Playwright browser flow against the real binary (needs `pnpm --dir web exec playwright install chromium`) |
 | `cargo xtask audit` | Check the dependency graph against RustSec (`deny.toml`; needs `cargo install --locked cargo-deny`) |
 | `cargo xtask fixtures` | Regenerate the synthesized SigMF decoder fixtures in `fixtures/` |
+| `cargo xtask icons` | Re-render every icon (favicons, desktop `.ico`/`.icns`) from `assets/icon.svg` |
 | `cargo xtask dist [--target <triple>]` | The release archive for that target into `dist/` — exactly what the release pipeline uploads |
 | `cargo xtask desktop [--bundles <list>]` | The Tauri shell: compile gate by default, installers with `--bundles` (needs `cargo install --locked tauri-cli`) |
 | `cargo xtask set-version <semver>` | Stamp a release version across the workspace; the release pipeline runs this from the tag |

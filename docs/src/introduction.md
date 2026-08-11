@@ -1,3 +1,5 @@
+<img src="icon.svg" alt="" width="96" height="96">
+
 # sdr--
 
 A modular, client–server software-defined radio receiver.

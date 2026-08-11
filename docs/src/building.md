@@ -41,6 +41,7 @@ so every gate that can fail in CI can be run locally first.
 | `cargo xtask smoke` | The Playwright browser flow against the real binary |
 | `cargo xtask audit` | The dependency graph against RustSec |
 | `cargo xtask fixtures` | Regenerate the synthesized SigMF decoder fixtures |
+| `cargo xtask icons` | Re-render every icon from `assets/icon.svg` (commit the output) |
 | `cargo xtask dist` | The release archive for this host |
 | `cargo xtask desktop` | The Tauri shell — compile gate, or `--bundles` for installers |
 

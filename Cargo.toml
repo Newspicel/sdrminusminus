@@ -125,6 +125,11 @@ clap = { version = "4", features = ["derive", "env"] }
 # Scoped temp dirs for filesystem tests (SigMF IO, recordings REST); dev-dependency only.
 tempfile = "3"
 
+# `cargo xtask icons` rasterises assets/icon.svg; xtask only, nothing shipped links it.
+# No default features: the mark is paths, and `text` would pull a whole font database into a
+# tool that never lays out a glyph. It re-exports the `tiny_skia` the pixmaps come from.
+resvg = { version = "0.48", default-features = false }
+
 [workspace.lints.clippy]
 # Hot-path discipline (PLAN §7, CLAUDE.md): no panics outside tests/startup.
 unwrap_used = "warn"

@@ -300,4 +300,23 @@ test.describe("the workspace", () => {
     await attribution.locator("summary.maplibregl-ctrl-attrib-button").click();
     await expect(attribution.getByText("Stub basemap credits")).toBeVisible();
   });
+
+  test("serves the mark to the tab and the top bar", async ({ page }) => {
+    // Both files are rendered from assets/icon.svg by `cargo xtask icons` and reach the binary
+    // through `web/dist`, so a missing one is a build that shipped without them. It cannot show
+    // up as a 404 either: unknown paths fall back to index.html (server/assets.rs), so the tab
+    // would quietly get HTML where it asked for an image. Assert the content type, not the code.
+    for (const [path, type] of [
+      ["/icon.svg", "image/svg+xml"],
+      ["/favicon.ico", "image/"],
+    ] as const) {
+      const response = await page.request.get(path);
+      expect(response.status(), path).toBe(200);
+      expect(response.headers()["content-type"], path).toContain(type);
+    }
+
+    await page.goto("/");
+    // Decorative beside the wordmark, so it has no accessible name to find it by.
+    await expect(page.locator('header img[src="/icon.svg"]')).toBeVisible();
+  });
 });

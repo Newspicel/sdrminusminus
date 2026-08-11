@@ -64,6 +64,9 @@ export function WorkspaceBar({
 
   return (
     <header className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-panel px-2">
+      {/* Decorative: the wordmark beside it is the accessible name, and a second one would
+          make every screen reader say the product twice before the first control. */}
+      <img src="/icon.svg" alt="" width={20} height={20} className="shrink-0" />
       <span className="font-mono text-sm tracking-tight text-accent">sdr--</span>
 
       <Popover

@@ -132,6 +132,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[shipped]** MapLibre map (OpenFreeMap, no API key) with a themed fallback, plotting only the decoders wired into it, GeoJSON updated on a throttled tick
 - **[shipped]** `DESIGN.md` as a binding rulebook — OKLCH role table, contrast measured in both themes, achromatic plot overlays, type/spacing/density/motion ladders
 - **[shipped]** Dark, light and auto themes (per browser, not synced — a theme belongs to the eye, not the workspace)
+- **[shipped]** One product mark, one drawing — `assets/icon.svg` (a carrier peak over a noise floor broken into the name's two dashes, in the `DESIGN.md` §2 palette, with its geometry sized so the floor still reads at 16 px). `xtask icons` renders it into the browser tab, the top bar, the token gate, the docs site and the desktop bundle's `.icns`/`.ico`/PNG set — including the `.ico`'s DIB-below-256 layout the Windows resource compiler needs, and the 80.5 % inset macOS bakes into every Dock icon — so the tab, the Dock and the installer cannot drift apart
 - **[shipped]** Errors as a dismissible toast stack rather than a banner that shoves every panel down
 - **[shipped]** Playwright smoke flow (`xtask smoke`) driving the built UI against a real server
 - **[shipped]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them

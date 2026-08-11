@@ -54,7 +54,10 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
         }}
       >
         <div>
-          <div className="font-mono text-lg font-semibold text-accent">sdr--</div>
+          <div className="flex items-center gap-2">
+            <img src="/icon.svg" alt="" width={28} height={28} className="shrink-0" />
+            <div className="font-mono text-lg font-semibold text-accent">sdr--</div>
+          </div>
           <p className="mt-1 text-sm text-ink-dim">
             This server requires its shared token (the value it was started with as
             <code className="mx-1 font-mono">--token</code>).

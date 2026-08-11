@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="sdr--">
+  <title>sdr--</title>
+  <!-- The product mark, and the only source every other icon in this repo is rendered from
+       (`cargo xtask icons`). A carrier peak over a noise floor broken into two dashes: the
+       spectrum the receiver draws, and the name.
+
+       Colours are DESIGN.md §2 dark-theme tokens resolved to sRGB, because a static asset
+       cannot read CSS variables: bg #141210, line #3a3733, accent #f3ae51. The floor is the
+       accent one lightness step down (oklch .68 .115 72) rather than `accent-dim` — at 16px
+       the dashes are two pixels and need the 6.4:1 they get here, not 5.1:1.
+
+       Geometry is tuned for the 16px favicon: the gap between the dashes, and the gap above
+       them, both stay ≥ 1.5px once rasterised — that is what keeps the floor from closing up
+       into one bar and taking the name with it. (No, the name cannot be written in here: an
+       XML comment may not contain two hyphens.) -->
+  <rect x="12" y="12" width="488" height="488" rx="112" fill="#141210"/>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="none" stroke="#3a3733" stroke-width="8"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M104 284 H172 L256 108 L340 284 H408" stroke="#f3ae51" stroke-width="46"/>
+    <path d="M108 404 H208 M304 404 H404" stroke="#c48c3f" stroke-width="46"/>
+  </g>
+</svg>
