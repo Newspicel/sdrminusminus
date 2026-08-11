@@ -23,6 +23,10 @@ thiserror.workspace = true
 
 [dev-dependencies]
 rustfft.workspace = true
+# The coded-baseline artifacts (tests/dmr_soft_gain.rs) bundle three labelled curves per
+# file, a shape `sweep::save_json` (one bare Curve) does not cover.
+serde.workspace = true
+serde_json.workspace = true
 # BER/limits harness for the phase-0 DMR baseline (MODEM-PLAN §7); dev-only until phase 3
 # puts modem engines on the receive path.
 sdrmm-modem.workspace = true

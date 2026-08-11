@@ -3689,6 +3689,8 @@ dependencies = [
  "sdrmm-dsp",
  "sdrmm-modem",
  "sdrmm-wire",
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 

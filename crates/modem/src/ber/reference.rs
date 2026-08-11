@@ -78,6 +78,82 @@ fn modulate(taps: &[f32], bits: &[bool]) -> Vec<Complex<f32>> {
     out
 }
 
+/// The reference chain's shaping for arbitrary complex symbol streams: the same unit-energy
+/// RRC taps, full-tail superposition and known-timing sampling as [`ideal_bpsk`], held as a
+/// value so links that carry constellations — the genie-bound demonstration in
+/// [`genie`](super::genie) runs coded 4-PAM this way — measure over the calibrated chain
+/// instead of a second, unproven one. A ±1 real symbol stream reproduces the BPSK link's
+/// waveform sample-for-sample and its decisions bit-for-bit (asserted below), which is what
+/// lets measurements over this struct inherit the phase-0 erfc gate.
+#[derive(Clone, Debug)]
+pub struct IdealShaping {
+    taps: Vec<f32>,
+}
+
+impl IdealShaping {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            taps: unit_energy_rrc(),
+        }
+    }
+
+    /// Callers sizing symbol buffers against waveform lengths need the chain's own rate.
+    #[must_use]
+    pub fn samples_per_symbol(&self) -> usize {
+        SPS
+    }
+
+    /// Full-tail superposition of `symbols` on the unit-energy pulse — [`modulate`] for a
+    /// complex stream: block energy is `Σ|s|²` up to the Nyquist cross-terms, so a
+    /// unit-mean-Es constellation keeps the crate's Eb accounting exact.
+    #[must_use]
+    pub fn modulate(&self, symbols: &[Complex<f32>]) -> Vec<Complex<f32>> {
+        if symbols.is_empty() {
+            return Vec::new();
+        }
+        let mut out = vec![Complex::new(0.0f32, 0.0); (symbols.len() - 1) * SPS + self.taps.len()];
+        for (k, &s) in symbols.iter().enumerate() {
+            let base = k * SPS;
+            for (m, &h) in self.taps.iter().enumerate() {
+                out[base + m] += s * h;
+            }
+        }
+        out
+    }
+
+    /// Matched-filter statistics at the known symbol instants — [`demodulate`] before its
+    /// slicer, kept complex so a demapper can turn them into LLRs. Two properties of this
+    /// chain make the statistic exactly the demap model's `symbol + noise`: unit-energy taps
+    /// pass white noise at its per-sample total variance, so the waveform's N0 *is* the
+    /// statistic's, and the RRC⊗RRC cascade is Nyquist, so consecutive statistics' noise is
+    /// uncorrelated. The genie bound in [`genie`](super::genie) rests on both.
+    #[must_use]
+    pub fn symbol_statistics(&self, wave: &[Complex<f32>]) -> Vec<Complex<f32>> {
+        let nt = self.taps.len();
+        if wave.len() < nt {
+            return Vec::new();
+        }
+        let n = (wave.len() - nt) / SPS + 1;
+        (0..n)
+            .map(|k| {
+                let base = k * SPS;
+                let mut acc = Complex::new(0.0f32, 0.0);
+                for (m, &h) in self.taps.iter().enumerate() {
+                    acc += wave[base + nt - 1 - m] * h;
+                }
+                acc
+            })
+            .collect()
+    }
+}
+
+impl Default for IdealShaping {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Matched filter evaluated only at the symbol instants: symbol `k`'s statistic is the full
 /// convolution's sample `k·SPS + taps−1` — pulse peak at `(taps−1)/2` plus the matched
 /// filter's equal delay — which is the dot product of the taps with the window starting at
@@ -108,7 +184,7 @@ mod tests {
 
     use super::*;
     use crate::ber::{
-        impair::{ChannelSpec, signal_energy},
+        impair::{Awgn, ChannelSpec, Impairment, signal_energy},
         rng::Rng,
         sweep::{load_json, save_json, sweep_ber, worst_penalty_db, worst_penalty_db_vs_curve},
         theory,
@@ -170,6 +246,59 @@ mod tests {
         }
         let worst = worst_penalty_db(&curve, theory::bpsk_ber, 0.0, 6.0);
         assert!(worst.abs() < 0.2, "worst penalty {worst} dB\n{curve:?}");
+    }
+
+    /// The claim that lets [`IdealShaping`] measurements inherit the erfc gate: on the same
+    /// symbols it *is* the BPSK link — waveform sample-identical, and decisions bit-identical
+    /// even under noise, because the real-rail arithmetic is the same operations in the same
+    /// order.
+    #[test]
+    fn ideal_shaping_reproduces_the_bpsk_link_exactly() {
+        let link = ideal_bpsk();
+        let shaping = IdealShaping::new();
+        let mut rng = Rng::new(0x5a9e);
+        let bits: Vec<bool> = (0..1024).map(|_| rng.next_u64() & 1 == 1).collect();
+        let symbols: Vec<Complex<f32>> = bits
+            .iter()
+            .map(|&b| Complex::new(if b { 1.0 } else { -1.0 }, 0.0))
+            .collect();
+        let wave = shaping.modulate(&symbols);
+        assert_eq!(wave, (link.modulate)(&bits));
+
+        let mut noisy = wave;
+        Awgn::with_sigma(0.5).apply(&mut noisy, &mut rng);
+        let statistic_decisions: Vec<bool> = shaping
+            .symbol_statistics(&noisy)
+            .iter()
+            .map(|y| y.re > 0.0)
+            .collect();
+        assert_eq!(statistic_decisions, (link.demodulate)(&noisy));
+    }
+
+    /// Noiseless statistics must return the symbols themselves up to the chain's residual ISI
+    /// — the −40 dB truncation tail plus the discrete RRC⊗RRC's Nyquist error — which bounds
+    /// the statistic error near 1% of a unit symbol. A miss here would bias every LLR the
+    /// genie demonstration computes.
+    #[test]
+    fn symbol_statistics_recover_a_noiseless_stream() {
+        let shaping = IdealShaping::new();
+        let mut rng = Rng::new(0x151);
+        // ±1/±3-shaped complex points exercise both rails and unequal magnitudes.
+        let symbols: Vec<Complex<f32>> = (0..512)
+            .map(|_| {
+                let re = [-3.0f32, -1.0, 1.0, 3.0][(rng.next_u64() & 3) as usize];
+                let im = [-1.0f32, 1.0][(rng.next_u64() & 1) as usize];
+                Complex::new(re * 0.3, im * 0.3)
+            })
+            .collect();
+        let stats = shaping.symbol_statistics(&shaping.modulate(&symbols));
+        assert_eq!(stats.len(), symbols.len());
+        let worst = stats
+            .iter()
+            .zip(&symbols)
+            .map(|(y, s)| (y - s).norm())
+            .fold(0.0f32, f32::max);
+        assert!(worst < 0.02, "worst statistic error {worst}");
     }
 
     fn baseline_path() -> PathBuf {

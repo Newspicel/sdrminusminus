@@ -43,13 +43,17 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::PathBuf;
+mod common;
 
+use common::{
+    BAUD, DEVIATION_HZ, RATE, RRC_ALPHA, STEADY_PREAMBLE, STEADY_TAIL, UW, UW_SYMBOLS, alternating,
+    baseline_path, dmr_params, find_uw, recovered_symbols, uw_dibits,
+};
 use num_complex::Complex;
 use sdrmm_channels::{
     ChannelCtx, ChannelOutputs, ChannelRx, DmrChannel, channel_filter, testgen::dv as tg,
 };
-use sdrmm_dsp::{Fsk4Demod, fsk4};
+use sdrmm_dsp::fsk4;
 use sdrmm_modem::ber::{
     Curve,
     impair::{Awgn, BurstModel, Cfo, ChannelSpec, ClockError, Drift, Impairment, TimingOffset},
@@ -57,76 +61,13 @@ use sdrmm_modem::ber::{
     rng::Rng,
     sweep::{self, Link},
 };
-use sdrmm_wire::{ChannelParams, ChannelSettings, DecoderEvent, DmrParams, DvFrameKind};
+use sdrmm_wire::{ChannelSettings, DecoderEvent, DvFrameKind};
 
-const RATE: f64 = 48_000.0;
-const BAUD: f64 = 4_800.0;
-const DEVIATION_HZ: f64 = 1_944.0;
-const RRC_ALPHA: f64 = 0.2;
 const SPS: usize = 10;
-
-/// DMR BS-sourced voice sync (ETSI TS 102 361-1 §9.1.1) — the unique word both chains align
-/// on and the burst chain anchors levels to, as the decoder itself does.
-const UW: u64 = 0x755F_D7DF_75F7;
-const UW_SYMBOLS: usize = 24;
 
 /// Samples of dead air ahead of the first burst, so the gate's floor estimate has settled
 /// (its own settle window is 3840 samples) on the channel's true noise before any burst.
 const BURST_LEAD_SAMPLES: usize = 12_000;
-
-fn dmr_params() -> ChannelParams {
-    ChannelParams::Dmr(DmrParams::default())
-}
-
-fn uw_dibits() -> Vec<u8> {
-    tg::dibits(&tg::bits(UW, 48))
-}
-
-/// Receiver noise at 40 dB below a unit carrier — what the steady chain's demodulator hears
-/// before the transmission, exactly the `fsk4` tests' `listening` convention.
-fn quiet(seed: u64, len: usize) -> Vec<Complex<f32>> {
-    let mut rng = Rng::new(seed);
-    (0..len)
-        .map(|_| {
-            let re = (rng.uniform() * 2.0 - 1.0) * 0.01;
-            let im = (rng.uniform() * 2.0 - 1.0) * 0.01;
-            Complex::new(re as f32, im as f32)
-        })
-        .collect()
-}
-
-/// The receive front end under measurement, as production runs it: the DMR channel-selection
-/// filter (the receiver's noise bandwidth — without it the discriminator eats the full 48 kHz
-/// and the waterfall shifts ~6 dB right) into `Fsk4Demod`, fresh per trial so every trial is
-/// independent and reproducible from its own seed.
-fn recovered_symbols(wave: &[Complex<f32>], warm_up: bool) -> Vec<f32> {
-    let mut filter = channel_filter(&dmr_params()).unwrap();
-    let mut demod = Fsk4Demod::new(RATE, BAUD, DEVIATION_HZ, RRC_ALPHA);
-    let mut filtered = Vec::new();
-    if warm_up {
-        let mut discard = Vec::new();
-        filter.process(&quiet(0x1157, (RATE * 0.2) as usize), &mut filtered);
-        demod.process(&filtered, &mut discard);
-    }
-    let mut symbols = Vec::new();
-    filter.process(wave, &mut filtered);
-    demod.process(&filtered, &mut symbols);
-    symbols
-}
-
-fn uw_distance(sliced: &[u8], at: usize, uw: &[u8]) -> u32 {
-    uw.iter()
-        .enumerate()
-        .map(|(i, &d)| (sliced[at + i] ^ d).count_ones())
-        .sum()
-}
-
-/// Best sync position in `lo..=hi` by Hamming distance — the searched-alignment idiom. No
-/// threshold: a chain too degraded to place its sync scores its garbage as bit errors.
-fn find_uw(sliced: &[u8], lo: usize, hi: usize, uw: &[u8]) -> Option<usize> {
-    let last = hi.min(sliced.len().checked_sub(uw.len())?);
-    (lo..=last).min_by_key(|&at| uw_distance(sliced, at, uw))
-}
 
 fn dibit_bits(dibit: u8, bits: &mut Vec<bool>) {
     bits.push(dibit & 0b10 != 0);
@@ -135,18 +76,7 @@ fn dibit_bits(dibit: u8, bits: &mut Vec<bool>) {
 
 // --- Steady-state chain ----------------------------------------------------------------------
 
-/// Clock pull-in from a cold phase costs ~80 symbols (fsk4's own tests); the preamble covers
-/// that before the sync so the payload is met by a locked loop.
-const STEADY_PREAMBLE: usize = 88;
 const STEADY_BITS: usize = 4096;
-/// Trailing filler past the payload: the front end is a whole filter cascade late (~24
-/// symbols), so the transmitter must keep shaping that long past the last payload symbol or
-/// the demodulator never emits it.
-const STEADY_TAIL: usize = 40;
-
-fn alternating(len: usize) -> impl Iterator<Item = u8> {
-    (0..len).map(|i| if i % 2 == 0 { 0b01 } else { 0b11 })
-}
 
 fn steady_link() -> Link {
     Link {
@@ -331,10 +261,6 @@ fn burst_link() -> Link {
 }
 
 // --- Committed artifacts ---------------------------------------------------------------------
-
-fn baseline_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/dmr/{name}"))
-}
 
 /// Sweep grids covering each chain's waterfall *and* its error floor — the floor is part of
 /// the baseline, not a nuisance: phase 3 has to beat it, and can only be held to a number

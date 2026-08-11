@@ -1,0 +1,107 @@
+{
+  "ber": {
+    "label": "dmr bptc196 soft, phase-0 steady chain, post-FEC BER over accepted frames, seed 0xd5f, release",
+    "points": [
+      {
+        "ebn0_db": 13.0,
+        "errors": 889,
+        "trials": 188448
+      },
+      {
+        "ebn0_db": 14.0,
+        "errors": 633,
+        "trials": 260736
+      },
+      {
+        "ebn0_db": 15.0,
+        "errors": 601,
+        "trials": 655680
+      },
+      {
+        "ebn0_db": 16.0,
+        "errors": 600,
+        "trials": 1705920
+      },
+      {
+        "ebn0_db": 17.0,
+        "errors": 420,
+        "trials": 2780448
+      },
+      {
+        "ebn0_db": 18.0,
+        "errors": 366,
+        "trials": 2830272
+      }
+    ]
+  },
+  "fer": {
+    "label": "dmr bptc196 soft, phase-0 steady chain, FER (refused frames / all frames), seed 0xd5f, release",
+    "points": [
+      {
+        "ebn0_db": 13.0,
+        "errors": 7131,
+        "trials": 9094
+      },
+      {
+        "ebn0_db": 14.0,
+        "errors": 2601,
+        "trials": 5317
+      },
+      {
+        "ebn0_db": 15.0,
+        "errors": 1875,
+        "trials": 8705
+      },
+      {
+        "ebn0_db": 16.0,
+        "errors": 1662,
+        "trials": 19432
+      },
+      {
+        "ebn0_db": 17.0,
+        "errors": 1037,
+        "trials": 30000
+      },
+      {
+        "ebn0_db": 18.0,
+        "errors": 518,
+        "trials": 30000
+      }
+    ]
+  },
+  "undetected": {
+    "label": "dmr bptc196 soft, phase-0 steady chain, undetected-error rate (wrong accepted frames / accepted frames), seed 0xd5f, release",
+    "points": [
+      {
+        "ebn0_db": 13.0,
+        "errors": 164,
+        "trials": 1963
+      },
+      {
+        "ebn0_db": 14.0,
+        "errors": 131,
+        "trials": 2716
+      },
+      {
+        "ebn0_db": 15.0,
+        "errors": 131,
+        "trials": 6830
+      },
+      {
+        "ebn0_db": 16.0,
+        "errors": 141,
+        "trials": 17770
+      },
+      {
+        "ebn0_db": 17.0,
+        "errors": 94,
+        "trials": 28963
+      },
+      {
+        "ebn0_db": 18.0,
+        "errors": 85,
+        "trials": 29482
+      }
+    ]
+  }
+}

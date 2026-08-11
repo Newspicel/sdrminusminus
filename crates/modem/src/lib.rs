@@ -23,3 +23,5 @@
 //! every run is seeded and reproducible.
 
 pub mod ber;
+pub mod constellation;
+pub mod soft;

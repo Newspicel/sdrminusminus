@@ -12,6 +12,7 @@
 //! bit-for-bit from its stated seed is a bug in the harness, not a tolerance to widen.
 
 pub mod e2e;
+pub mod genie;
 pub mod impair;
 pub mod limits;
 pub mod perf;

@@ -13,13 +13,115 @@
 //!
 //! Decoding alternates row and column passes: a repair in one direction changes the syndromes
 //! in the other, which is what lets the product code correct patterns neither code could alone.
+//!
+//! Both blocks also decode soft input (`decode_soft`): Chase-2 over every component codeword —
+//! try sign flips of the least-reliable positions, hard-decode each trial, keep the valid
+//! codeword nearest in analog distance — iterated between rows and columns like the hard
+//! passes, with the winner's signs imposed on the soft rectangle so each direction learns from
+//! the other. Measured over 400 AWGN-corrupted BPSK [`Bptc196`] blocks per point (unit
+//! symbols, noise deviation σ), blocks lost at σ = {0.70, 0.65, 0.60, 0.55, 0.50}:
+//! hard {357, 298, 228, 144, 68}, soft {116, 51, 20, 5, 1}.
+//!
+//! Pyndiah's extrinsic update (blend the metric gap to the best competitor into the soft value
+//! instead of just flipping signs; α = ½, β = 16) was measured against this and dropped: it
+//! lost only {10, 1, 0, 0, 0} blocks on the same points — a real further gain — but it also
+//! converged 16–43 % of pure-noise blocks into confident codewords where sign-flip converges
+//! 0.1 % and the hard decoder 0.01 %. These blocks feed signalling whose only guard beyond
+//! this point is a 16-bit check; rejection is not a property this decoder may trade away.
 
-use super::block::ParityCode;
+use super::{block::ParityCode, conv::Soft};
 
 /// Passes over the rectangle before giving up. Each pass can only reduce the number of bad
 /// codewords, so a fixed point is reached quickly; the cap bounds the work when the burst is
 /// noise and no fixed point exists.
 const MAX_PASSES: usize = 5;
+
+/// Longest component codeword either block uses, so the Chase search needs no allocation.
+const MAX_COMPONENT_BITS: usize = 16;
+
+/// Sign-flip positions per Chase-2 search over a Hamming component. Canonical Chase-2 flips
+/// ⌊d/2⌋ = 1–2 positions, which misses exactly the double-error words the product iteration
+/// feeds back; 4 flips cover every pattern of up to four low-confidence errors plus one the
+/// syndrome locates elsewhere — more than a transverse pass ever leaves in one codeword — at
+/// 2⁴ syndrome decodes of at most 16 bits, a cost too small to meter.
+const CHASE_FLIPS: u32 = 4;
+
+/// Hard repairs the post-Chase settle may make before the block is refused. The settle exists
+/// to mop up the single-bit leftovers a bounded Chase iteration strands, not to finish a
+/// decode the soft passes never converged on: every repair it is allowed multiplies the rate
+/// at which pure noise is accepted, for a shrinking correction return. Measured on [`Bptc196`]
+/// as (noise blocks accepted per 10⁴, blocks lost of 400 at σ = 0.70): cap 0 → (0, 181),
+/// 3 → (6, 133), 4 → (12, 116), 6 → (16, 115), 8 → (49, 100), unbounded → (554, 94).
+/// The knee is at 4.
+const MAX_SETTLE_REPAIRS: u32 = 4;
+
+/// Chase-2 over one component codeword held as soft values (positive = logical 1): try every
+/// sign-flip pattern over the `flips` least-reliable positions, hard-decode each trial with
+/// `decode`, and keep the valid codeword closest to the received word in analog distance — the
+/// sum of |soft| over the positions where they disagree.
+///
+/// The winner is imposed on `soft` by flipping signs while keeping magnitudes, so the
+/// transverse pass still sees which bits were confident. An erasure (0) gets the smallest
+/// nonzero magnitude, because a soft value of 0 slices to logical 0 and would smuggle a
+/// decision nobody made. Returns whether anything changed — what the caller's fixed-point
+/// loop watches. A word where no trial decodes (possible for the shortened and the extended
+/// Hamming members) is left untouched for the other direction to repair.
+fn chase(soft: &mut [Soft], flips: u32, decode: impl Fn(&mut [bool]) -> Option<u32>) -> bool {
+    let n = soft.len();
+    debug_assert!(n <= MAX_COMPONENT_BITS && (flips as usize) <= n);
+    let mut base = [false; MAX_COMPONENT_BITS];
+    for (slot, &s) in base.iter_mut().zip(soft.iter()) {
+        *slot = s > 0;
+    }
+    let mut order: [usize; MAX_COMPONENT_BITS] = std::array::from_fn(|i| i);
+    // Ascending reliability; the index tie-break keeps the search order deterministic.
+    order[..n].sort_unstable_by_key(|&i| (soft[i].unsigned_abs(), i));
+
+    let mut best: Option<u32> = None;
+    let mut winner = base;
+    for pattern in 0..1u32 << flips {
+        let mut cand = base;
+        for (j, &i) in order.iter().enumerate().take(flips as usize) {
+            if pattern >> j & 1 == 1 {
+                cand[i] = !cand[i];
+            }
+        }
+        if decode(&mut cand[..n]).is_none() {
+            continue;
+        }
+        let cost = soft
+            .iter()
+            .zip(&cand)
+            .filter(|&(&s, &c)| (s > 0) != c)
+            .map(|(&s, _)| u32::from(s.unsigned_abs()))
+            .sum();
+        if best.is_none_or(|b| cost < b) {
+            best = Some(cost);
+            winner = cand;
+        }
+    }
+    if best.is_none() {
+        return false;
+    }
+    let mut changed = false;
+    for (s, &w) in soft.iter_mut().zip(&winner) {
+        if (*s > 0) != w || *s == 0 {
+            let mag = (*s).unsigned_abs().clamp(1, i16::MAX as u16) as i16;
+            *s = if w { mag } else { -mag };
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Even parity across the whole word — the (8,7) column code of [`Bptc128`]. It can detect but
+/// never locate, so it corrects nothing here; under [`chase`] with one flip position the search
+/// becomes Wagner decoding (flip the least reliable bit iff parity fails), which is the exact
+/// maximum-likelihood decision for a single parity check.
+fn even_parity_decode(word: &mut [bool]) -> Option<u32> {
+    let odd = word.iter().fold(false, |acc, &b| acc ^ b);
+    if odd { None } else { Some(0) }
+}
 
 /// The interleaved 196-bit block a DMR data burst carries.
 pub struct Bptc196;
@@ -45,12 +147,71 @@ impl Bptc196 {
     #[must_use]
     pub fn decode(coded: &[bool; Self::CODED_BITS]) -> Option<([bool; Self::DATA_BITS], u32)> {
         let mut matrix = Self::deinterleave(coded);
+        let corrected = Self::settle(&mut matrix)?;
+        Some((Self::extract(&matrix), corrected))
+    }
+
+    /// Recover the 96 signalling bits from soft values, with the second element defined as the
+    /// Hamming distance between the returned codeword and the hard slice of the input
+    /// (`soft > 0` reads as 1) — the count of received signs the decoder overruled, whatever
+    /// their confidence. The distance is the same in wire and matrix order, the interleaver
+    /// being a permutation.
+    ///
+    /// `None` when the passes never come within [`MAX_SETTLE_REPAIRS`] hard repairs of a
+    /// consistent rectangle, and for an all-erasure input: the all-zero word is a valid
+    /// codeword of any linear code, but zero evidence must not decode to *any* data.
+    #[must_use]
+    pub fn decode_soft(coded: &[Soft; Self::CODED_BITS]) -> Option<([bool; Self::DATA_BITS], u32)> {
+        if coded.iter().all(|&s| s == 0) {
+            return None;
+        }
+        let mut matrix = [0 as Soft; Self::CODED_BITS];
+        for (a, slot) in matrix.iter_mut().enumerate() {
+            *slot = coded[a * 181 % Self::CODED_BITS];
+        }
+        let received: [bool; Self::CODED_BITS] = std::array::from_fn(|i| matrix[i] > 0);
+        // Unlike the hard passes, every one of the 13 rows and 15 columns is searched: the
+        // parity-on-parity rows and columns are XORs of information rows/columns and therefore
+        // valid component codewords themselves, and their soft values carry evidence too.
+        for _ in 0..MAX_PASSES {
+            let mut changed = false;
+            for c in 0..15 {
+                let mut column: [Soft; 13] = std::array::from_fn(|r| matrix[r * 15 + c + 1]);
+                changed |= chase(&mut column, CHASE_FLIPS, |w| {
+                    ParityCode::HAMMING_13_9.decode(w)
+                });
+                for (r, s) in column.into_iter().enumerate() {
+                    matrix[r * 15 + c + 1] = s;
+                }
+            }
+            for r in 0..13 {
+                let start = r * 15 + 1;
+                changed |= chase(&mut matrix[start..start + 15], CHASE_FLIPS, |w| {
+                    ParityCode::HAMMING_15_11.decode(w)
+                });
+            }
+            if !changed {
+                break;
+            }
+        }
+        // The hard passes verify the fixed point is a codeword and mop up the few leftovers
+        // the Chase iterations were still short of — but no more than that (MAX_SETTLE_REPAIRS).
+        let mut hard: [bool; Self::CODED_BITS] = std::array::from_fn(|i| matrix[i] > 0);
+        if Self::settle(&mut hard).is_none_or(|repairs| repairs > MAX_SETTLE_REPAIRS) {
+            return None;
+        }
+        let corrected = hard.iter().zip(&received).filter(|(a, b)| a != b).count() as u32;
+        Some((Self::extract(&hard), corrected))
+    }
+
+    /// Run hard passes to a fixed point, returning the bits repaired.
+    fn settle(matrix: &mut [bool; Self::CODED_BITS]) -> Option<u32> {
         let mut corrected = 0;
         for _ in 0..MAX_PASSES {
-            let repaired = Self::pass(&mut matrix)?;
+            let repaired = Self::pass(matrix)?;
             corrected += repaired;
             if repaired == 0 {
-                return Some((Self::extract(&matrix), corrected));
+                return Some(corrected);
             }
         }
         // The passes never settled: the block is still being changed on the last one, so
@@ -146,6 +307,59 @@ impl Bptc128 {
         for (a, &bit) in coded.iter().enumerate() {
             matrix[Self::transpose(a)] = bit;
         }
+        let corrected = Self::settle(&mut matrix)?;
+        Some((Self::extract(&matrix), corrected))
+    }
+
+    /// Recover the 77 information bits from soft values, with the second element defined as
+    /// the Hamming distance between the returned codeword and the hard slice of the input
+    /// (`soft > 0` reads as 1) — the count of received signs the decoder overruled, whatever
+    /// their confidence. The distance is the same in wire and matrix order, the transpose
+    /// being a permutation.
+    ///
+    /// `None` when the passes never come within [`MAX_SETTLE_REPAIRS`] hard repairs of a
+    /// consistent rectangle, and for an all-erasure input — zero evidence must not decode to
+    /// *any* data.
+    #[must_use]
+    pub fn decode_soft(coded: &[Soft; Self::CODED_BITS]) -> Option<([bool; Self::DATA_BITS], u32)> {
+        if coded.iter().all(|&s| s == 0) {
+            return None;
+        }
+        let mut matrix = [0 as Soft; Self::CODED_BITS];
+        for (a, &s) in coded.iter().enumerate() {
+            matrix[Self::transpose(a)] = s;
+        }
+        let received: [bool; Self::CODED_BITS] = std::array::from_fn(|i| matrix[i] > 0);
+        // All eight rows are searched: the parity row is the XOR of the seven information
+        // rows and therefore a valid Hamming(16,11) codeword itself.
+        for _ in 0..MAX_PASSES {
+            let mut changed = false;
+            for r in 0..8 {
+                changed |= chase(&mut matrix[r * 16..r * 16 + 16], CHASE_FLIPS, |w| {
+                    ParityCode::HAMMING_16_11.decode(w)
+                });
+            }
+            for c in 0..16 {
+                let mut column: [Soft; 8] = std::array::from_fn(|r| matrix[r * 16 + c]);
+                changed |= chase(&mut column, 1, even_parity_decode);
+                for (r, s) in column.into_iter().enumerate() {
+                    matrix[r * 16 + c] = s;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        let mut hard: [bool; Self::CODED_BITS] = std::array::from_fn(|i| matrix[i] > 0);
+        if Self::settle(&mut hard).is_none_or(|repairs| repairs > MAX_SETTLE_REPAIRS) {
+            return None;
+        }
+        let corrected = hard.iter().zip(&received).filter(|(a, b)| a != b).count() as u32;
+        Some((Self::extract(&hard), corrected))
+    }
+
+    /// Hard-decode the rectangle in place, returning the bits repaired.
+    fn settle(matrix: &mut [bool; Self::CODED_BITS]) -> Option<u32> {
         let mut corrected = 0;
         for r in 0..7 {
             corrected += ParityCode::HAMMING_16_11.decode(&mut matrix[r * 16..r * 16 + 16])?;
@@ -157,11 +371,15 @@ impl Bptc128 {
                 return None;
             }
         }
+        Some(corrected)
+    }
+
+    fn extract(matrix: &[bool; Self::CODED_BITS]) -> [bool; Self::DATA_BITS] {
         let mut out = [false; Self::DATA_BITS];
         for (i, slot) in out.iter_mut().enumerate() {
             *slot = matrix[i / 11 * 16 + i % 11];
         }
-        Some((out, corrected))
+        out
     }
 
     /// Build the 128 coded bits for `data`.
@@ -244,5 +462,200 @@ mod tests {
             }
         }
         assert!(Bptc196::decode(&heavy).is_none_or(|(_, c)| c > 0));
+    }
+
+    use crate::fec::conv::{CONFIDENT, soft};
+
+    fn soften<const N: usize>(bits: &[bool; N]) -> [Soft; N] {
+        std::array::from_fn(|i| soft(bits[i]))
+    }
+
+    /// xorshift64* plus Box-Muller: seeded noise with no OS randomness anywhere.
+    struct TestRng(u64);
+
+    impl TestRng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        }
+
+        fn uniform(&mut self) -> f64 {
+            (self.next() >> 11) as f64 / (1u64 << 53) as f64
+        }
+
+        fn gauss(&mut self) -> f64 {
+            let u1 = 1.0 - self.uniform();
+            let u2 = self.uniform();
+            (-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()
+        }
+
+        fn noise_block<const N: usize>(&mut self) -> [Soft; N] {
+            std::array::from_fn(|_| {
+                let r = self.next();
+                let mag = (r >> 8 & 63) as i16 + 1;
+                if r & 1 == 1 { mag } else { -mag }
+            })
+        }
+    }
+
+    /// One BPSK-over-AWGN transmission of a [`Bptc196`] block: unit symbols, noise deviation
+    /// `sigma`, soft values scaled so a clean symbol sits at half confidence.
+    fn awgn_trial(seed: u32, sigma: f64) -> ([bool; 96], [Soft; 196]) {
+        let data: [bool; 96] = pattern(seed);
+        let coded = Bptc196::encode(&data);
+        let mut rng = TestRng(u64::from(seed) * 0x9E37_79B9 + 1);
+        let soft_block = std::array::from_fn(|i| {
+            let x = if coded[i] { 1.0 } else { -1.0 };
+            let y = x + sigma * rng.gauss();
+            (y * 32.0)
+                .round()
+                .clamp(-f64::from(CONFIDENT), f64::from(CONFIDENT)) as Soft
+        });
+        (data, soft_block)
+    }
+
+    #[test]
+    fn bptc196_soft_round_trips() {
+        let data: [bool; 96] = pattern(21);
+        let coded = soften(&Bptc196::encode(&data));
+        assert_eq!(Bptc196::decode_soft(&coded), Some((data, 0)));
+    }
+
+    #[test]
+    fn bptc128_soft_round_trips() {
+        let data: [bool; 77] = pattern(23);
+        let coded = soften(&Bptc128::encode(&data));
+        assert_eq!(Bptc128::decode_soft(&coded), Some((data, 0)));
+    }
+
+    /// The pattern soft decoding exists for: four flips on the corners of a rectangle give
+    /// every touched row and column a double error, which hard decoding cannot reconcile —
+    /// but the flipped positions arrive with low confidence, so Chase finds them.
+    ///
+    /// Also pins the `errors_corrected` definition: the returned codeword is the transmitted
+    /// one, whose Hamming distance to the hard slice of the input is exactly the four flips.
+    #[test]
+    fn bptc196_soft_recovers_a_rectangle_hard_decode_cannot() {
+        let data: [bool; 96] = pattern(31);
+        let mut coded = soften(&Bptc196::encode(&data));
+        // Matrix corners (rows 2 and 5, columns 3 and 7) mapped back through the interleaver.
+        for m in [34usize, 38, 79, 83] {
+            let a = m * 181 % 196;
+            coded[a] = if coded[a] > 0 { -8 } else { 8 };
+        }
+        let hard: [bool; 196] = std::array::from_fn(|i| coded[i] > 0);
+        assert!(
+            Bptc196::decode(&hard).is_none_or(|(d, _)| d != data),
+            "the rectangle must defeat hard decoding for this test to mean anything"
+        );
+        assert_eq!(Bptc196::decode_soft(&coded), Some((data, 4)));
+    }
+
+    #[test]
+    fn bptc128_soft_recovers_a_rectangle_hard_decode_cannot() {
+        let data: [bool; 77] = pattern(37);
+        let mut coded = soften(&Bptc128::encode(&data));
+        // Matrix corners (rows 1 and 4, columns 2 and 9): each row carries a double error,
+        // which the distance-4 row code detects and refuses, so hard decode dies immediately.
+        for m in [18usize, 25, 66, 73] {
+            let a = (0..128)
+                .find(|&a| Bptc128::transpose(a) == m)
+                .unwrap_or_default();
+            coded[a] = if coded[a] > 0 { -8 } else { 8 };
+        }
+        let hard: [bool; 128] = std::array::from_fn(|i| coded[i] > 0);
+        assert_eq!(Bptc128::decode(&hard), None);
+        assert_eq!(Bptc128::decode_soft(&coded), Some((data, 4)));
+    }
+
+    /// `errors_corrected` counts overruled input signs, not decoder work: five scattered
+    /// low-confidence flips come back as exactly five.
+    #[test]
+    fn bptc196_soft_reports_the_hamming_distance_to_the_input() {
+        let data: [bool; 96] = pattern(41);
+        let mut coded = soften(&Bptc196::encode(&data));
+        for a in [3usize, 44, 91, 150, 195] {
+            coded[a] = if coded[a] > 0 { -8 } else { 8 };
+        }
+        assert_eq!(Bptc196::decode_soft(&coded), Some((data, 5)));
+    }
+
+    /// An all-erasure block carries no evidence. The all-zero word is a valid codeword of any
+    /// linear code, and returning it would be fabrication.
+    #[test]
+    fn bptc_soft_refuses_an_all_erasure_block() {
+        assert_eq!(Bptc196::decode_soft(&[0; 196]), None);
+        assert_eq!(Bptc128::decode_soft(&[0; 128]), None);
+    }
+
+    #[test]
+    fn bptc_soft_decoding_is_deterministic() {
+        let mut rng = TestRng(0xDEC0DE);
+        for _ in 0..20 {
+            let block196: [Soft; 196] = rng.noise_block();
+            assert_eq!(
+                Bptc196::decode_soft(&block196),
+                Bptc196::decode_soft(&block196)
+            );
+            let block128: [Soft; 128] = rng.noise_block();
+            assert_eq!(
+                Bptc128::decode_soft(&block128),
+                Bptc128::decode_soft(&block128)
+            );
+        }
+    }
+
+    /// Chase searches harder than syndrome decoding, so it also finds codewords in pure noise
+    /// more often; that rate is a property of the decoder, and this pins it. Measured: 12 of
+    /// 10⁴ noise blocks accepted (the hard decoder accepts 1); the bound leaves headroom for
+    /// seed sensitivity, not for regression. Whatever slips through still faces the CRC/RS
+    /// checks every user of these blocks runs next.
+    #[test]
+    fn bptc196_soft_acceptance_of_noise_stays_at_its_measured_rate() {
+        let mut rng = TestRng(0x196_196);
+        let accepted = (0..10_000)
+            .filter(|_| Bptc196::decode_soft(&rng.noise_block::<196>()).is_some())
+            .count();
+        assert!(accepted <= 40, "accepted {accepted} of 10000 noise blocks");
+    }
+
+    /// Measured: 81 of 10⁴ — an order worse than [`Bptc196`], as expected for half the block
+    /// with a locate-nothing parity column code in place of a second Hamming code.
+    #[test]
+    fn bptc128_soft_acceptance_of_noise_stays_at_its_measured_rate() {
+        let mut rng = TestRng(0x128_128);
+        let accepted = (0..10_000)
+            .filter(|_| Bptc128::decode_soft(&rng.noise_block::<128>()).is_some())
+            .count();
+        assert!(accepted <= 160, "accepted {accepted} of 10000 noise blocks");
+    }
+
+    /// The reason decode_soft exists, measured: at σ = 0.55 hard decoding loses 144 of 400
+    /// blocks, soft decoding 5. The asserts are looser than the measurement only to tolerate
+    /// libm rounding differences across platforms, not decoder regression.
+    #[test]
+    fn bptc196_soft_decoding_beats_hard_under_awgn() {
+        let mut hard_failures = 0u32;
+        let mut soft_failures = 0u32;
+        for seed in 0..400 {
+            let (data, soft_block) = awgn_trial(seed, 0.55);
+            let hard: [bool; 196] = std::array::from_fn(|i| soft_block[i] > 0);
+            if Bptc196::decode(&hard).is_none_or(|(d, _)| d != data) {
+                hard_failures += 1;
+            }
+            if Bptc196::decode_soft(&soft_block).is_none_or(|(d, _)| d != data) {
+                soft_failures += 1;
+            }
+        }
+        assert!(
+            hard_failures >= 100,
+            "only {hard_failures} hard failures: noise level no longer stresses the decoder"
+        );
+        assert!(
+            soft_failures <= 20 && soft_failures * 4 <= hard_failures,
+            "soft lost {soft_failures} blocks to hard's {hard_failures}"
+        );
     }
 }
