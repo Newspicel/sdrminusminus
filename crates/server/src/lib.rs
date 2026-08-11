@@ -27,6 +27,7 @@ const DECODED_TEXT_CAP: usize = 1024;
 
 mod assets;
 mod auth;
+mod bandplan;
 mod decoderlog;
 pub mod doctor;
 mod mcp;
@@ -1454,6 +1455,85 @@ mod tests {
             tools.iter().any(|t| t["name"] == "get_state"),
             "get_state missing from the tool list"
         );
+    }
+
+    #[tokio::test]
+    async fn the_band_plan_is_served_per_region() {
+        let app = test_router();
+        let (status, body) = request(app.clone(), "GET", "/api/bandplan/regions", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed: sdrmm_wire::BandRegionsResponse = serde_json::from_slice(&body).expect("json");
+        assert!(listed.regions.iter().any(|region| region.id == "de"));
+        assert!(
+            listed
+                .regions
+                .iter()
+                .any(|region| region.id == listed.default_region)
+        );
+
+        let (status, body) = request(app.clone(), "GET", "/api/bandplan/regions/de", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let plan: sdrmm_wire::BandPlan = serde_json::from_slice(&body).expect("json");
+        assert_eq!(plan.region.id, "de");
+        // Layers are named once and referenced by id, so the popover can resolve an authority
+        // without a second request.
+        assert!(
+            plan.layers
+                .iter()
+                .any(|layer| layer.authority == "Bundesnetzagentur")
+        );
+        let allocation = &plan.lanes[0];
+        assert!(!allocation.overlay);
+        // A frequency an operator would actually ask about: the airband over Germany.
+        let block = allocation
+            .blocks
+            .iter()
+            .find(|block| block.start_hz <= 121_500_000.0 && block.stop_hz > 121_500_000.0)
+            .expect("118–137 MHz is allocated");
+        assert_eq!(
+            block.allocation.service,
+            sdrmm_wire::BandService::Aeronautical
+        );
+        assert_eq!(
+            block
+                .allocation
+                .suggested
+                .as_ref()
+                .map(ChannelParams::type_id),
+            Some("am"),
+            "the airband suggests AM, which is what one-click tuning applies"
+        );
+
+        let (status, _) = request(app, "GET", "/api/bandplan/regions/atlantis", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn locating_a_region_validates_its_coordinate() {
+        let app = test_router();
+        let (status, body) = request(
+            app.clone(),
+            "GET",
+            "/api/bandplan/locate?lat=52.52&lon=13.40",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let found: sdrmm_wire::BandRegionMatch = serde_json::from_slice(&body).expect("json");
+        assert_eq!(found.region, "de");
+        assert!(!found.approximate);
+
+        let (status, _) = request(
+            app.clone(),
+            "GET",
+            "/api/bandplan/locate?lat=91&lon=0",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        // A missing parameter is a rejection, not a silent default at the equator.
+        let (status, _) = request(app, "GET", "/api/bandplan/locate?lat=52.52", None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

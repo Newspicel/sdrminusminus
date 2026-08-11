@@ -59,6 +59,22 @@
   --color-cat-feature: oklch(0.62 0.07 60);
   --color-cat-sink: oklch(0.58 0.03 80);
 
+  /* Service categories on the band ruler (DESIGN.md §9a). The ruler is a gutter *beside* the
+     plot rectangle, not an overlay on it, which is the only reason hue is licensed here at all —
+     inside the plot the colormap still owns the whole budget. Nine hues plus a neutral is more
+     than any other family in this file carries, so every block also states its service in words
+     in the identify popover and the explorer: no allocation is known by its hue alone. */
+  --color-band-ism: oklch(0.64 0.1 25);
+  --color-band-broadcast: oklch(0.64 0.1 60);
+  --color-band-mobile: oklch(0.64 0.09 145);
+  --color-band-science: oklch(0.64 0.08 175);
+  --color-band-maritime: oklch(0.64 0.09 200);
+  --color-band-aeronautical: oklch(0.64 0.1 235);
+  --color-band-navigation: oklch(0.64 0.09 265);
+  --color-band-amateur: oklch(0.64 0.1 300);
+  --color-band-satellite: oklch(0.64 0.1 345);
+  --color-band-other: oklch(0.6 0.02 80);
+
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
 
   /* Elevation 3 only (DESIGN.md §4): popovers and menus. A tight contact shadow plus a long
@@ -103,6 +119,21 @@
     --color-cat-display: oklch(0.592 0.05 200);
     --color-cat-feature: oklch(0.602 0.07 60);
     --color-cat-sink: oklch(0.598 0.03 80);
+
+    /* Re-anchored like the port and category families above: the dark values sit at L .64 and
+       measure under 3:1 on this ground. These are the lightnesses that put each hue at 3.5:1
+       on `bg`, which is what a block's 2px cap edge needs — the fill itself is the same hue at
+       28% and is a background, not a graphic. */
+    --color-band-ism: oklch(0.55 0.15 25);
+    --color-band-broadcast: oklch(0.58 0.11 60);
+    --color-band-mobile: oklch(0.55 0.11 145);
+    --color-band-science: oklch(0.56 0.09 175);
+    --color-band-maritime: oklch(0.57 0.1 200);
+    --color-band-aeronautical: oklch(0.56 0.12 235);
+    --color-band-navigation: oklch(0.55 0.12 265);
+    --color-band-amateur: oklch(0.56 0.12 300);
+    --color-band-satellite: oklch(0.57 0.14 345);
+    --color-band-other: oklch(0.58 0.02 80);
 
     --shadow-pop: 0 1px 2px oklch(0 0 0 / 0.08), 0 8px 24px oklch(0 0 0 / 0.12);
   }

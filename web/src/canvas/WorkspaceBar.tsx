@@ -4,6 +4,7 @@
 // Everything that *is* a node lives on the canvas — this bar deliberately holds no radio
 // controls, because the device node is where a radio is operated now (CANVAS §1).
 import { useState } from "react";
+import { BandsPanel } from "../components/BandsPanel";
 import { BookmarksPanel } from "../components/BookmarksPanel";
 import { BTN_QUIET, ICON_BTN, LABEL, segment } from "../components/controls";
 import { Popover } from "../components/Popover";
@@ -178,12 +179,14 @@ function Palette({ onAdd }: { onAdd: (kind: NodeKind, channelType?: string) => v
   );
 }
 
-/** Presets, bookmarks, templates and recordings are workspace *config*, not nodes on the patch —
- * they configure the radios the nodes name. They live in one drawer rather than as node kinds
- * with no stream to carry. */
+/** Presets, bookmarks, templates, recordings and the band plan are workspace *config*, not nodes
+ * on the patch — they configure the radios the nodes name, or say what the radios are hearing.
+ * They live in one drawer rather than as node kinds with no stream to carry. */
 function Library() {
   const workspace = useWorkspaceContext();
-  const [tab, setTab] = useState<"presets" | "bookmarks" | "templates" | "recordings">("templates");
+  const [tab, setTab] = useState<"presets" | "bookmarks" | "templates" | "recordings" | "bands">(
+    "templates",
+  );
   // These panels act on one radio, and applying a template or a preset to the wrong one is not
   // recoverable by undo. The target is the selected device node; with nothing selected it
   // falls back only when there is exactly one radio to mean, and otherwise the drawer says so
@@ -229,7 +232,7 @@ function Library() {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex" role="group" aria-label="Library section">
-        {(["templates", "presets", "bookmarks", "recordings"] as const).map((option) => (
+        {(["templates", "presets", "bookmarks", "bands", "recordings"] as const).map((option) => (
           <button
             key={option}
             type="button"
@@ -254,6 +257,7 @@ function Library() {
       )}
       {tab === "presets" && <PresetsPanel active={active} />}
       {tab === "bookmarks" && <BookmarksPanel active={active} />}
+      {tab === "bands" && <BandsPanel active={active} />}
       {tab === "recordings" && <RecordingsPanel onOpen={openRecording} />}
     </div>
   );

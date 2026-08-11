@@ -20,6 +20,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bandplan/locate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["locate_band_region"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bandplan/regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_band_regions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bandplan/regions/{region}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_band_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bookmarks": {
         parameters: {
             query?: never;
@@ -670,6 +718,139 @@ export interface components {
             /** @description Whether this server rejects requests without the shared token. */
             token_required: boolean;
         };
+        /** @description What a stretch of spectrum is allocated to, as one layer states it. */
+        BandAllocation: {
+            /**
+             * @description Other names the explorer matches on — wavelengths ("70 cm"), colloquialisms ("CB"),
+             *     and the service spelled the long way ("marine", "maritime mobile").
+             */
+            aliases: string[];
+            /**
+             * Format: double
+             * @description Channel raster, where the band is channelized.
+             */
+            channel_step_hz?: number | null;
+            /** @description `layer:start_hz`, stable across requests. */
+            id: string;
+            /** @description [`BandLayerInfo::id`] this entry came from. */
+            layer: string;
+            /** @description What an operator calls it: "2 m amateur", "Marine VHF", "Airband". */
+            name: string;
+            notes?: string | null;
+            service: components["schemas"]["BandService"];
+            /** Format: double */
+            start_hz: number;
+            /** Format: double */
+            stop_hz: number;
+            suggested?: null | components["schemas"]["ChannelParams"];
+        };
+        /** @description One resolved stretch: what wins here, and what it covers. */
+        BandBlock: {
+            /** @description The most specific layer's entry over this stretch. */
+            allocation: components["schemas"]["BandAllocation"];
+            /**
+             * @description The layers underneath, most specific first. Empty when nothing else covers this stretch.
+             *     This is what lets the identify popover say "BNetzA calls it X, over ITU's Y".
+             */
+            covered?: components["schemas"]["BandAllocation"][];
+            /** Format: double */
+            start_hz: number;
+            /** Format: double */
+            stop_hz: number;
+        };
+        /**
+         * @description A row of the ruler. The regulatory layers merge into one lane by most-specific-wins; an
+         *     overlay is a lane of its own, because it describes the same spectrum from a different angle
+         *     rather than contradicting it.
+         */
+        BandLane: {
+            /** @description Sorted by `start_hz`, non-overlapping. */
+            blocks: components["schemas"]["BandBlock"][];
+            id: string;
+            name: string;
+            /** @description Whether the lane is supplementary and may be switched off without losing the allocation. */
+            overlay: boolean;
+        };
+        /**
+         * @description One source of allocations: a table someone published, identified so a block can say where it
+         *     came from. Adding a region is adding one of these plus its entries (FEATURES §5's "pluggable
+         *     importers"); nothing else in the resolution knows the difference.
+         */
+        BandLayerInfo: {
+            /** @description Who publishes it — "ITU", "BNetzA", "Ofcom", "IARU Region 1". */
+            authority: string;
+            /** @description Stable id, referenced by [`BandAllocation::layer`] and [`BandRegion::layers`]. */
+            id: string;
+            kind: components["schemas"]["BandLayerKind"];
+            name: string;
+            /**
+             * Format: int32
+             * @description Least-specific first: where this layer sits when two of them cover one frequency. Ties
+             *     cannot happen — every layer in a region has a distinct rank.
+             */
+            rank: number;
+            /**
+             * @description The document and edition the entries were taken from, so a stale table is visible rather
+             *     than merely wrong.
+             */
+            source: string;
+        };
+        /**
+         * @description What kind of authority a layer speaks with. This is not decoration: it is why the amateur
+         *     plan renders as a separate lane instead of overriding the regulator — IARU band plans are
+         *     agreements between operators, not allocations, and they subdivide a band the regulator has
+         *     already given to the amateur service.
+         * @enum {string}
+         */
+        BandLayerKind: "world" | "regulatory" | "amateur";
+        /** @description `GET /api/bandplan/regions/{region}` — the whole region, already layered. */
+        BandPlan: {
+            lanes: components["schemas"]["BandLane"][];
+            /** @description Every layer the lanes reference, so a block's `layer` id resolves without a second call. */
+            layers: components["schemas"]["BandLayerInfo"][];
+            region: components["schemas"]["BandRegion"];
+        };
+        /** @description A region the operator can select: the ITU region plus whichever regulator applies there. */
+        BandRegion: {
+            /**
+             * @description ISO 3166-1 alpha-2 where the region is one country; `None` for the bare ITU regions and
+             *     for CEPT.
+             */
+            country?: string | null;
+            id: string;
+            itu_region: components["schemas"]["ItuRegion"];
+            /** @description Layer ids, least specific first. */
+            layers: string[];
+            name: string;
+            /** @description Overlay layer ids — the amateur plans that apply here. */
+            overlays?: string[];
+        };
+        /** @description `GET /api/bandplan/locate` — which region a coordinate falls in. */
+        BandRegionMatch: {
+            /**
+             * @description True when only the ITU region could be decided — the coordinate is outside every
+             *     national footprint this build ships, so the answer is coarse and the UI should say so.
+             */
+            approximate: boolean;
+            itu_region: components["schemas"]["ItuRegion"];
+            /**
+             * @description The most specific region whose footprint contains the coordinate; never empty, because
+             *     the three ITU regions cover the globe.
+             */
+            region: string;
+        };
+        /** @description `GET /api/bandplan/regions`. */
+        BandRegionsResponse: {
+            /** @description What a client with no stored preference should select. */
+            default_region: string;
+            regions: components["schemas"]["BandRegion"][];
+        };
+        /**
+         * @description The service category a block belongs to. Drives the ruler's colour, so it is deliberately
+         *     coarse: ten categories a reader can hold in their head, not the ITU's full service list.
+         * @enum {string}
+         */
+        BandService: "amateur" | "broadcast" | "aeronautical" | "maritime" | "mobile" | "satellite" | "navigation" | "science" | "ism" | "other";
         /** @description A stored frequency bookmark (PLAN §11). */
         Bookmark: {
             /** Format: double */
@@ -1299,6 +1480,13 @@ export interface components {
             /** Format: double */
             value_db: number;
         };
+        /**
+         * @description The three ITU radio regions (Radio Regulations Art. 5 §1). Region 1 is Europe, Africa, the
+         *     Middle East west of the Persian Gulf and northern Asia; Region 2 the Americas; Region 3 the
+         *     rest of Asia and Oceania.
+         * @enum {string}
+         */
+        ItuRegion: "r1" | "r2" | "r3";
         MorseParams: {
             /**
              * Format: double
@@ -2375,6 +2563,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthInfo"];
+                };
+            };
+        };
+    };
+    locate_band_region: {
+        parameters: {
+            query: {
+                /** @description Degrees north, −90…90. */
+                lat: number;
+                /** @description Degrees east, −180…180. */
+                lon: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The region a coordinate falls in. Coarse by construction — bounding boxes over the national footprints and an approximation of the ITU lines — so `approximate` says when only the ITU region could be decided and the operator should confirm it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BandRegionMatch"];
+                };
+            };
+            /** @description Coordinate out of range */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_band_regions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Selectable band-plan regions and the one to use with no stored preference. Static: the tables ship with the binary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BandRegionsResponse"];
+                };
+            };
+        };
+    };
+    get_band_plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Region id from /api/bandplan/regions */
+                region: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The region's allocations, already layered most-specific-wins, as one lane per view: the regulatory stack merged into one, and each amateur band plan as an overlay. Clipping it to a scope's window and searching it are client-side arithmetic over this document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BandPlan"];
+                };
+            };
+            /** @description No such region */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };
