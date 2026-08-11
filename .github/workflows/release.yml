@@ -51,7 +51,7 @@ env:
   # Enforced by `xtask check` against web/package.json and the Dockerfile — these three
   # are bumped by different tools and must move together.
   PNPM_VERSION: 11.15.1
-  NODE_VERSION: 24
+  NODE_VERSION: 26
 
 jobs:
   version:
