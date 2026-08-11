@@ -126,6 +126,57 @@ impl DcBlocker {
     }
 }
 
+/// Cascaded single-pole sections in [`Highpass`]. Three is what makes a 300 Hz corner reach
+/// −33 dB at 88.5 Hz — enough to take a CTCSS tone out of the audio — while still passing the
+/// bottom of the voice band.
+const HIGHPASS_SECTIONS: usize = 3;
+
+/// Highpass at `corner_hz`, 6 dB/octave per section, built as `x − lowpass(x)` three times.
+///
+/// This is an IIR because the job cannot be done any other way at audio rates: taking a
+/// subaudible tone out from under speech means a stopband at 250 Hz and a passband at 300,
+/// which is a transition of 0.001 of the sample rate at 48 kHz and thousands of FIR taps. A
+/// radio does not do that either — it cascades gentle sections and accepts that the highest
+/// CTCSS tones are only damped, not removed.
+#[derive(Clone, Debug)]
+pub struct Highpass {
+    lows: [f32; HIGHPASS_SECTIONS],
+    coeff: f32,
+}
+
+impl Highpass {
+    /// # Panics
+    /// If `rate` or `corner_hz` is not positive.
+    #[must_use]
+    pub fn new(rate: f64, corner_hz: f64) -> Self {
+        assert!(
+            rate > 0.0 && corner_hz > 0.0,
+            "rate and corner must be positive"
+        );
+        Self {
+            lows: [0.0; HIGHPASS_SECTIONS],
+            coeff: one_pole_coeff(rate, 1.0 / (std::f64::consts::TAU * corner_hz)),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.lows = [0.0; HIGHPASS_SECTIONS];
+    }
+
+    pub fn process(&mut self, samples: &mut [f32]) {
+        // Same per-block healing as the filters above: one non-finite sample would latch.
+        if !self.lows.iter().all(|v| v.is_finite()) {
+            self.reset();
+        }
+        for s in samples {
+            for low in &mut self.lows {
+                *low += self.coeff * (*s - *low);
+                *s -= *low;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::f32::consts::FRAC_1_SQRT_2;
@@ -247,6 +298,51 @@ mod tests {
         }
         assert!(out.re.is_finite() && out.im.is_finite(), "state poisoned");
         assert!((out.re - 1.0).abs() < 1e-3, "post-recovery gain {}", out.re);
+    }
+
+    fn highpass_gain(corner_hz: f64, freq_hz: f64) -> f32 {
+        let rate = 48_000.0;
+        let mut filter = Highpass::new(rate, corner_hz);
+        let n = (rate * 2.0) as usize;
+        let mut x = real_tone(freq_hz / rate, n);
+        filter.process(&mut x);
+        rms_r(&x[n / 2..]) / FRAC_1_SQRT_2
+    }
+
+    /// The numbers the audio path depends on: a CTCSS tone damped out of audibility, the
+    /// voice band left where it was.
+    #[test]
+    fn highpass_takes_the_subaudible_band_out_and_keeps_the_voice_band() {
+        // Three cascaded 6 dB/octave sections: (f / √(f² + fc²))³.
+        let analytic = |f: f64| (f / f.hypot(300.0)).powi(3) as f32;
+        for freq_hz in [67.0f64, 88.5, 254.1, 300.0, 1_000.0] {
+            let gain = highpass_gain(300.0, freq_hz);
+            let want = analytic(freq_hz);
+            assert!(
+                (gain / want - 1.0).abs() < 0.1,
+                "{freq_hz} Hz: gain {gain}, expected {want}"
+            );
+        }
+        // The two ends of the trade: a CTCSS tone is gone from the audio, the voice is not.
+        // The discrete sections shed a little more than the analog form at the top of the
+        // voice band — ~0.7 dB at 3 kHz — which is the price of doing this at 48 kHz at all.
+        assert!(highpass_gain(300.0, 88.5) < 0.03);
+        assert!(highpass_gain(300.0, 3_000.0) > 0.9);
+    }
+
+    #[test]
+    fn highpass_removes_a_dc_offset_and_recovers_from_a_non_finite_sample() {
+        let mut filter = Highpass::new(48_000.0, 300.0);
+        let mut dc = vec![1.0f32; 48_000];
+        filter.process(&mut dc);
+        assert!(dc[dc.len() - 1].abs() < 0.01, "dc residue {}", dc[47_999]);
+
+        let mut poisoned = vec![0.5f32; 480];
+        poisoned[7] = f32::NAN;
+        filter.process(&mut poisoned);
+        let mut tone = real_tone(1_000.0 / 48_000.0, 48_000);
+        filter.process(&mut tone);
+        assert!(tone.iter().all(|v| v.is_finite()), "state still poisoned");
     }
 
     #[test]

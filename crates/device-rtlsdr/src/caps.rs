@@ -9,8 +9,8 @@ use sdrmm_wire::{
 };
 
 use crate::{
-    DRIVER_ID,
-    driver::{BoardVariant, DeviceDescriptor},
+    DEFAULT_CENTER_HZ, DRIVER_ID,
+    driver::{BoardVariant, DIRECT_SAMPLING_MAX_HZ, DeviceDescriptor, DirectSampling},
 };
 
 /// The R820T/R828D PLL envelope. Both tuners the driver supports share it, so the tuner type does
@@ -18,11 +18,19 @@ use crate::{
 const TUNER_MIN_HZ: f64 = 24e6;
 const TUNER_MAX_HZ: f64 = 1_766e6;
 /// RTL-SDR Blog V4: the tuner's `set_freq` upconverts anything below the 28.8 MHz crystal
-/// through the board's built-in HF path, which the vendor specifies from ~500 kHz. Plain dongles
-/// have no such path — reaching HF there needs direct sampling, which the driver does not
-/// implement yet, so the low end honestly stays at [`TUNER_MIN_HZ`].
+/// through the board's built-in HF path, which the vendor specifies from ~500 kHz.
 const V4_HF_MIN_HZ: f64 = 500e3;
 const V4_HF_MAX_HZ: f64 = 28.8e6;
+
+/// What direct sampling reaches on every other board: the ADC's first Nyquist zone, DC to half
+/// the crystal. Only reachable with the tuner bypassed, which is why [`reachable_ranges`] and not
+/// `freq_ranges` decides whether a centre is valid — the capability set advertises the union of
+/// both modes so the picker can see the dongle covers HF at all.
+const DIRECT_RANGE: Range = Range {
+    min: 0.0,
+    max: DIRECT_SAMPLING_MAX_HZ as f64,
+    step: None,
+};
 
 /// The RTL2832U resampler's two valid windows (`RtlSdr::set_sample_rate`, librtlsdr's
 /// `rtlsdr_set_sample_rate`): everything between them aliases.
@@ -65,6 +73,9 @@ pub(crate) const BIAS_TEE: &str = "bias_tee";
 /// R82xx tuner AGC (LNA + mixer). Not the RTL2832U's digital AGC, which the driver does not
 /// program.
 pub(crate) const AGC: &str = "agc";
+/// Which ADC branch the demodulator receives, with the tuner bypassed — the HF path on every
+/// board but the Blog V4, which has an upconverter instead.
+pub(crate) const DIRECT_SAMPLING: &str = "direct_sampling";
 
 /// What `apply` will write, resolved and range-checked. Built entirely before the first setter
 /// runs so a bad field cannot leave the hardware half-retuned.
@@ -74,8 +85,17 @@ pub(crate) struct Plan {
     /// Crystal correction in whole ppm — the only granularity the correction registers have.
     pub(crate) ppm: Option<i32>,
     pub(crate) center_hz: Option<u32>,
-    /// Tuner IF filter in Hz; `Some(0)` selects the automatic width.
+    /// Tuner IF filter in Hz; `Some(0)` selects the automatic width. Never set while direct
+    /// sampling: the filter is in the bypassed half of the radio.
     pub(crate) bandwidth: Option<u32>,
+    /// Whether `settings()` must stop reporting a filter width, which `merge_from` cannot do —
+    /// an automatic width is the absence of one.
+    pub(crate) clear_bandwidth: bool,
+    /// Set only when the mode actually changes: re-entering the mode the radio is already in
+    /// would re-initialize the tuner for nothing.
+    pub(crate) direct_sampling: Option<DirectSampling>,
+    /// Never set while direct sampling, for the same reason as `bandwidth`. The requested value
+    /// is still reported, because leaving direct sampling restores it.
     pub(crate) gain: Option<GainMode>,
     pub(crate) bias_tee: Option<bool>,
     /// What `settings()` must report once the writes land — the snapped gain and the resolved
@@ -147,13 +167,18 @@ pub(crate) fn device_infos(descriptors: &[DeviceDescriptor]) -> Vec<DeviceInfo> 
 /// dB (`RtlSdr::gains`), so the advertised stage range is the hardware's, not a guess.
 pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
     let mut freq_ranges = Vec::with_capacity(2);
+    // Both boards reach HF, by different halves of the radio: the V4 upconverts into the tuner
+    // and needs nothing switched, everything else bypasses the tuner and needs `direct_sampling`
+    // set first. Both ranges overlap the tuner's at one end, and validation accepts a value
+    // inside any range that the *current* mode can reach.
     if board == BoardVariant::RtlSdrBlogV4 {
-        // Overlaps the tuner range at its top end; validation accepts a value inside any range.
         freq_ranges.push(Range {
             min: V4_HF_MIN_HZ,
             max: V4_HF_MAX_HZ,
             step: None,
         });
+    } else {
+        freq_ranges.push(DIRECT_RANGE);
     }
     freq_ranges.push(Range {
         min: TUNER_MIN_HZ,
@@ -186,7 +211,7 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
         // discrete list — so none is advertised, exactly as the Soapy path reports for the same
         // dongle. `BANDWIDTH_MAX_HZ` still bounds what `apply` will write.
         bandwidths: Vec::new(),
-        extra: extra_settings(),
+        extra: extra_settings(board),
         duplex: Duplex::RxOnly,
         rx_streams: 1,
         tx_streams: 0,
@@ -194,12 +219,15 @@ pub(crate) fn capabilities(board: BoardVariant, gains: &[i32]) -> Capabilities {
     }
 }
 
-/// The device-specific knobs the driver can actually drive. Direct sampling, offset tuning and
-/// the RTL2832U digital AGC are deliberately absent: nothing programs them yet, and advertising
-/// a control that silently does nothing is worse than not offering it. Crystal correction is
-/// *not* here — `DeviceSettings` carries `ppm` as a first-class field, so it needs no extra.
-fn extra_settings() -> Vec<ExtraSetting> {
-    vec![
+/// The device-specific knobs the driver can actually drive. Offset tuning and the RTL2832U
+/// digital AGC are deliberately absent: nothing programs them, and advertising a control that
+/// silently does nothing is worse than not offering it. Crystal correction is *not* here —
+/// `DeviceSettings` carries `ppm` as a first-class field, so it needs no extra.
+///
+/// Direct sampling is offered on every board but the Blog V4, whose HF path is an upconverter in
+/// front of the tuner: bypassing the tuner there would disconnect the antenna from the receiver.
+fn extra_settings(board: BoardVariant) -> Vec<ExtraSetting> {
+    let mut settings = vec![
         ExtraSetting::Bool {
             name: BIAS_TEE.to_string(),
             default: false,
@@ -209,7 +237,67 @@ fn extra_settings() -> Vec<ExtraSetting> {
             // Matches what `open` programs: an untouched dongle shows a usable spectrum.
             default: true,
         },
-    ]
+    ];
+    if board != BoardVariant::RtlSdrBlogV4 {
+        settings.push(ExtraSetting::Enum {
+            name: DIRECT_SAMPLING.to_string(),
+            options: DirectSampling::all()
+                .iter()
+                .map(|mode| mode.as_str().to_string())
+                .collect(),
+            default: DirectSampling::Off.as_str().to_string(),
+        });
+    }
+    settings
+}
+
+/// The ranges the radio can tune *in this mode*, which is the question a centre has to answer —
+/// `freq_ranges` advertises the union of both, because a device picker asks what the radio can be
+/// made to reach rather than what it reaches right now. The direct-sampling zone is recognized by
+/// value: it is one constant, written into the capability set by [`capabilities`].
+fn reachable_ranges(caps: &Capabilities, mode: DirectSampling) -> Vec<Range> {
+    match mode {
+        DirectSampling::Off => caps
+            .freq_ranges
+            .iter()
+            .copied()
+            .filter(|range| *range != DIRECT_RANGE)
+            .collect(),
+        _ => vec![DIRECT_RANGE],
+    }
+}
+
+fn reaches(ranges: &[Range], hz: f64) -> bool {
+    ranges.iter().any(|r| r.min <= hz && hz <= r.max)
+}
+
+/// The frequency in `ranges` nearest to `hz`, for a mode change to land the dial on.
+fn clamp_to_ranges(ranges: &[Range], hz: f64) -> f64 {
+    ranges
+        .iter()
+        .map(|range| hz.clamp(range.min, range.max))
+        .min_by(|a, b| (a - hz).abs().total_cmp(&(b - hz).abs()))
+        .unwrap_or(hz)
+}
+
+/// The mode a settings snapshot is in. An absent or unparsable value is the mode every dongle
+/// powers up in, which is also what a board that does not offer the setting is permanently in.
+fn direct_sampling_of(settings: &DeviceSettings) -> DirectSampling {
+    settings
+        .extra
+        .iter()
+        .find(|value| value.name == DIRECT_SAMPLING)
+        .and_then(|value| value.value.as_str())
+        .and_then(DirectSampling::parse)
+        .unwrap_or_default()
+}
+
+fn agc_of(settings: &DeviceSettings) -> Option<bool> {
+    settings
+        .extra
+        .iter()
+        .find(|value| value.name == AGC)
+        .and_then(|value| value.value.as_bool())
 }
 
 fn extra_name(setting: &ExtraSetting) -> &str {
@@ -246,13 +334,59 @@ pub(crate) fn validate(
     check_stream_settings(delta, caps)?;
     let mut plan = Plan::default();
 
+    // The mode is resolved first because it decides what the rest means: which frequencies are
+    // reachable, and whether the tuner is in the signal path at all.
+    let mut agc = None;
+    let mut requested_mode = None;
+    for value in &delta.extra {
+        let setting = caps
+            .extra
+            .iter()
+            .find(|s| extra_name(s) == value.name)
+            .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", value.name)))?;
+        match value.name.as_str() {
+            BIAS_TEE => {
+                let on = extra_bool(setting, value)?;
+                plan.bias_tee = Some(on);
+                plan.applied.extra.push(ExtraValue {
+                    name: BIAS_TEE.to_string(),
+                    value: on.into(),
+                });
+            }
+            AGC => agc = Some(extra_bool(setting, value)?),
+            DIRECT_SAMPLING => {
+                let mode = extra_direct_sampling(setting, value)?;
+                requested_mode = Some(mode);
+                plan.applied.extra.push(ExtraValue {
+                    name: DIRECT_SAMPLING.to_string(),
+                    value: mode.as_str().into(),
+                });
+            }
+            other => return Err(DeviceError::Unsupported(format!("extra setting {other}"))),
+        }
+    }
+    let current_mode = direct_sampling_of(current);
+    let mode = requested_mode.unwrap_or(current_mode);
+    if mode != current_mode {
+        plan.direct_sampling = Some(mode);
+    }
+
+    let ranges = reachable_ranges(caps, mode);
     if let Some(f) = delta.center_hz {
-        if !caps.freq_ranges.iter().any(|r| r.min <= f && f <= r.max) {
-            return Err(DeviceError::Unsupported(format!(
-                "center_hz {f} outside tuner range"
-            )));
+        if !reaches(&ranges, f) {
+            return Err(DeviceError::Unsupported(unreachable_center(caps, mode, f)));
         }
         plan.center_hz = Some(f.round() as u32);
+    } else if plan.direct_sampling.is_some() {
+        // A mode change carries a centre whether the caller sent one or not: the radio is parked
+        // on a frequency the mode being entered cannot reach, and `RtlSdr`'s setters retune from
+        // that cached centre. Nearest-in-range rather than a fixed default, and reported back —
+        // the same contract the gain table's snapping has.
+        let hz = current
+            .center_hz
+            .filter(|hz| hz.is_finite())
+            .unwrap_or(f64::from(DEFAULT_CENTER_HZ));
+        plan.center_hz = Some(clamp_to_ranges(&ranges, hz).round() as u32);
     }
 
     if let Some(rate) = delta.sample_rate {
@@ -269,22 +403,37 @@ pub(crate) fn validate(
     }
 
     // `RtlSdr::set_sample_rate` re-runs the tuner's bandwidth calculation against the new rate
-    // (as librtlsdr does), silently reverting an explicit filter width. Carry the recorded one
-    // forward so the reported bandwidth stays true after a rate change.
-    let bandwidth = delta.bandwidth.or_else(|| {
-        plan.sample_rate
-            .is_some()
-            .then_some(current.bandwidth)
-            .flatten()
-    });
+    // (as librtlsdr does), silently reverting an explicit filter width, and leaving direct
+    // sampling re-initializes the tuner back to its DVB-T default. Carry the recorded width
+    // through both so the reported bandwidth stays true. On the way out of direct sampling an
+    // unrecorded width is `0` — automatic — because the tuner's filter has to be told the sample
+    // rate again either way.
+    let bandwidth = delta
+        .bandwidth
+        .or_else(|| {
+            plan.sample_rate
+                .is_some()
+                .then_some(current.bandwidth)
+                .flatten()
+        })
+        .or_else(|| {
+            (plan.direct_sampling == Some(DirectSampling::Off))
+                .then(|| current.bandwidth.unwrap_or(0.0))
+        });
     if let Some(bw) = bandwidth {
         if !(0.0..=BANDWIDTH_MAX_HZ).contains(&bw) {
             return Err(DeviceError::Unsupported(format!(
                 "bandwidth {bw} outside 0..{BANDWIDTH_MAX_HZ} Hz (0 = automatic)"
             )));
         }
-        plan.bandwidth = Some(bw.round() as u32);
+        // The filter belongs to the bypassed half of the radio while direct sampling, so nothing
+        // is written — but the width is still reported and stored, because that is what leaving
+        // direct sampling restores.
+        if mode == DirectSampling::Off {
+            plan.bandwidth = Some(bw.round() as u32);
+        }
         plan.applied.bandwidth = (bw > 0.0).then_some(bw);
+        plan.clear_bandwidth = bw == 0.0;
     }
 
     if let Some(antenna) = &delta.antenna {
@@ -322,46 +471,32 @@ pub(crate) fn validate(
         requested_gain = nearest_gain(table, (gain.value_db * 10.0).round() as i32);
     }
 
-    let mut agc = None;
-    for value in &delta.extra {
-        let setting = caps
-            .extra
-            .iter()
-            .find(|s| extra_name(s) == value.name)
-            .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", value.name)))?;
-        let on = extra_bool(setting, value)?;
-        match value.name.as_str() {
-            BIAS_TEE => {
-                plan.bias_tee = Some(on);
-                plan.applied.extra.push(ExtraValue {
-                    name: BIAS_TEE.to_string(),
-                    value: on.into(),
-                });
-            }
-            AGC => agc = Some(on),
-            other => return Err(DeviceError::Unsupported(format!("extra setting {other}"))),
-        }
-    }
-
     // The R82xx has one gain control: `set_gain_manual` turns the AGC off as a side effect, so
     // mode and value are the same knob. An explicit `agc` in the delta decides the mode; on its
     // own, a TUNER value means manual, which is what the hardware would do anyway.
-    plan.gain = match (agc, requested_gain) {
+    let gain = match (agc, requested_gain) {
         (Some(true), _) => Some(GainMode::Auto),
         (_, Some(tenths)) => Some(GainMode::Manual(tenths)),
-        (Some(false), None) => {
-            // Leaving AGC needs a value: the last manual one, else full sensitivity.
-            let tenths = current_manual_tenths(current)
-                .and_then(|t| nearest_gain(table, t))
-                .or_else(|| table.iter().copied().max())
-                .ok_or_else(|| {
-                    DeviceError::Unsupported("agc off: tuner exposes no gain table".to_string())
-                })?;
-            Some(GainMode::Manual(tenths))
+        // Leaving AGC needs a value: the last manual one, else full sensitivity.
+        (Some(false), None) => Some(GainMode::Manual(restored_manual(current, table)?)),
+        // Leaving direct sampling re-initializes the tuner, which resets its gain registers to
+        // the R82xx defaults — so the mode the radio was already in has to be written again.
+        (None, None) if plan.direct_sampling == Some(DirectSampling::Off) => {
+            Some(match agc_of(current) {
+                Some(false) => GainMode::Manual(restored_manual(current, table)?),
+                _ => GainMode::Auto,
+            })
         }
         (None, None) => None,
     };
-    match plan.gain {
+    // Same rule as the filter width: with the tuner bypassed the gain is not on the signal path,
+    // so it is recorded rather than written. Refusing it instead would break the reconnect path,
+    // which restores a whole stored configuration — direct sampling and tuner gain together — in
+    // one call.
+    if mode == DirectSampling::Off {
+        plan.gain = gain;
+    }
+    match gain {
         // In auto the tuner ignores the manual value, so the recorded one is only what a later
         // `agc: false` would restore — the mode is what `settings()` reports as truth.
         Some(GainMode::Auto) => plan.applied.extra.push(ExtraValue {
@@ -384,8 +519,37 @@ pub(crate) fn validate(
     Ok(plan)
 }
 
-/// Both advertised extras are booleans; anything else in the delta is a client bug, not a value
-/// to coerce.
+/// Why a centre is out of reach, and what would bring it in reach. A board that offers direct
+/// sampling can usually reach a rejected HF frequency by switching to it, and saying so is the
+/// difference between a dead end and a next step.
+fn unreachable_center(caps: &Capabilities, mode: DirectSampling, hz: f64) -> String {
+    let offers_direct = caps
+        .extra
+        .iter()
+        .any(|setting| extra_name(setting) == DIRECT_SAMPLING);
+    match mode {
+        DirectSampling::Off if offers_direct && reaches(&[DIRECT_RANGE], hz) => format!(
+            "center_hz {hz} outside tuner range; set {DIRECT_SAMPLING} to i or q to reach it \
+             with the tuner bypassed"
+        ),
+        DirectSampling::Off => format!("center_hz {hz} outside tuner range"),
+        _ => format!(
+            "center_hz {hz} outside the direct-sampling range {}-{} Hz; set {DIRECT_SAMPLING} \
+             to off for the tuner's own range",
+            DIRECT_RANGE.min, DIRECT_RANGE.max
+        ),
+    }
+}
+
+/// The manual gain to leave the AGC for: the last one recorded, else full sensitivity.
+fn restored_manual(current: &DeviceSettings, table: &[i32]) -> Result<i32, DeviceError> {
+    current_manual_tenths(current)
+        .and_then(|tenths| nearest_gain(table, tenths))
+        .or_else(|| table.iter().copied().max())
+        .ok_or_else(|| DeviceError::Unsupported("tuner exposes no gain table".to_string()))
+}
+
+/// Both boolean extras; anything else in the delta is a client bug, not a value to coerce.
 fn extra_bool(setting: &ExtraSetting, value: &ExtraValue) -> Result<bool, DeviceError> {
     match setting {
         ExtraSetting::Bool { .. } => value.value.as_bool().ok_or_else(|| {
@@ -399,6 +563,31 @@ fn extra_bool(setting: &ExtraSetting, value: &ExtraValue) -> Result<bool, Device
             value.name
         ))),
     }
+}
+
+/// The mode named by an enum extra, checked against the options the capability set advertised —
+/// a board that does not offer a branch must not be switched to it by spelling it correctly.
+fn extra_direct_sampling(
+    setting: &ExtraSetting,
+    value: &ExtraValue,
+) -> Result<DirectSampling, DeviceError> {
+    let ExtraSetting::Enum { options, .. } = setting else {
+        return Err(DeviceError::Unsupported(format!(
+            "extra setting {}: not an enum",
+            value.name
+        )));
+    };
+    value
+        .value
+        .as_str()
+        .filter(|text| options.iter().any(|option| option == text))
+        .and_then(DirectSampling::parse)
+        .ok_or_else(|| {
+            DeviceError::Unsupported(format!(
+                "extra setting {}: bad value {}",
+                value.name, value.value
+            ))
+        })
 }
 
 fn current_manual_tenths(current: &DeviceSettings) -> Option<i32> {
@@ -470,11 +659,14 @@ mod tests {
         let caps = capabilities(BoardVariant::Generic, GAIN_VALUES);
         assert_eq!(
             caps.freq_ranges,
-            vec![Range {
-                min: 24e6,
-                max: 1.766e9,
-                step: None
-            }]
+            vec![
+                DIRECT_RANGE,
+                Range {
+                    min: 24e6,
+                    max: 1.766e9,
+                    step: None
+                }
+            ]
         );
         assert_eq!(caps.sample_rates, RATE_MENU.to_vec());
         assert_eq!(caps.sample_rate_range, None);
@@ -489,13 +681,36 @@ mod tests {
         assert_eq!(caps.gains[0].range.step, None);
     }
 
+    /// The V4 reaches HF through an upconverter in front of the tuner, so it gets a wider HF
+    /// range than direct sampling could and no setting to switch — bypassing the tuner there
+    /// would disconnect the antenna from the receiver.
     #[test]
-    fn blog_v4_adds_the_upconverted_hf_range() {
+    fn blog_v4_swaps_direct_sampling_for_its_upconverted_hf_range() {
         let caps = capabilities(BoardVariant::RtlSdrBlogV4, GAIN_VALUES);
         assert_eq!(caps.freq_ranges.len(), 2);
         assert_eq!(caps.freq_ranges[0].min, 500e3);
         assert_eq!(caps.freq_ranges[0].max, 28.8e6);
         assert_eq!(caps.freq_ranges[1].min, 24e6);
+        let names: Vec<&str> = caps.extra.iter().map(extra_name).collect();
+        assert_eq!(names, vec![BIAS_TEE, AGC]);
+    }
+
+    /// The dongle can be *made* to reach HF, which is what a device picker asks — and it takes a
+    /// setting, which is what `validate` enforces.
+    #[test]
+    fn a_generic_dongle_advertises_the_direct_sampling_zone_and_the_switch_for_it() {
+        let caps = capabilities(BoardVariant::Generic, GAIN_VALUES);
+        assert_eq!(caps.freq_ranges[0], DIRECT_RANGE);
+        assert_eq!(DIRECT_RANGE.max, 14.4e6, "half the 28.8 MHz crystal");
+        assert!(caps.profile().reaches(7.1e6));
+        assert_eq!(
+            caps.extra.last(),
+            Some(&ExtraSetting::Enum {
+                name: DIRECT_SAMPLING.to_string(),
+                options: vec!["off".to_string(), "i".to_string(), "q".to_string()],
+                default: "off".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -510,7 +725,7 @@ mod tests {
     fn extras_are_only_what_the_driver_can_drive() {
         let extra = capabilities(BoardVariant::Generic, GAIN_VALUES).extra;
         let names: Vec<&str> = extra.iter().map(extra_name).collect();
-        assert_eq!(names, vec![BIAS_TEE, AGC]);
+        assert_eq!(names, vec![BIAS_TEE, AGC, DIRECT_SAMPLING]);
     }
 
     #[test]
@@ -872,6 +1087,265 @@ mod tests {
         assert_eq!(plan.bandwidth, Some(1_000_000));
         assert_eq!(plan.gain, Some(GainMode::Manual(496)));
         assert_eq!(plan.bias_tee, Some(true));
+    }
+
+    fn mode_value(mode: DirectSampling) -> ExtraValue {
+        ExtraValue {
+            name: DIRECT_SAMPLING.to_string(),
+            value: mode.as_str().into(),
+        }
+    }
+
+    /// A settings snapshot of a dongle already listening on 40 m through the Q branch, with the
+    /// tuner settings it had before the switch still recorded.
+    fn on_hf() -> DeviceSettings {
+        DeviceSettings {
+            center_hz: Some(7_100_000.0),
+            sample_rate: Some(1_024_000.0),
+            bandwidth: Some(300_000.0),
+            gains: vec![GainValue {
+                stage: TUNER_STAGE.to_string(),
+                value_db: 20.7,
+            }],
+            extra: vec![
+                ExtraValue {
+                    name: AGC.to_string(),
+                    value: false.into(),
+                },
+                mode_value(DirectSampling::QBranch),
+            ],
+            ..DeviceSettings::default()
+        }
+    }
+
+    #[test]
+    fn direct_sampling_swaps_which_ranges_are_reachable() {
+        let to_hf = DeviceSettings {
+            extra: vec![mode_value(DirectSampling::QBranch)],
+            center_hz: Some(7_100_000.0),
+            ..DeviceSettings::default()
+        };
+        let plan = plan_for(&to_hf).unwrap();
+        assert_eq!(plan.direct_sampling, Some(DirectSampling::QBranch));
+        assert_eq!(plan.center_hz, Some(7_100_000));
+        assert_eq!(
+            plan.applied.extra,
+            vec![mode_value(DirectSampling::QBranch)]
+        );
+
+        // The tuner's own range is out of reach while it is bypassed, and the refusal says which
+        // way back.
+        let too_high = DeviceSettings {
+            center_hz: Some(145_500_000.0),
+            ..DeviceSettings::default()
+        };
+        match validate(&too_high, &caps(), &on_hf(), GAIN_VALUES) {
+            Err(DeviceError::Unsupported(message)) => {
+                assert!(message.contains("direct-sampling range"), "{message}");
+                assert!(message.contains("set direct_sampling to off"), "{message}");
+            }
+            other => panic!("a VHF centre while direct sampling must be refused, got {other:?}"),
+        }
+    }
+
+    /// The refusal a beginner meets first: an HF frequency on a dongle whose tuner starts at
+    /// 24 MHz. It has to name the setting that would reach it.
+    #[test]
+    fn an_hf_centre_with_the_tuner_in_circuit_points_at_the_setting() {
+        let delta = DeviceSettings {
+            center_hz: Some(7_100_000.0),
+            ..DeviceSettings::default()
+        };
+        match plan_for(&delta) {
+            Err(DeviceError::Unsupported(message)) => {
+                assert!(
+                    message.contains("set direct_sampling to i or q"),
+                    "{message}"
+                );
+            }
+            other => panic!("HF without direct sampling must be refused, got {other:?}"),
+        }
+
+        // The V4 has no such setting, so its refusals must not advertise one — 200 kHz is below
+        // even its upconverter.
+        let v4 = capabilities(BoardVariant::RtlSdrBlogV4, GAIN_VALUES);
+        let too_low = DeviceSettings {
+            center_hz: Some(200_000.0),
+            ..DeviceSettings::default()
+        };
+        match validate(&too_low, &v4, &DeviceSettings::default(), GAIN_VALUES) {
+            Err(DeviceError::Unsupported(message)) => {
+                assert_eq!(message, "center_hz 200000 outside tuner range");
+            }
+            other => panic!("a sub-upconverter centre must be refused, got {other:?}"),
+        }
+    }
+
+    /// Every setter that retunes reads the driver's cached centre, and after a mode change that
+    /// cache holds a frequency the new mode cannot reach — so a mode change always carries a
+    /// centre, clamped to the nearest reachable one and reported rather than silently kept.
+    #[test]
+    fn a_mode_change_alone_carries_the_dial_into_the_new_range() {
+        let current = DeviceSettings {
+            center_hz: Some(145_500_000.0),
+            ..DeviceSettings::default()
+        };
+        let plan = validate(
+            &DeviceSettings {
+                extra: vec![mode_value(DirectSampling::IBranch)],
+                ..DeviceSettings::default()
+            },
+            &caps(),
+            &current,
+            GAIN_VALUES,
+        )
+        .unwrap();
+        assert_eq!(plan.center_hz, Some(14_400_000), "the top of the HF zone");
+
+        let plan = validate(
+            &DeviceSettings {
+                extra: vec![mode_value(DirectSampling::Off)],
+                ..DeviceSettings::default()
+            },
+            &caps(),
+            &on_hf(),
+            GAIN_VALUES,
+        )
+        .unwrap();
+        assert_eq!(plan.direct_sampling, Some(DirectSampling::Off));
+        assert_eq!(plan.center_hz, Some(24_000_000), "the bottom of the tuner");
+
+        // A centre the caller asked for explicitly is refused rather than clamped: clamping is
+        // for the frequency nobody named.
+        let contradictory = DeviceSettings {
+            center_hz: Some(145_500_000.0),
+            extra: vec![mode_value(DirectSampling::QBranch)],
+            ..DeviceSettings::default()
+        };
+        assert!(matches!(
+            plan_for(&contradictory),
+            Err(DeviceError::Unsupported(_))
+        ));
+    }
+
+    /// Re-sending the mode the radio is already in must plan no switch: leaving direct sampling
+    /// re-initializes the tuner, so a redundant write would drop its gain and filter.
+    #[test]
+    fn only_a_changed_mode_is_written() {
+        let plan = validate(
+            &DeviceSettings {
+                extra: vec![mode_value(DirectSampling::QBranch)],
+                ..DeviceSettings::default()
+            },
+            &caps(),
+            &on_hf(),
+            GAIN_VALUES,
+        )
+        .unwrap();
+        assert_eq!(plan.direct_sampling, None);
+        assert_eq!(plan.center_hz, None);
+        // Still echoed, so the reported settings stay the answer to "what mode is this in".
+        assert_eq!(
+            plan.applied.extra,
+            vec![mode_value(DirectSampling::QBranch)]
+        );
+    }
+
+    /// With the tuner bypassed its gain and IF filter are not on the signal path. Both are still
+    /// accepted — the reconnect path restores a whole stored configuration in one call, and a
+    /// refusal there would leave a faulted HF set unable to come back — and both are recorded,
+    /// because leaving direct sampling is what puts them back into effect.
+    #[test]
+    fn a_bypassed_tuner_records_its_settings_instead_of_writing_them() {
+        let restore = DeviceSettings {
+            center_hz: Some(7_100_000.0),
+            sample_rate: Some(1_024_000.0),
+            bandwidth: Some(300_000.0),
+            gains: vec![GainValue {
+                stage: TUNER_STAGE.to_string(),
+                value_db: 20.7,
+            }],
+            extra: vec![
+                ExtraValue {
+                    name: AGC.to_string(),
+                    value: false.into(),
+                },
+                mode_value(DirectSampling::QBranch),
+            ],
+            ..DeviceSettings::default()
+        };
+        let plan = plan_for(&restore).unwrap();
+        assert_eq!(plan.direct_sampling, Some(DirectSampling::QBranch));
+        assert_eq!(plan.center_hz, Some(7_100_000));
+        assert_eq!(plan.sample_rate, Some(1_024_000));
+        assert_eq!(plan.gain, None, "the tuner must not be driven in standby");
+        assert_eq!(plan.bandwidth, None);
+        assert_eq!(plan.applied.bandwidth, Some(300_000.0));
+        assert_eq!(plan.applied.gains[0].value_db, 20.7);
+    }
+
+    /// Leaving direct sampling re-initializes the tuner, which resets its gain registers and its
+    /// filter to the R82xx defaults — so both have to be planned again even though the caller
+    /// only asked for a mode.
+    #[test]
+    fn leaving_direct_sampling_restores_the_tuner_it_re_initializes() {
+        let leave = DeviceSettings {
+            extra: vec![mode_value(DirectSampling::Off)],
+            center_hz: Some(145_500_000.0),
+            ..DeviceSettings::default()
+        };
+        let plan = validate(&leave, &caps(), &on_hf(), GAIN_VALUES).unwrap();
+        assert_eq!(plan.gain, Some(GainMode::Manual(207)));
+        assert_eq!(plan.bandwidth, Some(300_000));
+
+        // A dongle that was in AGC before the switch comes back in AGC, and one with no recorded
+        // width comes back on the automatic one rather than the tuner's DVB-T default.
+        let mut current = on_hf();
+        current.bandwidth = None;
+        current.extra[0].value = true.into();
+        let plan = validate(&leave, &caps(), &current, GAIN_VALUES).unwrap();
+        assert_eq!(plan.gain, Some(GainMode::Auto));
+        assert_eq!(plan.bandwidth, Some(0));
+        assert_eq!(plan.applied.bandwidth, None);
+        assert!(plan.clear_bandwidth);
+    }
+
+    #[test]
+    fn validate_rejects_unknown_direct_sampling_values() {
+        for value in ["", "1", "on", "Q"] {
+            let delta = DeviceSettings {
+                extra: vec![ExtraValue {
+                    name: DIRECT_SAMPLING.to_string(),
+                    value: value.into(),
+                }],
+                ..DeviceSettings::default()
+            };
+            assert!(
+                matches!(plan_for(&delta), Err(DeviceError::Unsupported(_))),
+                "direct_sampling {value:?} must be rejected"
+            );
+        }
+        // Not a string at all, and — on a board that does not offer the setting — not a setting.
+        let mistyped = DeviceSettings {
+            extra: vec![ExtraValue {
+                name: DIRECT_SAMPLING.to_string(),
+                value: true.into(),
+            }],
+            ..DeviceSettings::default()
+        };
+        assert!(matches!(
+            plan_for(&mistyped),
+            Err(DeviceError::Unsupported(_))
+        ));
+        let v4 = capabilities(BoardVariant::RtlSdrBlogV4, GAIN_VALUES);
+        let on_v4 = DeviceSettings {
+            extra: vec![mode_value(DirectSampling::QBranch)],
+            ..DeviceSettings::default()
+        };
+        assert!(matches!(
+            validate(&on_v4, &v4, &DeviceSettings::default(), GAIN_VALUES),
+            Err(DeviceError::Unsupported(_))
+        ));
     }
 
     #[test]

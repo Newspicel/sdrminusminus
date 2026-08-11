@@ -32,14 +32,15 @@ pub mod audio;
 pub mod recording;
 pub mod runtime;
 pub mod scanner;
+pub mod video;
 pub use audio::AudioPacket;
 pub use recording::FinalizedRecording;
 pub use runtime::{SpectrumSnapshot, adaptive_db_window};
+pub use video::VideoPacket;
 
 use crate::{
-    audio::PcmBlock,
     recording::RecordingShared,
-    runtime::{CaptureRuntime, ChannelHost, DecodedSink, DspCommand, RawDecoded},
+    runtime::{CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded},
     scanner::{ScanPlan, ScannerState},
 };
 
@@ -146,15 +147,14 @@ impl EngineError {
 }
 
 /// A hosted channel queued for a pipeline rebuild swap: the settings snapshot it was listed
-/// under, plus the audio identity (PCM sender + shared sample position) the replacement host
-/// must reuse so the audio stream and its timestamps survive the swap.
+/// under, plus the media identity (PCM and picture senders with their shared positions) the
+/// replacement host must reuse, so a subscriber never notices the pipeline was replaced.
 struct RebuildEntry {
     id: u32,
     /// The rx stream the channel taps; the replacement host must land on the same lane.
     stream: u32,
     settings: ChannelSettings,
-    pcm_tx: broadcast::Sender<PcmBlock>,
-    pcm_pos: Arc<AtomicU64>,
+    sinks: ChannelSinks,
 }
 
 fn sample_rate_of(settings: &DeviceSettings) -> f64 {
@@ -286,27 +286,31 @@ fn validate_streams(
     Ok(())
 }
 
-/// A channel's audio identity: the PCM fan-in and Opus fan-out survive pipeline rebuilds
-/// (params type change, device rate change), so audio subscribers never notice a swap.
-struct ChannelAudio {
-    pcm_tx: broadcast::Sender<PcmBlock>,
-    /// 48 kHz-domain position of the channel's next PCM sample, shared into every host
-    /// built for this channel so packet timestamps stay continuous across rebuilds.
-    pcm_pos: Arc<AtomicU64>,
+/// A channel's media identity: the PCM fan-in, the Opus fan-out and the picture stream all
+/// survive pipeline rebuilds (params type change, device rate change), so subscribers of either
+/// kind never notice a swap.
+struct ChannelMedia {
+    /// What the DSP-side host writes into, handed to every host built for this channel.
+    sinks: ChannelSinks,
     audio_tx: broadcast::Sender<AudioPacket>,
     encoder: Option<std::thread::JoinHandle<()>>,
 }
 
-impl ChannelAudio {
+impl ChannelMedia {
     /// `channels` is the layout the channel starts in; the encoder follows the PCM from there,
     /// so a later stereo toggle needs no new identity.
     fn new(channels: u8) -> Result<Self, EngineError> {
         let (pcm_tx, pcm_rx) = broadcast::channel(audio::PCM_CHANNEL_CAP);
         let (audio_tx, _) = broadcast::channel(audio::AUDIO_CHANNEL_CAP);
+        let (video_tx, _) = broadcast::channel(video::VIDEO_CHANNEL_CAP);
         let encoder = audio::spawn_encoder(channels, pcm_rx, audio_tx.clone())?;
         Ok(Self {
-            pcm_tx,
-            pcm_pos: Arc::new(AtomicU64::new(0)),
+            sinks: ChannelSinks {
+                pcm_tx,
+                pcm_pos: Arc::new(AtomicU64::new(0)),
+                video_tx,
+                video_pos: Arc::new(AtomicU64::new(0)),
+            },
             audio_tx,
             encoder: Some(encoder),
         })
@@ -374,9 +378,9 @@ struct DeviceSetState {
     settings: DeviceSettings,
     status: DeviceSetStatus,
     channels: Vec<ChannelInfo>,
-    /// Audio plumbing per channel id, kept beside the projected `channels` so rebuild swaps
-    /// can preserve a channel's streams while replacing its DSP pipeline.
-    audio: HashMap<u32, ChannelAudio>,
+    /// Audio and video plumbing per channel id, kept beside the projected `channels` so
+    /// rebuild swaps can preserve a channel's streams while replacing its DSP pipeline.
+    media: HashMap<u32, ChannelMedia>,
     next_channel_id: u32,
     error: Option<String>,
     recording: Option<RecordingState>,
@@ -989,12 +993,11 @@ impl Engine {
                 .channels
                 .iter()
                 .filter_map(|c| {
-                    state.audio.get(&c.id).map(|a| RebuildEntry {
+                    state.media.get(&c.id).map(|m| RebuildEntry {
                         id: c.id,
                         stream: c.stream,
                         settings: c.settings.clone(),
-                        pcm_tx: a.pcm_tx.clone(),
-                        pcm_pos: a.pcm_pos.clone(),
+                        sinks: m.sinks.clone(),
                     })
                 })
                 .collect();
@@ -1006,7 +1009,7 @@ impl Engine {
         lock_runtime(&old_runtime).stop();
         drop(old_runtime);
 
-        let mut dead: Vec<ChannelAudio> = Vec::new();
+        let mut dead: Vec<ChannelMedia> = Vec::new();
         for rebuild in rebuilds {
             self.rebuild_channel(ds, rebuild, rate, &mut dead);
         }
@@ -1140,7 +1143,7 @@ impl Engine {
                         DeviceSetStatus::Running
                     },
                     channels: Vec::new(),
-                    audio: HashMap::new(),
+                    media: HashMap::new(),
                     next_channel_id: 1,
                     error: pending.as_ref().map(ToString::to_string),
                     recording: None,
@@ -1337,12 +1340,11 @@ impl Engine {
                     .channels
                     .iter()
                     .filter_map(|c| {
-                        state.audio.get(&c.id).map(|a| RebuildEntry {
+                        state.media.get(&c.id).map(|m| RebuildEntry {
                             id: c.id,
                             stream: c.stream,
                             settings: c.settings.clone(),
-                            pcm_tx: a.pcm_tx.clone(),
-                            pcm_pos: a.pcm_pos.clone(),
+                            sinks: m.sinks.clone(),
                         })
                     })
                     .collect()
@@ -1352,7 +1354,7 @@ impl Engine {
             (settings, rate, rebuilds)
         };
         lock_runtime(&runtime).set_meta(&settings);
-        let mut dead: Vec<ChannelAudio> = Vec::new();
+        let mut dead: Vec<ChannelMedia> = Vec::new();
         for rebuild in rebuilds {
             self.rebuild_channel(ds, rebuild, rate, &mut dead);
         }
@@ -1382,14 +1384,13 @@ impl Engine {
         ds: u32,
         rebuild: RebuildEntry,
         rate: f64,
-        dead: &mut Vec<ChannelAudio>,
+        dead: &mut Vec<ChannelMedia>,
     ) {
         let RebuildEntry {
             id,
             stream,
             mut settings,
-            pcm_tx,
-            pcm_pos,
+            sinks,
         } = rebuild;
         let mut built_rate = rate;
         loop {
@@ -1399,8 +1400,7 @@ impl Engine {
                     ChannelHost::build(
                         built_rate,
                         &settings,
-                        pcm_tx.clone(),
-                        pcm_pos.clone(),
+                        sinks.clone(),
                         self.decoded_sink(ds, id),
                     )
                     .map_err(EngineError::from)
@@ -1432,7 +1432,7 @@ impl Engine {
                     // rather than leave a stale-rate pipeline running.
                     tracing::error!(ds, channel = id, error = %e, "channel rebuild failed after rate change; removing channel");
                     state.channels.retain(|c| c.id != id);
-                    dead.extend(state.audio.remove(&id));
+                    dead.extend(state.media.remove(&id));
                     state.send_dsp(stream, DspCommand::RemoveChannel { id });
                     inner.revision += 1;
                 }
@@ -1505,10 +1505,9 @@ impl Engine {
             state.next_channel_id += 1;
             (sample_rate_of(&state.settings), id)
         };
-        let created = ChannelAudio::new(sdrmm_channels::audio_channels(&settings.params))?;
-        let pcm_tx = created.pcm_tx.clone();
-        let pcm_pos = created.pcm_pos.clone();
-        let mut audio = Some(created);
+        let created = ChannelMedia::new(sdrmm_channels::audio_channels(&settings.params))?;
+        let sinks = created.sinks.clone();
+        let mut media = Some(created);
 
         // A rate patch racing between build and insert would leave a wrong-rate DDC, so the
         // rate is re-checked under the lock and the pipeline rebuilt if it moved. The
@@ -1519,8 +1518,7 @@ impl Engine {
                 ChannelHost::build(
                     device_rate,
                     &settings,
-                    pcm_tx.clone(),
-                    pcm_pos.clone(),
+                    sinks.clone(),
                     self.decoded_sink(ds, id),
                 )
                 .map_err(EngineError::from)
@@ -1548,8 +1546,8 @@ impl Engine {
                 stream,
                 settings: settings.clone(),
             });
-            if let Some(handle) = audio.take() {
-                state.audio.insert(id, handle);
+            if let Some(handle) = media.take() {
+                state.media.insert(id, handle);
             }
             state.send_dsp(stream, DspCommand::AddChannel { id, host });
             inner.revision += 1;
@@ -1558,9 +1556,9 @@ impl Engine {
         let id = match staged {
             Ok(id) => id,
             Err(e) => {
-                // The local sender clone must go first or the encoder join would wait on it.
-                drop(pcm_tx);
-                if let Some(handle) = audio.take() {
+                // The local sender clones must go first or the encoder join would wait on them.
+                drop(sinks);
+                if let Some(handle) = media.take() {
                     handle.shutdown();
                 }
                 return Err(e);
@@ -1584,7 +1582,7 @@ impl Engine {
         settings: ChannelSettings,
     ) -> Result<(), EngineError> {
         let descriptor = descriptor_for(&settings.params)?;
-        let (old, pcm_tx, pcm_pos, mut device_rate) = {
+        let (old, sinks, mut device_rate) = {
             let inner = self.lock();
             let state = inner
                 .device_sets
@@ -1596,13 +1594,12 @@ impl Engine {
                 .find(|c| c.id == ch)
                 .ok_or(EngineError::ChannelNotFound(ch, ds))?;
             let handle = state
-                .audio
+                .media
                 .get(&ch)
                 .ok_or(EngineError::ChannelNotFound(ch, ds))?;
             (
                 info.settings.clone(),
-                handle.pcm_tx.clone(),
-                handle.pcm_pos.clone(),
+                handle.sinks.clone(),
                 sample_rate_of(&state.settings),
             )
         };
@@ -1625,8 +1622,7 @@ impl Engine {
                 match ChannelHost::build(
                     device_rate,
                     &settings,
-                    pcm_tx.clone(),
-                    pcm_pos.clone(),
+                    sinks.clone(),
                     self.decoded_sink(ds, ch),
                 ) {
                     Ok(host) => Some(host),
@@ -1710,7 +1706,7 @@ impl Engine {
                 .map(|c| c.stream)
                 .ok_or(EngineError::ChannelNotFound(ch, ds))?;
             state.channels.retain(|c| c.id != ch);
-            let handle = state.audio.remove(&ch);
+            let handle = state.media.remove(&ch);
             // Queued under `inner` in the same critical section as the state removal: every
             // rebuild swap re-checks membership under `inner` before queueing, so nothing
             // can re-add the host after this — the DSP-side PCM sender is guaranteed to
@@ -1903,10 +1899,43 @@ impl Engine {
             .get(&ds)
             .ok_or(EngineError::DeviceSetNotFound(ds))?;
         let handle = state
-            .audio
+            .media
             .get(&ch)
             .ok_or(EngineError::ChannelNotFound(ch, ds))?;
         Ok(handle.audio_tx.subscribe())
+    }
+
+    /// Subscribe to a channel's picture stream (PLAN §5 SubscribeVideo). A channel whose type
+    /// scans out nothing is refused rather than handed a stream that would stay silent: a panel
+    /// waiting forever on a mode that has no video looks exactly like a broken receiver.
+    pub fn subscribe_video(
+        &self,
+        ds: u32,
+        ch: u32,
+    ) -> Result<broadcast::Receiver<VideoPacket>, EngineError> {
+        let inner = self.lock();
+        let state = inner
+            .device_sets
+            .get(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let info = state
+            .channels
+            .iter()
+            .find(|c| c.id == ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        let descriptor = descriptor_for(&info.settings.params)?;
+        if !descriptor.has_video {
+            return Err(ChannelError::InvalidSettings(format!(
+                "{} produces no video",
+                descriptor.name
+            ))
+            .into());
+        }
+        let handle = state
+            .media
+            .get(&ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        Ok(handle.sinks.video_tx.subscribe())
     }
 
     /// Every compiled-in channel type (PLAN §5 GET channel types). The registry lives in
@@ -2133,7 +2162,7 @@ fn teardown_set(mut removed: DeviceSetState) -> bool {
     }
     lock_runtime(&removed.runtime).stop();
     let finalized = removed.recording.take().map(RecordingState::join).is_some();
-    for (_, handle) in removed.audio.drain() {
+    for (_, handle) in removed.media.drain() {
         handle.shutdown();
     }
     finalized
@@ -3642,6 +3671,7 @@ mod tests {
             squelch_db: None,
             params: ChannelParams::Nfm(NfmParams {
                 bandwidth_hz: 25_000.0,
+                ..NfmParams::default()
             }),
         };
 

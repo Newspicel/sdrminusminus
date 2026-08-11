@@ -6,11 +6,13 @@ import { ChannelControls } from "../../components/ChannelControls";
 import {
   channelDecoderKind,
   channelHasAudio,
+  channelHasVideo,
   rateMismatch,
 } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { DecoderView } from "../../components/DecoderPanels";
 import { formatMhz, formatSignedKhz } from "../../components/format";
+import { VideoView } from "../../components/VideoView";
 import type { DeviceSet, PatchNode } from "../../lib/types";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { iqSourceOf, targetsOf } from "../binding";
@@ -45,6 +47,7 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const readout = centerHz === null ? formatSignedKhz(offsetHz) : formatMhz(centerHz + offsetHz);
   const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
   const decoderKind = channelDecoderKind(descriptor);
+  const hasVideo = channelHasVideo(descriptor);
   // The face has no play button — audio belongs to the speaker the wire reaches — so a channel
   // that demodulates sound into nothing has to say so somewhere, and this is where it is looked
   // for.
@@ -80,14 +83,19 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               spanHz={set.settings.sample_rate ?? null}
             />
             {audioUnwired && <p className="legend px-2 pb-2">audio out reaches no speaker</p>}
+            {/* Channel ids are allocated per device set, so two sets both have a channel 1;
+                scoping on the id alone would pour one set's output into this face. */}
             {decoderKind !== null && (
               <div className="border-t border-line">
-                {/* Channel ids are allocated per device set, so two sets both have a channel 1;
-                    scoping on the id alone would pour one set's frames into this face. */}
                 <DecoderView
                   kind={decoderKind}
                   scope={{ deviceSet: set.id, channel: channel.id }}
                 />
+              </div>
+            )}
+            {hasVideo && (
+              <div className="border-t border-line">
+                <VideoView scope={{ deviceSet: set.id, channel: channel.id }} />
               </div>
             )}
           </>

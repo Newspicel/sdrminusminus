@@ -32,6 +32,7 @@ use tokio::sync::broadcast;
 use crate::{
     audio::{PcmBlock, PcmPayload},
     recording::RecorderTap,
+    video::VideoPacket,
 };
 
 /// FFT size for the spectrum tap (PLAN §9: 1k–64k configurable; M0 fixes one size).
@@ -125,12 +126,26 @@ impl DecodedSink {
     }
 }
 
-/// One hosted channel on the DSP thread: DDC → channel filter → squelch gate → demod → PCM
-/// broadcast. The filter confines both the squelch measurement and the demod input to the
-/// mode's occupied bandwidth, so the gate cannot open on adjacent-channel energy and the
+/// The per-channel stream identities a host writes into, and the shared positions that keep
+/// their timelines continuous across a pipeline rebuild. Carried as one value because a rebuild
+/// hands the replacement host exactly what the old one had — a subscriber must not be able to
+/// tell that the pipeline under it was swapped.
+#[derive(Clone)]
+pub(crate) struct ChannelSinks {
+    pub(crate) pcm_tx: broadcast::Sender<PcmBlock>,
+    /// 48 kHz-domain position of the channel's next PCM sample.
+    pub(crate) pcm_pos: Arc<AtomicU64>,
+    pub(crate) video_tx: broadcast::Sender<VideoPacket>,
+    /// Channel-rate samples this channel has demodulated, which stamps its pictures.
+    pub(crate) video_pos: Arc<AtomicU64>,
+}
+
+/// One hosted channel on the DSP thread: DDC → channel filter → squelch gate → demod → PCM and
+/// picture broadcasts. The filter confines both the squelch measurement and the demod input to
+/// the mode's occupied bandwidth, so the gate cannot open on adjacent-channel energy and the
 /// detector never sees it. Built control-side (construction may allocate and fail), then
 /// moved to the DSP thread, where `process` runs lock-free with only the documented bounded
-/// PCM hand-off (see the send site).
+/// hand-offs (see the send sites).
 pub(crate) struct ChannelHost {
     ddc: Ddc,
     filter: ChannelFilter,
@@ -151,18 +166,25 @@ pub(crate) struct ChannelHost {
     /// Interleave of the channel's audio, from its params: what the demod writes when it runs
     /// and what the squelched zero-fill has to match.
     audio_channels: u8,
-    /// 48 kHz-domain position of the channel's next PCM *frame*. Shared through the
-    /// channel's audio identity so stamps stay continuous across pipeline rebuilds; only
-    /// the DSP thread advances it (hosts are swapped, never concurrent), so `Relaxed`
-    /// suffices — the stamps consumers act on travel inside the messages themselves.
-    pcm_pos: Arc<AtomicU64>,
-    pcm_tx: broadcast::Sender<PcmBlock>,
+    /// Where this channel's output goes. The positions inside are shared through the channel's
+    /// media identity so stamps stay continuous across pipeline rebuilds; only the DSP thread
+    /// advances them (hosts are swapped, never concurrent), so `Relaxed` suffices — the stamps
+    /// consumers act on travel inside the messages themselves.
+    sinks: ChannelSinks,
+    /// Whether this channel scans out pictures, which decides whether the video position is
+    /// worth advancing at all.
+    produces_video: bool,
+    /// Pictures sent by *this* host. Restarts with the host, unlike the position above: it
+    /// numbers frames for display and nothing downstream resynchronizes on it.
+    video_seq: u32,
     /// Offset from the device center, mirrored from the settings so decoder frames can be
     /// stamped with the absolute frequency they were heard on.
     offset_hz: f64,
     decoded: DecodedSink,
-    /// Whether this channel emits decoder frames, which decides what a closed squelch may do
-    /// to it (see [`ChannelHost::process`]).
+    /// Whether the type emits decoder frames at all; `emits_events` is this narrowed by what
+    /// the channel says it needs, and is recomputed whenever its settings change.
+    decodes: bool,
+    /// Whether a closed squelch must still feed this channel (see [`ChannelHost::process`]).
     emits_events: bool,
     /// Zero-filled stand-in handed to a decoder while the gate is closed; reused, so the
     /// substitution costs no allocation in steady state.
@@ -173,8 +195,7 @@ impl ChannelHost {
     pub(crate) fn build(
         device_rate: f64,
         settings: &ChannelSettings,
-        pcm_tx: broadcast::Sender<PcmBlock>,
-        pcm_pos: Arc<AtomicU64>,
+        sinks: ChannelSinks,
         decoded: DecodedSink,
     ) -> Result<Box<Self>, ChannelError> {
         let type_id = settings.params.type_id();
@@ -193,6 +214,8 @@ impl ChannelHost {
             .map_err(|e| ChannelError::InvalidSettings(e.to_string()))?;
         let filter = sdrmm_channels::channel_filter(&settings.params)?;
         let rx = sdrmm_channels::create(ChannelCtx { input_rate }, settings)?;
+        let decodes = descriptor.decoder_kind.is_some();
+        let emits_events = decodes && rx.needs_gated_input();
         Ok(Box::new(Self {
             ddc,
             filter,
@@ -211,11 +234,13 @@ impl ChannelHost {
             pcm_per_input: f64::from(AUDIO_RATE) / input_rate,
             zero_carry: 0.0,
             audio_channels: sdrmm_channels::audio_channels(&settings.params),
-            pcm_pos,
-            pcm_tx,
+            sinks,
+            produces_video: descriptor.has_video,
+            video_seq: 0,
             offset_hz: settings.offset_hz,
             decoded,
-            emits_events: descriptor.decoder_kind.is_some(),
+            decodes,
+            emits_events,
             gated: Vec::new(),
         }))
     }
@@ -230,19 +255,22 @@ impl ChannelHost {
             Some(_) => self.squelch.process(&self.filtered),
             None => true,
         };
+        // A picture is stamped with how much of the channel's own stream has gone by, so the
+        // clock has to run whether or not the gate is open — a closed squelch is a gap in the
+        // video, and it has to read as one.
+        let video_pos = if self.produces_video {
+            self.sinks
+                .video_pos
+                .fetch_add(self.filtered.len() as u64, Ordering::Relaxed)
+                + self.filtered.len() as u64
+        } else {
+            0
+        };
         // send() only errors with no receivers (encoder mid-teardown) — expected and fine.
         if open {
             self.outputs.reset();
             self.rx.process(&self.filtered, &mut self.outputs);
-            // Decoder frames are rare (a handful per second even under ADS-B traffic), so
-            // draining owned events here costs the same bounded, documented deviation from
-            // PLAN §7's no-allocation letter as the PCM hand-off below.
-            if !self.outputs.events.is_empty() {
-                let freq_hz = center_hz + self.offset_hz;
-                for event in self.outputs.events.drain(..) {
-                    self.decoded.publish(freq_hz, event);
-                }
-            }
+            self.publish_frames(center_hz, video_pos);
             if !self.outputs.audio_pcm.is_empty() {
                 // Deliberate bounded deviation from PLAN §7's "no allocation/locks" letter:
                 // handing PCM to the encoder costs one Arc copy plus a tokio broadcast send
@@ -250,8 +278,11 @@ impl ChannelHost {
                 // ~25 ms block, and no other thread ever holds that lock across blocking
                 // work — the DSP thread cannot stall on it.
                 let frames = self.outputs.audio_pcm.len() / usize::from(self.audio_channels);
-                let stamp = self.pcm_pos.fetch_add(frames as u64, Ordering::Relaxed);
-                let _ = self.pcm_tx.send(PcmBlock {
+                let stamp = self
+                    .sinks
+                    .pcm_pos
+                    .fetch_add(frames as u64, Ordering::Relaxed);
+                let _ = self.sinks.pcm_tx.send(PcmBlock {
                     start_frame: stamp,
                     channels: self.audio_channels,
                     payload: PcmPayload::Samples(Arc::from(self.outputs.audio_pcm.as_slice())),
@@ -270,12 +301,7 @@ impl ChannelHost {
                     .resize(self.filtered.len(), Complex::new(0.0, 0.0));
                 self.outputs.reset();
                 self.rx.process(&self.gated, &mut self.outputs);
-                if !self.outputs.events.is_empty() {
-                    let freq_hz = center_hz + self.offset_hz;
-                    for event in self.outputs.events.drain(..) {
-                        self.decoded.publish(freq_hz, event);
-                    }
-                }
+                self.publish_frames(center_hz, video_pos);
             }
             // A closed gate still emits (zeroed) audio so client jitter buffers stay alive;
             // silence travels as a bare frame count, so this path allocates nothing.
@@ -283,13 +309,39 @@ impl ChannelHost {
             let zeros = self.zero_carry as usize;
             if zeros > 0 {
                 self.zero_carry -= zeros as f64;
-                let stamp = self.pcm_pos.fetch_add(zeros as u64, Ordering::Relaxed);
-                let _ = self.pcm_tx.send(PcmBlock {
+                let stamp = self
+                    .sinks
+                    .pcm_pos
+                    .fetch_add(zeros as u64, Ordering::Relaxed);
+                let _ = self.sinks.pcm_tx.send(PcmBlock {
                     start_frame: stamp,
                     channels: self.audio_channels,
                     payload: PcmPayload::Silence(zeros),
                 });
             }
+        }
+    }
+
+    /// Hand whatever the channel just produced — decoder frames and pictures — to the control
+    /// plane. Shared by both squelch branches so a mode that produces both, and is fed silence
+    /// through a closed gate, cannot have half its output dropped by the next `reset`.
+    fn publish_frames(&mut self, center_hz: f64, video_pos: u64) {
+        // Decoder frames are rare (a handful per second even under ADS-B traffic) and a picture
+        // is one `Arc` fifty times a second, so draining owned output here costs the same
+        // bounded, documented deviation from PLAN §7's no-allocation letter as the PCM hand-off.
+        if !self.outputs.events.is_empty() {
+            let freq_hz = center_hz + self.offset_hz;
+            for event in self.outputs.events.drain(..) {
+                self.decoded.publish(freq_hz, event);
+            }
+        }
+        for picture in self.outputs.video.drain(..) {
+            let _ = self.sinks.video_tx.send(VideoPacket {
+                seq: self.video_seq,
+                timestamp: video_pos,
+                picture: Arc::new(picture),
+            });
+            self.video_seq = self.video_seq.wrapping_add(1);
         }
     }
 
@@ -320,6 +372,9 @@ impl ChannelHost {
             // zero-fill claims must be the one the channel is now actually producing.
             self.audio_channels = channels;
         }
+        // Settings decide it: an NFM channel needs the gated span only once it has been given
+        // a tone mode, and stops needing it again when that is turned off.
+        self.emits_events = self.decodes && self.rx.needs_gated_input();
     }
 }
 
@@ -724,13 +779,22 @@ mod tests {
         }
     }
 
+    /// A fresh media identity around `pcm_tx`, as the engine builds one per channel.
+    fn sinks(pcm_tx: broadcast::Sender<PcmBlock>, pcm_pos: Arc<AtomicU64>) -> ChannelSinks {
+        ChannelSinks {
+            pcm_tx,
+            pcm_pos,
+            video_tx: broadcast::channel(8).0,
+            video_pos: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
     fn host(settings: &ChannelSettings) -> (Box<ChannelHost>, broadcast::Receiver<PcmBlock>) {
         let (pcm_tx, pcm_rx) = broadcast::channel(4096);
         let host = ChannelHost::build(
             RATE,
             settings,
-            pcm_tx,
-            Arc::new(AtomicU64::new(0)),
+            sinks(pcm_tx, Arc::new(AtomicU64::new(0))),
             DecodedSink::null(),
         )
         .expect("host builds");
@@ -868,8 +932,7 @@ mod tests {
         let mut host = ChannelHost::build(
             RATE,
             &settings,
-            pcm_tx.clone(),
-            pos.clone(),
+            sinks(pcm_tx.clone(), pos.clone()),
             DecodedSink::null(),
         )
         .expect("host");
@@ -878,7 +941,7 @@ mod tests {
             host.process(chunk, 0.0);
         }
         // Swap in a fresh host the way a device rate change does.
-        let mut host = ChannelHost::build(RATE, &settings, pcm_tx, pos, DecodedSink::null())
+        let mut host = ChannelHost::build(RATE, &settings, sinks(pcm_tx, pos), DecodedSink::null())
             .expect("rebuilt host");
         for chunk in input.chunks(BLOCK) {
             host.process(chunk, 0.0);

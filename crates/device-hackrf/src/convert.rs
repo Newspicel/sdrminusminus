@@ -14,7 +14,7 @@
 
 use sdrmm_device::{LutConverter, Sample};
 
-use crate::driver::RX_TRANSFER_SIZE;
+use crate::driver::{RX_TRANSFER_SIZE, SWEEP_BLOCK_SAMPLES};
 
 /// Half the code span of a signed 8-bit sample, so −128..=127 maps to −1.0..=0.992.
 const FULL_SCALE: f32 = 128.0;
@@ -36,6 +36,13 @@ const fn build_table() -> [f32; 256] {
 /// A converter for one capture thread, sized so a whole transfer fits without growing.
 pub(crate) fn converter() -> LutConverter {
     LutConverter::new(&CODE_TO_F32, RX_TRANSFER_SIZE / 2)
+}
+
+/// A converter for a sweep, which is fed one located block at a time rather than a whole
+/// transfer — the samples either side of a retune belong to different frequencies and must
+/// never be handed downstream as one run.
+pub(crate) fn sweep_converter() -> LutConverter {
+    LutConverter::new(&CODE_TO_F32, SWEEP_BLOCK_SAMPLES)
 }
 
 /// One sample to its transmit code. Non-finite input becomes silence rather than a wrapped
