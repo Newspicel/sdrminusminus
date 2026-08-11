@@ -220,8 +220,12 @@ export function eventSummary(event: DecoderEvent): string {
       const m = event.data;
       return join([String(m.mmsi), m.name?.trim() ?? null, position(m.lat, m.lon)]);
     }
-    case "aprs":
-      return event.data.tnc2;
+    case "aprs": {
+      const p = event.data;
+      // A Mic-E monitor line is packed binary, so the message named beside it is the only
+      // part of the row a reader can act on.
+      return p.mic_e_message == null ? p.tnc2 : join([p.tnc2, p.mic_e_message]);
+    }
     case "rtty":
     case "morse":
       return event.data.text;

@@ -205,7 +205,28 @@ describe("eventSummary", () => {
         data: { source: "DL1ABC-9", destination: "APRS", info: "hi", tnc2: "DL1ABC-9>APRS:hi" },
       }),
     ).toBe("DL1ABC-9>APRS:hi");
+    // A Mic-E packet's monitor line is binary, so the message is named beside it.
+    expect(
+      eventSummary({
+        kind: "aprs",
+        data: {
+          source: "DL1ABC-7",
+          destination: "S32U6T",
+          info: '`(_fn"Oj/',
+          tnc2: 'DL1ABC-7>S32U6T:`(_fn"Oj/',
+          mic_e_message: "Returning",
+        },
+      }),
+    ).toBe('DL1ABC-7>S32U6T:`(_fn"Oj/ · Returning');
     expect(eventSummary({ kind: "rtty", data: { text: "CQ CQ" } })).toBe("CQ CQ");
+    expect(eventSummary({ kind: "tone", data: { ctcss_hz: 88.5, open: true } })).toBe(
+      "CTCSS 88.5 Hz · open",
+    );
+    expect(eventSummary({ kind: "tone", data: { dcs_code: 23, open: false } })).toBe(
+      "DCS 023 · muted",
+    );
+    // Nothing under the carrier still has something to say once a tone has gone.
+    expect(eventSummary({ kind: "tone", data: { open: false } })).toBe("no tone · muted");
     expect(eventSummary({ kind: "morse", data: { text: "SOS", wpm: 18 } })).toBe("SOS");
     expect(
       eventSummary({ kind: "rds", data: { block_errors: 0, groups: 10, pi: "D3C2", ps: "NDR2" } }),
