@@ -21,6 +21,12 @@ async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
   await page.mouse.up();
 }
 
+/** One face in the rack. The rack has no wires and no pane, so its faces are addressed by the
+ * node they render rather than through React Flow. */
+function rackNode(page: Page, id: string): Locator {
+  return page.locator(`.grid > [data-id="${id}"]`);
+}
+
 /** The rack as the server has it — the arrangement is server state, not what the DOM happens to
  * be showing mid-gesture. */
 async function slots(page: Page): Promise<{ node: string; x: number; w: number }[]> {
@@ -146,10 +152,15 @@ test.describe("the workspace", () => {
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
 
     // A view switch remounts every face, and a plot's history is its own (gl/waterfall.ts), so the
-    // scope used to come back empty. It opens on the lane's kept rows and its last readout instead.
-    // Read once rather than polled: waiting for the readout would be waiting for the very frame
-    // that used to hide the gap.
-    expect(await page.getByText(/\d\.\d{4} MHz/).count()).toBeGreaterThan(0);
+    // scope used to come back empty. It opens on the lane's kept rows and its last readout
+    // instead. Read once rather than polled: the readout is seeded during the rack's first render
+    // (ScopeFace), so polling would wait for the very frame that used to hide the gap.
+    expect(
+      await rackNode(page, "scope")
+        .getByText(/\d\.\d{4} MHz/)
+        .count(),
+    ).toBeGreaterThan(0);
+    await expect(rackNode(page, "scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
 
     // Dragging the boundary between two faces makes one larger and the other smaller (CANVAS §5).
     // The whole point of the gesture is that it re-balances a full rack without a hole, so both

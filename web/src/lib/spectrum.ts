@@ -56,13 +56,13 @@ export interface Lane {
   stream: number;
 }
 
-/** A lane's recent past, for a face that has just mounted: `count` rows of `bins` bytes packed
- * oldest-first, and the frame the trace and the readout were last drawn from. */
+/** The waterfall a face that has just mounted opens on: `count` rows of `bins` bytes packed
+ * oldest-first. Read separately from `latest` because reading it copies the ring, and the trace
+ * and the readout want only the one frame. */
 export interface SpectrumHistory {
   rows: Uint8Array;
   count: number;
   bins: number;
-  latest: SpectrumFrame | null;
 }
 
 /** Map key for a lane. The pair is the identity; the id the server allocates is not, because it
@@ -77,10 +77,10 @@ class History {
   private bins = 0;
   private write = 0;
   private filled = 0;
-  private last: SpectrumFrame | null = null;
+  latest: SpectrumFrame | null = null;
 
   record(frame: SpectrumFrame): void {
-    this.last = frame;
+    this.latest = frame;
     if (frame.bins.length === 0) {
       return;
     }
@@ -107,7 +107,7 @@ class History {
     const head = Math.min(this.filled, SPECTRUM_HISTORY_ROWS - first);
     rows.set(this.ring.subarray(first * this.bins, (first + head) * this.bins));
     rows.set(this.ring.subarray(0, (this.filled - head) * this.bins), head * this.bins);
-    return { rows, count: this.filled, bins: this.bins, latest: this.last };
+    return { rows, count: this.filled, bins: this.bins };
   }
 }
 
@@ -215,17 +215,23 @@ export class SpectrumHub {
     return () => this.release(key, { deviceSet, stream }, listener);
   }
 
-  /** What a face that has just mounted draws before its first frame arrives. Empty for a lane the
-   * hub has never carried, or one released long enough ago that its rows were dropped. */
+  /** The waterfall a face that has just mounted opens on. Empty for a lane the hub has never
+   * carried, or one released long enough ago that its rows were dropped. Copies the ring, so it
+   * is a mount-time call and not a per-frame one. */
   history(deviceSet: number, stream: number): SpectrumHistory {
     return (
       this.lanes.get(laneKey(deviceSet, stream))?.history.read() ?? {
         rows: new Uint8Array(0),
         count: 0,
         bins: 0,
-        latest: null,
       }
     );
+  }
+
+  /** The lane's most recent frame — what a mounting face draws its trace and its readout from
+   * before one of its own arrives. */
+  latest(deviceSet: number, stream: number): SpectrumFrame | null {
+    return this.lanes.get(laneKey(deviceSet, stream))?.history.latest ?? null;
   }
 
   /** Lanes the server is streaming: every watched one, and any still inside its release grace.

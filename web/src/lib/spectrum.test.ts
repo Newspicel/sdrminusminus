@@ -258,12 +258,8 @@ describe("SpectrumHub history", () => {
 
   it("is empty for a lane nobody has watched", () => {
     const hub = new SpectrumHub();
-    expect(hub.history(1, 0)).toEqual({
-      rows: new Uint8Array(0),
-      count: 0,
-      bins: 0,
-      latest: null,
-    });
+    expect(hub.history(1, 0)).toEqual({ rows: new Uint8Array(0), count: 0, bins: 0 });
+    expect(hub.latest(1, 0)).toBeNull();
   });
 
   it("keeps the rows of a lane whose face has gone, oldest first", () => {
@@ -280,13 +276,12 @@ describe("SpectrumHub history", () => {
     // look like one continuous waterfall.
     fake.push(9, [5, 6]);
 
-    const history = hub.history(1, 0);
-    expect(rowsOf(history)).toEqual([
+    expect(rowsOf(hub.history(1, 0))).toEqual([
       [1, 2],
       [3, 4],
       [5, 6],
     ]);
-    expect(history.latest?.centerHz).toBe(100e6);
+    expect(hub.latest(1, 0)?.centerHz).toBe(100e6);
   });
 
   it("keeps the newest rows once the ring has wrapped", () => {
@@ -330,6 +325,7 @@ describe("SpectrumHub history", () => {
     drop();
     waitOutGrace();
     expect(hub.history(1, 0).count).toBe(0);
+    expect(hub.latest(1, 0)).toBeNull();
     expect(unsubscribes(fake.sent)).toHaveLength(1);
   });
 

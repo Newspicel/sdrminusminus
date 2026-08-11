@@ -120,11 +120,17 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const waterfallRef = useRef<HTMLCanvasElement>(null);
   const traceRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<WaterfallView | null>(null);
-  const frameRef = useRef<SpectrumFrame | null>(null);
+  // The hub kept the last frame that arrived while this face did not exist (lib/spectrum.ts).
+  // Read at first render rather than in an effect: the trace and the readout have to be there in
+  // the rack's first paint, or the switch still shows the blank the history exists to remove.
+  // `Spectrum` is keyed by lane, so a different lane is a different mount reading its own.
+  const frameRef = useRef<SpectrumFrame | null>(spectrumHub.latest(set.id, stream));
   const holdRef = useRef<Uint8Array | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
 
-  const [meta, setMeta] = useState<FrameMeta | null>(null);
+  const [meta, setMeta] = useState<FrameMeta | null>(() =>
+    frameRef.current === null ? null : metaOf(frameRef.current),
+  );
   const [glError, setGlError] = useState<string | null>(null);
   const [view, setView] = useState<SpectrumView>(FULL_VIEW);
   const [hold, setHold] = useState(false);
@@ -216,14 +222,11 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   //
   // It also kept the lane's recent rows while this face did not exist, and switching between the
   // patch and the rack remounts every face: the plot opens on the waterfall the operator was
-  // already reading, rather than blanking and filling in again from the next frame.
+  // already reading, rather than blanking and filling in again from the next frame. Seeded here
+  // and not at render, unlike the frame above, because the renderer is the previous effect's.
   useEffect(() => {
     const past = spectrumHub.history(set.id, stream);
     rendererRef.current?.seed(past.rows, past.count, past.bins);
-    if (past.latest !== null) {
-      frameRef.current = past.latest;
-      setMeta(metaOf(past.latest));
-    }
     let count = 0;
     return spectrumHub.subscribe(set.id, stream, (frame) => {
       frameRef.current = frame;

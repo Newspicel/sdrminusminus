@@ -126,6 +126,9 @@ export function Rack() {
         return (
           <div
             key={slot.node}
+            // The same handle React Flow puts on a patch node, so a face is addressable by node
+            // in either view.
+            data-id={slot.node}
             className="relative min-h-0 min-w-0"
             style={{
               gridColumn: `${slot.x + 1} / span ${slot.w}`,
