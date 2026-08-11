@@ -2062,6 +2062,13 @@
             ],
             "format": "double"
           },
+          "mic_e_message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7\nstandard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's\nown word for a packet whose three message bits mix the standard and custom tables.\nAbsent on every packet that is not Mic-E."
+          },
           "path": {
             "type": "array",
             "items": {
@@ -3138,6 +3145,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ToneSquelchStatus"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "tone"
+                ]
+              }
+            }
           }
         ],
         "description": "Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a\ndiscriminated union on `kind` that panels can exhaustively `switch` on, and so the log\ndatabase can index on `kind` without parsing the blob."
@@ -3853,8 +3878,38 @@
           "bandwidth_hz": {
             "type": "number",
             "format": "double"
+          },
+          "ctcss_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "The CTCSS tone to open on, in Hz. One of the 50 standard tones (EIA/TIA-603); anything\nelse is refused, because the detector only searches those."
+          },
+          "dcs_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The DCS code to open on, as the three octal digits a radio displays — `23` for 023,\n`754` for 754. One of the 83 standard codes.\n\nThe standard list is not a convenience: the Golay code DCS is built on is cyclic, so\nonly a set with no rotation aliasing between its members can be read back unambiguously\nfrom a continuously repeating word. A code's *inverse* is another code in the list —\n023 received through an inverted discriminator is 047 — so there is no polarity switch\nhere, and none on a radio either.",
+            "minimum": 0
+          },
+          "tone_mode": {
+            "$ref": "#/components/schemas/NfmToneMode"
           }
         }
+      },
+      "NfmToneMode": {
+        "type": "string",
+        "description": "What an NFM channel does about the subaudible signalling under the voice (PLAN §8).\nCTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating\nunder it at 134.4 bit/s. Both are how a repeater tells its own users apart from the\nco-channel traffic 50 km away.",
+        "enum": [
+          "off",
+          "detect",
+          "ctcss",
+          "dcs"
+        ]
       },
       "NodeBody": {
         "oneOf": [
@@ -5815,6 +5870,36 @@
             "items": {
               "$ref": "#/components/schemas/TemplateInfo"
             }
+          }
+        }
+      },
+      "ToneSquelchStatus": {
+        "type": "object",
+        "description": "Subaudible signalling heard under an NFM channel's voice (PLAN §8).\n\nEmitted only when the picture changes. Both CTCSS and DCS run for the whole of a\ntransmission, so an event per block would be the same event forty times a second.",
+        "required": [
+          "open"
+        ],
+        "properties": {
+          "ctcss_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "The CTCSS tone present, in Hz."
+          },
+          "dcs_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The DCS code present, as the three octal digits a radio displays.",
+            "minimum": 0
+          },
+          "open": {
+            "type": "boolean",
+            "description": "Whether audio is passing. Always true unless the channel was told to gate on a tone:\n[`crate::NfmToneMode::Detect`] reports what is there without acting on it."
           }
         }
       },

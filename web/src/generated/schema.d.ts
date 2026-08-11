@@ -646,6 +646,13 @@ export interface components {
             lat?: number | null;
             /** Format: double */
             lon?: number | null;
+            /**
+             * @description The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7
+             *     standard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's
+             *     own word for a packet whose three message bits mix the standard and custom tables.
+             *     Absent on every packet that is not Mic-E.
+             */
+            mic_e_message?: string | null;
             /** @description Digipeater path, in order. */
             path?: string[];
             /** @description Source callsign with SSID, e.g. `DL1ABC-9`. */
@@ -1059,6 +1066,10 @@ export interface components {
             data: components["schemas"]["SubghzFrame"];
             /** @enum {string} */
             kind: "subghz";
+        } | {
+            data: components["schemas"]["ToneSquelchStatus"];
+            /** @enum {string} */
+            kind: "tone";
         };
         /**
          * @description One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not
@@ -1360,7 +1371,34 @@ export interface components {
         NfmParams: {
             /** Format: double */
             bandwidth_hz?: number;
+            /**
+             * Format: double
+             * @description The CTCSS tone to open on, in Hz. One of the 50 standard tones (EIA/TIA-603); anything
+             *     else is refused, because the detector only searches those.
+             */
+            ctcss_hz?: number | null;
+            /**
+             * Format: int32
+             * @description The DCS code to open on, as the three octal digits a radio displays — `23` for 023,
+             *     `754` for 754. One of the 83 standard codes.
+             *
+             *     The standard list is not a convenience: the Golay code DCS is built on is cyclic, so
+             *     only a set with no rotation aliasing between its members can be read back unambiguously
+             *     from a continuously repeating word. A code's *inverse* is another code in the list —
+             *     023 received through an inverted discriminator is 047 — so there is no polarity switch
+             *     here, and none on a radio either.
+             */
+            dcs_code?: number | null;
+            tone_mode?: components["schemas"]["NfmToneMode"];
         };
+        /**
+         * @description What an NFM channel does about the subaudible signalling under the voice (PLAN §8).
+         *     CTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating
+         *     under it at 134.4 bit/s. Both are how a repeater tells its own users apart from the
+         *     co-channel traffic 50 km away.
+         * @enum {string}
+         */
+        NfmToneMode: "off" | "detect" | "ctcss" | "dcs";
         /**
          * @description What a node is. Adjacently tagged like [`crate::ChannelParams`], so the generated TypeScript
          *     is a union the client can exhaustively switch on.
@@ -2275,6 +2313,29 @@ export interface components {
         /** @description `GET /api/templates`. */
         TemplatesResponse: {
             templates: components["schemas"]["TemplateInfo"][];
+        };
+        /**
+         * @description Subaudible signalling heard under an NFM channel's voice (PLAN §8).
+         *
+         *     Emitted only when the picture changes. Both CTCSS and DCS run for the whole of a
+         *     transmission, so an event per block would be the same event forty times a second.
+         */
+        ToneSquelchStatus: {
+            /**
+             * Format: double
+             * @description The CTCSS tone present, in Hz.
+             */
+            ctcss_hz?: number | null;
+            /**
+             * Format: int32
+             * @description The DCS code present, as the three octal digits a radio displays.
+             */
+            dcs_code?: number | null;
+            /**
+             * @description Whether audio is passing. Always true unless the channel was told to gate on a tone:
+             *     [`crate::NfmToneMode::Detect`] reports what is there without acting on it.
+             */
+            open: boolean;
         };
         /** @description `PUT /api/workspaces/{id}` — rename, re-patch, or both. */
         UpdateWorkspaceRequest: {

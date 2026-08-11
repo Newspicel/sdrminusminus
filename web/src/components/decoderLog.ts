@@ -25,6 +25,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   navtex: "NAVTEX",
   acars: "ACARS",
   subghz: "Sub-GHz",
+  tone: "Tone",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -219,8 +220,12 @@ export function eventSummary(event: DecoderEvent): string {
       const m = event.data;
       return join([String(m.mmsi), m.name?.trim() ?? null, position(m.lat, m.lon)]);
     }
-    case "aprs":
-      return event.data.tnc2;
+    case "aprs": {
+      const p = event.data;
+      // A Mic-E monitor line is packed binary, so the message named beside it is the only
+      // part of the row a reader can act on.
+      return p.mic_e_message == null ? p.tnc2 : join([p.tnc2, p.mic_e_message]);
+    }
     case "rtty":
     case "morse":
       return event.data.text;
@@ -245,6 +250,14 @@ export function eventSummary(event: DecoderEvent): string {
         f.button == null ? null : `btn ${f.button.toString(16).toUpperCase()}`,
         f.repeats > 1 ? `\u00d7${f.repeats}` : null,
       ]);
+    }
+    case "tone": {
+      const t = event.data;
+      const heard = join([
+        t.ctcss_hz == null ? null : `CTCSS ${t.ctcss_hz.toFixed(1)} Hz`,
+        t.dcs_code == null ? null : `DCS ${String(t.dcs_code).padStart(3, "0")}`,
+      ]);
+      return join([heard === "" ? "no tone" : heard, t.open ? "open" : "muted"]);
     }
   }
 }
@@ -275,6 +288,8 @@ export function eventStation(event: DecoderEvent): string | null {
     }
     case "rtty":
     case "morse":
+    // Subaudible signalling names the channel's state, not whoever is keying up.
+    case "tone":
       return null;
   }
 }

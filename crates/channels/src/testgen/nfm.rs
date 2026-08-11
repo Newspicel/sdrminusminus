@@ -1,0 +1,85 @@
+//! Subaudible-signalling reference modulator (PLAN §14): the CTCSS tone or DCS word a
+//! repeater keys under the voice, as the modulating waveform an FM transmitter carries.
+//!
+//! Deviations are expressed as a fraction of the channel's own full deviation, which is what
+//! the discriminator hands back: a repeater keys its subaudible signalling at 10–15 % of
+//! deviation, so that is what these default to.
+
+use sdrmm_dsp::golay23_encode;
+
+/// DCS bit rate (see [`crate::tone_squelch`] for the two figures in the literature).
+const DCS_BAUD: f64 = 134.4;
+const DCS_WORD_BITS: u32 = 23;
+/// The 3 fixed data bits above the code.
+const DCS_SIGNATURE: u16 = 0b100;
+
+/// A CTCSS tone as the modulating waveform: a continuous sinusoid below the voice band.
+#[must_use]
+pub fn ctcss_audio(hz: f64, deviation: f32, rate: f64, len: usize) -> Vec<f32> {
+    super::tone_audio(hz, deviation, rate, len)
+}
+
+/// The DCS word for `code` (three octal digits) as the modulating waveform: the 23-bit Golay
+/// codeword keyed as NRZ at 134.4 bit/s and repeated for the whole length, least significant
+/// bit of the word first.
+///
+/// Built from the code here rather than taken from the decoder's table, so a mistyped entry in
+/// that table shows up as a failing test instead of agreeing with itself.
+#[must_use]
+pub fn dcs_audio(code: u16, deviation: f32, rate: f64, len: usize) -> Vec<f32> {
+    let digits = u32::from(code);
+    let raw = (digits / 100 % 10) << 6 | (digits / 10 % 10) << 3 | (digits % 10);
+    let word = golay23_encode((u32::from(DCS_SIGNATURE) << 9 | raw) as u16);
+    let samples_per_bit = rate / DCS_BAUD;
+    (0..len)
+        .map(|k| {
+            let bit = (k as f64 / samples_per_bit) as u32 % DCS_WORD_BITS;
+            if word >> bit & 1 == 1 {
+                deviation
+            } else {
+                -deviation
+            }
+        })
+        .collect()
+}
+
+/// Sum two modulating waveforms — subaudible signalling under speech — truncated to the
+/// shorter of them.
+#[must_use]
+pub fn mix(a: &[f32], b: &[f32]) -> Vec<f32> {
+    a.iter().zip(b).map(|(x, y)| x + y).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The published DCS 023 word, keyed out at one sample per bit: transmission order is the
+    /// word backwards, which is the one thing about DCS that is easy to get wrong.
+    #[test]
+    fn the_dcs_waveform_is_the_published_word_sent_backwards() {
+        let rate = DCS_BAUD;
+        let audio = dcs_audio(23, 1.0, rate, DCS_WORD_BITS as usize);
+        let sent: String = audio
+            .iter()
+            .map(|&s| if s > 0.0 { '1' } else { '0' })
+            .collect();
+        let word: String = "10000001001111101100011".chars().rev().collect();
+        assert_eq!(sent, word);
+    }
+
+    #[test]
+    fn the_word_repeats_for_as_long_as_it_is_asked_to() {
+        let rate = DCS_BAUD * 4.0;
+        let bits = DCS_WORD_BITS as usize * 3;
+        let audio = dcs_audio(754, 0.2, rate, bits * 4);
+        assert_eq!(audio.len(), bits * 4);
+        for (k, &s) in audio.iter().enumerate() {
+            assert_eq!(s.abs(), 0.2, "sample {k} is not a keyed level");
+            let period = DCS_WORD_BITS as usize * 4;
+            if k >= period {
+                assert_eq!(s, audio[k - period], "word did not repeat at {k}");
+            }
+        }
+    }
+}

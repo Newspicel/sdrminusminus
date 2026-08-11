@@ -151,7 +151,8 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[planned]** WFM **stereo** — the audio path becomes two-channel end to end (PCM, Opus, frame layout, worklet)
 - **[planned]** ATV (analog TV)
 - **[planned]** Notch and audio filters per channel
-- **[planned]** CTCSS/DCS detection on NFM; Selcall (CCIR/ZVEI)
+- **[shipped]** CTCSS/DCS on NFM — the subaudible band decimated off the discriminator, a bank of 50 sliding correlators (half-second window, because the closest pair of standard tones is 2.3 Hz apart) and a DCS reader: Golay(23,12) at 134.4 bit/s, sliced against a tracked baseline so a carrier offset is not a decision threshold. Detect names what a repeater uses without gating; CTCSS and DCS gate on it, muting rather than skipping so the client's jitter buffer keeps its samples, and a 300 Hz highpass keeps the tone out of the audio it lets through. **The 83 standard DCS codes are part of the decoder, not a dropdown**: the code is cyclic, so a sliding window finds a valid word at all 23 alignments, and only that set reads back unambiguously — which is also why an inverted transmission comes out as the code's inverse-pair partner (023 ↔ 047) instead of needing a polarity switch
+- **[planned]** Selcall (CCIR/ZVEI)
 
 ## 9. Digital voice
 
@@ -162,7 +163,8 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 
 ## 10. Aviation & marine
 
-- **[shipped]** ADS-B + map — level-relative preamble correlation, Mode S CRC-24 with single-bit repair, DF17/18 only, identification, airborne/surface CPR position, velocity, Gillham and 25 ft altitude, bounded per-ICAO CPR cache
+- **[shipped]** ADS-B + map — level-relative preamble correlation, Mode S CRC-24 with single-bit repair, identification, airborne/surface CPR position, velocity, Gillham and 25 ft altitude, bounded per-ICAO CPR cache
+- **[shipped]** Mode S beyond the extended squitter — DF11 all-call replies, DF4/20 altitude and DF5/21 identity (squawk) replies, plus the BDS 2,0 callsign a Comm-B reply may carry. A roll-call reply keys its address onto the parity and so proves nothing by itself: it is decoded only when that address was proved in the clear (DF11/17/18) within the last minute, and single-bit repair is confined to the bare-parity formats where it cannot invent a different aircraft
 - **[shipped]** ADS-B at **any receiver rate 2–4 MHz** — the decoder meets the radio instead of the radio meeting the decoder: per-chip half-chip boundaries, eight sub-sample phase tables arbitrated by the CRC, and overlap-weighted energy per half-chip. Measured 0% → 100% at 2.048 Msps off-grid and band-limited (98% at 34 dB SNR); 2.000 Msps keeps a physical half-sample blind spot that real 2.048 receivers do not have
 - **[shipped]** AIS + map — GMSK via discriminator and Gaussian matched filter, NRZI + HDLC + CRC-16/X-25, types 1/2/3/5/18/24, `!AIVDM` output
 - **[shipped]** ACARS — MSK on an AM carrier, mirrored-spectrum tolerant, strict validation: character parity *and* the ARINC 618 CRC both pass or the block is dropped, uplink/downlink field layouts distinguished
@@ -179,7 +181,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[shipped]** RTTY — ITA2 with LTRS/FIGS and unshift-on-space, start/stop framing with stop-bit rejection, 45.45/50/75 baud, 170/450/850 Hz shifts
 - **[shipped]** Morse — envelope + adaptive keying slicer, element/gap clustering that tracks sending speed, unknown sequences surface as `*` rather than vanishing, pure noise decodes to nothing
 - **[shipped]** APRS / AX.25 — AFSK1200 and 9600 G3RUH, SSIDs and the has-been-repeated flag, TNC2 line, uncompressed and base-91 compressed positions, course/speed, `/A=` altitude
-- **[planned]** Mic-E position encoding — the one AX.25 form still undecoded (it yields a valid packet with no position rather than a wrong one)
+- **[shipped]** Mic-E — the one APRS form that is not a text format: six latitude digits and three indicator bits unpacked from the destination *callsign*, longitude/course/speed/symbol from an information field offset by 28, all 15 message codes named (and the standard/custom mixture the spec itself refuses to name), position ambiguity carried from the latitude into the longitude, telemetry told apart from status text, and the base-91 `xxx}` altitude
 - **[planned]** APRS *feature* — station/position collection, distinct from the channel
 - **[planned]** FLEX and further pager formats, ERMES
 - **[planned]** CW skimmer — every CW signal in the passband at once

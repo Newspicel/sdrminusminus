@@ -22,12 +22,13 @@ pub mod ws;
 pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams,
     ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, MorseParams, NavtexParams,
-    NfmParams, PocsagBaud, PocsagParams, RttyParams, RttyStopBits, Sideband, SsbParams,
-    SubghzModulation, SubghzParams, WfmParams,
+    NfmParams, NfmToneMode, PocsagBaud, PocsagParams, RttyParams, RttyStopBits, Sideband,
+    SsbParams, SubghzModulation, SubghzParams, WfmParams,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, MorseText,
     NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame,
+    ToneSquelchStatus,
 };
 pub use device::{
     Capabilities, DeviceInfo, DeviceSettings, Direction, Duplex, ExtraSetting, ExtraValue,
@@ -209,7 +210,10 @@ mod contract_tests {
         assert_eq!(
             nfm,
             ChannelParams::Nfm(NfmParams {
-                bandwidth_hz: 12_500.0
+                bandwidth_hz: 12_500.0,
+                tone_mode: NfmToneMode::Off,
+                ctcss_hz: None,
+                dcs_code: None,
             })
         );
         let ssb: ChannelParams = serde_json::from_str(r#"{"type":"ssb","settings":{}}"#).unwrap();
