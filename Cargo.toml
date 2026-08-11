@@ -70,7 +70,7 @@ tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
 futures = "0.3"
 # WS client for exercising the hub in server tests only. Tracks the version axum's `ws`
 # feature uses (0.30 exists) so tungstenite isn't built twice just for tests.
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 
 # MCP server (PLAN §5, §18): streamable HTTP mounted on the same axum app. `schemars` derives
 # the tool argument schemas and must match the version rmcp itself depends on.
