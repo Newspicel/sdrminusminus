@@ -33,7 +33,7 @@ pub use acars::AcarsChannel;
 pub use adsb::AdsbChannel;
 pub use ais::AisChannelRx;
 pub use am::{AmChannel, AmTx};
-pub use aprs::{AprsChannel, AprsTx};
+pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};

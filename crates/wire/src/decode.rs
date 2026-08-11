@@ -170,6 +170,12 @@ pub struct AprsPacket {
     pub speed_kt: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub altitude_ft: Option<i32>,
+    /// The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7
+    /// standard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's
+    /// own word for a packet whose three message bits mix the standard and custom tables.
+    /// Absent on every packet that is not Mic-E.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mic_e_message: Option<String>,
     /// TNC2 monitor line (`SRC>DEST,PATH:info`) — the interop format.
     pub tnc2: String,
 }
@@ -408,7 +414,12 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
-            Self::Aprs(p) => p.tnc2.clone(),
+            // A Mic-E monitor line is packed binary, so the message named beside it is the
+            // only part of the row a reader can act on.
+            Self::Aprs(p) => match &p.mic_e_message {
+                Some(message) => format!("{} · {message}", p.tnc2),
+                None => p.tnc2.clone(),
+            },
             Self::Rtty(t) => t.text.clone(),
             Self::Morse(m) => m.text.clone(),
             Self::Navtex(n) => {
@@ -643,6 +654,25 @@ mod tests {
         });
         assert_eq!(decoded.summary(), "24 bit A1B2C3 · addr 0A1B2 · btn 3 · ×4");
         assert_eq!(decoded.station().as_deref(), Some("0A1B2"));
+    }
+
+    /// A Mic-E packet's TNC2 line is the packed binary it was sent as, so the log row names
+    /// the message; every other APRS packet's line is already readable and is left alone.
+    #[test]
+    fn a_mic_e_summary_names_the_message_beside_the_monitor_line() {
+        let mut packet = AprsPacket {
+            tnc2: "DL1ABC-9>S32U6T:`(_fn\"Oj/".to_owned(),
+            ..AprsPacket::default()
+        };
+        assert_eq!(
+            DecoderEvent::Aprs(packet.clone()).summary(),
+            "DL1ABC-9>S32U6T:`(_fn\"Oj/"
+        );
+        packet.mic_e_message = Some("Returning".to_owned());
+        assert_eq!(
+            DecoderEvent::Aprs(packet).summary(),
+            "DL1ABC-9>S32U6T:`(_fn\"Oj/ · Returning"
+        );
     }
 
     #[test]

@@ -646,6 +646,13 @@ export interface components {
             lat?: number | null;
             /** Format: double */
             lon?: number | null;
+            /**
+             * @description The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7
+             *     standard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's
+             *     own word for a packet whose three message bits mix the standard and custom tables.
+             *     Absent on every packet that is not Mic-E.
+             */
+            mic_e_message?: string | null;
             /** @description Digipeater path, in order. */
             path?: string[];
             /** @description Source callsign with SSID, e.g. `DL1ABC-9`. */

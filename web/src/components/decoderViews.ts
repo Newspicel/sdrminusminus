@@ -287,13 +287,17 @@ export function matchesAddress(address: number, filter: string): boolean {
 
 // ── APRS ──────────────────────────────────────────────────────────────────────────────────
 
-/** Course/speed/altitude as one trailing line; empty when the packet carried none of them. */
+/** The Mic-E message and course/speed/altitude as one trailing line; empty when the packet
+ * carried none of them. The message leads because it is what the operator chose to say —
+ * "Emergency" is the one thing on this line that is not a measurement. */
 export function aprsMotion(packet: {
   course_deg?: number | null;
   speed_kt?: number | null;
   altitude_ft?: number | null;
+  mic_e_message?: string | null;
 }): string {
   return joinFields(
+    packet.mic_e_message ?? "",
     formatBearing(packet.course_deg),
     packet.speed_kt == null ? "" : formatSpeedKt(packet.speed_kt),
     packet.altitude_ft == null ? "" : formatAltitudeFt(packet.altitude_ft),

@@ -176,7 +176,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[shipped]** RTTY — ITA2 with LTRS/FIGS and unshift-on-space, start/stop framing with stop-bit rejection, 45.45/50/75 baud, 170/450/850 Hz shifts
 - **[shipped]** Morse — envelope + adaptive keying slicer, element/gap clustering that tracks sending speed, unknown sequences surface as `*` rather than vanishing, pure noise decodes to nothing
 - **[shipped]** APRS / AX.25 — AFSK1200 and 9600 G3RUH, SSIDs and the has-been-repeated flag, TNC2 line, uncompressed and base-91 compressed positions, course/speed, `/A=` altitude
-- **[planned]** Mic-E position encoding — the one AX.25 form still undecoded (it yields a valid packet with no position rather than a wrong one)
+- **[shipped]** Mic-E — the one APRS form that is not a text format: six latitude digits and three indicator bits unpacked from the destination *callsign*, longitude/course/speed/symbol from an information field offset by 28, all 15 message codes named (and the standard/custom mixture the spec itself refuses to name), position ambiguity carried from the latitude into the longitude, telemetry told apart from status text, and the base-91 `xxx}` altitude
 - **[planned]** APRS *feature* — station/position collection, distinct from the channel
 - **[planned]** FLEX and further pager formats, ERMES
 - **[planned]** CW skimmer — every CW signal in the passband at once

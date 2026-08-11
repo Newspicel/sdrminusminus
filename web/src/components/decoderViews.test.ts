@@ -336,6 +336,13 @@ describe("aprsMotion", () => {
       "90° · 10 kt · 1,500 ft",
     );
   });
+
+  it("leads with the Mic-E message when the packet carried one", () => {
+    expect(aprsMotion({ mic_e_message: "En Route", speed_kt: 20, course_deg: 251 })).toBe(
+      "En Route · 251° · 20 kt",
+    );
+    expect(aprsMotion({ mic_e_message: "Emergency" })).toBe("Emergency");
+  });
 });
 
 describe("NAVTEX", () => {

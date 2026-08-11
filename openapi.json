@@ -2062,6 +2062,13 @@
             ],
             "format": "double"
           },
+          "mic_e_message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Mic-E message the operator selected, named (APRS 1.0.1 ch. 10): one of the 7\nstandard messages, one of the 7 custom ones, or `Emergency`. `Unknown` is the spec's\nown word for a packet whose three message bits mix the standard and custom tables.\nAbsent on every packet that is not Mic-E."
+          },
           "path": {
             "type": "array",
             "items": {
