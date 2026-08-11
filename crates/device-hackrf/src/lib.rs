@@ -367,6 +367,12 @@ impl HackRfDevice {
     /// sweep"), because the scanner measures off the device set's spectrum tap and a sweep
     /// produces a different shape of data entirely.
     ///
+    /// The sample rate must not change while the sweep runs: a plan's step and offset are
+    /// geometry derived from the rate the caller built it at, and the firmware would keep
+    /// walking the old grid over a new passband. Nothing enforces it here, because nothing
+    /// above this crate can hold a sweep and an [`SdrDevice::apply`] at the same time — whoever
+    /// wires §4 owns the device and owns this rule with it.
+    ///
     /// # Errors
     /// [`DeviceError::Unsupported`] for a plan the firmware would refuse or firmware too old to
     /// sweep, and [`DeviceError::Io`] if the radio will not start.
