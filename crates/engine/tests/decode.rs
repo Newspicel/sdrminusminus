@@ -19,7 +19,7 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use num_complex::Complex;
-use sdrmm_channels::testgen;
+use sdrmm_channels::{AprsTx, ChannelCtx, ChannelTx, TxPayload, testgen};
 use sdrmm_device::DeviceRegistry;
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_engine::Engine;
@@ -45,6 +45,27 @@ const AUDIO_DEVICE_RATE: f64 = 48_000.0;
 /// `validate_channel`). Everything else here deliberately runs at a different device rate.
 const ADSB_DEVICE_RATE: f64 = 2_000_000.0;
 const CENTER_HZ: f64 = 145_000_000.0;
+/// The AX.25 burst a station would key for `frame`, straight out of the modulator that pairs
+/// with the decoder under test. A modulator produces its own channel rate and nothing else, so
+/// the caller resamples it to whatever the device replays at.
+fn aprs_burst(frame: Vec<u8>) -> Vec<Complex<f32>> {
+    let mut tx = AprsTx::new(
+        ChannelCtx {
+            input_rate: AprsTx::descriptor().input_rate_hz,
+        },
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Aprs(AprsParams {
+                mode: AprsMode::Afsk1200,
+                ..AprsParams::default()
+            }),
+        },
+    )
+    .unwrap();
+    tx.submit(TxPayload::Frame(frame)).unwrap();
+    testgen::burst(&mut tx)
+}
 
 fn engine_for(dir: &Path) -> Arc<Engine> {
     let mut registry = DeviceRegistry::new();
@@ -164,13 +185,17 @@ async fn aprs_packet_survives_the_ddc_and_reaches_the_decoded_stream() {
     let engine = engine_for(dir.path());
     let offset_hz = -40_000.0;
 
-    let frame = testgen::aprs::ui_frame(
+    let frame = AprsTx::ui_frame(
         "DL1ABC-9",
         "APRS",
         &["WIDE1-1"],
         "!5230.00N/01324.00E>engine e2e",
     );
-    let mut iq = testgen::aprs::afsk1200(&frame, NARROW_DEVICE_RATE);
+    let mut iq = testgen::resample(
+        &aprs_burst(frame),
+        AprsTx::descriptor().input_rate_hz,
+        NARROW_DEVICE_RATE,
+    );
     testgen::shift(&mut iq, offset_hz, NARROW_DEVICE_RATE);
 
     let device = plant(dir.path(), "aprs", iq, NARROW_DEVICE_RATE);

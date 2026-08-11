@@ -164,7 +164,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[planned]** Inmarsat STD-C / AERO
 - **[planned]** VDL Mode 2; HFDL; Iridium bursts
 - **[planned]** ADS-B / AIS log enrichment against offline aircraft and ship databases
-- **[planned]** **Off-air proof for all four shipped decoders** — every one is verified against its specification via an independently-written reference modulator, and none has yet decoded a real signal
+- **[planned]** **Off-air proof for all four shipped decoders** — every one is verified against its specification via a reference modulator (independently written, or the mode's own transmitter where it has one), and none has yet decoded a real signal
 
 ## 11. Data, text & paging
 
@@ -267,9 +267,11 @@ test. No presets exist whose purpose is uncontrolled over-the-air disruption of 
 - **[shipped]** It is unreachable from outside the device layer, by construction — transmit VGA written to 0 dB on open, no wire type through which a client could ask, no `engine`/`server`/MCP/UI caller. `Capabilities.duplex` now states what the hardware *has* (a HackRF is `half`), which is what draws its reserved transmit input; the port emits nothing and accepts nothing. No node kind emits the `tx` port type, so no edge into it can validate, and a test fails the day one does
 - **[shipped]** `ChannelTx`, the transmit half of the channel surface — payload in on the control plane, IQ out on the hot path, raised-cosine burst edges so keying does not splatter, a bounded queue that refuses a backlog instead of growing, and a short fill as the "burst is over" signal. Deliberately not the same trait as `ChannelRx`: the two directions share a mode's constants and (next) its framing, not their state. A modulator sits in the same registry row as the demodulator it pairs with, and `can_transmit` on the wire is *derived* from whether that column is filled, so the flag a UI would draw a port from cannot disagree with what `create_tx` will build. Reaching an antenna is still gated exactly as before — nothing in `engine` or `server` calls it, and the samples land in a buffer
 - **[shipped]** NFM is the first mode with a modulator, round-tripped against its own demodulator in test at both channel spacings. Neither end carries pre- or de-emphasis, which is what makes the pair agree
+- **[shipped]** AM, SSB and APRS / AX.25 followed, each round-tripped against its own demodulator: AM keys an 80 %-depth envelope normalized so the peak, not the carrier, is full scale; SSB is a phasing exciter (Hilbert transformer) against a receiver that filters one side and takes the real part, so the two share a passband and no code; AX.25 owns the framing in both directions — addresses, stuffing, CRC-16/X.25, NRZI and the G3RUH scrambler on the way out, `dsp`'s deframer on the way back — and keys either Bell 202 AFSK1200 or 9600 baud FSK. Queue bound and burst envelope are shared by all four
+- **[shipped]** A mode with a modulator no longer has a reference encoder in `testgen`: the transmitter *is* the reference, and the fixture library and the end-to-end run key the mode's own transmitter instead of a stand-in — at its channel rate, resampled to whatever the device replays at. Receive-only modes keep their independently-written generators
 - **[planned]** The authorized-use gate itself, and everything below it
 - **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
-- **[planned]** Modulators for the remaining modes, over a shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use on licensed bands
+- **[planned]** Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use on licensed bands
 - **[planned]** Sub-GHz capture → decode → replay; fixed-code analysis and generation including de Bruijn sequences; rolling-code capture and implementation analysis against your own DUT
 - **[planned]** Interference / jam-susceptibility testing into a contained link
 - **[planned]** Flood / spam / malformed-broadcast testing at a DUT over a contained link
@@ -286,6 +288,6 @@ test. No presets exist whose purpose is uncontrolled over-the-air disruption of 
 - **[shipped]** A device rate change rebuilds every hosted channel with ids and audio subscriptions preserved; recording blocks a rate change rather than mixing rates under one SigMF header
 - **[shipped]** Typed decoder events leave the DSP plane through a bounded sink with counted drops, are wall-clock stamped off the hot path, and are persisted by the server rather than the engine
 - **[shipped]** Squelch feeds decoders duration-exact silence instead of splicing the stream — a decoder measures its bit clock in the time a skip would delete
-- **[shipped]** Golden-vector tests on every DSP primitive, reference modulators written independently of their decoders, and a fixture library regenerated rather than committed
+- **[shipped]** Golden-vector tests on every DSP primitive, and a fixture library regenerated rather than committed. A receive-only decoder is tested against a reference modulator written independently of it; one whose mode ships a transmitter is tested against that transmitter, which shares the mode's constants but implements none of the same steps
 - **[planned]** GPU spectrum path (wgpu) for very large FFTs or many channels
 - **[planned]** Diversity combine / noise cancelling with a reference antenna

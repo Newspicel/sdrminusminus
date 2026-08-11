@@ -38,6 +38,33 @@ pub(crate) fn fm_iq(rate: f64, f_mod: f64, deviation_hz: f64, len: usize) -> Vec
         .collect()
 }
 
+/// Envelope-modulated carrier at complex baseband: `1 + depth·cos(2π·f_mod·t)`, which an ideal
+/// envelope detector returns as a `depth`-amplitude tone once the carrier's DC is blocked.
+pub(crate) fn am_iq(rate: f64, f_mod: f64, depth: f32, len: usize) -> Vec<Complex<f32>> {
+    (0..len)
+        .map(|k| {
+            let audio = (TAU * f_mod * k as f64 / rate).cos() as f32;
+            Complex::new(1.0 + depth * audio, 0.0)
+        })
+        .collect()
+}
+
+/// Magnitude of the component of `iq` at `freq_hz` — a single-bin DFT, which needs no
+/// power-of-two length and lets a test name the frequency it cares about. A unit complex
+/// exponential at that frequency reads 1.0.
+pub(crate) fn component(iq: &[Complex<f32>], freq_hz: f64, rate: f64) -> f64 {
+    let step = TAU * freq_hz / rate;
+    let sum: Complex<f64> = iq
+        .iter()
+        .enumerate()
+        .map(|(k, s)| {
+            Complex::new(f64::from(s.re), f64::from(s.im))
+                * Complex::from_polar(1.0, -step * k as f64)
+        })
+        .sum();
+    sum.norm() / iq.len() as f64
+}
+
 /// Feed `iq` through the channel in deliberately ragged blocks and concatenate the audio,
 /// checking the advertised rate on every producing block.
 pub(crate) fn run_ragged(chan: &mut dyn ChannelRx, iq: &[Complex<f32>]) -> Vec<f32> {
