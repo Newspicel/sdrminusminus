@@ -128,7 +128,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[shipped]** Dark, light and auto themes (per browser, not synced — a theme belongs to the eye, not the workspace)
 - **[shipped]** Errors as a dismissible toast stack rather than a banner that shoves every panel down
 - **[shipped]** Playwright smoke flow (`xtask smoke`) driving the built UI against a real server
-- **[planned]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them
+- **[shipped]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them
 - **[planned]** A first-run wizard — the canvas has no guided first run
 - **[planned]** Band-plan explorer (§5)
 - **[planned]** Node kinds whose backends do not exist yet: GPS source, UDP sink, WAV sink, and the `iq-tap`/`position` port types that go with them
