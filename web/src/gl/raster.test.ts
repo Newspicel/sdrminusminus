@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { backingPx, fitExtent, nextRingRow, pixelRatio, rowsForHeight, zoomOf } from "./raster";
+import {
+  backingPx,
+  fitExtent,
+  nextRingRow,
+  pixelRatio,
+  rowsForHeight,
+  seedPlacement,
+  zoomOf,
+} from "./raster";
 
 describe("zoomOf", () => {
   it("is the ratio between drawn and laid-out size", () => {
@@ -110,5 +118,23 @@ describe("fitExtent", () => {
 
   it("stays allocatable when nothing is visible", () => {
     expect(fitExtent(900, 0)).toBe(1);
+  });
+});
+
+describe("seedPlacement", () => {
+  it("lays a short history at the bottom of the ring and leaves the cursor above it", () => {
+    expect(seedPlacement(3, 8)).toEqual({ skip: 0, rows: 3, write: 3 });
+  });
+
+  it("keeps the newest rows when the history outgrew the ring", () => {
+    expect(seedPlacement(10, 8)).toEqual({ skip: 2, rows: 8, write: 0 });
+  });
+
+  it("fills the ring exactly and wraps the cursor back to the start", () => {
+    expect(seedPlacement(8, 8)).toEqual({ skip: 0, rows: 8, write: 0 });
+  });
+
+  it("has nothing to place for a lane with no past", () => {
+    expect(seedPlacement(0, 8)).toEqual({ skip: 0, rows: 0, write: 0 });
   });
 });

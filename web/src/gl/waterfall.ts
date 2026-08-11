@@ -13,7 +13,15 @@
 // Every colormap here is perceptually uniform and monotone in luminance (DESIGN.md §2): jet and
 // its relatives invent bands in smooth data, so they are not offered.
 
-import { backingPx, fitExtent, nextRingRow, pixelRatio, rowsForHeight, zoomOf } from "./raster";
+import {
+  backingPx,
+  fitExtent,
+  nextRingRow,
+  pixelRatio,
+  rowsForHeight,
+  seedPlacement,
+  zoomOf,
+} from "./raster";
 
 const HISTORY_ROWS = 1024;
 
@@ -117,6 +125,10 @@ export interface WaterfallView {
    * the plot is off screen; only the drawing is skipped. They are dropped only while the context
    * is gone, when there is no history left for them to extend. */
   pushRow(bins: Uint8Array): void;
+  /** Fill the history with rows kept while this plot did not exist — `count` rows of `bins` bytes
+   * packed oldest-first, as one upload. Replaces whatever the plot held, so it belongs at the
+   * start of a plot's life and nowhere else. */
+  seed(rows: Uint8Array, count: number, bins: number): void;
   /** The visible window over the device span, `start` and `width` as fractions of it. Applied
    * to the whole history at once, so zooming re-frames what has already been received rather
    * than only what arrives next. */
@@ -280,6 +292,34 @@ class Plot implements WaterfallView {
       bins,
     );
     this.writeRow = nextRingRow(this.writeRow, HISTORY_ROWS);
+  }
+
+  seed(rows: Uint8Array, count: number, bins: number): void {
+    const live = this.live;
+    if (live === null || bins === 0) {
+      return;
+    }
+    const place = seedPlacement(count, HISTORY_ROWS);
+    if (place.rows === 0) {
+      return;
+    }
+    // `allocate` clears the ring and returns the cursor to row zero, which is where the seed's
+    // oldest row goes; the cursor then continues from the newest, as if the rows had arrived here.
+    this.allocate(bins);
+    const gl = live.context.gl;
+    gl.bindTexture(gl.TEXTURE_2D, live.texture);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      bins,
+      place.rows,
+      gl.RED,
+      gl.UNSIGNED_BYTE,
+      rows.subarray(place.skip * bins, (place.skip + place.rows) * bins),
+    );
+    this.writeRow = place.write;
   }
 
   setWindow(start: number, width: number): void {
