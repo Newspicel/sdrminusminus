@@ -271,6 +271,7 @@ impl Decoder {
     fn hunt(&mut self) {
         for sync in &SYNCS {
             if self.window.sync_distance(sync.bits, SYNC_BITS) <= SYNC_TOLERANCE {
+                self.window.anchor(sync.bits, SYNC_BITS);
                 self.pending = Pending::Burst {
                     voice: sync.voice,
                     slot: sync.slot,
@@ -542,15 +543,13 @@ mod tests {
         .expect("dmr channel")
     }
 
-    /// A direct-mode call's repeated header and its terminator, keyed the way a TDMA radio
-    /// keys: 132 symbols on the air in every 288, the rest dead.
+    /// A direct-mode call's repeated header, one voice superframe, and its terminator, keyed
+    /// the way a TDMA radio keys: 132 symbols on the air in every 288, the rest dead.
     ///
-    /// The embedded link control is *not* asserted here. The generated keyed waveform still
-    /// costs about one bit per burst through this chain, and late entry needs four consecutive
-    /// bursts with none — on the air it survives thirteen superframes in fifteen, which is what
-    /// [`decodes_a_recorded_call`] holds the decoder to. Closing that gap means estimating
-    /// centre and level from the burst's own sync rather than from loops that run between
-    /// bursts, which is a change to the shared front end and not to this mode.
+    /// The embedded link control is asserted too — the late-entry path, four consecutive
+    /// bursts of fragments with no burst-level code of their own. That is the part the
+    /// sync-anchored level and centre estimates exist for: bursts B to E carry no sync, so
+    /// they are sliced by what the syncs before them measured.
     #[test]
     fn decodes_a_call_from_header_to_terminator() {
         let call = tx::Call::default();
@@ -583,6 +582,14 @@ mod tests {
                 header.errors_corrected
             );
         }
+
+        let voice = frames
+            .iter()
+            .find(|f| f.kind == DvFrameKind::Voice)
+            .expect("late entry: no embedded link control survived the superframe");
+        assert_eq!(voice.destination, Some(call.destination));
+        assert_eq!(voice.source, Some(call.source));
+        assert_eq!(voice.color_code, Some(u16::from(call.color_code)));
 
         let terminator = frames
             .iter()

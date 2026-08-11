@@ -16,12 +16,31 @@ const FARROW_CURVATURE: f32 = 0.5;
 /// onto a neighbouring multiple of the true clock.
 const TRACKING_RANGE: f64 = 0.05;
 
+/// Symbols the free-run rate averages the tracked rate over. The instantaneous estimate
+/// carries the loop's self-noise — with structured data it walks a tenth of a percent either
+/// side of the true rate — and a TDMA gap multiplies whatever rate it coasts at by the gap's
+/// length: 156 dead symbols turn that tenth of a percent into a sixth of a symbol of phase
+/// error at the next burst, which costs most of the burst to pull back in. The true rate is a
+/// crystal's and static, so a long average is the right thing to coast on; a thousand symbols
+/// smooths the walk away and still follows a real rate estimate as it converges.
+const FREE_RUN_MEMORY_SYMBOLS: f64 = 1024.0;
+
+/// How far from equal-and-opposite a symbol pair may be and still drive the timing error,
+/// as `|x[k] + x[k−1]|² / |x[k] − x[k−1]|²`. Zero for a perfectly symmetric transition;
+/// inter-symbol interference and noise put a few percent on a real one. The nearest pair this
+/// must reject, a four-level signal's ±3 → ∓1, sits at 25%.
+const SYMMETRY_TOLERANCE: f64 = 0.15;
+
 /// Gardner timing-error detector with a parabolic (Farrow) interpolator, for complex baseband
 /// at a nominal `sps` input samples per symbol (>= 2, may be fractional).
 #[derive(Clone, Debug)]
 pub struct SymbolSync {
     nominal_sps: f64,
     sps: f64,
+    /// The rate the clock free-runs at wherever there is no transition to read — held spans
+    /// and keying edges: `sps` averaged over [`FREE_RUN_MEMORY_SYMBOLS`], so the loop's
+    /// self-noise cannot pick the rate a TDMA gap multiplies by its length.
+    free_run_sps: f64,
     /// Interval to the next symbol instant, in input samples: `sps` plus this symbol's phase
     /// correction. Each half-symbol step uses exactly half of it, so the mid-point sample the
     /// detector needs sits halfway between two symbol instants even while the loop is pulling.
@@ -60,6 +79,7 @@ impl SymbolSync {
         let mut sync = Self {
             nominal_sps: sps,
             sps,
+            free_run_sps: sps,
             step: sps,
             alpha: 4.0 * FRAC_1_SQRT_2 * loop_bw / denom,
             beta: 4.0 * loop_bw * loop_bw / denom,
@@ -103,7 +123,7 @@ impl SymbolSync {
                 if self.primed && !hold {
                     self.retime(y);
                 } else if hold {
-                    self.step = self.sps;
+                    self.step = self.free_run_sps;
                 }
                 self.prev_symbol = y;
                 self.primed = true;
@@ -129,6 +149,7 @@ impl SymbolSync {
 
     pub fn reset(&mut self) {
         self.sps = self.nominal_sps;
+        self.free_run_sps = self.nominal_sps;
         self.step = self.nominal_sps;
         // The first instant is the earliest one the interpolator has history for.
         self.pos = 1;
@@ -159,6 +180,19 @@ impl SymbolSync {
         // time the carrier came and went. Free-run across it instead.
         let (before, after) = (self.prev_symbol.norm_sqr(), symbol.norm_sqr());
         if before <= 0.0 || after <= 0.0 {
+            self.step = self.free_run_sps;
+            return;
+        }
+        // Only a transition between equal-and-opposite symbols crosses zero halfway between
+        // them. On any other pair — a four-level signal's ±3 → ±1, or no transition at all —
+        // the mid-point sample carries the pulse shaping's inter-symbol interference, and
+        // Gardner reads that as a timing offset: a bias that follows the data pattern, not the
+        // clock. Structured payloads (a repeated header, a sync-heavy frame) turn that bias
+        // into the same fractional-symbol excursion at the same place in every burst. Skip
+        // the update instead; symmetric transitions are frequent enough to keep lock.
+        let sum = f64::from((symbol + self.prev_symbol).norm_sqr());
+        let diff = f64::from((symbol - self.prev_symbol).norm_sqr());
+        if sum > SYMMETRY_TOLERANCE * diff {
             self.step = self.sps;
             return;
         }
@@ -169,7 +203,7 @@ impl SymbolSync {
         let err = f64::from(raw) / (f64::from(0.5 * (before + after)) * TAU);
         // Non-finite input must free-run too, not poison the accumulator.
         if !err.is_finite() {
-            self.step = self.sps;
+            self.step = self.free_run_sps;
             return;
         }
         let err = err.clamp(-0.5, 0.5);
@@ -179,6 +213,7 @@ impl SymbolSync {
             self.nominal_sps * (1.0 - TRACKING_RANGE),
             self.nominal_sps * (1.0 + TRACKING_RANGE),
         );
+        self.free_run_sps += (self.sps - self.free_run_sps) / FREE_RUN_MEMORY_SYMBOLS;
         self.step = self.sps - self.alpha * err * self.nominal_sps;
     }
 }

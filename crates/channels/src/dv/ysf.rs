@@ -161,6 +161,7 @@ impl Decoder {
             return;
         }
         if self.hunting && self.window.sync_distance(SYNC, SYNC_BITS) <= SYNC_TOLERANCE {
+            self.window.anchor(SYNC, SYNC_BITS);
             self.hunting = false;
             self.countdown = FICH_SYMBOLS;
         }

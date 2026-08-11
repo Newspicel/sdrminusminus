@@ -173,6 +173,7 @@ impl Decoder {
         }
         for (sync, packet) in [(FS1, false), (FS4, true)] {
             if self.window.sync_distance(sync, LONG_SYNC_BITS) <= LONG_TOLERANCE {
+                self.window.anchor(sync, LONG_SYNC_BITS);
                 self.pending_packet = Some(packet);
                 self.countdown = HEADER_SYMBOLS;
                 self.in_call = true;
@@ -186,6 +187,7 @@ impl Decoder {
             return;
         }
         if self.window.sync_distance(FS3, SHORT_SYNC_BITS) <= SHORT_TOLERANCE {
+            self.window.anchor(FS3, SHORT_SYNC_BITS);
             self.in_call = false;
             out.events.push(DecoderEvent::Dv(DvFrame::new(
                 DvMode::Dpmr,

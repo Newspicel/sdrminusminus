@@ -75,7 +75,7 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Max-hold, a draggable trace/waterfall split, and five luminance-monotone colormaps (magma, inferno, plasma, viridis, gray)
 - **[shipped]** Digit-scrollable frequency dial — ten place-value targets, wheel/arrows/typing/direct entry (`145.5`, `433800k`, `2.4g`), clamped to the radio's range
 - **[shipped]** Keyboard-first operation — tune, tune step, mode, squelch, audio, channel and view switching, with a `?` overlay rendering the same table the handler switches on
-- **[shipped]** Frequency manager: presets and bookmarks
+- **[shipped]** Frequency manager: workspace-wide presets and bookmarks — a preset snapshots *every* radio the workspace has open, and applying it puts each of them back on the node that drew it (matched by node, then by radio), so restoring a bench is one gesture rather than one per radio
 - **[shipped]** Frequency scanner — targets grouped into passband-sized tunings so one dwell measures every target in the passband, peak-hold over the dwell, post-retune settle and drain, hold-and-resume that parks a channel on the hit, and exclusive ownership of the set's centre frequency while it runs. A dwell never ends on nothing — it waits out a starting or momentarily starved capture thread, and only two seconds of silence counts as a device that stopped. Swept 88–108 MHz (201 targets) on both radios and held on real stations
 - **[planned]** Hardware-assisted wideband sweep — the HackRF driver now runs the radio's own sweep mode (§2), but the scanner still sweeps by retuning: a sweep delivers blocks stamped with their own frequency rather than a stream at one tuning, so the scanner's "measure the device-set spectrum tap" loop has nothing to read it with yet
 - **[planned]** Strongest-signal "close-call" finder
@@ -92,7 +92,7 @@ The dial and the plot were built so this could hang off them without rework, and
 
 - **[shipped]** Band-plan / allocation layer overlaid on the spectrum and searchable
 - **[shipped]** Layered scopes, most-specific-wins: **World** (ITU Regions 1/2/3 + global services) → **Germany** (BNetzA Frequenzplan) → **US** (FCC), **UK** (Ofcom), EU CEPT — a JSON document and one registry line per layer, resolved by an active-set sweep that keeps everything each layer covers instead of overwriting it
-- **[shipped]** Region chosen in settings, held per browser like the theme; a "detect" button resolves the browser's coordinate to a region server-side, and says so when only the ITU region could be decided
+- **[shipped]** Region and ruler visibility are **workspace settings**, stored in the snapshot and shared by every client on the server — which plan is in force is a property of the bench, not of the browser; a "detect" button resolves the browser's coordinate to a region server-side, and says so when only the ITU region could be decided
 - **[shipped]** Band ruler with coloured allocation blocks; click-to-identify popover (service, allocation, authority, suggested mode, channel step, notes, and the layers the winner covers)
 - **[shipped]** Searchable band explorer ("show me marine VHF", "70 cm ham", "145.500") — word scoring, so filler words cost nothing, and a query that reads as a frequency is resolved as one
 - **[shipped]** One-click "tune here with the suggested mode" — moves the selected channel inside the passband, retunes the receiver outside it, and patches the node's type with the engine's so the face stays bound
@@ -128,25 +128,27 @@ The dial and the plot were built so this could hang off them without rework, and
 ## 7. UI, workspaces & onboarding
 
 - **[shipped]** Patch-graph canvas — every radio, channel, scope, map, speaker, log, recorder, export and scanner is a node; wiring is the UI; the palette and its ports are served from the server's catalog so a new node kind needs no frontend edit
+- **[shipped]** Node palette grouped by what a thing *is* (radios, modes, decoders, displays, sinks, tools) and searchable by name or type id, each channel entry stating the bandwidth it needs — two dozen decoders no longer arrive as one flat wrap
 - **[shipped]** Node faces sized to their instrument, opened framed (`fitView`), active-on-click so the wheel tunes the dial *or* pans the patch but never both
 - **[shipped]** Pin-board rack (12×8) — pin a face, drag a boundary and neighbours give up exactly what it takes, drop a face on another and they trade places
 - **[shipped]** Right-click menu: pin, reset size, cut a wire, fit the patch
+- **[shipped]** Rack membership readable without switching views — a face's header carries a filled-vs-empty glyph plus the pressed fill, and the bar's Rack button carries how many faces are on it
 - **[shipped]** Workspaces that apply **additively and idempotently** — loading a workspace opens the radios it names and creates the channels it draws, never closing or deleting anyone else's work; what it cannot satisfy is reported (`absent`, `refused` with the engine's reason) rather than skipped
 - **[shipped]** Revision-checked workspace writes with serialized edits, so an idle browser cannot overwrite the layout someone is arranging
 - **[shipped]** The canvas refuses invalid wiring where it is drawn — an ADS-B wire onto a 2.4 Msps receiver names the rate that works, using the same rule the engine enforces rather than a second copy of it
 - **[shipped]** A radio's left side is what is done *to* it — `control` in (the scanner owns the tuning, one wire), `tx` in (reserved, inert, refuses every wire with the server's own reason), `iq` out
 - **[shipped]** Template gallery — eight built-in workspaces (FM·RDS, airband, ADS-B, AIS, APRS, POCSAG, 2 m, marine VHF) with explainers, each validated to fit its own passband, re-applying replaces rather than stacks
-- **[shipped]** Library drawer for the things that are not nodes — presets, bookmarks, templates, recordings — scoped to the radios this patch binds
+- **[shipped]** Library drawer for the things that are not nodes — templates, presets, bookmarks, band search, recordings — behind a pinned tab header, naming a target radio only where one section actually acts on one (a template card's own Apply button)
 - **[shipped]** Generic schema-rendered settings forms for anything without a dedicated face; decoder output renders on the channel's own face
 - **[shipped]** MapLibre map (OpenFreeMap, no API key) with a themed fallback, plotting only the decoders wired into it, GeoJSON updated on a throttled tick
 - **[shipped]** `DESIGN.md` as a binding rulebook — OKLCH role table, contrast measured in both themes, achromatic plot overlays, type/spacing/density/motion ladders
-- **[shipped]** Dark, light and auto themes (per browser, not synced — a theme belongs to the eye, not the workspace)
+- **[shipped]** Dark, light and auto themes (per browser, not synced — a theme belongs to the eye, not the workspace), on one cycling icon that names the state it is in and the one a press moves to
 - **[shipped]** One product mark, one drawing — `assets/icon.svg` (a carrier peak over a noise floor broken into the name's two dashes, in the `DESIGN.md` §2 palette, with its geometry sized so the floor still reads at 16 px). `xtask icons` renders it into the browser tab, the top bar, the token gate, the docs site and the desktop bundle's `.icns`/`.ico`/PNG set — including the `.ico`'s DIB-below-256 layout the Windows resource compiler needs, and the 80.5 % inset macOS bakes into every Dock icon — so the tab, the Dock and the installer cannot drift apart
 - **[shipped]** Errors as a dismissible toast stack rather than a banner that shoves every panel down
 - **[shipped]** Playwright smoke flow (`xtask smoke`) driving the built UI against a real server
 - **[shipped]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them
 - **[planned]** A first-run wizard — the canvas has no guided first run
-- **[shipped]** Band-plan explorer in the library drawer, and the band ruler on every scope face (§5)
+- **[shipped]** Band-plan search in the library drawer, its region and ruler under the workspace menu's settings, and the band ruler on every scope face (§5)
 - **[planned]** Node kinds whose backends do not exist yet: GPS source, UDP sink, WAV sink, and the `iq-tap`/`position` port types that go with them
 - **[planned]** A scope on a channel tap — a scope only takes a device today
 - **[planned]** Theme/skin system and a layout marketplace
@@ -179,14 +181,19 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
   6.25 kHz ones alike. A **carrier gate** decides what those estimates are allowed to learn
   from: DMR is TDMA and keys off for half of every 60 ms frame, and a clock, centre or level
   that integrated the receiver's own noise in between would arrive at each burst having learned
-  the noise floor instead of the transmitter
+  the noise floor instead of the transmitter. The clock takes an error only from
+  equal-and-opposite transitions — on any other pair Gardner reads the pulse shaping itself as
+  a timing offset, a bias that puts the same fractional-symbol excursion at the same place in
+  every burst — and coasts dead time at a long average of its tracked rate, because a TDMA gap
+  multiplies whatever rate it coasts at by the gap's length
 - **[shipped]** DMR — all eight sync patterns, Golay(20,8) slot type, BPTC(196,96) signalling:
   voice LC header, terminator, CSBK and data header, each confirmed by the Reed-Solomon or CRC
   mask that names its own frame type. Talkgroup, radio ID, colour code, group/private,
   encryption flag. **Late entry**: the BPTC(128,77) embedded link control is reassembled from
   bursts B–E of a voice superframe, so a call joined in progress names itself within 240 ms.
-  Verified against a recorded off-air call (`fixtures/dmr_call_48k`): header, terminator and
-  thirteen of fifteen superframes' late entry, all naming the same radio
+  Verified end to end against the generated keyed waveform — header, late-entry superframe and
+  terminator — and against a recorded off-air call (`fixtures/dmr_call_48k`): three header
+  repeats and three superframes' late entry, all naming the same radio
 - **[shipped]** M17 — the one mode that names both parties in the clear: link setup frame through
   derandomiser, quadratic interleaver, P1 depuncturing, Viterbi and CRC-16, with base-40
   callsigns, encryption flag and end-of-transmission
@@ -199,7 +206,9 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
 - **[shipped]** dPMR — FS1/FS3/FS4 framing and the full header information field (descrambled,
   de-interleaved, CRC-8 checked): called and calling IDs, colour code, individual versus group
 - **[shipped]** NXDN — frame sync word and link information channel at both channel widths
-  (6.25 kHz at 2400 symbols/s, 12.5 kHz at 4800): channel type, direction, frame shape
+  (6.25 kHz at 2400 symbols/s, 12.5 kHz at 4800): channel type, direction, frame shape. A
+  frame is believed only once the next sync word lands a whole number of frames later — the
+  LICH's lone parity bit is no obstacle to noise, but the frame cadence is
 - **[shipped]** D-Star — GMSK receiver plus the slow-data channel, which is how a receiver that
   joined a call in progress gets the header: URCALL, MYCALL, repeater and the text message, all
   behind the header's own CRC
@@ -209,11 +218,15 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
   **DMR is the only one that has decoded a real signal so far**, off a recorded PMR446 call; the
   other six carry the same caveat the ADS-B/AIS/ACARS/NAVTEX decoders do, and the constants most
   likely to be wrong are named in each module's header comment
-- **[planned]** Sync-anchored level and centre estimation — a burst's own sync pattern says what
+- **[shipped]** Sync-anchored level and centre estimation — a burst's own sync pattern says what
   its four levels are, which is what a TDMA receiver should measure them from rather than from
-  loops that also run between bursts. The generated keyed waveform still costs about a bit per
-  burst without it, which is under what a real signal needs but over what late entry's four
-  consecutive clean bursts can spare
+  loops that also run between bursts. Every matched sync is fitted by least squares against the
+  levels its pattern names, the slicer re-scaled by the average of the last four detections
+  (MMDVM's figure); a fit noise could have produced — implausible gain or centre, or symbols
+  that match the pattern's dibits but miss its levels — is discarded, and an anchor expires a
+  second after its last sync so the next transmitter meets clean estimates. Together with the
+  transition-gated clock this closed the late-entry gap: the generated keyed waveform now
+  decodes header, embedded link control and terminator alike
 - **[planned]** Vocoder audio — AMBE+2/IMBE for the six, Codec2 for M17. The framing above is
   what a vocoder would plug into
 - **[planned]** P25 link control and trunking blocks (LDU1 link control, TSBK), NXDN SACCH/FACCH

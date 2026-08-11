@@ -56,19 +56,30 @@ pub(crate) fn channel_filter(bandwidth_hz: f64) -> ChannelFilter {
 /// Sync patterns are matched against the register; a burst is then read back out of the soft
 /// history, because the error-correcting codes above want soft bits and the sync search wants
 /// hard ones. Index 0 is always the most recent symbol.
+///
+/// Every symbol read out — hard or soft — passes through a [`fsk4::SyncLevels`] correction the
+/// modes feed by calling [`anchor`](Self::anchor) on each matched sync. The history keeps the
+/// symbols as the front end produced them, so a burst whose sync sits mid-burst is read back
+/// against what its *own* sync measured, first half included — the estimate could not have been
+/// applied to those symbols as they arrived, because it did not exist yet.
 pub(crate) struct SymbolWindow {
     soft: VecDeque<f32>,
     register: u64,
     capacity: usize,
+    levels: fsk4::SyncLevels,
+    measured: Vec<f32>,
 }
 
 impl SymbolWindow {
-    /// `capacity` is the longest look-back any caller will ask for, in symbols.
+    /// `capacity` is the longest look-back any caller will ask for, in symbols — the sync
+    /// patterns handed to [`anchor`](Self::anchor) included.
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
             soft: VecDeque::with_capacity(capacity),
             register: 0,
             capacity,
+            levels: fsk4::SyncLevels::new(),
+            measured: Vec::new(),
         }
     }
 
@@ -77,7 +88,20 @@ impl SymbolWindow {
             self.soft.pop_front();
         }
         self.soft.push_back(symbol);
-        self.register = self.register << 2 | u64::from(fsk4::slice(symbol));
+        self.levels.tick();
+        self.register = self.register << 2 | u64::from(fsk4::slice(self.levels.correct(symbol)));
+    }
+
+    /// A sync pattern of `bits` bits just matched, ending at the most recent symbol: measure
+    /// the transmitter's centre and level from it. The sync is the one stretch of a burst
+    /// whose transmitted levels are known exactly, so the estimate is data-aided — the loops
+    /// in the front end have to learn from payload and dead time, and this does not.
+    pub(crate) fn anchor(&mut self, pattern: u64, bits: u32) {
+        self.measured.clear();
+        for i in 0..bits as usize / 2 {
+            self.measured.push(self.raw(i));
+        }
+        self.levels.anchor(pattern, &self.measured);
     }
 
     /// Bit distance between the last `bits` bits shifted in and `pattern`.
@@ -93,6 +117,13 @@ impl SymbolWindow {
     /// The soft symbol `back` symbols ago; 0 is the most recent. Zero past the history, which
     /// is a symbol no slicer prefers either way.
     pub(crate) fn soft(&self, back: usize) -> f32 {
+        self.levels.correct(self.raw(back))
+    }
+
+    /// The same symbol as the front end produced it, before the sync-anchored correction —
+    /// what [`anchor`](Self::anchor) measures from, so each sync's fit stands on its own
+    /// rather than on the corrections before it.
+    fn raw(&self, back: usize) -> f32 {
         let len = self.soft.len();
         if back >= len {
             return 0.0;
@@ -124,6 +155,7 @@ impl SymbolWindow {
     pub(crate) fn reset(&mut self) {
         self.soft.clear();
         self.register = 0;
+        self.levels.reset();
     }
 }
 

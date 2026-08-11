@@ -5,6 +5,12 @@
 //! outbound, and whether the voice slots have been stolen for signalling — and carries an odd
 //! parity bit that this decoder checks before believing any of it.
 //!
+//! One parity bit is not a check noise fails often: a chance sync match carries a valid LICH
+//! half the time. What noise cannot do is hold the frame cadence — so a frame is reported only
+//! once the *next* sync word lands a whole number of frames later, which costs the report one
+//! frame of latency and a transmission's last frame its confirmation, and costs a noise-only
+//! channel everything.
+//!
 //! The addresses live one layer further in, in the SACCH and FACCH, behind a punctured
 //! convolutional code and an interleaver this does not implement (FEATURES §9). What is
 //! reported is therefore the frame's shape, not its parties: enough to see a system, its
@@ -30,6 +36,13 @@ const SYNC_TOLERANCE: u32 = 2;
 /// The LICH is the 16 bits after the sync.
 const LICH_BITS: usize = 16;
 const LICH_SYMBOLS: usize = LICH_BITS / 2;
+/// The sync outlasts the LICH in the window: its ten symbols are what the level and centre
+/// estimates are anchored to.
+const FSW_SYMBOLS: usize = FSW_BITS as usize / 2;
+
+/// One frame, sync word to sync word: 384 bits at either channel width. The cadence every
+/// real transmission holds, and the confirmation a lone parity bit cannot give.
+const FRAME_SYMBOLS: u64 = 192;
 
 const RRC_ALPHA: f64 = 0.2;
 
@@ -134,16 +147,23 @@ struct Decoder {
     hunting: bool,
     bits: Vec<bool>,
     last_kind: Option<DvFrameKind>,
+    /// Symbols seen, the clock frame cadence is measured against.
+    clock: u64,
+    /// The last sync's frame and where its sync word ended, held until the next sync word
+    /// confirms the cadence.
+    held: Option<(u64, DvFrame)>,
 }
 
 impl Decoder {
     fn new() -> Self {
         Self {
-            window: SymbolWindow::new(LICH_SYMBOLS),
+            window: SymbolWindow::new(FSW_SYMBOLS),
             countdown: 0,
             hunting: true,
             bits: Vec::with_capacity(LICH_BITS),
             last_kind: None,
+            clock: 0,
+            held: None,
         }
     }
 
@@ -152,24 +172,54 @@ impl Decoder {
         self.countdown = 0;
         self.hunting = true;
         self.last_kind = None;
+        self.clock = 0;
+        self.held = None;
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
         self.window.push(symbol);
+        self.clock += 1;
         if self.countdown > 0 {
             self.countdown -= 1;
             if self.countdown == 0 {
                 self.hunting = true;
-                if let Some(frame) = self.lich() {
-                    out.events.push(DecoderEvent::Dv(frame));
+                let fsw_at = self.clock - LICH_SYMBOLS as u64;
+                match self.lich() {
+                    Some(frame) => {
+                        if let Some((at, held)) = self.held.take()
+                            && on_cadence(fsw_at - at)
+                        {
+                            self.emit(held, out);
+                        }
+                        self.held = Some((fsw_at, frame));
+                    }
+                    // A failed parity is not a frame; whatever was held has lost its cadence.
+                    None => self.held = None,
                 }
             }
             return;
         }
         if self.hunting && self.window.sync_distance(FSW, FSW_BITS) <= SYNC_TOLERANCE {
+            // No transmitter puts a sync word mid-frame: while a held frame's cadence is
+            // still running, a match there is noise that happened to look like one, and
+            // following it would throw away the frame the real sync is about to confirm.
+            if let Some((at, _)) = self.held
+                && self.clock < at + FRAME_SYMBOLS - 1
+            {
+                return;
+            }
+            self.window.anchor(FSW, FSW_BITS);
             self.hunting = false;
             self.countdown = LICH_SYMBOLS;
         }
+    }
+
+    fn emit(&mut self, frame: DvFrame, out: &mut ChannelOutputs) {
+        if frame.kind == DvFrameKind::Voice && self.last_kind == Some(DvFrameKind::Voice) {
+            return;
+        }
+        self.last_kind = Some(frame.kind);
+        out.events.push(DecoderEvent::Dv(frame));
     }
 
     fn lich(&mut self) -> Option<DvFrame> {
@@ -191,11 +241,6 @@ impl Decoder {
             _ if rf_channel == 0 => DvFrameKind::Control,
             _ => DvFrameKind::Voice,
         };
-        if kind == DvFrameKind::Voice && self.last_kind == Some(DvFrameKind::Voice) {
-            return None;
-        }
-        self.last_kind = Some(kind);
-
         let mut frame = DvFrame::new(DvMode::Nxdn, kind);
         frame.opcode = Some(format!(
             "{} {}",
@@ -204,6 +249,13 @@ impl Decoder {
         ));
         Some(frame)
     }
+}
+
+/// Whether two sync words sit a whole number of frames apart, give or take a symbol of clock
+/// slip. Multiples count so one corrupted LICH does not also cost its neighbour the chain.
+fn on_cadence(delta: u64) -> bool {
+    let rem = delta % FRAME_SYMBOLS;
+    delta > 0 && rem.min(FRAME_SYMBOLS - rem) <= 1
 }
 
 fn channel_name(rf_channel: u32) -> &'static str {

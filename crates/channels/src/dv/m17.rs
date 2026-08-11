@@ -218,6 +218,7 @@ impl Decoder {
         // only thing vouching for it is the call it ends: without one it is indistinguishable
         // from the sixteen bits of noise that match it several times a second.
         if self.in_stream && self.window.sync_distance(SYNC_EOT, SYNC_BITS) <= SYNC_TOLERANCE {
+            self.window.anchor(SYNC_EOT, SYNC_BITS);
             self.in_stream = false;
             out.events.push(DecoderEvent::Dv(DvFrame::new(
                 DvMode::M17,
@@ -231,6 +232,7 @@ impl Decoder {
             (SYNC_PACKET, FrameType::Packet),
         ] {
             if self.window.sync_distance(sync, SYNC_BITS) <= SYNC_TOLERANCE {
+                self.window.anchor(sync, SYNC_BITS);
                 self.pending = Some(kind);
                 self.countdown = PAYLOAD_SYMBOLS;
                 return;

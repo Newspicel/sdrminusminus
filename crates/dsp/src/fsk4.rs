@@ -50,8 +50,10 @@ const MATCHED_SPAN: usize = 8;
 
 /// Timing loop bandwidth in cycles per symbol. A transmitter's symbol clock is crystal-derived
 /// and drifts by parts per million, so the loop only has to acquire — quickly enough to be
-/// locked before a 30 ms burst's sync pattern arrives, and no faster.
-const TIMING_LOOP_BW: f64 = 0.01;
+/// locked before a 30 ms burst's sync pattern arrives, and no faster. The detector only takes
+/// an error from the quarter of symbol pairs that are equal-and-opposite transitions, so the
+/// bandwidth is set for that update rate, not for one error per symbol.
+const TIMING_LOOP_BW: f64 = 0.015;
 
 /// Smoothing of the channel power the carrier gate reads, in seconds. Half a symbol at the
 /// fastest mode here, and deliberately short: the gate has to fall below its threshold within
@@ -108,6 +110,150 @@ pub fn level(dibit: u8) -> f32 {
         0b00 => 1.0,
         0b10 => -1.0,
         _ => -3.0,
+    }
+}
+
+/// Sync detections [`SyncLevels`] averages over — MMDVM's figure (DMRDMORX.cpp keeps four).
+/// One sync's fit carries whatever its own burst put on it: the centre the data mean dragged,
+/// the transient of the keying edge. Four bursts' worth averages that away while still
+/// following a fading transmitter.
+const SYNC_ANCHORS: usize = 4;
+
+/// Symbols an anchored estimate survives without a fresh sync detection. The longest gap any
+/// of the modes leaves between syncs is DMR's 360 ms voice superframe — 1728 symbols — so a
+/// channel this long without one is between transmissions, and the next transmitter must meet
+/// the front end's own estimates rather than the last transmitter's correction.
+const ANCHOR_TIMEOUT_SYMBOLS: u32 = 4_800;
+
+/// Fitted gains a sync detection is believed at. The symbols arrive already normalised by
+/// [`Fsk4Demod`], so a real transmitter's residual sits near one; a fit outside two-to-one
+/// either way is a sync pattern that noise matched by chance, and folding it in would mis-slice
+/// the very bursts the anchor exists to protect.
+const ANCHOR_GAIN: std::ops::RangeInclusive<f32> = 0.5..=2.0;
+
+/// Largest fitted centre a sync detection is believed at, in ±1/±3 symbol units. A centre a
+/// whole level out would have sliced half the sync's own symbols wrong — the match that led
+/// here could only have been chance.
+const ANCHOR_CENTRE: f32 = 1.0;
+
+/// Largest RMS misfit a sync detection is believed at, in the same units. A sync is matched by
+/// Hamming distance under a tolerance, which noise clears now and then — but noise that matched
+/// the pattern's dibits still does not *fit* its levels, missing them by the better part of a
+/// level scale, while any signal clean enough to have matched at all fits within a fraction of
+/// one. This is what keeps a chance match from mis-slicing the bursts that follow.
+const ANCHOR_MISFIT: f32 = 1.0;
+
+/// Data-aided centre and level estimation, anchored to sync detections.
+///
+/// The centre and peak loops in [`Fsk4Demod`] learn from whatever the channel carries, and most
+/// of what a burst carries is data: a payload whose symbol mean is not zero drags the centre,
+/// and a keying-edge transient scales the peak. A sync pattern is the one stretch of a burst
+/// whose transmitted levels are known exactly, so it says what the four levels are with no data
+/// dependence at all — which is what a TDMA receiver should measure them from (MMDVM does, in
+/// DMRDMORX.cpp/DMRSlotRX.cpp). Each detection fits `measured = gain·transmitted + centre` by
+/// least squares; the correction applied is the average over the last [`SYNC_ANCHORS`] fits.
+///
+/// Until a sync has anchored — and again once the last one has expired — the correction is the
+/// identity, so acquisition still runs on the front end's own estimates.
+pub struct SyncLevels {
+    anchors: [(f32, f32); SYNC_ANCHORS],
+    count: usize,
+    next: usize,
+    centre: f32,
+    gain: f32,
+    since_anchor: u32,
+}
+
+impl Default for SyncLevels {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SyncLevels {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            anchors: [(0.0, 1.0); SYNC_ANCHORS],
+            count: 0,
+            next: 0,
+            centre: 0.0,
+            gain: 1.0,
+            since_anchor: 0,
+        }
+    }
+
+    /// Account one recovered symbol against the anchor's lifetime; call once per symbol.
+    pub fn tick(&mut self) {
+        if self.count == 0 {
+            return;
+        }
+        self.since_anchor += 1;
+        if self.since_anchor >= ANCHOR_TIMEOUT_SYMBOLS {
+            self.reset();
+        }
+    }
+
+    /// One sync detection: `pattern` is the matched sync as dibits, two bits per symbol with
+    /// the most recent symbol in the low bits, and `measured[i]` is the soft symbol `i` symbol
+    /// periods back. An implausible fit is discarded rather than folded in — the tolerance a
+    /// sync is matched at lets noise through now and then, and one chance match must not
+    /// mis-slice the bursts that follow.
+    pub fn anchor(&mut self, pattern: u64, measured: &[f32]) {
+        let n = measured.len() as f32;
+        let (mut sx, mut sy, mut sxx, mut sxy) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+        for (i, &y) in measured.iter().enumerate() {
+            let x = level((pattern >> (2 * i)) as u8);
+            sx += x;
+            sy += y;
+            sxx += x * x;
+            sxy += x * y;
+        }
+        let det = n * sxx - sx * sx;
+        // A pattern of one repeated level fits any gain; no real sync is one.
+        if det < 1e-3 {
+            return;
+        }
+        let gain = (n * sxy - sx * sy) / det;
+        let centre = (sy - gain * sx) / n;
+        if !ANCHOR_GAIN.contains(&gain) || centre.abs() > ANCHOR_CENTRE {
+            return;
+        }
+        let misfit = measured
+            .iter()
+            .enumerate()
+            .map(|(i, &y)| {
+                let fit = gain * level((pattern >> (2 * i)) as u8) + centre;
+                (y - fit) * (y - fit)
+            })
+            .sum::<f32>()
+            / n;
+        if misfit > ANCHOR_MISFIT * ANCHOR_MISFIT {
+            return;
+        }
+        self.anchors[self.next] = (centre, gain);
+        self.next = (self.next + 1) % SYNC_ANCHORS;
+        self.count = (self.count + 1).min(SYNC_ANCHORS);
+        self.since_anchor = 0;
+        let averaged = &self.anchors[..self.count];
+        let n = averaged.len() as f32;
+        self.centre = averaged.iter().map(|&(c, _)| c).sum::<f32>() / n;
+        self.gain = averaged.iter().map(|&(_, g)| g).sum::<f32>() / n;
+    }
+
+    /// The symbol re-scaled by what the last syncs taught; the identity until one has.
+    #[must_use]
+    pub fn correct(&self, symbol: f32) -> f32 {
+        (symbol - self.centre) / self.gain
+    }
+
+    /// Forget the anchors — the channel moved, and they describe the transmitter it left.
+    pub fn reset(&mut self) {
+        self.count = 0;
+        self.next = 0;
+        self.centre = 0.0;
+        self.gain = 1.0;
+        self.since_anchor = 0;
     }
 }
 
@@ -458,7 +604,11 @@ mod tests {
             let mut symbols = Vec::new();
             demod.process(&iq, &mut symbols);
             let got: Vec<u8> = symbols.iter().copied().map(slice).collect();
-            let (errors, total) = symbol_errors(&got, &sent, 40);
+            // The lead-in is the clock's pull-in from a cold, arbitrary phase: the detector
+            // takes an error from about a quarter of the symbol pairs, so lock costs some
+            // eighty symbols — still well inside the 132-symbol burst a TDMA mode offers
+            // before its sync must slice correctly.
+            let (errors, total) = symbol_errors(&got, &sent, 80);
             assert!(total > 300, "only {total} symbols at {deviation} Hz");
             assert_eq!(errors, 0, "symbol errors at {deviation} Hz deviation");
         }
@@ -468,7 +618,7 @@ mod tests {
     /// a mistuned dial or a drifting transmitter puts on the discriminator.
     #[test]
     fn tracks_a_carrier_offset() {
-        let sent = dibits(600, 5);
+        let sent = dibits(900, 5);
         let mut iq = modulate(&sent, 48_000.0, 4_800.0, 1_944.0);
         // 400 Hz off — a fifth of the outer deviation, which un-centred would slice the
         // +1 level as +3 whenever it drifted high.
@@ -562,6 +712,84 @@ mod tests {
             "symbol errors at {bad:?} in the last of {} bursts",
             sent.len() / 288
         );
+    }
+
+    /// A DMR voice sync as its 24 dibits, most recent symbol in the low bits — the shape a
+    /// mode's sync register holds when the pattern matches.
+    const SYNC_PATTERN: u64 = 0x755F_D7DF_75F7;
+
+    /// What a receiver measured `i` symbols back if the transmitter sent `SYNC_PATTERN` through
+    /// a channel with the given gain and centre error.
+    fn measured_sync(gain: f32, centre: f32) -> Vec<f32> {
+        (0..24)
+            .map(|i| gain * level((SYNC_PATTERN >> (2 * i)) as u8) + centre)
+            .collect()
+    }
+
+    #[test]
+    fn a_sync_anchor_recovers_the_transmitters_centre_and_gain() {
+        let mut levels = SyncLevels::new();
+        levels.anchor(SYNC_PATTERN, &measured_sync(1.2, 0.4));
+        for sent in [-3.0f32, -1.0, 1.0, 3.0] {
+            let corrected = levels.correct(1.2 * sent + 0.4);
+            assert!(
+                (corrected - sent).abs() < 1e-4,
+                "{sent} corrected to {corrected}"
+            );
+        }
+    }
+
+    /// The tolerance a sync is matched at lets noise through now and then; a fit no real
+    /// transmitter under a matched sync can produce must not be believed.
+    #[test]
+    fn an_implausible_fit_is_discarded() {
+        let mut levels = SyncLevels::new();
+        levels.anchor(SYNC_PATTERN, &[3.0; 24]);
+        assert_eq!(levels.correct(1.0), 1.0, "a flat fit was folded in");
+        levels.anchor(SYNC_PATTERN, &measured_sync(3.0, 0.0));
+        assert_eq!(levels.correct(1.0), 1.0, "a triple gain was believed");
+    }
+
+    /// Noise that cleared the Hamming-distance tolerance still does not *fit* the pattern's
+    /// levels; the misfit gate is what keeps such a match from mis-slicing what follows.
+    #[test]
+    fn a_chance_match_that_does_not_fit_the_levels_is_discarded() {
+        let mut levels = SyncLevels::new();
+        let scattered: Vec<f32> = measured_sync(1.0, 0.0)
+            .iter()
+            .enumerate()
+            .map(|(i, &y)| y + if i % 2 == 0 { 2.2 } else { -2.2 })
+            .collect();
+        levels.anchor(SYNC_PATTERN, &scattered);
+        assert_eq!(levels.correct(1.0), 1.0, "a scattered fit was believed");
+    }
+
+    /// Four sync detections is the whole memory: a transmitter that moved is fully forgotten
+    /// four bursts later, and each correction is the average of what is in the ring.
+    #[test]
+    fn the_estimate_averages_the_last_four_syncs() {
+        let mut levels = SyncLevels::new();
+        for _ in 0..SYNC_ANCHORS {
+            levels.anchor(SYNC_PATTERN, &measured_sync(1.0, 0.5));
+        }
+        for _ in 0..SYNC_ANCHORS {
+            levels.anchor(SYNC_PATTERN, &measured_sync(1.0, -0.2));
+        }
+        let corrected = levels.correct(-0.2);
+        assert!(corrected.abs() < 1e-4, "stale centre survived: {corrected}");
+    }
+
+    /// A second of channel without a sync is a transmission that ended; the next transmitter
+    /// must not be sliced by the last one's levels.
+    #[test]
+    fn an_anchor_expires_between_transmissions() {
+        let mut levels = SyncLevels::new();
+        levels.anchor(SYNC_PATTERN, &measured_sync(1.5, 0.8));
+        assert!((levels.correct(0.8)).abs() < 1e-4);
+        for _ in 0..ANCHOR_TIMEOUT_SYMBOLS {
+            levels.tick();
+        }
+        assert_eq!(levels.correct(0.8), 0.8, "the correction outlived its sync");
     }
 
     #[test]
