@@ -32,6 +32,7 @@ pub mod pocsag;
 pub mod rds;
 pub mod rtty;
 pub mod subghz;
+pub mod wfm;
 
 use std::f64::consts::TAU;
 

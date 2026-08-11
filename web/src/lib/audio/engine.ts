@@ -4,12 +4,13 @@
 import type { AudioFrame } from "../frame";
 import type { ClientCommand, ServerEvent } from "../types";
 import { LossTracker } from "./loss";
-import { MAX_SAMPLES, SAMPLE_RATE } from "./worklet";
+import { MAX_FRAMES, SAMPLE_RATE } from "./worklet";
 
 export interface AudioSink {
-  push(opus: Uint8Array, timestampUs: number): void;
-  /** Insert `samples` of silence for a detected loss gap so depth and timing stay honest. */
-  conceal(samples: number): void;
+  /** `channels` is the packet's own layout (1 = mono, 2 = stereo); it may change mid-stream. */
+  push(opus: Uint8Array, timestampUs: number, channels: number): void;
+  /** Insert `frames` of silence for a detected loss gap so depth and timing stay honest. */
+  conceal(frames: number): void;
   setVolume(volume: number): void;
   /** Discard buffered/decoder state; called when a fresh stream id binds to this channel. */
   reset(): void;
@@ -47,7 +48,7 @@ interface ChannelEntry {
   loss: LossTracker;
 }
 
-const US_PER_SAMPLE = 1_000_000 / SAMPLE_RATE;
+const US_PER_FRAME = 1_000_000 / SAMPLE_RATE;
 
 function entryKey(deviceSet: number, channel: number): string {
   return `${deviceSet}:${channel}`;
@@ -282,9 +283,9 @@ export class AudioEngine {
     if (action.kind === "reset") {
       sink.reset();
     } else if (action.kind === "gap") {
-      sink.conceal(action.samples);
+      sink.conceal(action.frames);
     }
-    sink.push(frame.opus, Math.round(Number(frame.timestamp) * US_PER_SAMPLE));
+    sink.push(frame.opus, Math.round(Number(frame.timestamp) * US_PER_FRAME), frame.chLayout);
   };
 
   private ensureEntry(deviceSet: number, channel: number): ChannelEntry {
@@ -302,7 +303,7 @@ export class AudioEngine {
         generation: 0,
         volume: 1,
         lastError: null,
-        loss: new LossTracker(MAX_SAMPLES),
+        loss: new LossTracker(MAX_FRAMES),
       };
       this.entries.set(key, entry);
     }

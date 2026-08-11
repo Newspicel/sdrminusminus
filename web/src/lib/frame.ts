@@ -57,9 +57,9 @@ export function decodeSpectrum(buffer: ArrayBuffer): SpectrumFrame | null {
 export interface AudioFrame {
   streamId: number;
   seq: number;
-  /** 48 kHz-domain sample count since the channel's audio started (PLAN §5). */
+  /** 48 kHz-domain sample-frame count since the channel's audio started (PLAN §5). */
   timestamp: bigint;
-  /** 1 = mono. */
+  /** Layout of this packet: 1 = mono, 2 = stereo. A channel may switch between them. */
   chLayout: number;
   /** One Opus packet: byte `HEADER_LEN + 1` to the end of the WS frame. */
   opus: Uint8Array;

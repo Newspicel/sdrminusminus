@@ -9,7 +9,7 @@ use utoipa::ToSchema;
 pub struct ChannelDescriptor {
     /// Stable type id, e.g. `"nfm"`, `"am"`, `"ssb"`, `"wfm"`.
     pub type_id: String,
-    /// Display name, e.g. `"NFM"`, `"WFM (mono)"`.
+    /// Display name, e.g. `"NFM"`, `"WFM (broadcast)"`.
     pub name: String,
     /// Nominal RF bandwidth the channel needs, in Hz.
     pub bandwidth_hz: f64,
@@ -105,6 +105,10 @@ fn default_agc() -> bool {
 
 fn default_deemphasis_us() -> f32 {
     50.0
+}
+
+fn default_stereo() -> bool {
+    true
 }
 
 /// What an NFM channel does about the subaudible signalling under the voice (PLAN §8).
@@ -214,6 +218,10 @@ pub struct WfmParams {
     /// it costs a second demod chain on the same channel.
     #[serde(default)]
     pub rds: bool,
+    /// Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.
+    /// A station without a 19 kHz pilot still plays: L and R carry the same mono programme.
+    #[serde(default = "default_stereo")]
+    pub stereo: bool,
 }
 
 impl Default for WfmParams {
@@ -221,6 +229,7 @@ impl Default for WfmParams {
         Self {
             deemphasis_us: default_deemphasis_us(),
             rds: false,
+            stereo: default_stereo(),
         }
     }
 }

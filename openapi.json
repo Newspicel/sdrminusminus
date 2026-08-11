@@ -2329,7 +2329,7 @@
           },
           "name": {
             "type": "string",
-            "description": "Display name, e.g. `\"NFM\"`, `\"WFM (mono)\"`."
+            "description": "Display name, e.g. `\"NFM\"`, `\"WFM (broadcast)\"`."
           },
           "native_rate_max_hz": {
             "type": [
@@ -6123,6 +6123,10 @@
           "rds": {
             "type": "boolean",
             "description": "Decode the 57 kHz RDS subcarrier alongside the audio (PLAN §13 P2). Off by default:\nit costs a second demod chain on the same channel."
+          },
+          "stereo": {
+            "type": "boolean",
+            "description": "Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.\nA station without a 19 kHz pilot still plays: L and R carry the same mono programme."
           }
         }
       },

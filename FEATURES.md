@@ -144,11 +144,11 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 
 ## 8. Voice & analog channels
 
-- **[shipped]** AM, NFM, SSB (USB/LSB), WFM mono — DDC → mode-aware complex channel filter → squelch → demod → 48 kHz PCM
+- **[shipped]** AM, NFM, SSB (USB/LSB), WFM — DDC → mode-aware complex channel filter → squelch → demod → 48 kHz PCM
 - **[shipped]** Squelch (power + hysteresis + hold, measured on the filtered channel so a threshold means the same thing across modes), AGC, de-emphasis, DC blocking
 - **[shipped]** Mode changed in place on a live channel, keeping audio subscribers
 - **[shipped]** RDS — 19 kHz pilot PLL → 3rd harmonic → symbol sync → differential decode → offset-word block sync; groups 0A/0B (PS, TP/TA/MS, AF), 2A/2B (RadioText), PTY; emitted only when a field changes. **It decodes the synthesized fixture completely and has never decoded off air** — six real stations on two radios produced nothing, reproduced deterministically from a committed-out 8 s capture; the leading (untested) hypothesis is the stereo L−R subcarrier sitting against 57 kHz
-- **[planned]** WFM **stereo** — the audio path becomes two-channel end to end (PCM, Opus, frame layout, worklet)
+- **[shipped]** WFM **stereo** — 19 kHz pilot PLL → 38 kHz difference demod → L/R matrix, with the whole audio path two-channel end to end (interleaved PCM, stereo Opus, per-frame `ch_layout`, two-channel worklet); a station without a pilot falls back to the same programme on both channels, and the toggle switches layout under a live stream
 - **[shipped]** **ATV (analog TV)** — envelope (AM, negative-modulated) or discriminator (FM) → sync-tip/peak-white level tracking → pulse-width sync separation → per-line resampling into 8-bit luma. 625/25, 525/30 and 405/25 from their own timing tables; a flywheel that coasts through a sync the noise ate; interlace recovered from the half-line offset of the field's vertical sync; black clamped per line off its own back porch. Nothing reaches the picture until the line clock locks, so a dead channel shows nothing rather than a raster the decoder invented. **Specification-proven only** — it scans the synthesized raster from the reference modulator and has never seen a real transmission
 - **[shipped]** Video as a first-class stream — a `VIDEO_GRAY` binary WS frame kind, `SubscribeVideo` with per-connection ids drawn from the same media range audio uses, a refcounted client hub, and a canvas panel on the channel's own face. This is the transport WEFAX and SSTV were blocked on
 - **[planned]** ATV colour and the sound subcarrier — luma only today; chroma is left where it is in the video band
@@ -235,7 +235,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 
 ## 17. Audio processing
 
-- **[shipped]** Opus audio to the browser and desktop — per-channel encoder threads, WebCodecs fast path with a WASM fallback, AudioWorklet jitter buffer (100 ms target, underrun rebuffer, 400 ms drop-oldest), per-channel gain, gesture-unlocked context, auto-resubscribe on reconnect, timestamp-gap loss detection
+- **[shipped]** Opus audio to the browser and desktop — per-channel encoder threads that follow the channel's layout (mono 64 kbit/s, stereo 96 kbit/s) mid-stream, WebCodecs fast path with a WASM fallback, AudioWorklet jitter buffer (100 ms target, underrun rebuffer, 400 ms drop-oldest), per-channel gain, gesture-unlocked context, auto-resubscribe on reconnect, timestamp-gap loss detection
 - **[shipped]** Speaker node — client-side mixing across every channel wired into it
 - **[planned]** Spectral noise reduction, noise blanker, auto-notch, AGC as advanced processing inside **every** voice channel rather than a separate channel type
 - **[planned]** Adaptive/auto DSP — auto-notch, auto-squelch, auto-gain, per-mode click and noise removal

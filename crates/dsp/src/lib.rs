@@ -38,7 +38,7 @@ pub use fec::{
 pub use fir::{design_bandpass, design_gaussian, design_lowpass};
 pub use firc::FirC;
 pub use fm::FmDemod;
-pub use iir::{DcBlocker, Deemphasis, Highpass, one_pole_coeff};
+pub use iir::{ComplexOnePole, DcBlocker, Deemphasis, Highpass, one_pole_coeff};
 pub use nco::Nco;
 pub use pll::{Costas, LoopFilter, Pll};
 pub use resamp::FracResampler;

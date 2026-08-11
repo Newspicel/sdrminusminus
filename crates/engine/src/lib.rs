@@ -297,11 +297,13 @@ struct ChannelMedia {
 }
 
 impl ChannelMedia {
-    fn new() -> Result<Self, EngineError> {
+    /// `channels` is the layout the channel starts in; the encoder follows the PCM from there,
+    /// so a later stereo toggle needs no new identity.
+    fn new(channels: u8) -> Result<Self, EngineError> {
         let (pcm_tx, pcm_rx) = broadcast::channel(audio::PCM_CHANNEL_CAP);
         let (audio_tx, _) = broadcast::channel(audio::AUDIO_CHANNEL_CAP);
         let (video_tx, _) = broadcast::channel(video::VIDEO_CHANNEL_CAP);
-        let encoder = audio::spawn_encoder(pcm_rx, audio_tx.clone())?;
+        let encoder = audio::spawn_encoder(channels, pcm_rx, audio_tx.clone())?;
         Ok(Self {
             sinks: ChannelSinks {
                 pcm_tx,
@@ -1503,7 +1505,7 @@ impl Engine {
             state.next_channel_id += 1;
             (sample_rate_of(&state.settings), id)
         };
-        let created = ChannelMedia::new()?;
+        let created = ChannelMedia::new(sdrmm_channels::audio_channels(&settings.params))?;
         let sinks = created.sinks.clone();
         let mut media = Some(created);
 

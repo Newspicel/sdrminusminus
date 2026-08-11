@@ -7,12 +7,21 @@ import { JitterBuffer } from "./jitter";
 export const PROCESSOR_NAME = "sdr-audio-playback";
 
 export const SAMPLE_RATE = 48_000;
-/** ~100 ms pre-buffer (PLAN §9: 60–100 ms jitter buffer). */
-export const TARGET_SAMPLES = 4_800;
-/** ~400 ms cap; a burst past it (tab sleep) sheds back to `TARGET_SAMPLES`, not to the cap. */
-export const MAX_SAMPLES = 19_200;
+/**
+ * The graph is always two-channel: a channel can switch between mono and stereo mid-stream
+ * (WFM's stereo toggle), and rebuilding the node — and its buffered audio — for that would
+ * cost a gap. Mono streams are duplicated into both channels on the way in instead.
+ */
+export const CHANNELS = 2;
+/** ~100 ms pre-buffer (PLAN §9: 60–100 ms jitter buffer), in sample frames. */
+export const TARGET_FRAMES = 4_800;
+/** ~400 ms cap; a burst past it (tab sleep) sheds back to `TARGET_FRAMES`, not to the cap. */
+export const MAX_FRAMES = 19_200;
 
-/** Port protocol: Float32Array = PCM, "reset" = clear buffer, "close" = end the processor. */
+/**
+ * Port protocol: Float32Array = interleaved PCM at `CHANNELS`, "reset" = clear buffer,
+ * "close" = end the processor.
+ */
 export type WorkletMessage = Float32Array | "reset" | "close";
 
 const processorSource = `
@@ -21,8 +30,8 @@ const JitterBuffer = ${JitterBuffer.toString()};
 class PlaybackProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    const { targetSamples, maxSamples } = options.processorOptions;
-    this.jitter = new JitterBuffer(targetSamples, maxSamples);
+    const { targetFrames, maxFrames, channels } = options.processorOptions;
+    this.jitter = new JitterBuffer(targetFrames, maxFrames, channels);
     this.ended = false;
     this.port.onmessage = (event) => {
       const data = event.data;
@@ -36,9 +45,9 @@ class PlaybackProcessor extends AudioWorkletProcessor {
     };
   }
   process(inputs, outputs) {
-    const channel = outputs[0][0];
-    if (channel) {
-      this.jitter.read(channel);
+    const channels = outputs[0];
+    if (channels && channels.length > 0) {
+      this.jitter.read(channels);
     }
     return !this.ended;
   }
