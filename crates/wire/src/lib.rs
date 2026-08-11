@@ -6,6 +6,7 @@
 //! offense (CLAUDE.md non-negotiable #1). This crate has no internal dependencies so anything
 //! may use it.
 
+pub mod bandplan;
 pub mod channel;
 pub mod decode;
 pub mod device;
@@ -19,16 +20,21 @@ pub mod workspace;
 pub mod workspace_state;
 pub mod ws;
 
+pub use bandplan::{
+    BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandRegion,
+    BandRegionMatch, BandRegionsResponse, BandService, ItuRegion, LocateQuery,
+};
 pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvModulation,
     AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings,
-    MorseParams, NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams, RttyParams,
-    RttyStopBits, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams,
+    DmrParams, DmrSlots, DpmrParams, DstarParams, M17Params, MorseParams, NavtexParams, NfmParams,
+    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, RttyParams,
+    RttyStopBits, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, YsfParams,
 };
 pub use decode::{
-    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, MorseText,
-    NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame,
-    ToneSquelchStatus,
+    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, DvFrame,
+    DvFrameKind, DvMode, MorseText, NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate,
+    RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus,
 };
 pub use device::{
     Capabilities, DeviceInfo, DeviceSettings, Direction, Duplex, ExtraSetting, ExtraValue,

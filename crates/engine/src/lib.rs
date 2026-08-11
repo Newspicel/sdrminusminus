@@ -54,6 +54,12 @@ const SOAPY_PRIORITY: u8 = 20;
 /// C library to be installed.
 #[cfg(any(feature = "rtl-native", feature = "hackrf-native"))]
 const NATIVE_PRIORITY: u8 = 30;
+/// The network clients sit beside the native backends, and the merge never reaches them: a remote
+/// receiver reports no serial, because what identifies it is the endpoint it answers on and not
+/// the hardware at the far end. Collapsing it into a local radio of the same serial would bind a
+/// device node to a different antenna in a different room.
+#[cfg(feature = "net-client")]
+const NET_PRIORITY: u8 = 30;
 const EVENT_CHANNEL_CAP: usize = 256;
 /// Decoder frames buffered between the DSP plane and the stamping pump. Deep enough to
 /// absorb an ADS-B burst; overflow is counted and reported, never silently swallowed.
@@ -92,6 +98,17 @@ pub fn builtin_registry(recordings_dir: Option<PathBuf>) -> DeviceRegistry {
         NATIVE_PRIORITY,
         Box::new(sdrmm_device_hackrf::HackRfDriver::new()),
     );
+    #[cfg(feature = "net-client")]
+    {
+        registry.register(
+            NET_PRIORITY,
+            Box::new(sdrmm_device_net::RtlTcpDriver::new()),
+        );
+        registry.register(
+            NET_PRIORITY,
+            Box::new(sdrmm_device_net::SpyServerDriver::new()),
+        );
+    }
     registry
 }
 
@@ -1064,6 +1081,18 @@ impl Engine {
     /// hub forwards engine events only, so server-side stores invalidate through here.
     pub fn emit_scope(&self, scope: StateScope) {
         self.emit(ServerEvent::StateChanged { scope });
+    }
+
+    /// Hand a `driver:key` to whichever backend can address it without opening anything, so a
+    /// later probe reports it.
+    ///
+    /// Only a network receiver answers: it is named rather than discovered, and nothing else would
+    /// put a stored endpoint back into the probe list after a restart — which is what a device node
+    /// bound to one waits for. Every backend that enumerates real hardware returns `None`, where a
+    /// key no probe found means the device is not attached.
+    #[must_use]
+    pub fn adopt_device(&self, device_id: &str) -> Option<DeviceInfo> {
+        self.registry.resolve(device_id)
     }
 
     /// Discovered devices across all drivers (PLAN §5 `GET /api/devices`).

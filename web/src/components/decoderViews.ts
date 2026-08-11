@@ -7,6 +7,7 @@ import type {
   AisMessage,
   DecodedRecord,
   DecodedRecordOf,
+  DvFrame,
   RdsUpdate,
 } from "../lib/types";
 import { formatHz } from "./format";
@@ -424,4 +425,78 @@ export function subghzTiming(frame: { short_us: number; repeats: number }): stri
     frame.short_us > 0 ? `${frame.short_us} µs` : "",
     frame.repeats > 1 ? `×${frame.repeats}` : "",
   );
+}
+
+// ── digital voice ─────────────────────────────────────────────────────────────────────────
+
+/** Mode names as operators write them, which is not how the wire spells them. */
+const DV_MODE_LABELS: Record<DvFrame["mode"], string> = {
+  dmr: "DMR",
+  dstar: "D-STAR",
+  ysf: "YSF",
+  nxdn: "NXDN",
+  p25: "P25",
+  dpmr: "dPMR",
+  m17: "M17",
+};
+
+export function dvMode(frame: Pick<DvFrame, "mode">): string {
+  return DV_MODE_LABELS[frame.mode];
+}
+
+/** The network the frame was heard on, under whichever name its mode publishes: a DMR colour
+ * code, an NXDN or dPMR RAN, a P25 network access code (which everyone quotes in hex). */
+export function dvNetwork(frame: Pick<DvFrame, "mode" | "color_code" | "slot">): string {
+  const parts: string[] = [];
+  if (frame.slot != null) {
+    parts.push(`TS${frame.slot}`);
+  }
+  if (frame.color_code != null) {
+    if (frame.mode === "p25") {
+      parts.push(`NAC ${frame.color_code.toString(16).toUpperCase().padStart(3, "0")}`);
+    } else if (frame.mode === "nxdn" || frame.mode === "dpmr") {
+      parts.push(`RAN ${frame.color_code}`);
+    } else {
+      parts.push(`CC ${frame.color_code}`);
+    }
+  }
+  return parts.join(" ");
+}
+
+/** Who is talking to whom, by whichever name the mode addresses them. `TG` marks a talkgroup,
+ * because a bare number next to a radio ID would read as another radio. */
+export function dvParties(
+  frame: Pick<
+    DvFrame,
+    "source" | "destination" | "source_call" | "destination_call" | "group_call"
+  >,
+): string {
+  const to =
+    frame.destination_call ??
+    (frame.destination == null
+      ? null
+      : frame.group_call === false
+        ? String(frame.destination)
+        : `TG ${frame.destination}`);
+  const from = frame.source_call ?? (frame.source == null ? null : String(frame.source));
+  if (to != null && from != null) {
+    return `${to} ← ${from}`;
+  }
+  return to ?? from ?? "";
+}
+
+/** What the frame was: the words a scanner shows rather than the specification's field names. */
+export function dvKind(frame: Pick<DvFrame, "kind">): string {
+  switch (frame.kind) {
+    case "header":
+      return "call";
+    case "voice":
+      return "in progress";
+    case "terminator":
+      return "end";
+    case "control":
+      return "signalling";
+    case "data":
+      return "data";
+  }
 }

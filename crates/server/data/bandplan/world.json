@@ -1,0 +1,2329 @@
+{
+  "authority": "ITU",
+  "entries": [
+    {
+      "aliases": [
+        "vlf",
+        "very low frequency"
+      ],
+      "name": "VLF/LF fixed and maritime mobile",
+      "notes": "The standard-time transmitters live here: WWVB and MSF on 60 kHz, DCF77 on 77.5 kHz. Most receivers need direct sampling or an upconverter to reach it.",
+      "service": "other",
+      "start_hz": 9000.0,
+      "stop_hz": 135700.0
+    },
+    {
+      "aliases": [
+        "2200 m",
+        "136 khz",
+        "amateur lf"
+      ],
+      "name": "2200 m amateur",
+      "notes": "1 W EIRP in most administrations: CW, WSPR and other very slow modes.",
+      "service": "amateur",
+      "start_hz": 135700.0,
+      "stop_hz": 137800.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "longwave",
+        "lf"
+      ],
+      "name": "LF radionavigation and fixed",
+      "service": "navigation",
+      "start_hz": 137800.0,
+      "stop_hz": 283500.0
+    },
+    {
+      "aliases": [
+        "dgps",
+        "radio beacon"
+      ],
+      "name": "Maritime radio beacons and DGPS",
+      "notes": "Differential GPS corrections, MSK at 100–200 bit/s.",
+      "service": "navigation",
+      "start_hz": 283500.0,
+      "stop_hz": 315000.0
+    },
+    {
+      "aliases": [
+        "ndb",
+        "non-directional beacon"
+      ],
+      "name": "Aeronautical non-directional beacons",
+      "notes": "A keyed carrier repeating a two- or three-letter Morse ident.",
+      "service": "navigation",
+      "start_hz": 315000.0,
+      "stop_hz": 415000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "maritime mf"
+      ],
+      "name": "Maritime mobile (MF)",
+      "service": "maritime",
+      "start_hz": 415000.0,
+      "stop_hz": 472000.0
+    },
+    {
+      "aliases": [
+        "630 m",
+        "475 khz"
+      ],
+      "name": "630 m amateur",
+      "notes": "5 W EIRP in most administrations: CW, WSPR and FT8.",
+      "service": "amateur",
+      "start_hz": 472000.0,
+      "stop_hz": 479000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 400.0
+        },
+        "type": "morse"
+      }
+    },
+    {
+      "aliases": [
+        "maritime mf"
+      ],
+      "name": "Maritime mobile (MF)",
+      "service": "maritime",
+      "start_hz": 479000.0,
+      "stop_hz": 489000.0
+    },
+    {
+      "aliases": [
+        "navtex",
+        "national navtex"
+      ],
+      "name": "NAVTEX — 490 kHz",
+      "notes": "National-language navigational warnings. SITOR-B, 100 baud FSK with a 170 Hz shift.",
+      "service": "maritime",
+      "start_hz": 489000.0,
+      "stop_hz": 491000.0,
+      "suggested": {
+        "settings": {
+          "invert": false
+        },
+        "type": "navtex"
+      }
+    },
+    {
+      "aliases": [
+        "maritime mf"
+      ],
+      "name": "Maritime mobile (MF)",
+      "notes": "500 kHz was the international distress and calling frequency until 1999.",
+      "service": "maritime",
+      "start_hz": 491000.0,
+      "stop_hz": 517000.0
+    },
+    {
+      "aliases": [
+        "navtex",
+        "international navtex"
+      ],
+      "name": "NAVTEX — 518 kHz",
+      "notes": "The international NAVTEX service, always in English. SITOR-B, 100 baud FSK.",
+      "service": "maritime",
+      "start_hz": 517000.0,
+      "stop_hz": 519000.0,
+      "suggested": {
+        "settings": {
+          "invert": false
+        },
+        "type": "navtex"
+      }
+    },
+    {
+      "aliases": [
+        "maritime mf"
+      ],
+      "name": "Maritime mobile (MF)",
+      "service": "maritime",
+      "start_hz": 519000.0,
+      "stop_hz": 526500.0
+    },
+    {
+      "aliases": [
+        "mw",
+        "medium wave",
+        "am broadcast",
+        "am radio"
+      ],
+      "channel_step_hz": 9000.0,
+      "name": "Medium-wave broadcast",
+      "notes": "9 kHz raster in Regions 1 and 3. Groundwave by day, skywave after dark.",
+      "service": "broadcast",
+      "start_hz": 526500.0,
+      "stop_hz": 1606500.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "maritime mf"
+      ],
+      "name": "Maritime mobile (1.6 MHz)",
+      "service": "maritime",
+      "start_hz": 1606500.0,
+      "stop_hz": 1800000.0
+    },
+    {
+      "aliases": [
+        "160 m",
+        "top band",
+        "1.8 mhz"
+      ],
+      "name": "160 m amateur",
+      "notes": "Lower sideband by convention. A night band: daytime absorption kills it.",
+      "service": "amateur",
+      "start_hz": 1800000.0,
+      "stop_hz": 2000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "maritime mf"
+      ],
+      "name": "Maritime mobile (2 MHz)",
+      "notes": "2182 kHz is the MF distress and calling frequency.",
+      "service": "maritime",
+      "start_hz": 2000000.0,
+      "stop_hz": 2300000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "120 m",
+        "tropical band"
+      ],
+      "name": "120 m tropical broadcast",
+      "service": "broadcast",
+      "start_hz": 2300000.0,
+      "stop_hz": 2495000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "time signal",
+        "wwv",
+        "standard frequency"
+      ],
+      "name": "Standard frequency and time — 2.5 MHz",
+      "service": "science",
+      "start_hz": 2495000.0,
+      "stop_hz": 2505000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed and mobile",
+      "service": "other",
+      "start_hz": 2505000.0,
+      "stop_hz": 2850000.0
+    },
+    {
+      "aliases": [
+        "hf air",
+        "oceanic",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (route)",
+      "notes": "Upper sideband. Long-haul oceanic and polar air traffic control.",
+      "service": "aeronautical",
+      "start_hz": 2850000.0,
+      "stop_hz": 3155000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed and mobile",
+      "service": "other",
+      "start_hz": 3155000.0,
+      "stop_hz": 3200000.0
+    },
+    {
+      "aliases": [
+        "90 m",
+        "tropical band"
+      ],
+      "name": "90 m tropical broadcast",
+      "service": "broadcast",
+      "start_hz": 3200000.0,
+      "stop_hz": 3400000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf air",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (route)",
+      "service": "aeronautical",
+      "start_hz": 3400000.0,
+      "stop_hz": 3500000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "80 m",
+        "hf utility"
+      ],
+      "name": "HF fixed, mobile and amateur (80 m)",
+      "notes": "How much of this is amateur depends on the ITU region: 3.5–3.8 MHz in Region 1, 3.5–4.0 in Region 2, 3.5–3.9 in Region 3.",
+      "service": "other",
+      "start_hz": 3500000.0,
+      "stop_hz": 3900000.0
+    },
+    {
+      "aliases": [
+        "75 m"
+      ],
+      "name": "75 m broadcast",
+      "service": "broadcast",
+      "start_hz": 3900000.0,
+      "stop_hz": 4000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 4000000.0,
+      "stop_hz": 4063000.0
+    },
+    {
+      "aliases": [
+        "maritime hf"
+      ],
+      "name": "Maritime mobile (4 MHz)",
+      "notes": "4207.5 kHz is the 4 MHz DSC calling channel.",
+      "service": "maritime",
+      "start_hz": 4063000.0,
+      "stop_hz": 4438000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed and mobile",
+      "service": "other",
+      "start_hz": 4438000.0,
+      "stop_hz": 4650000.0
+    },
+    {
+      "aliases": [
+        "hf air",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (route)",
+      "service": "aeronautical",
+      "start_hz": 4650000.0,
+      "stop_hz": 4750000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "60 m band",
+        "tropical band"
+      ],
+      "name": "60 m tropical broadcast",
+      "service": "broadcast",
+      "start_hz": 4750000.0,
+      "stop_hz": 5060000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 5060000.0,
+      "stop_hz": 5351500.0
+    },
+    {
+      "aliases": [
+        "60 m",
+        "5 mhz amateur"
+      ],
+      "name": "60 m amateur",
+      "notes": "The WRC-15 secondary allocation: 15 W EIRP, and a band the amateur service shares with fixed and mobile users who were there first.",
+      "service": "amateur",
+      "start_hz": 5351500.0,
+      "stop_hz": 5366500.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 5366500.0,
+      "stop_hz": 5450000.0
+    },
+    {
+      "aliases": [
+        "hf air",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (5 MHz)",
+      "service": "aeronautical",
+      "start_hz": 5450000.0,
+      "stop_hz": 5730000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 5730000.0,
+      "stop_hz": 5900000.0
+    },
+    {
+      "aliases": [
+        "49 m",
+        "shortwave",
+        "sw broadcast"
+      ],
+      "channel_step_hz": 5000.0,
+      "name": "49 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 5900000.0,
+      "stop_hz": 6200000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "maritime hf"
+      ],
+      "name": "Maritime mobile (6 MHz)",
+      "service": "maritime",
+      "start_hz": 6200000.0,
+      "stop_hz": 6525000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf air",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (6 MHz)",
+      "service": "aeronautical",
+      "start_hz": 6525000.0,
+      "stop_hz": 6765000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "ism"
+      ],
+      "name": "ISM — 6.78 MHz",
+      "notes": "RR 5.138: industrial, scientific and medical.",
+      "service": "ism",
+      "start_hz": 6765000.0,
+      "stop_hz": 6795000.0
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 6795000.0,
+      "stop_hz": 7000000.0
+    },
+    {
+      "aliases": [
+        "40 m",
+        "7 mhz"
+      ],
+      "name": "40 m amateur",
+      "notes": "Lower sideband. 7.2–7.3 MHz is amateur in Region 2 and shortwave broadcast everywhere else, which is why 40 m sounds different depending on where you are.",
+      "service": "amateur",
+      "start_hz": 7000000.0,
+      "stop_hz": 7200000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "41 m",
+        "shortwave"
+      ],
+      "channel_step_hz": 5000.0,
+      "name": "41 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 7200000.0,
+      "stop_hz": 7450000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 7450000.0,
+      "stop_hz": 8100000.0
+    },
+    {
+      "aliases": [
+        "maritime hf"
+      ],
+      "name": "Maritime mobile (8 MHz)",
+      "notes": "8414.5 kHz is the 8 MHz DSC calling channel.",
+      "service": "maritime",
+      "start_hz": 8100000.0,
+      "stop_hz": 8815000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf air",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (8.8 MHz)",
+      "service": "aeronautical",
+      "start_hz": 8815000.0,
+      "stop_hz": 9040000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 9040000.0,
+      "stop_hz": 9400000.0
+    },
+    {
+      "aliases": [
+        "31 m",
+        "shortwave"
+      ],
+      "channel_step_hz": 5000.0,
+      "name": "31 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 9400000.0,
+      "stop_hz": 9900000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 9900000.0,
+      "stop_hz": 9995000.0
+    },
+    {
+      "aliases": [
+        "time signal",
+        "wwv",
+        "standard frequency"
+      ],
+      "name": "Standard frequency and time — 10 MHz",
+      "service": "science",
+      "start_hz": 9995000.0,
+      "stop_hz": 10005000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf air",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (route)",
+      "service": "aeronautical",
+      "start_hz": 10005000.0,
+      "stop_hz": 10100000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "30 m",
+        "10 mhz"
+      ],
+      "name": "30 m amateur",
+      "notes": "A WARC band: CW and narrow digital only by IARU convention, no contests, and usually a 200 W ceiling.",
+      "service": "amateur",
+      "start_hz": 10100000.0,
+      "stop_hz": 10150000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 10150000.0,
+      "stop_hz": 11175000.0
+    },
+    {
+      "aliases": [
+        "hf air",
+        "hfgcs",
+        "milair hf"
+      ],
+      "name": "HF aeronautical mobile (off-route)",
+      "notes": "11175 kHz is the primary US Air Force HFGCS channel.",
+      "service": "aeronautical",
+      "start_hz": 11175000.0,
+      "stop_hz": 11400000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 11400000.0,
+      "stop_hz": 11600000.0
+    },
+    {
+      "aliases": [
+        "25 m",
+        "shortwave"
+      ],
+      "channel_step_hz": 5000.0,
+      "name": "25 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 11600000.0,
+      "stop_hz": 12100000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 12100000.0,
+      "stop_hz": 12230000.0
+    },
+    {
+      "aliases": [
+        "maritime hf"
+      ],
+      "name": "Maritime mobile (12 MHz)",
+      "service": "maritime",
+      "start_hz": 12230000.0,
+      "stop_hz": 13200000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf air",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (13 MHz)",
+      "service": "aeronautical",
+      "start_hz": 13200000.0,
+      "stop_hz": 13360000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "radio astronomy",
+        "passive band"
+      ],
+      "name": "Radio astronomy — 13.36 MHz",
+      "notes": "A passive band: no emission is permitted.",
+      "service": "science",
+      "start_hz": 13360000.0,
+      "stop_hz": 13410000.0
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 13410000.0,
+      "stop_hz": 13553000.0
+    },
+    {
+      "aliases": [
+        "ism",
+        "rfid",
+        "nfc"
+      ],
+      "name": "ISM — 13.56 MHz",
+      "notes": "RR 5.150. NFC and HF RFID.",
+      "service": "ism",
+      "start_hz": 13553000.0,
+      "stop_hz": 13567000.0
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 13567000.0,
+      "stop_hz": 13570000.0
+    },
+    {
+      "aliases": [
+        "22 m",
+        "shortwave"
+      ],
+      "channel_step_hz": 5000.0,
+      "name": "22 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 13570000.0,
+      "stop_hz": 13870000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 13870000.0,
+      "stop_hz": 14000000.0
+    },
+    {
+      "aliases": [
+        "20 m",
+        "14 mhz"
+      ],
+      "name": "20 m amateur",
+      "notes": "Upper sideband above 10 MHz by convention. The band that is open somewhere almost all the time.",
+      "service": "amateur",
+      "start_hz": 14000000.0,
+      "stop_hz": 14350000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 14350000.0,
+      "stop_hz": 14990000.0
+    },
+    {
+      "aliases": [
+        "time signal",
+        "wwv",
+        "standard frequency"
+      ],
+      "name": "Standard frequency and time — 15 MHz",
+      "service": "science",
+      "start_hz": 14990000.0,
+      "stop_hz": 15010000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf air",
+        "milair hf"
+      ],
+      "name": "HF aeronautical mobile (off-route)",
+      "service": "aeronautical",
+      "start_hz": 15010000.0,
+      "stop_hz": 15100000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "19 m",
+        "shortwave"
+      ],
+      "channel_step_hz": 5000.0,
+      "name": "19 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 15100000.0,
+      "stop_hz": 15800000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 15800000.0,
+      "stop_hz": 16360000.0
+    },
+    {
+      "aliases": [
+        "maritime hf"
+      ],
+      "name": "Maritime mobile (16 MHz)",
+      "service": "maritime",
+      "start_hz": 16360000.0,
+      "stop_hz": 17410000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 17410000.0,
+      "stop_hz": 17480000.0
+    },
+    {
+      "aliases": [
+        "16 m",
+        "shortwave"
+      ],
+      "channel_step_hz": 5000.0,
+      "name": "16 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 17480000.0,
+      "stop_hz": 17900000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf air",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (17.9 MHz)",
+      "service": "aeronautical",
+      "start_hz": 17900000.0,
+      "stop_hz": 18030000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 18030000.0,
+      "stop_hz": 18068000.0
+    },
+    {
+      "aliases": [
+        "17 m",
+        "18 mhz"
+      ],
+      "name": "17 m amateur",
+      "notes": "A WARC band: no contesting by IARU convention, so it stays civil.",
+      "service": "amateur",
+      "start_hz": 18068000.0,
+      "stop_hz": 18168000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 18168000.0,
+      "stop_hz": 18900000.0
+    },
+    {
+      "aliases": [
+        "15 m broadcast",
+        "shortwave"
+      ],
+      "name": "15 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 18900000.0,
+      "stop_hz": 19020000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 19020000.0,
+      "stop_hz": 19990000.0
+    },
+    {
+      "aliases": [
+        "time signal",
+        "wwv",
+        "standard frequency"
+      ],
+      "name": "Standard frequency and time — 20 MHz",
+      "service": "science",
+      "start_hz": 19990000.0,
+      "stop_hz": 20010000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 20010000.0,
+      "stop_hz": 21000000.0
+    },
+    {
+      "aliases": [
+        "15 m",
+        "21 mhz"
+      ],
+      "name": "15 m amateur",
+      "notes": "A daytime DX band that follows the solar cycle closely.",
+      "service": "amateur",
+      "start_hz": 21000000.0,
+      "stop_hz": 21450000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "13 m",
+        "shortwave"
+      ],
+      "channel_step_hz": 5000.0,
+      "name": "13 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 21450000.0,
+      "stop_hz": 21850000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 21850000.0,
+      "stop_hz": 21924000.0
+    },
+    {
+      "aliases": [
+        "hf air",
+        "aeronautical hf"
+      ],
+      "name": "HF aeronautical mobile (route)",
+      "service": "aeronautical",
+      "start_hz": 21924000.0,
+      "stop_hz": 22000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "maritime hf"
+      ],
+      "name": "Maritime mobile (22 MHz)",
+      "service": "maritime",
+      "start_hz": 22000000.0,
+      "stop_hz": 22855000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed",
+      "service": "other",
+      "start_hz": 22855000.0,
+      "stop_hz": 23200000.0
+    },
+    {
+      "aliases": [
+        "hf air",
+        "milair hf"
+      ],
+      "name": "HF aeronautical mobile (off-route)",
+      "service": "aeronautical",
+      "start_hz": 23200000.0,
+      "stop_hz": 23350000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed and mobile",
+      "service": "other",
+      "start_hz": 23350000.0,
+      "stop_hz": 24890000.0
+    },
+    {
+      "aliases": [
+        "12 m",
+        "24 mhz"
+      ],
+      "name": "12 m amateur",
+      "notes": "A WARC band, and the quietest of the high bands.",
+      "service": "amateur",
+      "start_hz": 24890000.0,
+      "stop_hz": 24990000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "time signal",
+        "wwv",
+        "standard frequency"
+      ],
+      "name": "Standard frequency and time — 25 MHz",
+      "service": "science",
+      "start_hz": 24990000.0,
+      "stop_hz": 25010000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "Land mobile (25 MHz)",
+      "service": "mobile",
+      "start_hz": 25010000.0,
+      "stop_hz": 25070000.0
+    },
+    {
+      "aliases": [
+        "maritime hf"
+      ],
+      "name": "Maritime mobile (25 MHz)",
+      "service": "maritime",
+      "start_hz": 25070000.0,
+      "stop_hz": 25210000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed and mobile",
+      "service": "other",
+      "start_hz": 25210000.0,
+      "stop_hz": 25670000.0
+    },
+    {
+      "aliases": [
+        "11 m broadcast",
+        "shortwave"
+      ],
+      "name": "11 m shortwave broadcast",
+      "service": "broadcast",
+      "start_hz": 25670000.0,
+      "stop_hz": 26100000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed and mobile",
+      "service": "other",
+      "start_hz": 26100000.0,
+      "stop_hz": 26957000.0
+    },
+    {
+      "aliases": [
+        "ism",
+        "27 mhz"
+      ],
+      "name": "ISM — 27 MHz",
+      "notes": "RR 5.150. The Citizens' Band channel plans sit inside it, as does a great deal of radio control and industrial heating.",
+      "service": "ism",
+      "start_hz": 26957000.0,
+      "stop_hz": 27283000.0
+    },
+    {
+      "aliases": [
+        "hf utility"
+      ],
+      "name": "HF fixed and mobile",
+      "service": "other",
+      "start_hz": 27283000.0,
+      "stop_hz": 28000000.0
+    },
+    {
+      "aliases": [
+        "10 m",
+        "28 mhz"
+      ],
+      "name": "10 m amateur",
+      "notes": "Dead at solar minimum and worldwide at maximum. 29.6 MHz is the FM calling channel.",
+      "service": "amateur",
+      "start_hz": 28000000.0,
+      "stop_hz": 29700000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "low band",
+        "vhf low"
+      ],
+      "name": "VHF low-band land mobile",
+      "notes": "Long-range fleet, utility and forestry radio. Sporadic-E carries it across a continent for weeks at a time in early summer.",
+      "service": "mobile",
+      "start_hz": 29700000.0,
+      "stop_hz": 40660000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "ism",
+        "radio control"
+      ],
+      "name": "ISM — 40.68 MHz",
+      "notes": "RR 5.150. Model control and low-power telemetry.",
+      "service": "ism",
+      "start_hz": 40660000.0,
+      "stop_hz": 40700000.0
+    },
+    {
+      "aliases": [
+        "low band",
+        "vhf low"
+      ],
+      "name": "VHF low-band land mobile",
+      "service": "mobile",
+      "start_hz": 40700000.0,
+      "stop_hz": 47000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "band i",
+        "vhf low"
+      ],
+      "name": "VHF fixed, mobile and broadcast",
+      "notes": "The old television Band I in Region 1; 50–54 MHz is the 6 m amateur band in Regions 2 and 3, and 50–52 MHz in most of Region 1 since WRC-19.",
+      "service": "other",
+      "start_hz": 47000000.0,
+      "stop_hz": 68000000.0
+    },
+    {
+      "aliases": [
+        "vhf mobile"
+      ],
+      "name": "VHF land mobile",
+      "service": "mobile",
+      "start_hz": 68000000.0,
+      "stop_hz": 74800000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "marker beacon",
+        "outer marker"
+      ],
+      "name": "Marker beacons — 75 MHz",
+      "notes": "Airport marker beacons, keyed at 400, 1300 or 3000 Hz.",
+      "service": "aeronautical",
+      "start_hz": 74800000.0,
+      "stop_hz": 75200000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "vhf mobile"
+      ],
+      "name": "VHF land mobile",
+      "service": "mobile",
+      "start_hz": 75200000.0,
+      "stop_hz": 87500000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "fm",
+        "broadcast fm",
+        "band ii",
+        "ukw"
+      ],
+      "channel_step_hz": 100000.0,
+      "name": "FM broadcast",
+      "notes": "±75 kHz deviation, a 19 kHz stereo pilot, and RDS on a 57 kHz subcarrier. Region 2 starts at 88.0 MHz with a 200 kHz raster.",
+      "service": "broadcast",
+      "start_hz": 87500000.0,
+      "stop_hz": 108000000.0,
+      "suggested": {
+        "settings": {
+          "deemphasis_us": 50.0,
+          "rds": false
+        },
+        "type": "wfm"
+      }
+    },
+    {
+      "aliases": [
+        "vor",
+        "ils",
+        "localizer"
+      ],
+      "channel_step_hz": 50000.0,
+      "name": "VOR and ILS localizer",
+      "notes": "Each carries a Morse ident you can read straight off the AM audio.",
+      "service": "navigation",
+      "start_hz": 108000000.0,
+      "stop_hz": 117975000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "airband",
+        "air band",
+        "aircraft",
+        "atc",
+        "tower"
+      ],
+      "channel_step_hz": 25000.0,
+      "name": "Airband — civil aviation voice",
+      "notes": "AM, so a stronger station does not capture a weaker one. 25 kHz spacing, 8.33 kHz across much of Europe. 121.5 MHz is the emergency frequency and is normally silent.",
+      "service": "aeronautical",
+      "start_hz": 117975000.0,
+      "stop_hz": 137000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "noaa apt",
+        "weather satellite",
+        "meteor",
+        "apt",
+        "lrpt"
+      ],
+      "name": "Meteorological satellite downlink",
+      "notes": "NOAA APT at 137.100, 137.620 and 137.9125 MHz; Meteor-M LRPT nearby. Right-hand circular polarisation, so a linear antenna loses 3 dB.",
+      "service": "satellite",
+      "start_hz": 137000000.0,
+      "stop_hz": 138000000.0,
+      "suggested": {
+        "settings": {
+          "deemphasis_us": 50.0,
+          "rds": false
+        },
+        "type": "wfm"
+      }
+    },
+    {
+      "aliases": [
+        "vhf mobile"
+      ],
+      "name": "VHF land and government mobile",
+      "service": "mobile",
+      "start_hz": 138000000.0,
+      "stop_hz": 144000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "2 m",
+        "144 mhz",
+        "two metres",
+        "vhf amateur"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "2 m amateur",
+      "notes": "145.500 MHz is the Region 1 FM calling channel and 144.800 MHz carries APRS. Regions 2 and 3 have 2 MHz more, up to 148 MHz.",
+      "service": "amateur",
+      "start_hz": 144000000.0,
+      "stop_hz": 146000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "vhf mobile"
+      ],
+      "name": "VHF land mobile",
+      "service": "mobile",
+      "start_hz": 146000000.0,
+      "stop_hz": 156000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "marine vhf",
+        "marine",
+        "vhf marine",
+        "boat",
+        "channel 16"
+      ],
+      "channel_step_hz": 25000.0,
+      "name": "Marine VHF",
+      "notes": "Channel 16 (156.800 MHz) is distress, safety and calling; channel 70 (156.525 MHz) is DSC data only and carries no voice.",
+      "service": "maritime",
+      "start_hz": 156000000.0,
+      "stop_hz": 161962500.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "ais",
+        "ship tracking",
+        "vessel tracking"
+      ],
+      "name": "AIS — 161.975 and 162.025 MHz",
+      "notes": "AIS 1 and AIS 2, 9600 baud GMSK in 25 kHz channels. Both are decoded at once if the receiver's span covers them.",
+      "service": "maritime",
+      "start_hz": 161962500.0,
+      "stop_hz": 162037500.0,
+      "suggested": {
+        "settings": {
+          "ais_channel": "a"
+        },
+        "type": "ais"
+      }
+    },
+    {
+      "aliases": [
+        "vhf mobile"
+      ],
+      "name": "VHF land mobile and government",
+      "service": "mobile",
+      "start_hz": 162037500.0,
+      "stop_hz": 174000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "band iii",
+        "dab",
+        "dab+",
+        "digital radio"
+      ],
+      "name": "VHF Band III — DAB and television",
+      "notes": "DAB+ ensembles occupy 1.536 MHz each on the 5A–13F block raster in Region 1; Region 2 uses the band for television channels 7–13.",
+      "service": "broadcast",
+      "start_hz": 174000000.0,
+      "stop_hz": 230000000.0
+    },
+    {
+      "aliases": [
+        "milair",
+        "uhf milair",
+        "military air"
+      ],
+      "channel_step_hz": 25000.0,
+      "name": "UHF military air band",
+      "notes": "AM like the civil band, running 225–400 MHz in most administrations. 243.0 MHz is the military emergency frequency.",
+      "service": "aeronautical",
+      "start_hz": 230000000.0,
+      "stop_hz": 328600000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "glideslope",
+        "glide path",
+        "ils"
+      ],
+      "name": "ILS glide path",
+      "notes": "Paired with a localizer in 108–112 MHz; the pairing is fixed by ICAO.",
+      "service": "navigation",
+      "start_hz": 328600000.0,
+      "stop_hz": 335400000.0
+    },
+    {
+      "aliases": [
+        "milair",
+        "uhf milair",
+        "military air"
+      ],
+      "channel_step_hz": 25000.0,
+      "name": "UHF military air band",
+      "service": "aeronautical",
+      "start_hz": 335400000.0,
+      "stop_hz": 399900000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "argos",
+        "satellite navigation"
+      ],
+      "name": "Satellite radionavigation and meteorological satellite",
+      "service": "satellite",
+      "start_hz": 399900000.0,
+      "stop_hz": 401000000.0
+    },
+    {
+      "aliases": [
+        "radiosonde",
+        "weather balloon",
+        "rs41",
+        "sonde"
+      ],
+      "name": "Meteorological aids — radiosondes",
+      "notes": "Vaisala RS41 and Graw DFM sondes transmit GFSK here twice a day from every upper-air station in the world.",
+      "service": "science",
+      "start_hz": 401000000.0,
+      "stop_hz": 406000000.0
+    },
+    {
+      "aliases": [
+        "epirb",
+        "elt",
+        "plb",
+        "cospas-sarsat",
+        "distress beacon"
+      ],
+      "name": "Emergency beacons — 406 MHz",
+      "notes": "COSPAS-SARSAT distress beacons. Listening is legal everywhere; transmitting anything here is not.",
+      "service": "satellite",
+      "start_hz": 406000000.0,
+      "stop_hz": 406100000.0
+    },
+    {
+      "aliases": [
+        "radio astronomy"
+      ],
+      "name": "Radio astronomy — 406 MHz",
+      "service": "science",
+      "start_hz": 406100000.0,
+      "stop_hz": 410000000.0
+    },
+    {
+      "aliases": [
+        "uhf mobile",
+        "pmr"
+      ],
+      "name": "UHF land mobile",
+      "service": "mobile",
+      "start_hz": 410000000.0,
+      "stop_hz": 430000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm",
+        "432 mhz",
+        "uhf amateur"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "70 cm amateur",
+      "notes": "Allocated to the amateur service in all three regions; Regions 2 and 3 extend it to 420–450 MHz. Shared with ISM devices in Region 1.",
+      "service": "amateur",
+      "start_hz": 430000000.0,
+      "stop_hz": 440000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "uhf mobile",
+        "pmr",
+        "business radio"
+      ],
+      "name": "UHF land mobile",
+      "service": "mobile",
+      "start_hz": 440000000.0,
+      "stop_hz": 470000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "uhf tv",
+        "dvb-t",
+        "atsc",
+        "television"
+      ],
+      "channel_step_hz": 8000000.0,
+      "name": "UHF television",
+      "notes": "8 MHz channels in Regions 1 and 3, 6 MHz in Region 2.",
+      "service": "broadcast",
+      "start_hz": 470000000.0,
+      "stop_hz": 694000000.0
+    },
+    {
+      "aliases": [
+        "lte 700",
+        "band 28",
+        "5g"
+      ],
+      "name": "700 MHz mobile broadband",
+      "service": "mobile",
+      "start_hz": 694000000.0,
+      "stop_hz": 790000000.0
+    },
+    {
+      "aliases": [
+        "lte 800",
+        "band 20"
+      ],
+      "name": "800 MHz mobile broadband",
+      "service": "mobile",
+      "start_hz": 790000000.0,
+      "stop_hz": 862000000.0
+    },
+    {
+      "aliases": [
+        "srd",
+        "uhf mobile"
+      ],
+      "name": "Land mobile and short-range devices (860–890 MHz)",
+      "service": "mobile",
+      "start_hz": 862000000.0,
+      "stop_hz": 890000000.0
+    },
+    {
+      "aliases": [
+        "gsm 900",
+        "band 8",
+        "cellular"
+      ],
+      "name": "900 MHz cellular",
+      "notes": "GSM/LTE in Region 1; Region 2 puts the 902–928 MHz ISM band here instead.",
+      "service": "mobile",
+      "start_hz": 890000000.0,
+      "stop_hz": 960000000.0
+    },
+    {
+      "aliases": [
+        "dme",
+        "tacan",
+        "distance measuring"
+      ],
+      "channel_step_hz": 1000000.0,
+      "name": "DME and TACAN",
+      "notes": "Pulse pairs on a 1 MHz raster, paired with a VOR or ILS.",
+      "service": "aeronautical",
+      "start_hz": 960000000.0,
+      "stop_hz": 1089000000.0
+    },
+    {
+      "aliases": [
+        "ads-b",
+        "adsb",
+        "mode s",
+        "1090",
+        "aircraft",
+        "transponder"
+      ],
+      "name": "ADS-B and Mode S — 1090 MHz",
+      "notes": "Transponder replies and extended squitter, 1 Mbit/s PPM. Needs the receiver's own samples at 2 Msps or more, so the channel takes IQ rather than a narrow passband.",
+      "service": "aeronautical",
+      "start_hz": 1089000000.0,
+      "stop_hz": 1091000000.0,
+      "suggested": {
+        "settings": {
+          "crc_fix": true
+        },
+        "type": "adsb"
+      }
+    },
+    {
+      "aliases": [
+        "dme",
+        "tacan"
+      ],
+      "channel_step_hz": 1000000.0,
+      "name": "DME and TACAN",
+      "service": "aeronautical",
+      "start_hz": 1091000000.0,
+      "stop_hz": 1164000000.0
+    },
+    {
+      "aliases": [
+        "gps",
+        "gnss",
+        "galileo",
+        "glonass",
+        "beidou"
+      ],
+      "name": "GNSS — L5, E5 and L2",
+      "notes": "GPS L5 at 1176.45 MHz, Galileo E5, GLONASS L2 around 1246 MHz.",
+      "service": "navigation",
+      "start_hz": 1164000000.0,
+      "stop_hz": 1240000000.0
+    },
+    {
+      "aliases": [
+        "23 cm",
+        "1296",
+        "1.2 ghz"
+      ],
+      "name": "23 cm amateur",
+      "notes": "Secondary to radionavigation, and increasingly squeezed by Galileo. Narrowband work clusters around 1296 MHz.",
+      "service": "amateur",
+      "start_hz": 1240000000.0,
+      "stop_hz": 1300000000.0
+    },
+    {
+      "aliases": [
+        "radar",
+        "arsr"
+      ],
+      "name": "L-band air-route surveillance radar",
+      "service": "navigation",
+      "start_hz": 1300000000.0,
+      "stop_hz": 1400000000.0
+    },
+    {
+      "aliases": [
+        "hydrogen line",
+        "21 cm",
+        "h1",
+        "radio astronomy"
+      ],
+      "name": "Radio astronomy — hydrogen line",
+      "notes": "Neutral hydrogen radiates at 1420.406 MHz. A passive band worldwide: no emission is permitted, which is why it is quiet enough to hear the galaxy in.",
+      "service": "science",
+      "start_hz": 1400000000.0,
+      "stop_hz": 1427000000.0
+    },
+    {
+      "aliases": [
+        "l band"
+      ],
+      "name": "L-band fixed and mobile",
+      "service": "mobile",
+      "start_hz": 1427000000.0,
+      "stop_hz": 1518000000.0
+    },
+    {
+      "aliases": [
+        "inmarsat",
+        "aero",
+        "std-c",
+        "satcom"
+      ],
+      "name": "Mobile satellite downlink — Inmarsat",
+      "notes": "1544–1545 MHz is reserved for distress and safety traffic.",
+      "service": "satellite",
+      "start_hz": 1518000000.0,
+      "stop_hz": 1559000000.0
+    },
+    {
+      "aliases": [
+        "gps",
+        "gps l1",
+        "gnss",
+        "galileo",
+        "glonass"
+      ],
+      "name": "GNSS — L1 and E1",
+      "notes": "GPS L1 at 1575.42 MHz, GLONASS L1 around 1602 MHz.",
+      "service": "navigation",
+      "start_hz": 1559000000.0,
+      "stop_hz": 1610000000.0
+    },
+    {
+      "aliases": [
+        "iridium",
+        "satcom"
+      ],
+      "name": "Mobile satellite — Iridium",
+      "service": "satellite",
+      "start_hz": 1610000000.0,
+      "stop_hz": 1626500000.0
+    },
+    {
+      "aliases": [
+        "satcom",
+        "inmarsat"
+      ],
+      "name": "Mobile satellite uplink",
+      "service": "satellite",
+      "start_hz": 1626500000.0,
+      "stop_hz": 1710000000.0
+    },
+    {
+      "aliases": [
+        "gsm 1800",
+        "dcs",
+        "band 3",
+        "lte"
+      ],
+      "name": "1800 MHz mobile broadband",
+      "service": "mobile",
+      "start_hz": 1710000000.0,
+      "stop_hz": 1880000000.0
+    },
+    {
+      "aliases": [
+        "dect",
+        "cordless phone"
+      ],
+      "channel_step_hz": 1728000.0,
+      "name": "DECT",
+      "notes": "Cordless telephony: ten 1.728 MHz carriers, TDMA.",
+      "service": "mobile",
+      "start_hz": 1880000000.0,
+      "stop_hz": 1920000000.0
+    },
+    {
+      "aliases": [
+        "umts",
+        "band 1",
+        "3g",
+        "lte"
+      ],
+      "name": "2100 MHz mobile broadband",
+      "service": "mobile",
+      "start_hz": 1920000000.0,
+      "stop_hz": 2170000000.0
+    },
+    {
+      "aliases": [
+        "s band",
+        "cubesat",
+        "telemetry",
+        "space research"
+      ],
+      "name": "S-band space operation and telemetry",
+      "notes": "2200–2290 MHz is the space-research downlink most cubesats use.",
+      "service": "satellite",
+      "start_hz": 2170000000.0,
+      "stop_hz": 2300000000.0
+    },
+    {
+      "aliases": [
+        "s band"
+      ],
+      "name": "S-band fixed and mobile",
+      "service": "mobile",
+      "start_hz": 2300000000.0,
+      "stop_hz": 2400000000.0
+    },
+    {
+      "aliases": [
+        "wifi",
+        "wi-fi",
+        "bluetooth",
+        "zigbee",
+        "2.4 ghz",
+        "ism"
+      ],
+      "channel_step_hz": 5000000.0,
+      "name": "ISM — 2.4 GHz",
+      "notes": "RR 5.150. Wi-Fi, Bluetooth, Zigbee and microwave ovens, and the lower half is also the 13 cm amateur band.",
+      "service": "ism",
+      "start_hz": 2400000000.0,
+      "stop_hz": 2500000000.0
+    },
+    {
+      "aliases": [
+        "band 7",
+        "lte 2600"
+      ],
+      "name": "2.6 GHz mobile broadband",
+      "service": "mobile",
+      "start_hz": 2500000000.0,
+      "stop_hz": 2690000000.0
+    },
+    {
+      "aliases": [
+        "radio astronomy",
+        "passive band"
+      ],
+      "name": "Radio astronomy — 2.69 GHz",
+      "notes": "A passive band: no emission is permitted.",
+      "service": "science",
+      "start_hz": 2690000000.0,
+      "stop_hz": 2700000000.0
+    },
+    {
+      "aliases": [
+        "radar",
+        "asr",
+        "weather radar"
+      ],
+      "name": "S-band radar",
+      "notes": "Airport surveillance and weather radar.",
+      "service": "navigation",
+      "start_hz": 2700000000.0,
+      "stop_hz": 3100000000.0
+    },
+    {
+      "aliases": [
+        "radar",
+        "radiolocation"
+      ],
+      "name": "Radiolocation — 3 GHz",
+      "service": "navigation",
+      "start_hz": 3100000000.0,
+      "stop_hz": 3400000000.0
+    },
+    {
+      "aliases": [
+        "5g",
+        "c-band",
+        "n78",
+        "cbrs"
+      ],
+      "name": "3.5 GHz mobile broadband",
+      "service": "mobile",
+      "start_hz": 3400000000.0,
+      "stop_hz": 3800000000.0
+    },
+    {
+      "aliases": [
+        "c band",
+        "satellite tv"
+      ],
+      "name": "C-band satellite downlink",
+      "service": "satellite",
+      "start_hz": 3800000000.0,
+      "stop_hz": 4200000000.0
+    },
+    {
+      "aliases": [
+        "radalt",
+        "radio altimeter"
+      ],
+      "name": "Radio altimeters",
+      "notes": "Aircraft radio altimeters — the band whose neighbours the 5G C-band rollout argued about.",
+      "service": "aeronautical",
+      "start_hz": 4200000000.0,
+      "stop_hz": 4400000000.0
+    },
+    {
+      "aliases": [
+        "fixed link"
+      ],
+      "name": "Fixed and mobile (4.4–5.0 GHz)",
+      "service": "other",
+      "start_hz": 4400000000.0,
+      "stop_hz": 4990000000.0
+    },
+    {
+      "aliases": [
+        "radio astronomy"
+      ],
+      "name": "Radio astronomy — 4.99 GHz",
+      "service": "science",
+      "start_hz": 4990000000.0,
+      "stop_hz": 5000000000.0
+    },
+    {
+      "aliases": [
+        "mls",
+        "aeronautical"
+      ],
+      "name": "Microwave landing system",
+      "service": "aeronautical",
+      "start_hz": 5000000000.0,
+      "stop_hz": 5150000000.0
+    },
+    {
+      "aliases": [
+        "wifi",
+        "wi-fi",
+        "u-nii-1",
+        "u-nii-2",
+        "5 ghz"
+      ],
+      "channel_step_hz": 20000000.0,
+      "name": "Wi-Fi 5 GHz — lower",
+      "service": "ism",
+      "start_hz": 5150000000.0,
+      "stop_hz": 5350000000.0
+    },
+    {
+      "aliases": [
+        "radar",
+        "radiolocation"
+      ],
+      "name": "Radiolocation — 5.4 GHz",
+      "service": "navigation",
+      "start_hz": 5350000000.0,
+      "stop_hz": 5470000000.0
+    },
+    {
+      "aliases": [
+        "wifi",
+        "wi-fi",
+        "u-nii-2c",
+        "dfs",
+        "5 ghz"
+      ],
+      "channel_step_hz": 20000000.0,
+      "name": "Wi-Fi 5 GHz — upper",
+      "notes": "Dynamic frequency selection is mandatory: the radar here has priority.",
+      "service": "ism",
+      "start_hz": 5470000000.0,
+      "stop_hz": 5725000000.0
+    },
+    {
+      "aliases": [
+        "wifi",
+        "5.8 ghz",
+        "fpv",
+        "ism",
+        "6 cm"
+      ],
+      "name": "ISM — 5.8 GHz",
+      "notes": "RR 5.150. Also the 6 cm amateur band and where analogue FPV video lives.",
+      "service": "ism",
+      "start_hz": 5725000000.0,
+      "stop_hz": 5875000000.0
+    },
+    {
+      "aliases": [
+        "its-g5",
+        "c-v2x",
+        "v2x"
+      ],
+      "name": "Intelligent transport systems",
+      "service": "mobile",
+      "start_hz": 5875000000.0,
+      "stop_hz": 5925000000.0
+    },
+    {
+      "aliases": [
+        "wifi 6e",
+        "wi-fi 6e",
+        "u-nii-5"
+      ],
+      "name": "Wi-Fi 6 GHz",
+      "service": "ism",
+      "start_hz": 5925000000.0,
+      "stop_hz": 6000000000.0
+    }
+  ],
+  "id": "world",
+  "kind": "world",
+  "name": "ITU world table",
+  "provenance": {
+    "generator": "curated"
+  },
+  "source": "Radio Regulations, Article 5 (Edition of 2020) — curated extract"
+}

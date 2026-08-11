@@ -453,6 +453,60 @@ the view is zoomed, since it has nothing to say at full span). The readout (cent
 *visible* window · visible span · dB range) sits top-right. Both are drawn in the plot's own
 achromatic ink, not the chrome palette.
 
+### 9a. The band ruler — the one place hue leaves the data
+
+`FEATURES §5`'s allocation layer, drawn as a gutter above the trace and sharing its width, so the
+ruler's axis and the plot's axis are the same axis. Two rows of 16px, one per lane the server
+resolves: the regulatory stack merged most-specific-wins, and each amateur band plan as an
+overlay. Toggled by a `bands` button in the plot toolbar, off-state remembered per browser
+beside the colormap.
+
+**Why it is not an overlay.** §2 says the colormap owns hue inside the plot rectangle and every
+overlay on it is achromatic. A ruler whose whole job is to separate ten services at a glance
+cannot obey that and still work, so it does not go inside the rectangle — it goes beside it, on
+its own opaque `bg` strip, which is the same licence the marker label chip already has. Nothing
+the ruler knows is ever projected into the plot.
+
+**Ink.** Each block is its service hue at 25% over `bg`, with a 1px full-chroma rule at the left
+edge *only where the band actually starts* — an edge at the window's rim would claim a boundary
+that is only where the screen ran out. The band's name is written across the block in `ink` at
+10px when the block is at least 7% of the window; narrower blocks are read through the popover.
+The ten `--color-band-*` roles are re-anchored per theme like the port and category families, so
+each edge rule clears the 3:1 non-text floor with margin. Measured against `bg`:
+
+| | ism | broadcast | mobile | science | maritime | aeronautical | navigation | amateur | satellite | other |
+|---|---|---|---|---|---|---|---|---|---|---|
+| dark | 5.30 | 5.40 | 5.75 | 5.77 | 5.77 | 5.65 | 5.51 | 5.35 | 5.27 | 4.72 |
+| light | 4.59 | 3.88 | 4.06 | 3.89 | 3.72 | 3.99 | 4.32 | 4.28 | 4.23 | 3.76 |
+
+The light theme is the tighter one, as everywhere in this file, and its floor is `maritime` at
+3.72:1. Lightness is uniform within a theme and the spread is the hue's own luminance, which is
+why the warm and green hues sit lowest.
+
+Ten hues is more than any other family in this file carries, and 25° is the smallest gap between
+two of them. That is why §2's "no state by hue alone" is load-bearing here and not decorative:
+every block states its service in words in the identify popover and again in the explorer, and
+the hue is a grouping cue, never the identification.
+
+**Gestures.** The ruler is `data-plot-chrome`, so the plot declines it: a click identifies, and
+it can never retune a running radio the way a click on the trace does. The popover names the
+frequency, then one section per lane — band, service, authority, edges, channel step, notes —
+and unrolls everything the winner covers, which is the whole point of resolving the layers
+rather than flattening them. Two things it shows because the tables are now *generated* from the
+regulators' own documents: the official wording under the operator's name (`MOBILER
+SEEFUNKDIENST` under "Marine VHF") and the row's identifier in its source (`Eintrag 27001`), so
+a claim on this ruler can be checked against the publication it came from. `also X` marks a
+co-allocation from the same layer, `over ITU: X` a layer underneath; a secondary allocation
+carries a chip saying so, because it means "you may use this if nobody else is". Tuning is the
+one explicit button, and it carries the band's suggested mode in its label so the click is never
+a surprise.
+
+**Keyboard.** The ruler is a pointer instrument; a lane row is one target, not one per band. The
+band explorer in the library drawer is the keyboard route to the same table — searchable, and
+every result tunable — and it is where a region is chosen. Sub-band targets on the ruler itself
+are not attempted: at a 2.4 MHz span a 25 kHz channel is a quarter of a pixel, and a target that
+small is a worse answer than a list.
+
 ---
 
 ## 10. Keyboard
@@ -544,8 +598,10 @@ Named so they are not mistaken for oversights.
 - **The scope's trace/waterfall divider grabs at 9px** (`ScopeFace.tsx`, `h-[9px]`) where §4
   licenses ≥12px around a 1px-adjacent mark and §9 states the rule. Same shape as the three
   above: the ink is right, the grab strip is short.
-- **The band-plan explorer** (`PLAN` §8a) is a server feature; the dial and the scope are built
-  so it can hang off them without rework.
+- **The band-plan explorer** shipped (§9a): the tables and the layering are the server's, and the
+  dial and the scope did in fact take it without rework. What is still open in it is stated
+  there — the ruler has no per-band keyboard target, and the region is guessed from a bounding
+  box rather than a boundary.
 - **A subgraph macro's face** — a saved patch fragment placed as one node — is undesigned. Decide
   it in the phase that builds it, and add the numbers here in the same change. (The other two
   questions this entry used to carry are answered: a scanner shows its ownership as the control

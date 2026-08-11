@@ -15,7 +15,7 @@ import { tuningRange } from "../../components/dial";
 import { DIAL_ID, FrequencyDial } from "../../components/FrequencyDial";
 import { DeviceChoices, deviceId } from "../../components/OpenRadio";
 import { RadioSettings } from "../../components/RadioSettings";
-import { createDeviceSet, STATE_KEY } from "../../lib/api";
+import { createDeviceSet, STATE_KEY, stateQuery } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
 import type {
   Capabilities,
@@ -160,6 +160,27 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     }
   };
 
+  // A network radio is named rather than discovered, so unlike `bind` there is no probe result to
+  // name the node from — and the address that was typed is not necessarily the key the server will
+  // probe it under, because it canonicalizes the endpoint (a defaulted port, a lower-cased host).
+  // Opening it first and reading the device back off the set it created is what keeps the stored
+  // reference and the probe list the same string.
+  const openNetwork = useMutation({
+    mutationFn: async (id: string): Promise<DeviceInfo | null> => {
+      const created = await createDeviceSet(id);
+      const state = await queryClient.fetchQuery(stateQuery());
+      return state.device_sets.find((candidate) => candidate.id === created)?.device ?? null;
+    },
+    onSuccess: (device) => {
+      if (device !== null) {
+        nameRadio(deviceRefOf(device));
+      }
+      workspace.apply();
+    },
+    onError: (error: Error) => pushToast(error.message),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
+  });
+
   if (reference === null) {
     return (
       <NodeShell node={node} title="Device" category="source" subtitle="no radio" live={false}>
@@ -168,8 +189,9 @@ export function DeviceFace({ node }: { node: PatchNode }) {
             <span className={LABEL}>Open a device</span>
             <DeviceChoices
               onChoose={bind}
-              busy={open.isPending}
-              error={open.error?.message ?? null}
+              onAddNetwork={(id) => openNetwork.mutate(id)}
+              busy={open.isPending || openNetwork.isPending}
+              error={open.error?.message ?? openNetwork.error?.message ?? null}
             />
           </div>
         </FaceBody>

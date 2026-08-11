@@ -1,0 +1,153 @@
+{
+ "bands": [
+  {
+   "id": "FREQ_00001",
+   "cat": "p",
+   "asvt": "",
+   "lf": 8300,
+   "uf": 9000,
+   "s": "Meteorological Aids",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00002",
+   "cat": "p",
+   "asvt": "",
+   "lf": 9000,
+   "uf": 11300,
+   "s": "Meteorological Aids",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00003",
+   "cat": "p",
+   "asvt": "",
+   "lf": 9000,
+   "uf": 11300,
+   "s": "Radionavigation",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00004",
+   "cat": "p",
+   "asvt": "",
+   "lf": 11300,
+   "uf": 14000,
+   "s": "Radionavigation",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00005",
+   "cat": "p",
+   "asvt": "",
+   "lf": 14000,
+   "uf": 19950,
+   "s": "Fixed",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00006",
+   "cat": "p",
+   "asvt": "",
+   "lf": 14000,
+   "uf": 19950,
+   "s": "Maritime Mobile",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00007",
+   "cat": "p",
+   "asvt": "",
+   "lf": 19950,
+   "uf": 20050,
+   "s": "Standard Frequency and Time Signal",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00008",
+   "cat": "p",
+   "asvt": "",
+   "lf": 20050,
+   "uf": 59750,
+   "s": "Fixed",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00009",
+   "cat": "p",
+   "asvt": "",
+   "lf": 20050,
+   "uf": 59750,
+   "s": "Maritime Mobile",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00010",
+   "cat": "p",
+   "asvt": "",
+   "lf": 59750,
+   "uf": 60250,
+   "s": "Standard Frequency and Time Signal",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00011",
+   "cat": "p",
+   "asvt": "",
+   "lf": 60250,
+   "uf": 70000,
+   "s": "Fixed",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00012",
+   "cat": "p",
+   "asvt": "",
+   "lf": 60250,
+   "uf": 70000,
+   "s": "Maritime Mobile",
+   "v": 1
+  },
+  {
+   "id": "FREQ_00026",
+   "cat": "s",
+   "asvt": "",
+   "lf": 115000,
+   "uf": 117600,
+   "s": "Fixed",
+   "v": 1
+  }
+ ],
+ "footnotes": [
+  {
+   "id": "FREQ_00001",
+   "cid": "5.54A",
+   "t": "Use of the 8.3-11.3 kHz frequency band by stations in the meteorological aids service is limited to passive use only. In the band 9-11.3 kHz, meteorological aids stations shall not claim protection from stations of the radionavigation service submitted for notification to the Bureau prior to 1 January 2013. For sharing between stations of the meteorological aids service and stations in the radionavigation service submitted for notification after this date, the most recent version of Recommendation ITU R RS.1881 should be applied. (WRC 12)"
+  },
+  {
+   "id": "FREQ_00001",
+   "cid": "5.54B",
+   "t": "Additional allocation: in Algeria, Saudi Arabia, Bahrain, Egypt, the United Arab Emirates, the Russian Federation, Iran (Islamic Republic of), Iraq, Kuwait, Lebanon, Morocco, Qatar, the Syrian Arab Republic, Sudan and Tunisia, the frequency band 8.3-9 kHz is also allocated to the radionavigation, fixed and mobile services on a primary basis. (WRC 15)"
+  },
+  {
+   "id": "FREQ_00001",
+   "cid": "5.54C",
+   "t": "Additional allocation: in China, the frequency band 8.3-9 kHz is also allocated to the maritime radionavigation and maritime mobile services on a primary basis. (WRC 12)"
+  },
+  {
+   "id": "FREQ_00001",
+   "cid": "UK1.6",
+   "t": "Responsibility for assigning frequencies to this Allocation rests with Ofcom for Met Office use. Frequencies in this Allocation are exclusively assigned for civilian use except where permissions for military use are agreed with the Ministry of Defence. Further information can be found in the document “Space science and meteorology spectrum allocations in the UK”."
+  },
+  {
+   "id": "FREQ_00001",
+   "cid": "UK43",
+   "t": "“SPHERICS” (thunderstorm detection and location) stations are operated in the United Kingdom and overseas on a centre frequency of 9.77 kHz."
+  },
+  {
+   "id": "FREQ_00002",
+   "cid": "5.54A",
+   "t": "Use of the 8.3-11.3 kHz frequency band by stations in the meteorological aids service is limited to passive use only. In the band 9-11.3 kHz, meteorological aids stations shall not claim protection from stations of the radionavigation service submitted for notification to the Bureau prior to 1 January 2013. For sharing between stations of the meteorological aids service and stations in the radionavigation service submitted for notification after this date, the most recent version of Recommendation ITU R RS.1881 should be applied. (WRC 12)"
+  }
+ ]
+}

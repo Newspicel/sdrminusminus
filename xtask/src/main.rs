@@ -13,6 +13,7 @@ use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use num_complex::Complex;
 
+mod bandplan;
 mod icons;
 
 #[derive(Parser)]
@@ -40,6 +41,14 @@ enum Cmd {
     Smoke,
     /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
     Fixtures,
+    /// Regenerate the band-plan tables from the regulators' own publications (FEATURES §5).
+    /// Needs `curl` and `pdftotext` (poppler); neither is needed to build or run the server.
+    Bandplan {
+        /// Parse what is already in `target/bandplan-cache` instead of fetching. The sources are
+        /// tens of megabytes and change a few times a year.
+        #[arg(long)]
+        offline: bool,
+    },
     /// Re-render every icon from `assets/icon.svg` (run after changing the mark, commit the
     /// output). Not part of `check`: the renders are committed precisely so no build needs a
     /// rasteriser, and re-rendering them to compare would defeat that.
@@ -76,6 +85,7 @@ fn main() -> Result<()> {
         Cmd::Audit => audit(&root()),
         Cmd::Smoke => smoke(&root()),
         Cmd::Fixtures => fixtures(&root()),
+        Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
         Cmd::Icons => icons::icons(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
@@ -331,13 +341,14 @@ fn agree(what: &str, pins: &[(String, String)]) -> Result<()> {
 }
 
 /// The cargo flags a release artifact is built with: native RTL-SDR and HackRF compiled in
-/// (pure Rust, no C library to install), SoapySDR left out (`soapysdr-sys` dynamically links
-/// libSoapySDR, which PLAN §15 forbids as a launch dependency of a release artifact).
+/// (pure Rust, no C library to install) along with the rtl_tcp and SpyServer clients (`std::net`,
+/// no dependency at all), SoapySDR left out (`soapysdr-sys` dynamically links libSoapySDR, which
+/// PLAN §15 forbids as a launch dependency of a release artifact).
 fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
         "--features".to_string(),
-        "rtl-native,hackrf-native".to_string(),
+        "rtl-native,hackrf-native,net-client".to_string(),
     ]
 }
 

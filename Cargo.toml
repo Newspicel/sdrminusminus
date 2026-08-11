@@ -9,6 +9,7 @@ members = [
     "crates/device-soapy",
     "crates/device-rtlsdr",
     "crates/device-hackrf",
+    "crates/device-net",
     "crates/channels",
     "crates/recorder",
     "crates/engine",
@@ -29,6 +30,7 @@ default-members = [
     "crates/device-soapy",
     "crates/device-rtlsdr",
     "crates/device-hackrf",
+    "crates/device-net",
     "crates/channels",
     "crates/recorder",
     "crates/engine",
@@ -55,6 +57,7 @@ sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
 sdrmm-device-rtlsdr = { path = "crates/device-rtlsdr" }
 sdrmm-device-hackrf = { path = "crates/device-hackrf" }
+sdrmm-device-net = { path = "crates/device-net" }
 sdrmm-channels = { path = "crates/channels" }
 sdrmm-recorder = { path = "crates/recorder" }
 # default-features = false so binaries opt into `soapy` themselves — a member manifest cannot
@@ -66,7 +69,7 @@ sdrmm-server = { path = "crates/server", default-features = false }
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
+tower-http = { version = "0.7", features = ["compression-gzip", "cors", "fs", "trace"] }
 futures = "0.3"
 # WS client for exercising the hub in server tests only. Pinned to whatever axum's `ws` feature
 # resolves to — *not* to the newest release — so the graph holds one tungstenite and not two.
@@ -170,6 +173,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-hackrf]
+opt-level = 3
+
+[profile.dev.package.sdrmm-device-net]
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-virtual]

@@ -14,13 +14,17 @@
 
 use std::time::Duration;
 
+use sdrmm_engine::Engine;
 use sdrmm_wire::{
     ChannelParams, ChannelSettings, DeviceSet, NodeBody, PatchGraph, ServerEvent, StateScope,
     StateSnapshot, WorkspaceChannel, WorkspaceDevice, WorkspaceState,
 };
 use tokio::{sync::broadcast::error::RecvError, time::Instant};
 
-use crate::{AppState, store::StoreError};
+use crate::{
+    AppState,
+    store::{Store, StoreError},
+};
 
 /// How long the settings must stay still before they are written, and the longest a change may
 /// go unwritten regardless. Both are needed: a scroll-wheel tune emits a change per detent, so
@@ -35,6 +39,43 @@ pub(crate) struct DeviceBinding {
     pub device_set: u32,
     /// Channel node id → live channel id, for the nodes that have one.
     pub channels: Vec<(String, u32)>,
+}
+
+/// Hand every device a stored workspace names, but no probe can find, back to the driver that can
+/// address it.
+///
+/// Only the network backends answer, and they are the reason this runs at all: a remote receiver is
+/// named by an operator rather than discovered, so after a restart nothing would put its endpoint
+/// back into the probe list — and apply only opens devices that are *in* that list, so a device
+/// node bound to one would sit at "not attached" forever with the radio online the whole time.
+/// The stored workspace is where those endpoints live, which makes this the one place that can
+/// restore them.
+///
+/// Best-effort by nature: a driver that cannot address a key says so by returning nothing, and an
+/// unreadable workspace costs its endpoints rather than the startup.
+pub(crate) fn adopt_named_devices(engine: &Engine, store: &Store) {
+    let Ok(workspaces) = store.list_workspaces() else {
+        return;
+    };
+    for info in &workspaces.workspaces {
+        let Ok(detail) = store.workspace(info.id) else {
+            continue;
+        };
+        for node in detail.snapshot.graph.device_nodes() {
+            let NodeBody::Device(device) = &node.body else {
+                continue;
+            };
+            // A reference carries a key only where the driver exposes no serial, which is exactly
+            // the shape a network endpoint has.
+            let Some(reference) = device.device.as_ref().filter(|d| d.key.is_some()) else {
+                continue;
+            };
+            let Some(key) = &reference.key else { continue };
+            if let Some(adopted) = engine.adopt_device(&format!("{}:{key}", reference.backend)) {
+                tracing::info!(device = %adopted.id(), workspace = info.id, "adopted a named device");
+            }
+        }
+    }
 }
 
 /// Match the graph's device nodes to device sets that are already open.
@@ -419,4 +460,167 @@ pub(crate) fn channel_settings(
         squelch_db: None,
         params: ChannelParams::default_for(channel_type)?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use sdrmm_device::{DeviceDriver, DeviceError, DeviceRegistry, SdrDevice};
+    use sdrmm_wire::{DeviceInfo, DeviceNode, DeviceRef, PatchNode, Position, WorkspaceSnapshot};
+
+    use super::*;
+
+    /// A backend that can address any key but discovers nothing — the shape of a network client,
+    /// without a socket.
+    #[derive(Default)]
+    struct NamedOnly {
+        adopted: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl DeviceDriver for NamedOnly {
+        fn id(&self) -> &'static str {
+            "named"
+        }
+
+        fn probe(&self) -> Vec<DeviceInfo> {
+            self.adopted
+                .lock()
+                .expect("test lock")
+                .iter()
+                .map(|key| info(key))
+                .collect()
+        }
+
+        fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+            Err(DeviceError::Io("not in this test".to_string()))
+        }
+
+        fn resolve(&self, key: &str) -> Option<DeviceInfo> {
+            let mut adopted = self.adopted.lock().expect("test lock");
+            if !adopted.iter().any(|held| held == key) {
+                adopted.push(key.to_string());
+            }
+            Some(info(key))
+        }
+    }
+
+    fn info(key: &str) -> DeviceInfo {
+        DeviceInfo {
+            driver: "named".to_string(),
+            key: key.to_string(),
+            label: format!("named {key}"),
+            serial: None,
+            profile: None,
+        }
+    }
+
+    /// A driver that only ever reports what is attached, which is every real-hardware backend.
+    struct HardwareOnly;
+
+    impl DeviceDriver for HardwareOnly {
+        fn id(&self) -> &'static str {
+            "hardware"
+        }
+
+        fn probe(&self) -> Vec<DeviceInfo> {
+            Vec::new()
+        }
+
+        fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+            Err(DeviceError::NotFound("nothing attached".to_string()))
+        }
+    }
+
+    fn workspace_naming(reference: DeviceRef) -> WorkspaceSnapshot {
+        let mut snapshot = WorkspaceSnapshot::empty();
+        snapshot.graph.nodes.push(PatchNode {
+            id: "device".to_string(),
+            body: NodeBody::Device(DeviceNode {
+                device: Some(reference),
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        });
+        snapshot
+    }
+
+    fn engine_with_named_driver() -> std::sync::Arc<Engine> {
+        let mut registry = DeviceRegistry::new();
+        registry.register(10, Box::new(NamedOnly::default()));
+        registry.register(20, Box::new(HardwareOnly));
+        Engine::with_registry(registry, None)
+    }
+
+    /// The restart case this whole path exists for: the endpoint lives only in the stored
+    /// workspace, and until it is handed back to its driver no probe reports it — so apply, which
+    /// only opens what the probe lists, would leave the node waiting for a radio that is online.
+    #[test]
+    fn a_named_device_in_a_stored_workspace_is_back_in_the_probe_after_a_restart() {
+        let store = Store::open(None).expect("in-memory store");
+        store
+            .create_workspace(
+                "remote",
+                &workspace_naming(DeviceRef {
+                    backend: "named".to_string(),
+                    serial: None,
+                    key: Some("10.0.0.5:1234".to_string()),
+                }),
+            )
+            .expect("stored");
+
+        let engine = engine_with_named_driver();
+        assert!(engine.probe_devices().is_empty(), "nothing is discovered");
+        adopt_named_devices(&engine, &store);
+        assert_eq!(
+            engine
+                .probe_devices()
+                .iter()
+                .map(DeviceInfo::id)
+                .collect::<Vec<_>>(),
+            vec!["named:10.0.0.5:1234".to_string()]
+        );
+    }
+
+    /// A workspace naming an unplugged dongle must not make the device list claim it is there:
+    /// only a driver that can address a key by name answers, and hardware backends never do.
+    #[test]
+    fn a_reference_to_absent_hardware_adopts_nothing() {
+        let store = Store::open(None).expect("in-memory store");
+        store
+            .create_workspace(
+                "bench",
+                &workspace_naming(DeviceRef {
+                    backend: "hardware".to_string(),
+                    serial: None,
+                    key: Some("00000001".to_string()),
+                }),
+            )
+            .expect("stored");
+        // …and one that names a serial rather than a key carries no endpoint to adopt at all.
+        store
+            .create_workspace(
+                "serial",
+                &workspace_naming(DeviceRef {
+                    backend: "named".to_string(),
+                    serial: Some("00000001".to_string()),
+                    key: None,
+                }),
+            )
+            .expect("stored");
+
+        let engine = engine_with_named_driver();
+        adopt_named_devices(&engine, &store);
+        assert!(engine.probe_devices().is_empty());
+    }
+
+    #[test]
+    fn a_workspace_with_no_device_node_costs_nothing() {
+        let store = Store::open(None).expect("in-memory store");
+        store
+            .create_workspace("empty", &WorkspaceSnapshot::empty())
+            .expect("stored");
+        let engine = engine_with_named_driver();
+        adopt_named_devices(&engine, &store);
+        assert!(engine.probe_devices().is_empty());
+    }
 }

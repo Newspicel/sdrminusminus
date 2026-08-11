@@ -385,7 +385,7 @@ jobs:
           # flags go after `--`, which is the only way it takes them — v2's `build` has no
           # `--no-default-features` of its own and rejects it outright. Same order as the arg list
           # `xtask desktop --bundles` builds, so the local bundle and this one stay one build.
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features rtl-native,hackrf-native
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features rtl-native,hackrf-native,net-client
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
       # — and the release job below treats every downloaded entry as a file to attach.

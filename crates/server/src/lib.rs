@@ -27,6 +27,7 @@ const DECODED_TEXT_CAP: usize = 1024;
 
 mod assets;
 mod auth;
+mod bandplan;
 mod decoderlog;
 pub mod doctor;
 mod mcp;
@@ -181,7 +182,12 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Write
             auth::require_token,
         ))
         .fallback(assets::static_handler)
-        .with_state(state);
+        .with_state(state)
+        // Gzip on the way out. The band plan is what forced it — a resolved region is over a
+        // megabyte of repetitive JSON and compresses about seventeen to one — but every JSON
+        // response here is the same shape of text, and the binary frame streams go over the
+        // WebSocket, which this does not touch.
+        .layer(tower_http::compression::CompressionLayer::new());
 
     if options.dev_cors {
         app = app.layer(CorsLayer::very_permissive());
@@ -281,6 +287,9 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         None => tracing::info!("no token configured: LAN-trusted, unauthenticated (PLAN §12)"),
     }
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
+    // Before the first probe a client can see: a network receiver a stored workspace names is
+    // discoverable by nobody, and this is what puts it back in the device list.
+    workspace::adopt_named_devices(&engine, &store);
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(config.options.token.as_deref());
     state.db_path = config.db_path.clone();
@@ -1454,6 +1463,81 @@ mod tests {
             tools.iter().any(|t| t["name"] == "get_state"),
             "get_state missing from the tool list"
         );
+    }
+
+    #[tokio::test]
+    async fn the_band_plan_is_served_per_region() {
+        let app = test_router();
+        let (status, body) = request(app.clone(), "GET", "/api/bandplan/regions", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed: sdrmm_wire::BandRegionsResponse = serde_json::from_slice(&body).expect("json");
+        assert!(listed.regions.iter().any(|region| region.id == "de"));
+        assert!(
+            listed
+                .regions
+                .iter()
+                .any(|region| region.id == listed.default_region)
+        );
+
+        let (status, body) = request(app.clone(), "GET", "/api/bandplan/regions/de", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let plan: sdrmm_wire::BandPlan = serde_json::from_slice(&body).expect("json");
+        assert_eq!(plan.region.id, "de");
+        // Layers are named once and referenced by id, so the popover can resolve an authority
+        // without a second request.
+        assert!(
+            plan.layers
+                .iter()
+                .any(|layer| layer.authority == "Bundesnetzagentur")
+        );
+        let allocation = &plan.lanes[0];
+        assert!(!allocation.overlay);
+        // A frequency an operator would actually ask about: the airband over Germany.
+        let block = allocation
+            .blocks
+            .iter()
+            .find(|block| block.start_hz <= 121_500_000.0 && block.stop_hz > 121_500_000.0)
+            .expect("118–137 MHz is allocated");
+        // Allocations travel once and blocks index into them, so the payload does not repeat a
+        // paragraph of notes for every boundary another layer introduces.
+        let winner = &plan.allocations[block.of as usize];
+        assert_eq!(winner.service, sdrmm_wire::BandService::Aeronautical);
+        assert_eq!(
+            winner.suggested.as_ref().map(ChannelParams::type_id),
+            Some("am"),
+            "the airband suggests AM, which is what one-click tuning applies"
+        );
+
+        let (status, _) = request(app, "GET", "/api/bandplan/regions/atlantis", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn locating_a_region_validates_its_coordinate() {
+        let app = test_router();
+        let (status, body) = request(
+            app.clone(),
+            "GET",
+            "/api/bandplan/locate?lat=52.52&lon=13.40",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let found: sdrmm_wire::BandRegionMatch = serde_json::from_slice(&body).expect("json");
+        assert_eq!(found.region, "de");
+        assert!(!found.approximate);
+
+        let (status, _) = request(
+            app.clone(),
+            "GET",
+            "/api/bandplan/locate?lat=91&lon=0",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        // A missing parameter is a rejection, not a silent default at the equator.
+        let (status, _) = request(app, "GET", "/api/bandplan/locate?lat=52.52", None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

@@ -9,6 +9,10 @@ import {
   appendTranscript,
   aprsMotion,
   buildTranscript,
+  dvKind,
+  dvMode,
+  dvNetwork,
+  dvParties,
   formatAge,
   formatAltFreqs,
   formatAltitudeFt,
@@ -409,5 +413,76 @@ describe("sub-GHz", () => {
     expect(subghzTiming({ short_us: 320, repeats: 1 })).toBe("320 µs");
     expect(subghzTiming({ short_us: 320, repeats: 6 })).toBe("320 µs · ×6");
     expect(subghzTiming({ short_us: 0, repeats: 1 })).toBe("");
+  });
+});
+
+describe("digital voice", () => {
+  it("names the network the way each mode publishes it", () => {
+    expect(dvNetwork({ mode: "dmr", color_code: 1, slot: 2 })).toBe("TS2 CC 1");
+    expect(dvNetwork({ mode: "p25", color_code: 0x293, slot: null })).toBe("NAC 293");
+    expect(dvNetwork({ mode: "nxdn", color_code: 5, slot: null })).toBe("RAN 5");
+    expect(dvNetwork({ mode: "m17", color_code: null, slot: null })).toBe("");
+  });
+
+  it("marks a talkgroup so a number is not read as a radio", () => {
+    expect(
+      dvParties({
+        source: 2621001,
+        destination: 505,
+        group_call: true,
+        source_call: null,
+        destination_call: null,
+      }),
+    ).toBe("TG 505 ← 2621001");
+    expect(
+      dvParties({
+        source: 2621001,
+        destination: 2621002,
+        group_call: false,
+        source_call: null,
+        destination_call: null,
+      }),
+    ).toBe("2621002 ← 2621001");
+  });
+
+  it("prefers callsigns where the mode has them, and reports what it has", () => {
+    expect(
+      dvParties({
+        source: null,
+        destination: null,
+        group_call: true,
+        source_call: "DL1ABC",
+        destination_call: "ALL",
+      }),
+    ).toBe("ALL ← DL1ABC");
+    expect(
+      dvParties({
+        source: 42,
+        destination: null,
+        group_call: null,
+        source_call: null,
+        destination_call: null,
+      }),
+    ).toBe("42");
+    expect(
+      dvParties({
+        source: null,
+        destination: null,
+        group_call: null,
+        source_call: null,
+        destination_call: null,
+      }),
+    ).toBe("");
+  });
+
+  it("reads a frame kind as a scanner would say it", () => {
+    expect(dvKind({ kind: "header" })).toBe("call");
+    expect(dvKind({ kind: "terminator" })).toBe("end");
+    expect(dvKind({ kind: "control" })).toBe("signalling");
+  });
+
+  it("spells each mode as operators write it", () => {
+    expect(dvMode({ mode: "dstar" })).toBe("D-STAR");
+    expect(dvMode({ mode: "dpmr" })).toBe("dPMR");
   });
 });

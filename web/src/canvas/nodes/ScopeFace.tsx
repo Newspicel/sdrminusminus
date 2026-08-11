@@ -34,14 +34,18 @@ import {
 } from "../../components/spectrumView";
 import { pixelRatio, zoomOf } from "../../gl/raster";
 import { attachWaterfall, COLORMAPS, type Colormap, type WaterfallView } from "../../gl/waterfall";
+import { setBandRuler } from "../../lib/bandRegion";
 import type { SpectrumFrame } from "../../lib/frame";
 import { spectrumHub } from "../../lib/spectrum";
 import { token } from "../../lib/tokens";
 import type { ChannelInfo, ChannelParams, DeviceSet, PatchNode } from "../../lib/types";
+import { useBandPlan } from "../../lib/useBandPlan";
 import { useChannelPatch } from "../../lib/useChannelPatch";
 import { useDevicePatch } from "../../lib/useDevicePatch";
 import { channelNodesOf, iqSourceOf } from "../binding";
 import { deviceSetOf, useWorkspaceContext } from "../context";
+import { patchNode } from "../graph";
+import { BandRuler } from "./BandRuler";
 import { tuneDelta } from "./DeviceFace";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
@@ -115,6 +119,9 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const { applyPatch } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
   const active = useFaceActive();
+  // Read here and not only inside the ruler: the toolbar toggle has to reflect it too, and the
+  // preference is shared by every scope on the canvas.
+  const { ruler: bandRuler } = useBandPlan();
 
   const plotRef = useRef<HTMLDivElement>(null);
   const waterfallRef = useRef<HTMLCanvasElement>(null);
@@ -182,6 +189,46 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     applyPatch(set.id, tuneDelta(set.capabilities, stream, hz));
   const tuneChannel = (channel: number, offsetHz: number): void =>
     applyEdit(set.id, channel, { offset_hz: offsetHz });
+
+  /** "Tune here with the suggested mode" from the band ruler.
+   *
+   * With a channel selected the band moves *it*, so the operator keeps listening through the
+   * same face; with nothing selected there is only the receiver to move, and creating a channel
+   * uninvited is not what a click on a ruler asked for. A frequency outside the current passband
+   * retunes the receiver first, because a channel offset beyond half the span is not a place a
+   * channel can be.
+   *
+   * The mode is applied to the engine *and* to the node that draws the channel: the node names
+   * the type (CANVAS §4), so patching only the engine would unbind this face and the next apply
+   * would add a second channel beside it. Same two halves as the `m` shortcut. */
+  const tuneToBand = (hz: number, suggested: ChannelParams | null): void => {
+    const params = suggested === null ? {} : { params: suggested };
+    if (selectedChannel === null) {
+      tuneCenter(hz);
+      return;
+    }
+    if (meta === null || Math.abs(hz - meta.centerHz) >= meta.spanHz / 2) {
+      tuneCenter(hz);
+      applyEdit(set.id, selectedChannel, { offset_hz: 0, ...params });
+    } else {
+      applyEdit(set.id, selectedChannel, {
+        offset_hz: Math.round(hz - meta.centerHz),
+        ...params,
+      });
+    }
+    const face = faces.get(selectedChannel);
+    if (suggested === null || face === undefined) {
+      return;
+    }
+    workspace.edit((current) => ({
+      ...current,
+      graph: patchNode(current.graph, face, (drawn) =>
+        drawn.kind === "channel"
+          ? { ...drawn, kind: "channel" as const, data: { channel_type: suggested.type } }
+          : drawn,
+      ),
+    }));
+  };
 
   useEffect(() => {
     const canvas = waterfallRef.current;
@@ -403,6 +450,11 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
         setView(FULL_VIEW);
       }}
     >
+      {/* Above the trace and outside the plot rectangle, sharing its width so the two axes are
+          the same axis (DESIGN.md §9a). */}
+      {meta !== null && (
+        <BandRuler centerHz={meta.centerHz} spanHz={meta.spanHz} view={view} onTune={tuneToBand} />
+      )}
       <canvas
         ref={traceRef}
         className="w-full shrink-0"
@@ -461,6 +513,14 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
             }}
           >
             max hold
+          </button>
+          <button
+            type="button"
+            className={plotButton(bandRuler)}
+            aria-pressed={bandRuler}
+            onClick={() => setBandRuler(!bandRuler)}
+          >
+            bands
           </button>
           {!isFullView(view) && (
             <button type="button" className={plotButton(false)} onClick={() => setView(FULL_VIEW)}>

@@ -20,6 +20,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bandplan/locate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["locate_band_region"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bandplan/regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_band_regions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bandplan/regions/{region}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_band_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bookmarks": {
         parameters: {
             query?: never;
@@ -713,6 +761,190 @@ export interface components {
             /** @description Whether this server rejects requests without the shared token. */
             token_required: boolean;
         };
+        /** @description What a stretch of spectrum is allocated to, as one layer states it. */
+        BandAllocation: {
+            /**
+             * @description Other names the explorer matches on — wavelengths ("70 cm"), colloquialisms ("CB"),
+             *     and the service spelled the long way ("marine", "maritime mobile").
+             */
+            aliases?: string[];
+            /**
+             * Format: double
+             * @description Channel raster, where the band is channelized.
+             */
+            channel_step_hz?: number | null;
+            /**
+             * @description Stable and unique within a plan. Derived from the source's own row id where it has one
+             *     (`de:27002`, `gb:FREQ_00001`) — a range is *not* enough, because a table routinely gives
+             *     one range to several services at once.
+             */
+            id: string;
+            /** @description [`BandLayerInfo::id`] this entry came from. */
+            layer: string;
+            /**
+             * @description What an operator calls it: "2 m amateur", "Marine VHF", "Airband". From the annotations
+             *     overlay where one applies, otherwise the same as [`Self::official_name`].
+             */
+            name: string;
+            notes?: string | null;
+            /**
+             * @description Exactly what the source document calls it — "MOBILER SEEFUNKDIENST", "MARITIME MOBILE".
+             *     Kept beside the friendly name rather than replaced by it: the regulator's wording is the
+             *     citable one, and it is what a reader checking against the source will search for.
+             */
+            official_name: string;
+            /**
+             * @description Primary allocation rather than secondary. Both the ITU and BNetzA tables carry this as
+             *     capitalisation — `MARITIME MOBILE` is primary, `Maritime mobile` is secondary — and a
+             *     secondary service must accept interference from every primary one, which is the
+             *     difference between "this band is yours" and "you may use it if nobody else is".
+             */
+            primary?: boolean;
+            /**
+             * @description Where the row came from inside its source document: `Eintrag 27001`, `FREQ_00001`,
+             *     a page number. `None` for the curated layers, which are their own provenance.
+             */
+            reference?: string | null;
+            service: components["schemas"]["BandService"];
+            /** Format: double */
+            start_hz: number;
+            /** Format: double */
+            stop_hz: number;
+            suggested?: null | components["schemas"]["ChannelParams"];
+        };
+        /**
+         * @description One resolved stretch: what wins here, and everything else that covers it.
+         *
+         *     Allocations travel once in [`BandPlan::allocations`] and are referenced by index. A single
+         *     band is split into a block per boundary any *other* layer introduces, and an imported note
+         *     can be a paragraph, so carrying the payload inline multiplied the document by an order of
+         *     magnitude for no new information.
+         */
+        BandBlock: {
+            /**
+             * @description Everything else covering it, most specific first — co-allocations from the winner's own
+             *     layer, then the layers underneath. This is what lets the identify popover say "BNetzA
+             *     calls it X, over ITU's Y", and what keeps a co-primary service from vanishing.
+             */
+            covered?: number[];
+            /**
+             * Format: int32
+             * @description Index into [`BandPlan::allocations`]: the winner over this stretch.
+             */
+            of: number;
+            /** Format: double */
+            start_hz: number;
+            /** Format: double */
+            stop_hz: number;
+        };
+        /**
+         * @description A row of the ruler. The regulatory layers merge into one lane by most-specific-wins; an
+         *     overlay is a lane of its own, because it describes the same spectrum from a different angle
+         *     rather than contradicting it.
+         */
+        BandLane: {
+            /**
+             * @description Sorted by `start_hz`, non-overlapping — the resolution is what removes the overlaps the
+             *     source tables are full of.
+             */
+            blocks: components["schemas"]["BandBlock"][];
+            id: string;
+            name: string;
+            /** @description Whether the lane is supplementary and may be switched off without losing the allocation. */
+            overlay: boolean;
+        };
+        /**
+         * @description One source of allocations: a table someone published, identified so a block can say where it
+         *     came from. Adding a region is adding one of these plus its entries (FEATURES §5's "pluggable
+         *     importers"); nothing else in the resolution knows the difference.
+         */
+        BandLayerInfo: {
+            /** @description Who publishes it — "ITU", "BNetzA", "Ofcom", "IARU Region 1". */
+            authority: string;
+            /**
+             * @description What wrote this layer: `curated`, or the importer that generated it from the regulator's
+             *     own publication (`bnetza`, `ofcom`, `fcc`). Worth showing: "this came out of the
+             *     Frequenzplan" and "somebody typed this in" are different kinds of claim.
+             */
+            generator?: string;
+            /** @description Stable id, referenced by [`BandAllocation::layer`] and [`BandRegion::layers`]. */
+            id: string;
+            kind: components["schemas"]["BandLayerKind"];
+            name: string;
+            /**
+             * Format: int32
+             * @description Least-specific first: where this layer sits when two of them cover one frequency. Ties
+             *     cannot happen — every layer in a region has a distinct rank.
+             */
+            rank: number;
+            /**
+             * @description The document and edition the entries were taken from, so a stale table is visible rather
+             *     than merely wrong.
+             */
+            source: string;
+        };
+        /**
+         * @description What kind of authority a layer speaks with. This is not decoration: it is why the amateur
+         *     plan renders as a separate lane instead of overriding the regulator — IARU band plans are
+         *     agreements between operators, not allocations, and they subdivide a band the regulator has
+         *     already given to the amateur service.
+         * @enum {string}
+         */
+        BandLayerKind: "world" | "regulatory" | "amateur";
+        /** @description `GET /api/bandplan/regions/{region}` — the whole region, already layered. */
+        BandPlan: {
+            /**
+             * @description Every allocation the lanes reference, once. [`BandBlock::of`] and [`BandBlock::covered`]
+             *     index into this; it is also what the explorer searches, which is why search needs no
+             *     deduplication of its own.
+             */
+            allocations: components["schemas"]["BandAllocation"][];
+            lanes: components["schemas"]["BandLane"][];
+            /** @description Every layer the lanes reference, so a block's `layer` id resolves without a second call. */
+            layers: components["schemas"]["BandLayerInfo"][];
+            region: components["schemas"]["BandRegion"];
+        };
+        /** @description A region the operator can select: the ITU region plus whichever regulator applies there. */
+        BandRegion: {
+            /**
+             * @description ISO 3166-1 alpha-2 where the region is one country; `None` for the bare ITU regions and
+             *     for CEPT.
+             */
+            country?: string | null;
+            id: string;
+            itu_region: components["schemas"]["ItuRegion"];
+            /** @description Layer ids, least specific first. */
+            layers: string[];
+            name: string;
+            /** @description Overlay layer ids — the amateur plans that apply here. */
+            overlays?: string[];
+        };
+        /** @description `GET /api/bandplan/locate` — which region a coordinate falls in. */
+        BandRegionMatch: {
+            /**
+             * @description True when only the ITU region could be decided — the coordinate is outside every
+             *     national footprint this build ships, so the answer is coarse and the UI should say so.
+             */
+            approximate: boolean;
+            itu_region: components["schemas"]["ItuRegion"];
+            /**
+             * @description The most specific region whose footprint contains the coordinate; never empty, because
+             *     the three ITU regions cover the globe.
+             */
+            region: string;
+        };
+        /** @description `GET /api/bandplan/regions`. */
+        BandRegionsResponse: {
+            /** @description What a client with no stored preference should select. */
+            default_region: string;
+            regions: components["schemas"]["BandRegion"][];
+        };
+        /**
+         * @description The service category a block belongs to. Drives the ruler's colour, so it is deliberately
+         *     coarse: ten categories a reader can hold in their head, not the ITU's full service list.
+         * @enum {string}
+         */
+        BandService: "amateur" | "broadcast" | "aeronautical" | "maritime" | "mobile" | "satellite" | "navigation" | "science" | "ism" | "other";
         /** @description A stored frequency bookmark (PLAN §11). */
         Bookmark: {
             /** Format: double */
@@ -906,6 +1138,34 @@ export interface components {
             settings: components["schemas"]["AtvParams"];
             /** @enum {string} */
             type: "atv";
+        } | {
+            settings: components["schemas"]["DmrParams"];
+            /** @enum {string} */
+            type: "dmr";
+        } | {
+            settings: components["schemas"]["DstarParams"];
+            /** @enum {string} */
+            type: "dstar";
+        } | {
+            settings: components["schemas"]["YsfParams"];
+            /** @enum {string} */
+            type: "ysf";
+        } | {
+            settings: components["schemas"]["NxdnParams"];
+            /** @enum {string} */
+            type: "nxdn";
+        } | {
+            settings: components["schemas"]["P25Params"];
+            /** @enum {string} */
+            type: "p25";
+        } | {
+            settings: components["schemas"]["DpmrParams"];
+            /** @enum {string} */
+            type: "dpmr";
+        } | {
+            settings: components["schemas"]["M17Params"];
+            /** @enum {string} */
+            type: "m17";
         };
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
@@ -1141,6 +1401,10 @@ export interface components {
             data: components["schemas"]["ToneSquelchStatus"];
             /** @enum {string} */
             kind: "tone";
+        } | {
+            data: components["schemas"]["DvFrame"];
+            /** @enum {string} */
+            kind: "dv";
         };
         /**
          * @description One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not
@@ -1306,6 +1570,15 @@ export interface components {
          * @enum {string}
          */
         Direction: "rx" | "tx";
+        DmrParams: {
+            slots?: components["schemas"]["DmrSlots"];
+        };
+        /**
+         * @description Which DMR timeslot a channel reports. Both slots share one 12.5 kHz carrier in 30 ms
+         *     alternation, so the receiver always hears both; this only decides what reaches the log.
+         * @enum {string}
+         */
+        DmrSlots: "both" | "one" | "two";
         /** @description One diagnostic line. */
         DoctorCheck: {
             /** @description What was actually found. */
@@ -1326,6 +1599,10 @@ export interface components {
             /** @description Server version (`CARGO_PKG_VERSION`). */
             version: string;
         };
+        /** @description dPMR (C4FM, 2400 symbols/s, 6.25 kHz). */
+        DpmrParams: Record<string, never>;
+        /** @description D-Star (GMSK, 4800 bit/s). */
+        DstarParams: Record<string, never>;
         /**
          * @description What a radio's hardware can do, and whether it can do it at once.
          *
@@ -1336,6 +1613,84 @@ export interface components {
          * @enum {string}
          */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
+        /**
+         * @description One decoded digital-voice frame — the *metadata* of a call, not its audio.
+         *
+         *     No mode here produces sound: DMR, D-Star, YSF, NXDN, P25 and dPMR all carry AMBE-family
+         *     vocoder frames and this build ships no vocoder, and M17's Codec2 payload is not decoded
+         *     either (see FEATURES §9). What a decoder does recover is everything *around* the voice —
+         *     who keyed up, on which talkgroup, over which repeater, with what encryption — which is what
+         *     a scanner log is actually made of. Fields are `Option` because which of them exist is a
+         *     property of the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR
+         *     voice header the reverse.
+         */
+        DvFrame: {
+            /**
+             * Format: int32
+             * @description The mode's network discriminator, under whichever name it publishes: DMR colour code,
+             *     NXDN/dPMR RAN or colour code, P25 NAC, YSF has none.
+             */
+            color_code?: number | null;
+            /**
+             * Format: int32
+             * @description Numeric destination: talkgroup for a group call, radio ID for a private one.
+             */
+            destination?: number | null;
+            destination_call?: string | null;
+            /**
+             * @description Set when the frame says its payload is encrypted. `Some(false)` is a positive statement
+             *     that it is in the clear; `None` means the frame did not say.
+             */
+            encrypted?: boolean | null;
+            /**
+             * Format: int32
+             * @description Bit errors the frame's error-correcting codes repaired — the honest signal-quality
+             *     readout, since a mode with no audio has no other.
+             */
+            errors_corrected: number;
+            /** @description True for a talkgroup call, false for a call addressed to one radio. */
+            group_call?: boolean | null;
+            kind: components["schemas"]["DvFrameKind"];
+            mode: components["schemas"]["DvMode"];
+            /**
+             * @description Name of the signalling opcode for a control frame — "group voice channel grant",
+             *     "preamble", … — as its specification names it.
+             */
+            opcode?: string | null;
+            /**
+             * Format: int32
+             * @description TDMA timeslot, 1 or 2 — DMR only; every other mode here is single-slot.
+             */
+            slot?: number | null;
+            /**
+             * Format: int32
+             * @description Numeric source address — DMR/NXDN/dPMR radio ID, P25 source unit.
+             */
+            source?: number | null;
+            /** @description Source callsign — the modes that address by callsign rather than by number. */
+            source_call?: string | null;
+            /**
+             * @description Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta
+             *     field.
+             */
+            text?: string | null;
+            /** @description The repeater or reflector the call is routed through: D-Star RPT1/RPT2. */
+            via?: string | null;
+        };
+        /**
+         * @description What the burst was carrying. Every mode distinguishes these four, whatever it calls them:
+         *     the frame that opens a transmission and names the parties, the voice frames that follow,
+         *     the one that closes it, and the signalling that travels outside a call.
+         * @enum {string}
+         */
+        DvFrameKind: "header" | "voice" | "terminator" | "control" | "data";
+        /**
+         * @description Which digital-voice mode a [`DvFrame`] was heard on (PLAN §13 wave 3). One event type
+         *     serves all of them because the *question* is the same in every mode — who is talking, to
+         *     whom, on which network — and only the names for it differ.
+         * @enum {string}
+         */
+        DvMode: "dmr" | "dstar" | "ysf" | "nxdn" | "p25" | "dpmr" | "m17";
         /**
          * @description Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a
          *     path segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing
@@ -1381,6 +1736,15 @@ export interface components {
             /** Format: double */
             value_db: number;
         };
+        /**
+         * @description The three ITU radio regions (Radio Regulations Art. 5 §1). Region 1 is Europe, Africa, the
+         *     Middle East west of the Persian Gulf and northern Asia; Region 2 the Americas; Region 3 the
+         *     rest of Asia and Oceania.
+         * @enum {string}
+         */
+        ItuRegion: "r1" | "r2" | "r3";
+        /** @description M17 (C4FM, 4800 symbols/s, RRC 0.5). */
+        M17Params: Record<string, never>;
         MorseParams: {
             /**
              * Format: double
@@ -1530,6 +1894,17 @@ export interface components {
             needs_channel_type?: boolean;
             ports: components["schemas"]["PortSpec"][];
         };
+        /**
+         * @description The two NXDN channel widths. They are different radios as far as the receiver is
+         *     concerned: 6.25 kHz halves both the symbol rate and the deviation of the 12.5 kHz one.
+         * @enum {string}
+         */
+        NxdnBandwidth: "narrow" | "wide";
+        NxdnParams: {
+            bandwidth?: components["schemas"]["NxdnBandwidth"];
+        };
+        /** @description P25 Phase 1 (C4FM, 4800 symbols/s). */
+        P25Params: Record<string, never>;
         /**
          * @description `POST /api/workspaces/{id}/apply` — what applying the workspace did.
          *
@@ -2502,6 +2877,8 @@ export interface components {
             active?: number | null;
             workspaces: components["schemas"]["WorkspaceInfo"][];
         };
+        /** @description System Fusion (C4FM, 4800 symbols/s). */
+        YsfParams: Record<string, never>;
     };
     responses: never;
     parameters: never;
@@ -2527,6 +2904,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthInfo"];
+                };
+            };
+        };
+    };
+    locate_band_region: {
+        parameters: {
+            query: {
+                /** @description Degrees north, −90…90. */
+                lat: number;
+                /** @description Degrees east, −180…180. */
+                lon: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The region a coordinate falls in. Coarse by construction — bounding boxes over the national footprints and an approximation of the ITU lines — so `approximate` says when only the ITU region could be decided and the operator should confirm it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BandRegionMatch"];
+                };
+            };
+            /** @description Coordinate out of range */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_band_regions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Selectable band-plan regions and the one to use with no stored preference. Static: the tables ship with the binary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BandRegionsResponse"];
+                };
+            };
+        };
+    };
+    get_band_plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Region id from /api/bandplan/regions */
+                region: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The region's allocations, already layered most-specific-wins, as one lane per view: the regulatory stack merged into one, and each amateur band plan as an overlay. Clipping it to a scope's window and searching it are client-side arithmetic over this document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BandPlan"];
+                };
+            };
+            /** @description No such region */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };

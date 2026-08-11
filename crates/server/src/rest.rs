@@ -12,16 +12,16 @@ use axum::{
 use sdrmm_engine::EngineError;
 use sdrmm_recorder::{SigmfMeta, SigmfReader, data_path, meta_path, scan_stems};
 use sdrmm_wire::{
-    ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelSettings,
-    ChannelTypesResponse, ClientCommand, ClientsResponse, CreateBookmarkRequest,
-    CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest, CreateWorkspaceRequest,
-    CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport, ExportFormat, NodeBody,
-    PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal, PresetInfo, PresetSnapshot,
-    RecordAction, RecordRequest, RecordingStatus, RecordingsResponse, ScanAction, ScanRequest,
-    ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo, TemplatesResponse,
-    UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState,
-    WorkspacesResponse,
+    ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, BandPlan, BandRegionMatch,
+    BandRegionsResponse, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
+    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
+    CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
+    DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
+    DoctorReport, ExportFormat, LocateQuery, NodeBody, PatchApplyReport, PatchBinding,
+    PatchCatalog, PatchRefusal, PresetInfo, PresetSnapshot, RecordAction, RecordRequest,
+    RecordingStatus, RecordingsResponse, ScanAction, ScanRequest, ScannerStatus, ServerEvent,
+    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, UpdateWorkspaceRequest,
+    WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -1493,6 +1493,67 @@ async fn get_patch_catalog() -> Json<PatchCatalog> {
 }
 
 #[utoipa::path(
+    get, path = "/api/bandplan/regions",
+    responses((
+        status = 200,
+        description = "Selectable band-plan regions and the one to use with no stored \
+                       preference. Static: the tables ship with the binary",
+        body = BandRegionsResponse,
+    )),
+)]
+async fn list_band_regions() -> Json<BandRegionsResponse> {
+    Json(crate::bandplan::regions())
+}
+
+#[utoipa::path(
+    get, path = "/api/bandplan/regions/{region}",
+    params(("region" = String, Path, description = "Region id from /api/bandplan/regions")),
+    responses(
+        (
+            status = 200,
+            description = "The region's allocations, already layered most-specific-wins, as one \
+                           lane per view: the regulatory stack merged into one, and each amateur \
+                           band plan as an overlay. Clipping it to a scope's window and \
+                           searching it are client-side arithmetic over this document",
+            body = BandPlan,
+        ),
+        (status = 404, description = "No such region", body = ApiError),
+    ),
+)]
+async fn get_band_plan(Path(region): Path<String>) -> Result<Json<BandPlan>, AppError> {
+    crate::bandplan::plan(&region)
+        .map(Json)
+        .ok_or_else(|| AppError::not_found(format!("no band plan for region {region}")))
+}
+
+#[utoipa::path(
+    get, path = "/api/bandplan/locate",
+    params(LocateQuery),
+    responses(
+        (
+            status = 200,
+            description = "The region a coordinate falls in. Coarse by construction — bounding \
+                           boxes over the national footprints and an approximation of the ITU \
+                           lines — so `approximate` says when only the ITU region could be \
+                           decided and the operator should confirm it",
+            body = BandRegionMatch,
+        ),
+        (status = 400, description = "Coordinate out of range", body = ApiError),
+    ),
+)]
+async fn locate_band_region(
+    Query(at): Query<LocateQuery>,
+) -> Result<Json<BandRegionMatch>, AppError> {
+    if !(-90.0..=90.0).contains(&at.lat) || !(-180.0..=180.0).contains(&at.lon) {
+        return Err(AppError::bad_request(format!(
+            "lat must be -90..90 and lon -180..180, got {}, {}",
+            at.lat, at.lon
+        )));
+    }
+    Ok(Json(crate::bandplan::locate(at.lat, at.lon)))
+}
+
+#[utoipa::path(
     get, path = "/api/clients",
     responses((
         status = 200,
@@ -1597,6 +1658,9 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(activate_workspace))
         .routes(routes!(apply_workspace))
         .routes(routes!(get_patch_catalog))
+        .routes(routes!(list_band_regions))
+        .routes(routes!(get_band_plan))
+        .routes(routes!(locate_band_region))
         .routes(routes!(get_auth))
         .routes(routes!(get_clients))
         .routes(routes!(get_doctor))

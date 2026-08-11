@@ -1,0 +1,123 @@
+{
+  "authority": "CEPT/ECC",
+  "entries": [
+    {
+      "aliases": [
+        "cb",
+        "citizens band",
+        "11 m"
+      ],
+      "channel_step_hz": 10000.0,
+      "name": "CB — 40 CEPT channels",
+      "notes": "4 W AM and FM, 12 W PEP SSB. Channel 9 (27.065 MHz) is the emergency channel and channel 19 the road channel.",
+      "service": "mobile",
+      "start_hz": 26960000.0,
+      "stop_hz": 27410000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "m-bus",
+        "wmbus",
+        "169",
+        "smart meter"
+      ],
+      "name": "Wireless M-Bus and assistive listening — 169 MHz",
+      "notes": "Long-range utility metering, and hearing-aid assistive listening.",
+      "service": "mobile",
+      "start_hz": 169400000.0,
+      "stop_hz": 169812500.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 150000.0,
+          "frame_gap_us": 5000,
+          "min_pulse_us": 80,
+          "modulation": "ook"
+        },
+        "type": "subghz"
+      }
+    },
+    {
+      "aliases": [
+        "tetra",
+        "emergency services",
+        "public safety"
+      ],
+      "name": "TETRA — public safety",
+      "notes": "Digital trunked radio for police, fire and ambulance: π/4-DQPSK in 25 kHz carriers. Encrypted end to end, so only the presence of a carrier is visible.",
+      "service": "mobile",
+      "start_hz": 380000000.0,
+      "stop_hz": 400000000.0
+    },
+    {
+      "aliases": [
+        "pmr446",
+        "pmr",
+        "walkie talkie",
+        "handheld"
+      ],
+      "channel_step_hz": 12500.0,
+      "name": "PMR446 — licence-exempt",
+      "notes": "16 analogue FM channels at 0.5 W ERP, no licence anywhere in CEPT. dPMR and DMR digital channels share the same 200 kHz.",
+      "service": "mobile",
+      "start_hz": 446000000.0,
+      "stop_hz": 446200000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "868",
+        "srd",
+        "lora",
+        "lorawan",
+        "sigfox",
+        "wmbus",
+        "smart home"
+      ],
+      "name": "SRD — 868 MHz",
+      "notes": "ERC/REC 70-03. LoRaWAN, wireless M-Bus, alarms and sensors, all duty-cycle limited. Europe's answer to Region 2's 915 MHz.",
+      "service": "ism",
+      "start_hz": 863000000.0,
+      "stop_hz": 870000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 150000.0,
+          "frame_gap_us": 5000,
+          "min_pulse_us": 80,
+          "modulation": "ook"
+        },
+        "type": "subghz"
+      }
+    },
+    {
+      "aliases": [
+        "dsrc",
+        "toll",
+        "tolling"
+      ],
+      "name": "Road tolling — DSRC",
+      "notes": "CEN DSRC beacons at motorway gantries.",
+      "service": "mobile",
+      "start_hz": 5795000000.0,
+      "stop_hz": 5815000000.0
+    }
+  ],
+  "id": "cept",
+  "kind": "regulatory",
+  "name": "Europe — CEPT",
+  "provenance": {
+    "generator": "curated"
+  },
+  "source": "ERC/REC 70-03 and related ECC decisions — curated extract"
+}
