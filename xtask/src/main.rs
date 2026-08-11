@@ -368,6 +368,37 @@ struct Fixture {
     note: String,
 }
 
+/// The APRS fixture's burst, keyed by the modulator that pairs with the decoder it is meant to
+/// feed (PLAN §20) — nothing here reaches an antenna; it is written to a file.
+fn aprs_burst() -> Vec<Complex<f32>> {
+    use sdrmm_channels::{AprsTx, ChannelCtx, ChannelTx, TxPayload, testgen};
+    use sdrmm_wire::{AprsMode, AprsParams, ChannelParams, ChannelSettings};
+
+    let settings = ChannelSettings {
+        offset_hz: 0.0,
+        squelch_db: None,
+        params: ChannelParams::Aprs(AprsParams {
+            mode: AprsMode::Afsk1200,
+            ..AprsParams::default()
+        }),
+    };
+    let mut tx = AprsTx::new(
+        ChannelCtx {
+            input_rate: AprsTx::descriptor().input_rate_hz,
+        },
+        settings,
+    )
+    .expect("aprs modulator at its own channel rate");
+    tx.submit(TxPayload::Frame(AprsTx::ui_frame(
+        "DL1ABC-9",
+        "APRS",
+        &["WIDE1-1"],
+        "!5230.00N/01324.00E>sdr-- fixture",
+    )))
+    .expect("a ui frame is a payload the modulator carries");
+    testgen::burst(&mut tx)
+}
+
 /// One playable fixture per wave-1 decoder. Each sits at a deliberate channel offset so
 /// playing it also exercises the DDC, except ADS-B, which fills its whole channel.
 fn decoder_fixtures() -> Vec<Fixture> {
@@ -426,16 +457,10 @@ fn decoder_fixtures() -> Vec<Fixture> {
 
     out.push(Fixture {
         stem: "aprs_afsk1200_240k".to_string(),
+        // The one fixture rendered by a real modulator rather than a testgen encoder: `AprsTx`
+        // keys its own 48 kHz channel rate, so the burst is resampled up to the device's.
         iq: at(
-            testgen::aprs::afsk1200(
-                &testgen::aprs::ui_frame(
-                    "DL1ABC-9",
-                    "APRS",
-                    &["WIDE1-1"],
-                    "!5230.00N/01324.00E>sdr-- fixture",
-                ),
-                NARROW,
-            ),
+            testgen::resample(&aprs_burst(), AUDIO, NARROW),
             -40_000.0,
             NARROW,
         ),

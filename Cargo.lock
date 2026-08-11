@@ -5757,6 +5757,7 @@ dependencies = [
  "sdrmm-device-virtual",
  "sdrmm-recorder",
  "sdrmm-server",
+ "sdrmm-wire",
 ]
 
 [[package]]
