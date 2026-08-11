@@ -35,8 +35,8 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Auto-reconnect on replug — a faulted set whose radio re-enumerates is re-opened, its tuning re-applied and its channels rebuilt with ids, PCM identity and live audio subscriptions preserved
 - **[shipped]** Two-tier recovery — an in-place stream restart (measured 6.1–7.6 ms on the RTL-SDR, 0.8–1.2 ms on the HackRF, against ~1.6 s for a re-open) with a silent-stall detector on both radios, falling back to the engine's destructive fault path only when the restart budget is spent. Proven in three pieces (policy, transport, primitive); never yet driven by a genuinely halted pipe
 - **[shipped]** Soapy-free builds are a CI gate (`--no-default-features --features rtl-native,hackrf-native`)
-- **[planned]** Direct sampling (HF via RTL-SDR) — unblocked by owning the driver, not yet built
-- **[planned]** HackRF independent baseband-filter bandwidth and hardware sweep mode — currently rejected honestly rather than advertised and faked; Soapy covers them
+- **[planned]** Direct sampling (HF via RTL-SDR)
+- **[planned]** HackRF independent baseband-filter bandwidth and hardware sweep mode
 - **[planned]** rtl_tcp / SpyServer client device
 - **[planned]** KiwiSDR client device
 - **[planned]** Remote source/sink between sdr-- instances; local routing between device sets
@@ -128,12 +128,11 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[shipped]** Errors as a dismissible toast stack rather than a banner that shoves every panel down
 - **[shipped]** Playwright smoke flow (`xtask smoke`) driving the built UI against a real server
 - **[planned]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them
-- **[planned]** A first-run wizard — M5's shipped and was folded into empty states by the design pass; the canvas has no guided first run
+- **[planned]** A first-run wizard — the canvas has no guided first run
 - **[planned]** Band-plan explorer (§5)
 - **[planned]** Node kinds whose backends do not exist yet: GPS source, UDP sink, WAV sink, and the `iq-tap`/`position` port types that go with them
 - **[planned]** A scope on a channel tap — a scope only takes a device today
 - **[planned]** Theme/skin system and a layout marketplace
-- **[planned]** Accessibility pass — screen-reader labels, high contrast, audio cues
 - **[planned]** Localization (DE/EN first)
 
 ## 8. Voice & analog channels
@@ -266,9 +265,11 @@ test. No presets exist whose purpose is uncontrolled over-the-air disruption of 
 - **[shipped]** The device abstraction carries TX both ways — `Duplex` (`RxOnly`/`TxOnly`/`Half`/`Full`) and `tx_start` → `TxStream`; RX-only backends inherit the defaults and change nothing
 - **[shipped]** The HackRF's transmit path — bulk-OUT queue of 16 on the shared transport, the firmware's zero-filled end-of-burst marker, transmit VGA control, half-duplex arbitration in both directions, and a transfer policy that deliberately never re-sends a failed transmit transfer
 - **[shipped]** It is unreachable from outside the device layer, by construction — transmit VGA written to 0 dB on open, no wire type through which a client could ask, no `engine`/`server`/MCP/UI caller. `Capabilities.duplex` now states what the hardware *has* (a HackRF is `half`), which is what draws its reserved transmit input; the port emits nothing and accepts nothing. No node kind emits the `tx` port type, so no edge into it can validate, and a test fails the day one does
+- **[shipped]** `ChannelTx`, the transmit half of the channel surface — payload in on the control plane, IQ out on the hot path, raised-cosine burst edges so keying does not splatter, a bounded queue that refuses a backlog instead of growing, and a short fill as the "burst is over" signal. Deliberately not the same trait as `ChannelRx`: the two directions share a mode's constants and (next) its framing, not their state. A modulator sits in the same registry row as the demodulator it pairs with, and `can_transmit` on the wire is *derived* from whether that column is filled, so the flag a UI would draw a port from cannot disagree with what `create_tx` will build. Reaching an antenna is still gated exactly as before — nothing in `engine` or `server` calls it, and the samples land in a buffer
+- **[shipped]** NFM is the first mode with a modulator, round-tripped against its own demodulator in test at both channel spacings. Neither end carries pre- or de-emphasis, which is what makes the pair agree
 - **[planned]** The authorized-use gate itself, and everything below it
 - **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
-- **[planned]** Modulators paired with each demod, for two-way, beacon and test use on licensed bands
+- **[planned]** Modulators for the remaining modes, over a shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use on licensed bands
 - **[planned]** Sub-GHz capture → decode → replay; fixed-code analysis and generation including de Bruijn sequences; rolling-code capture and implementation analysis against your own DUT
 - **[planned]** Interference / jam-susceptibility testing into a contained link
 - **[planned]** Flood / spam / malformed-broadcast testing at a DUT over a contained link

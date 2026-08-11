@@ -729,6 +729,13 @@ export interface components {
              */
             bandwidth_hz: number;
             /**
+             * @description The type ships a modulator as well as a demodulator, so a transmit channel of it can be
+             *     built (PLAN §20). Says only that the waveform exists — whether it may ever reach an
+             *     antenna is the authorized-use gate's question, and that gate has not been built.
+             *     Defaults to `false`, which is every receive-only type.
+             */
+            can_transmit?: boolean;
+            /**
              * @description [`crate::DecoderEvent::kind`] this channel emits, when it is a decoder — the client
              *     uses it to pick the panel that renders the events.
              */

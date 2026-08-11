@@ -2251,6 +2251,10 @@
             "format": "double",
             "description": "Nominal RF bandwidth the channel needs, in Hz."
           },
+          "can_transmit": {
+            "type": "boolean",
+            "description": "The type ships a modulator as well as a demodulator, so a transmit channel of it can be\nbuilt (PLAN §20). Says only that the waveform exists — whether it may ever reach an\nantenna is the authorized-use gate's question, and that gate has not been built.\nDefaults to `false`, which is every receive-only type."
+          },
           "decoder_kind": {
             "type": [
               "string",
