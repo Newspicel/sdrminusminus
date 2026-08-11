@@ -9,6 +9,9 @@ import { getToken, rejectToken, withToken } from "./auth";
 import type {
   ApiError,
   AuthInfo,
+  BandPlan,
+  BandRegionMatch,
+  BandRegionsResponse,
   Bookmark,
   ChannelSettings,
   ChannelTypesResponse,
@@ -71,6 +74,7 @@ export const CLIENTS_KEY = ["get", "/api/clients"] as const;
 export const DOCTOR_KEY = ["get", "/api/doctor"] as const;
 export const WORKSPACES_KEY = ["get", "/api/workspaces"] as const;
 export const PATCH_CATALOG_KEY = ["get", "/api/patch/catalog"] as const;
+export const BAND_REGIONS_KEY = ["get", "/api/bandplan/regions"] as const;
 
 export function stateQuery() {
   return queryOptions({
@@ -344,6 +348,39 @@ export function patchCatalogQuery() {
     queryFn: async (): Promise<PatchCatalog> => unwrap(await client.GET("/api/patch/catalog")),
     staleTime: Number.POSITIVE_INFINITY,
   });
+}
+
+/** The regions a band plan can be read in. Compiled into the server like the node palette. */
+export function bandRegionsQuery() {
+  return queryOptions({
+    queryKey: BAND_REGIONS_KEY,
+    queryFn: async (): Promise<BandRegionsResponse> =>
+      unwrap(await client.GET("/api/bandplan/regions")),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/** One region's whole allocation table, already layered. Fetched once and then clipped and
+ * searched locally (`components/bandPlan.ts`): a scope pans and zooms continuously, and a
+ * request per frame to re-cut a document that cannot change would be absurd. */
+export function bandPlanQuery(region: string | null) {
+  return queryOptions({
+    queryKey: ["get", "/api/bandplan/regions/{region}", region] as const,
+    queryFn: async (): Promise<BandPlan> =>
+      unwrap(
+        await client.GET("/api/bandplan/regions/{region}", {
+          params: { path: { region: region ?? "" } },
+        }),
+      ),
+    enabled: region !== null,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/** Which region a coordinate falls in. Not a query: it is asked once, when the operator presses
+ * "detect", and its answer is a suggestion they then confirm. */
+export async function locateBandRegion(lat: number, lon: number): Promise<BandRegionMatch> {
+  return unwrap(await client.GET("/api/bandplan/locate", { params: { query: { lat, lon } } }));
 }
 
 export function doctorQuery(enabled: boolean) {

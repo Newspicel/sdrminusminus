@@ -1,0 +1,164 @@
+{
+  "authority": "ITU",
+  "entries": [
+    {
+      "aliases": [
+        "lw",
+        "long wave",
+        "langwelle"
+      ],
+      "channel_step_hz": 9000.0,
+      "name": "Long-wave broadcast",
+      "notes": "A Region 1 speciality. 9 kHz raster; several transmitters also carry a time code, as 162 kHz did for France.",
+      "service": "broadcast",
+      "start_hz": 148500.0,
+      "stop_hz": 283500.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "160 m",
+        "top band"
+      ],
+      "name": "160 m amateur (Region 1)",
+      "notes": "Region 1 starts at 1810 kHz, not 1800.",
+      "service": "amateur",
+      "start_hz": 1810000.0,
+      "stop_hz": 2000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "80 m",
+        "3.5 mhz"
+      ],
+      "name": "80 m amateur (Region 1)",
+      "notes": "300 kHz here against 500 kHz in Region 2; 3.8–3.9 MHz is broadcast.",
+      "service": "amateur",
+      "start_hz": 3500000.0,
+      "stop_hz": 3800000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "6 m",
+        "50 mhz",
+        "magic band"
+      ],
+      "name": "6 m amateur (Region 1)",
+      "notes": "WRC-19 harmonised 50–52 MHz across Region 1; some administrations allow up to 54 MHz. Sporadic-E turns it into a worldwide band for hours at a time.",
+      "service": "amateur",
+      "start_hz": 50000000.0,
+      "stop_hz": 52000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "oirt",
+        "fm oirt",
+        "eastern fm"
+      ],
+      "name": "OIRT FM broadcast",
+      "notes": "The legacy Eastern-European FM band; still on air in a few places.",
+      "service": "broadcast",
+      "start_hz": 65800000.0,
+      "stop_hz": 74000000.0,
+      "suggested": {
+        "settings": {
+          "deemphasis_us": 50.0,
+          "rds": false
+        },
+        "type": "wfm"
+      }
+    },
+    {
+      "aliases": [
+        "433",
+        "433 mhz",
+        "ism 433",
+        "srd",
+        "remote control"
+      ],
+      "name": "ISM — 433 MHz",
+      "notes": "RR 5.138, Region 1 only. Car keys, tyre-pressure sensors, weather stations, doorbells — and it sits on top of the 70 cm amateur band.",
+      "service": "ism",
+      "start_hz": 433050000.0,
+      "stop_hz": 434790000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 150000.0,
+          "frame_gap_us": 5000,
+          "min_pulse_us": 80,
+          "modulation": "ook"
+        },
+        "type": "subghz"
+      }
+    },
+    {
+      "aliases": [
+        "gsm900",
+        "band 8 uplink"
+      ],
+      "name": "GSM 900 uplink",
+      "notes": "Handset to base station. Where Region 2 has its 915 MHz ISM band.",
+      "service": "mobile",
+      "start_hz": 890000000.0,
+      "stop_hz": 915000000.0
+    },
+    {
+      "aliases": [
+        "gsm900",
+        "band 8 downlink"
+      ],
+      "name": "GSM 900 downlink",
+      "service": "mobile",
+      "start_hz": 925000000.0,
+      "stop_hz": 960000000.0
+    },
+    {
+      "aliases": [
+        "13 cm",
+        "2.3 ghz"
+      ],
+      "name": "13 cm amateur (Region 1)",
+      "notes": "Secondary, and shared with the 2.4 GHz ISM band above 2400 MHz.",
+      "service": "amateur",
+      "start_hz": 2300000000.0,
+      "stop_hz": 2400000000.0
+    }
+  ],
+  "id": "itu-r1",
+  "kind": "world",
+  "name": "ITU Region 1",
+  "provenance": {
+    "generator": "curated"
+  },
+  "source": "Radio Regulations, Article 5 — Region 1 column"
+}

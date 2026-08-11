@@ -1,0 +1,182 @@
+{
+  "authority": "ITU",
+  "entries": [
+    {
+      "aliases": [
+        "mw",
+        "am broadcast",
+        "am radio"
+      ],
+      "channel_step_hz": 10000.0,
+      "name": "Medium-wave broadcast (Region 2)",
+      "notes": "10 kHz raster, and the band runs 100 kHz higher than elsewhere.",
+      "service": "broadcast",
+      "start_hz": 525000.0,
+      "stop_hz": 1705000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "80 m",
+        "75 m"
+      ],
+      "name": "80/75 m amateur (Region 2)",
+      "notes": "A full 500 kHz, with the SSB end above 3.8 MHz.",
+      "service": "amateur",
+      "start_hz": 3500000.0,
+      "stop_hz": 4000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "40 m"
+      ],
+      "name": "40 m amateur (Region 2 extension)",
+      "notes": "Shortwave broadcast to the rest of the world, amateur here.",
+      "service": "amateur",
+      "start_hz": 7200000.0,
+      "stop_hz": 7300000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "lsb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "6 m",
+        "magic band"
+      ],
+      "name": "6 m amateur (Region 2)",
+      "service": "amateur",
+      "start_hz": 50000000.0,
+      "stop_hz": 54000000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 2700.0,
+          "sideband": "usb"
+        },
+        "type": "ssb"
+      }
+    },
+    {
+      "aliases": [
+        "2 m"
+      ],
+      "channel_step_hz": 15000.0,
+      "name": "2 m amateur (Region 2 extension)",
+      "service": "amateur",
+      "start_hz": 146000000.0,
+      "stop_hz": 148000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm",
+        "440"
+      ],
+      "name": "70 cm amateur (Region 2, lower)",
+      "service": "amateur",
+      "start_hz": 420000000.0,
+      "stop_hz": 430000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "70 cm",
+        "440"
+      ],
+      "channel_step_hz": 25000.0,
+      "name": "70 cm amateur (Region 2, upper)",
+      "service": "amateur",
+      "start_hz": 440000000.0,
+      "stop_hz": 450000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "uhf tv",
+        "atsc"
+      ],
+      "channel_step_hz": 6000000.0,
+      "name": "UHF television (Region 2)",
+      "notes": "6 MHz channels, 14–36 after the repack.",
+      "service": "broadcast",
+      "start_hz": 470000000.0,
+      "stop_hz": 608000000.0
+    },
+    {
+      "aliases": [
+        "uhf tv",
+        "atsc"
+      ],
+      "channel_step_hz": 6000000.0,
+      "name": "UHF television (Region 2, upper)",
+      "service": "broadcast",
+      "start_hz": 614000000.0,
+      "stop_hz": 698000000.0
+    },
+    {
+      "aliases": [
+        "915",
+        "ism 915",
+        "33 cm",
+        "lora",
+        "srd"
+      ],
+      "name": "ISM — 915 MHz",
+      "notes": "RR 5.150 in Region 2, and the reason 915 MHz hardware does not work in Europe. Also the 33 cm amateur band.",
+      "service": "ism",
+      "start_hz": 902000000.0,
+      "stop_hz": 928000000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 150000.0,
+          "frame_gap_us": 5000,
+          "min_pulse_us": 80,
+          "modulation": "ook"
+        },
+        "type": "subghz"
+      }
+    }
+  ],
+  "id": "itu-r2",
+  "kind": "world",
+  "name": "ITU Region 2",
+  "provenance": {
+    "generator": "curated"
+  },
+  "source": "Radio Regulations, Article 5 — Region 2 column"
+}

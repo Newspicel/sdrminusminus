@@ -13,6 +13,8 @@ use anyhow::{Context, Result, bail, ensure};
 use clap::{Parser, Subcommand};
 use num_complex::Complex;
 
+mod bandplan;
+
 #[derive(Parser)]
 #[command(name = "xtask", about = "sdr-- workspace tasks")]
 struct Cli {
@@ -38,6 +40,14 @@ enum Cmd {
     Smoke,
     /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
     Fixtures,
+    /// Regenerate the band-plan tables from the regulators' own publications (FEATURES §5).
+    /// Needs `curl` and `pdftotext` (poppler); neither is needed to build or run the server.
+    Bandplan {
+        /// Parse what is already in `target/bandplan-cache` instead of fetching. The sources are
+        /// tens of megabytes and change a few times a year.
+        #[arg(long)]
+        offline: bool,
+    },
     /// Build the self-contained release archive for this host (PLAN §15).
     Dist {
         /// Cross-compile for this target triple instead of the host.
@@ -70,6 +80,7 @@ fn main() -> Result<()> {
         Cmd::Audit => audit(&root()),
         Cmd::Smoke => smoke(&root()),
         Cmd::Fixtures => fixtures(&root()),
+        Cmd::Bandplan { offline } => bandplan::run(&root(), offline),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
         Cmd::SetVersion { version } => set_version(&root(), &version),

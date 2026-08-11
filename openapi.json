@@ -30,6 +30,110 @@
         }
       }
     },
+    "/api/bandplan/locate": {
+      "get": {
+        "operationId": "locate_band_region",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "description": "Degrees north, −90…90.",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "description": "Degrees east, −180…180.",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The region a coordinate falls in. Coarse by construction — bounding boxes over the national footprints and an approximation of the ITU lines — so `approximate` says when only the ITU region could be decided and the operator should confirm it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BandRegionMatch"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Coordinate out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bandplan/regions": {
+      "get": {
+        "operationId": "list_band_regions",
+        "responses": {
+          "200": {
+            "description": "Selectable band-plan regions and the one to use with no stored preference. Static: the tables ship with the binary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BandRegionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/bandplan/regions/{region}": {
+      "get": {
+        "operationId": "get_band_plan",
+        "parameters": [
+          {
+            "name": "region",
+            "in": "path",
+            "description": "Region id from /api/bandplan/regions",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The region's allocations, already layered most-specific-wins, as one lane per view: the regulatory stack merged into one, and each amateur band plan as an overlay. Clipping it to a scope's window and searching it are client-side arithmetic over this document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BandPlan"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such region",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/bookmarks": {
       "get": {
         "operationId": "list_bookmarks",
@@ -2166,6 +2270,340 @@
           }
         }
       },
+      "BandAllocation": {
+        "type": "object",
+        "description": "What a stretch of spectrum is allocated to, as one layer states it.",
+        "required": [
+          "id",
+          "layer",
+          "start_hz",
+          "stop_hz",
+          "service",
+          "name",
+          "official_name"
+        ],
+        "properties": {
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Other names the explorer matches on — wavelengths (\"70 cm\"), colloquialisms (\"CB\"),\nand the service spelled the long way (\"marine\", \"maritime mobile\")."
+          },
+          "channel_step_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Channel raster, where the band is channelized."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable and unique within a plan. Derived from the source's own row id where it has one\n(`de:27002`, `gb:FREQ_00001`) — a range is *not* enough, because a table routinely gives\none range to several services at once."
+          },
+          "layer": {
+            "type": "string",
+            "description": "[`BandLayerInfo::id`] this entry came from."
+          },
+          "name": {
+            "type": "string",
+            "description": "What an operator calls it: \"2 m amateur\", \"Marine VHF\", \"Airband\". From the annotations\noverlay where one applies, otherwise the same as [`Self::official_name`]."
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "official_name": {
+            "type": "string",
+            "description": "Exactly what the source document calls it — \"MOBILER SEEFUNKDIENST\", \"MARITIME MOBILE\".\nKept beside the friendly name rather than replaced by it: the regulator's wording is the\ncitable one, and it is what a reader checking against the source will search for."
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "Primary allocation rather than secondary. Both the ITU and BNetzA tables carry this as\ncapitalisation — `MARITIME MOBILE` is primary, `Maritime mobile` is secondary — and a\nsecondary service must accept interference from every primary one, which is the\ndifference between \"this band is yours\" and \"you may use it if nobody else is\"."
+          },
+          "reference": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where the row came from inside its source document: `Eintrag 27001`, `FREQ_00001`,\na page number. `None` for the curated layers, which are their own provenance."
+          },
+          "service": {
+            "$ref": "#/components/schemas/BandService"
+          },
+          "start_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "stop_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "suggested": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChannelParams",
+                "description": "The mode to tune with, where the band has an obvious one. Sent to the channel verbatim,\nso \"tune here with the suggested mode\" needs no client-side mode table."
+              }
+            ]
+          }
+        }
+      },
+      "BandBlock": {
+        "type": "object",
+        "description": "One resolved stretch: what wins here, and everything else that covers it.\n\nAllocations travel once in [`BandPlan::allocations`] and are referenced by index. A single\nband is split into a block per boundary any *other* layer introduces, and an imported note\ncan be a paragraph, so carrying the payload inline multiplied the document by an order of\nmagnitude for no new information.",
+        "required": [
+          "start_hz",
+          "stop_hz",
+          "of"
+        ],
+        "properties": {
+          "covered": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Everything else covering it, most specific first — co-allocations from the winner's own\nlayer, then the layers underneath. This is what lets the identify popover say \"BNetzA\ncalls it X, over ITU's Y\", and what keeps a co-primary service from vanishing."
+          },
+          "of": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Index into [`BandPlan::allocations`]: the winner over this stretch.",
+            "minimum": 0
+          },
+          "start_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "stop_hz": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "BandLane": {
+        "type": "object",
+        "description": "A row of the ruler. The regulatory layers merge into one lane by most-specific-wins; an\noverlay is a lane of its own, because it describes the same spectrum from a different angle\nrather than contradicting it.",
+        "required": [
+          "id",
+          "name",
+          "overlay",
+          "blocks"
+        ],
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BandBlock"
+            },
+            "description": "Sorted by `start_hz`, non-overlapping — the resolution is what removes the overlaps the\nsource tables are full of."
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "overlay": {
+            "type": "boolean",
+            "description": "Whether the lane is supplementary and may be switched off without losing the allocation."
+          }
+        }
+      },
+      "BandLayerInfo": {
+        "type": "object",
+        "description": "One source of allocations: a table someone published, identified so a block can say where it\ncame from. Adding a region is adding one of these plus its entries (FEATURES §5's \"pluggable\nimporters\"); nothing else in the resolution knows the difference.",
+        "required": [
+          "id",
+          "name",
+          "authority",
+          "source",
+          "kind",
+          "rank"
+        ],
+        "properties": {
+          "authority": {
+            "type": "string",
+            "description": "Who publishes it — \"ITU\", \"BNetzA\", \"Ofcom\", \"IARU Region 1\"."
+          },
+          "generator": {
+            "type": "string",
+            "description": "What wrote this layer: `curated`, or the importer that generated it from the regulator's\nown publication (`bnetza`, `ofcom`, `fcc`). Worth showing: \"this came out of the\nFrequenzplan\" and \"somebody typed this in\" are different kinds of claim."
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable id, referenced by [`BandAllocation::layer`] and [`BandRegion::layers`]."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BandLayerKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rank": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Least-specific first: where this layer sits when two of them cover one frequency. Ties\ncannot happen — every layer in a region has a distinct rank.",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string",
+            "description": "The document and edition the entries were taken from, so a stale table is visible rather\nthan merely wrong."
+          }
+        }
+      },
+      "BandLayerKind": {
+        "type": "string",
+        "description": "What kind of authority a layer speaks with. This is not decoration: it is why the amateur\nplan renders as a separate lane instead of overriding the regulator — IARU band plans are\nagreements between operators, not allocations, and they subdivide a band the regulator has\nalready given to the amateur service.",
+        "enum": [
+          "world",
+          "regulatory",
+          "amateur"
+        ]
+      },
+      "BandPlan": {
+        "type": "object",
+        "description": "`GET /api/bandplan/regions/{region}` — the whole region, already layered.",
+        "required": [
+          "region",
+          "layers",
+          "allocations",
+          "lanes"
+        ],
+        "properties": {
+          "allocations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BandAllocation"
+            },
+            "description": "Every allocation the lanes reference, once. [`BandBlock::of`] and [`BandBlock::covered`]\nindex into this; it is also what the explorer searches, which is why search needs no\ndeduplication of its own."
+          },
+          "lanes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BandLane"
+            }
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BandLayerInfo"
+            },
+            "description": "Every layer the lanes reference, so a block's `layer` id resolves without a second call."
+          },
+          "region": {
+            "$ref": "#/components/schemas/BandRegion"
+          }
+        }
+      },
+      "BandRegion": {
+        "type": "object",
+        "description": "A region the operator can select: the ITU region plus whichever regulator applies there.",
+        "required": [
+          "id",
+          "name",
+          "itu_region",
+          "layers"
+        ],
+        "properties": {
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO 3166-1 alpha-2 where the region is one country; `None` for the bare ITU regions and\nfor CEPT."
+          },
+          "id": {
+            "type": "string"
+          },
+          "itu_region": {
+            "$ref": "#/components/schemas/ItuRegion"
+          },
+          "layers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Layer ids, least specific first."
+          },
+          "name": {
+            "type": "string"
+          },
+          "overlays": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Overlay layer ids — the amateur plans that apply here."
+          }
+        }
+      },
+      "BandRegionMatch": {
+        "type": "object",
+        "description": "`GET /api/bandplan/locate` — which region a coordinate falls in.",
+        "required": [
+          "region",
+          "itu_region",
+          "approximate"
+        ],
+        "properties": {
+          "approximate": {
+            "type": "boolean",
+            "description": "True when only the ITU region could be decided — the coordinate is outside every\nnational footprint this build ships, so the answer is coarse and the UI should say so."
+          },
+          "itu_region": {
+            "$ref": "#/components/schemas/ItuRegion"
+          },
+          "region": {
+            "type": "string",
+            "description": "The most specific region whose footprint contains the coordinate; never empty, because\nthe three ITU regions cover the globe."
+          }
+        }
+      },
+      "BandRegionsResponse": {
+        "type": "object",
+        "description": "`GET /api/bandplan/regions`.",
+        "required": [
+          "regions",
+          "default_region"
+        ],
+        "properties": {
+          "default_region": {
+            "type": "string",
+            "description": "What a client with no stored preference should select."
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BandRegion"
+            }
+          }
+        }
+      },
+      "BandService": {
+        "type": "string",
+        "description": "The service category a block belongs to. Drives the ruler's colour, so it is deliberately\ncoarse: ten categories a reader can hold in their head, not the ITU's full service list.",
+        "enum": [
+          "amateur",
+          "broadcast",
+          "aeronautical",
+          "maritime",
+          "mobile",
+          "satellite",
+          "navigation",
+          "science",
+          "ism",
+          "other"
+        ]
+      },
       "Bookmark": {
         "type": "object",
         "description": "A stored frequency bookmark (PLAN §11).",
@@ -4206,6 +4644,15 @@
             "format": "double"
           }
         }
+      },
+      "ItuRegion": {
+        "type": "string",
+        "description": "The three ITU radio regions (Radio Regulations Art. 5 §1). Region 1 is Europe, Africa, the\nMiddle East west of the Persian Gulf and northern Asia; Region 2 the Americas; Region 3 the\nrest of Asia and Oceania.",
+        "enum": [
+          "r1",
+          "r2",
+          "r3"
+        ]
       },
       "M17Params": {
         "type": "object",

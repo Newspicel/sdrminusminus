@@ -69,7 +69,7 @@ sdrmm-server = { path = "crates/server", default-features = false }
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net"] }
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
-tower-http = { version = "0.7", features = ["cors", "fs", "trace"] }
+tower-http = { version = "0.7", features = ["compression-gzip", "cors", "fs", "trace"] }
 futures = "0.3"
 # WS client for exercising the hub in server tests only. Pinned to whatever axum's `ws` feature
 # resolves to — *not* to the newest release — so the graph holds one tungstenite and not two.

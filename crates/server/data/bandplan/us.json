@@ -1,0 +1,124 @@
+{
+  "authority": "FCC",
+  "entries": [
+    {
+      "aliases": [
+        "cb",
+        "citizens band",
+        "part 95"
+      ],
+      "channel_step_hz": 10000.0,
+      "name": "Citizens Band — 40 channels",
+      "notes": "4 W AM carrier, 12 W PEP SSB. Channel 9 (27.065 MHz) is emergency, channel 19 (27.185 MHz) the highway channel.",
+      "service": "mobile",
+      "start_hz": 26965000.0,
+      "stop_hz": 27405000.0,
+      "suggested": {
+        "settings": {
+          "agc": true,
+          "bandwidth_hz": 10000.0
+        },
+        "type": "am"
+      }
+    },
+    {
+      "aliases": [
+        "fm",
+        "radio"
+      ],
+      "channel_step_hz": 200000.0,
+      "name": "FM broadcast",
+      "notes": "200 kHz raster on odd tenths of a megahertz. 88.1–91.9 MHz is reserved for non-commercial educational stations.",
+      "service": "broadcast",
+      "start_hz": 88000000.0,
+      "stop_hz": 108000000.0,
+      "suggested": {
+        "settings": {
+          "deemphasis_us": 50.0,
+          "rds": false
+        },
+        "type": "wfm"
+      }
+    },
+    {
+      "aliases": [
+        "noaa weather",
+        "weather radio",
+        "wx",
+        "nws"
+      ],
+      "channel_step_hz": 25000.0,
+      "name": "NOAA Weather Radio",
+      "notes": "Seven channels of continuous forecast voice, plus SAME alert tones that also drive the emergency alert system.",
+      "service": "broadcast",
+      "start_hz": 162400000.0,
+      "stop_hz": 162550000.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "vhf tv",
+        "atsc",
+        "television"
+      ],
+      "channel_step_hz": 6000000.0,
+      "name": "VHF television — channels 7–13",
+      "notes": "Region 2 uses Band III for television, where Region 1 put DAB — the same spectrum, a completely different sound on a scope.",
+      "service": "broadcast",
+      "start_hz": 174000000.0,
+      "stop_hz": 216000000.0
+    },
+    {
+      "aliases": [
+        "frs",
+        "gmrs",
+        "walkie talkie",
+        "part 95"
+      ],
+      "channel_step_hz": 25000.0,
+      "name": "FRS and GMRS — 462 MHz",
+      "notes": "Shared channels: FRS is licence-free at 2 W, GMRS needs a licence for the high-power and repeater channels.",
+      "service": "mobile",
+      "start_hz": 462537500.0,
+      "stop_hz": 462737500.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    },
+    {
+      "aliases": [
+        "frs",
+        "gmrs",
+        "walkie talkie",
+        "part 95"
+      ],
+      "channel_step_hz": 25000.0,
+      "name": "FRS and GMRS — 467 MHz",
+      "notes": "The interstitial FRS channels and the GMRS repeater inputs.",
+      "service": "mobile",
+      "start_hz": 467537500.0,
+      "stop_hz": 467737500.0,
+      "suggested": {
+        "settings": {
+          "bandwidth_hz": 12500.0
+        },
+        "type": "nfm"
+      }
+    }
+  ],
+  "id": "us",
+  "kind": "regulatory",
+  "name": "United States — FCC",
+  "provenance": {
+    "generator": "curated"
+  },
+  "source": "47 CFR §2.106 and Parts 15/73/87/95/97 — curated extract"
+}
