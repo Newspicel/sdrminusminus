@@ -15,17 +15,17 @@ use sdrmm_recorder::{
     Export, ExportKind, SigmfMeta, SigmfReader, data_path, meta_path, scan_stems,
 };
 use sdrmm_wire::{
-    ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, BandPlan, BandRegionMatch,
-    BandRegionsResponse, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
-    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
-    CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
-    DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
-    DoctorReport, ExportFormat, LocateQuery, NodeBody, PatchApplyReport, PatchBinding,
-    PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus, PresetInfo, PresetSnapshot,
-    RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus,
-    RecordingsResponse, ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope,
-    StateSnapshot, TemplateInfo, TemplatesResponse, UpdateWorkspaceRequest, WorkspaceDetail,
-    WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    ApiError, ApplyTemplateRequest, AuthInfo, BandPlan, BandRegionMatch, BandRegionsResponse,
+    Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand, ClientsResponse,
+    CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
+    CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
+    DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport,
+    ExportFormat, LocateQuery, NodeBody, PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding,
+    PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo,
+    PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat,
+    RecordingStatus, RecordingsResponse, ScanAction, ScanRequest, ScannerStatus, ServerEvent,
+    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, UpdateWorkspaceRequest,
+    WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -35,9 +35,6 @@ use crate::{
     store::{RecordingRow, Store, StoreError},
     workspace,
 };
-
-/// The `PresetSnapshot` schema version this build writes and applies.
-pub(crate) const PRESET_VERSION: u32 = 1;
 
 /// Typed REST error → `(status, ApiError)` (PLAN §5). Declaring these in each path's responses
 /// is what gives the generated client a typed `error` branch.
@@ -380,7 +377,11 @@ async fn list_presets(State(state): State<AppState>) -> Result<Json<Vec<PresetIn
     request_body = CreatePresetRequest,
     responses(
         (status = 200, description = "Preset stored", body = CreatedRowId),
-        (status = 404, description = "Device set not found", body = ApiError),
+        (
+            status = 400,
+            description = "No active workspace, or none of its device nodes is on a live radio",
+            body = ApiError,
+        ),
         (status = 422, description = "Malformed request body", body = ApiError),
     ),
 )]
@@ -391,17 +392,35 @@ async fn create_preset(
     let engine = state.engine.clone();
     let store = state.store.clone();
     let id = tokio::task::spawn_blocking(move || -> Result<i64, AppError> {
-        let snap = engine.snapshot();
-        let set = snap
-            .device_sets
-            .iter()
-            .find(|s| s.id == req.device_set)
-            .ok_or(EngineError::DeviceSetNotFound(req.device_set))?;
+        let active = store
+            .active_workspace()?
+            .ok_or_else(|| AppError::bad_request("no active workspace to snapshot".to_owned()))?;
+        let live = engine.snapshot();
+        // The workspace's own binding rule, so a preset's entries line up with the nodes apply
+        // would hand them back to (`crate::workspace`).
+        let devices: Vec<PresetDevice> = workspace::bind(&active.snapshot.graph, &live)
+            .into_iter()
+            .filter_map(|binding| {
+                let set = live
+                    .device_sets
+                    .iter()
+                    .find(|set| set.id == binding.device_set)?;
+                Some(PresetDevice {
+                    node: binding.node,
+                    device_id: set.device.id(),
+                    settings: set.settings.clone(),
+                    channels: set.channels.iter().map(|c| c.settings.clone()).collect(),
+                })
+            })
+            .collect();
+        if devices.is_empty() {
+            return Err(AppError::bad_request(
+                "no radio on this workspace is open, so there is nothing to save".to_owned(),
+            ));
+        }
         let snapshot = PresetSnapshot {
-            version: PRESET_VERSION,
-            device_id: set.device.id(),
-            settings: set.settings.clone(),
-            channels: set.channels.iter().map(|c| c.settings.clone()).collect(),
+            version: PRESET_SNAPSHOT_VERSION,
+            devices,
         };
         let id = store.create_preset(&req.name, &snapshot)?;
         engine.emit_scope(StateScope::Presets);
@@ -414,44 +433,95 @@ async fn create_preset(
 #[utoipa::path(
     post, path = "/api/presets/{id}/apply",
     params(("id" = i64, Path, description = "Preset id")),
-    request_body = ApplyPresetRequest,
     responses(
         (status = 204, description = "Preset applied"),
         (
             status = 400,
-            description = "Preset rejected by the target device; `detail` reports what state \
-                           a partial application left behind",
+            description = "Preset rejected by a target radio, or none of its radios is on this \
+                           workspace; `detail` reports what state a partial application left \
+                           behind",
             body = ApiError,
         ),
-        (status = 404, description = "Preset or device set not found", body = ApiError),
-        (status = 422, description = "Malformed request body", body = ApiError),
+        (status = 404, description = "Preset not found", body = ApiError),
     ),
 )]
 async fn apply_preset(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-    Json(req): Json<ApplyPresetRequest>,
 ) -> Result<StatusCode, AppError> {
     let engine = state.engine.clone();
     let store = state.store.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
         let snapshot = store.preset_snapshot(id)?;
-        if snapshot.version != PRESET_VERSION {
+        if snapshot.version != PRESET_SNAPSHOT_VERSION {
             return Err(AppError::bad_request(format!(
-                "preset {id} has unsupported snapshot version {}",
+                "preset {id} has unsupported snapshot version {} (this build applies \
+                 {PRESET_SNAPSHOT_VERSION})",
                 snapshot.version
             )));
         }
-        // Applying to different hardware than the preset was taken from is allowed on
-        // purpose (a bookmarkable configuration, not a device binding); the engine rejects
-        // loudly whatever the device can't do.
-        apply_configuration(
-            &engine,
-            req.device_set,
-            snapshot.settings,
-            snapshot.channels,
-            "preset",
-        )
+        let active = store.active_workspace()?.ok_or_else(|| {
+            AppError::bad_request("no active workspace to apply a preset to".to_owned())
+        })?;
+        let live = engine.snapshot();
+        let bindings = workspace::bind(&active.snapshot.graph, &live);
+
+        // Every target is decided before the first one is touched: `apply_configuration` wipes a
+        // set's channels before it retunes, so a preset that was only ever going to match half
+        // the patch must say so with the radios still as they were.
+        let mut targets: Vec<(u32, PresetDevice)> = Vec::new();
+        for device in snapshot.devices {
+            let free = |set: u32| !targets.iter().any(|(taken, _)| *taken == set);
+            // By node first: it is the only match that stays right when a patch draws two of the
+            // same radio. By device id second, so a preset still lands on the radio it was taken
+            // from after that node was deleted and redrawn.
+            let found = bindings
+                .iter()
+                .find(|binding| binding.node == device.node && free(binding.device_set))
+                .or_else(|| {
+                    bindings.iter().find(|binding| {
+                        free(binding.device_set)
+                            && live.device_sets.iter().any(|set| {
+                                set.id == binding.device_set && set.device.id() == device.device_id
+                            })
+                    })
+                });
+            if let Some(binding) = found {
+                targets.push((binding.device_set, device));
+            }
+        }
+        if targets.is_empty() {
+            return Err(AppError::bad_request(format!(
+                "preset {id} names no radio this workspace has open"
+            )));
+        }
+
+        let total = targets.len();
+        for (done, (device_set, device)) in targets.into_iter().enumerate() {
+            // Applying to different hardware than the preset was taken from is allowed on
+            // purpose (a bookmarkable configuration, not a device binding); the engine rejects
+            // loudly whatever the device can't do.
+            apply_configuration(
+                &engine,
+                device_set,
+                device.settings,
+                device.channels,
+                "preset",
+            )
+            // Kept, not replaced: `apply_configuration` reports what it left behind on *this*
+            // radio, and how many radios came before it is the other half of that state.
+            .map_err(|err| {
+                let within = err
+                    .body
+                    .detail
+                    .as_deref()
+                    .map_or(String::new(), |detail| format!("; {detail}"));
+                err.with_detail(format!(
+                    "{done} of {total} radios in the preset were configured{within}"
+                ))
+            })?;
+        }
+        Ok(())
     })
     .await??;
     Ok(StatusCode::NO_CONTENT)

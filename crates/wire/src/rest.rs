@@ -40,13 +40,36 @@ pub struct ChannelTypesResponse {
     pub types: Vec<ChannelDescriptor>,
 }
 
-/// The stored body of a preset: a full device-set + channels snapshot (PLAN §11).
+/// Shape version of a stored [`PresetSnapshot`]. Read like [`crate::WORKSPACE_SNAPSHOT_VERSION`]:
+/// a blob this build did not write is refused rather than guessed at.
+///
+/// Version 2 is the workspace preset. Version 1 held one device set — its settings and its
+/// channels — and stored rows do not migrate: a v1 preset names a radio and no workspace, so
+/// there is nothing to say which of a patch's radios it was meant for.
+pub const PRESET_SNAPSHOT_VERSION: u32 = 2;
+
+/// The stored body of a preset: where every radio a workspace draws was tuned, and what hung off
+/// them (PLAN §11).
+///
+/// A preset is workspace-wide because a workspace is: an operator who saved "the morning airband
+/// bench" means every radio on it, and a per-device preset made that several saves that could be
+/// restored in the wrong order or half-applied. Applying one is one gesture over the whole patch.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PresetSnapshot {
-    /// Snapshot schema version, currently 1. Bump on any incompatible shape change so
-    /// stored presets can be migrated or rejected explicitly.
+    /// [`PRESET_SNAPSHOT_VERSION`] at the time of writing.
     pub version: u32,
-    /// `driver:key` of the device the preset was taken from.
+    #[serde(default)]
+    pub devices: Vec<PresetDevice>,
+}
+
+/// One device node's radio settings and channels, as the preset captured them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct PresetDevice {
+    /// [`crate::PatchNode::id`] of the device node this was captured from — the primary match on
+    /// apply, and the only one that is right when a patch draws two of the same radio.
+    pub node: String,
+    /// `driver:key` of the radio it was captured on. The fallback match, so a preset still lands
+    /// after the node was redrawn, and what the client names in the list.
     pub device_id: String,
     pub settings: DeviceSettings,
     pub channels: Vec<ChannelSettings>,
@@ -59,21 +82,14 @@ pub struct PresetInfo {
     pub name: String,
     /// RFC3339 UTC.
     pub created_at: String,
-    /// `driver:key` of the device the preset applies to.
-    pub device_id: String,
+    /// How many radios the preset carries, denormalized so the list never parses a blob.
+    pub devices: u32,
 }
 
-/// `POST /api/presets` — snapshot a live device set under a name.
+/// `POST /api/presets` — snapshot the active workspace's radios under a name.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct CreatePresetRequest {
     pub name: String,
-    pub device_set: u32,
-}
-
-/// Apply a stored preset to a live device set.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct ApplyPresetRequest {
-    pub device_set: u32,
 }
 
 /// A stored frequency bookmark (PLAN §11).
@@ -517,6 +533,22 @@ mod tests {
     fn a_radio_that_advertises_nothing_is_not_refused() {
         let unknown = profile(Vec::new(), Vec::new(), Duplex::RxOnly);
         assert_eq!(template(1_090e6, 1_090e6, 2e6).unmet_by(&unknown), None);
+    }
+
+    /// A v1 preset is one radio's settings with no workspace to put them in. It must fail the
+    /// version check rather than deserialize into an empty v2 preset that applies cleanly and
+    /// changes nothing.
+    #[test]
+    fn a_v1_preset_is_not_a_workspace_preset() {
+        let v1 = serde_json::json!({
+            "version": 1,
+            "device_id": "virtual:siggen",
+            "settings": {},
+            "channels": [],
+        });
+        let parsed: PresetSnapshot = serde_json::from_value(v1).expect("the shape still parses");
+        assert_ne!(parsed.version, PRESET_SNAPSHOT_VERSION);
+        assert!(parsed.devices.is_empty());
     }
 
     /// The field is new; a peer that predates it describes a receive template at a nominal rate.

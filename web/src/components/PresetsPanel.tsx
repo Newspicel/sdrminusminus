@@ -1,5 +1,9 @@
 // Preset save/apply/delete (PLAN §11). The list is WS-invalidated (scope "presets");
 // rejections surface inline like the device PATCH banner.
+//
+// A preset is the whole workspace, not one radio (`PresetSnapshot`): saving takes every radio the
+// patch has open, and applying puts each of them back — matched to the node that drew it. So
+// nothing here names a target, and there is nothing to select before pressing Save.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {
@@ -11,10 +15,9 @@ import {
   STATE_KEY,
 } from "../lib/api";
 import { pushToast } from "../lib/toasts";
-import type { DeviceSet } from "../lib/types";
 import { BTN, FIELD } from "./controls";
 
-export function PresetsPanel({ active }: { active: DeviceSet | null }) {
+export function PresetsPanel() {
   const queryClient = useQueryClient();
   const presets = useQuery(presetsQuery());
   const [name, setName] = useState("");
@@ -23,7 +26,7 @@ export function PresetsPanel({ active }: { active: DeviceSet | null }) {
     void queryClient.invalidateQueries({ queryKey: PRESETS_KEY });
   };
   const saveMut = useMutation({
-    mutationFn: (v: { name: string; ds: number }) => createPreset(v.name, v.ds),
+    mutationFn: (preset: string) => createPreset(preset),
     onSuccess: () => {
       setName("");
     },
@@ -31,7 +34,7 @@ export function PresetsPanel({ active }: { active: DeviceSet | null }) {
     onSettled: invalidate,
   });
   const applyMut = useMutation({
-    mutationFn: (v: { id: number; ds: number }) => applyPreset(v.id, v.ds),
+    mutationFn: applyPreset,
     onError: (e) => pushToast(e.message),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
@@ -47,23 +50,19 @@ export function PresetsPanel({ active }: { active: DeviceSet | null }) {
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (active && name.trim() !== "") {
-            saveMut.mutate({ name: name.trim(), ds: active.id });
+          if (name.trim() !== "") {
+            saveMut.mutate(name.trim());
           }
         }}
       >
         <input
           className={`${FIELD} min-w-0 flex-1`}
-          placeholder="Preset name"
+          placeholder="Name this bench"
           value={name}
           onChange={(e) => setName(e.target.value)}
           aria-label="Preset name"
         />
-        <button
-          type="submit"
-          className={BTN}
-          disabled={!active || name.trim() === "" || saveMut.isPending}
-        >
+        <button type="submit" className={BTN} disabled={name.trim() === "" || saveMut.isPending}>
           Save
         </button>
       </form>
@@ -72,13 +71,15 @@ export function PresetsPanel({ active }: { active: DeviceSet | null }) {
         <div key={p.id} className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm text-ink">{p.name}</div>
-            <div className="truncate font-mono text-[10px] text-ink-dim">{p.device_id}</div>
+            <div className="truncate font-mono text-[10px] tabular-nums text-ink-dim">
+              {p.devices} radio{p.devices === 1 ? "" : "s"}
+            </div>
           </div>
           <button
             type="button"
             className={BTN}
-            disabled={!active || applyMut.isPending}
-            onClick={() => active && applyMut.mutate({ id: p.id, ds: active.id })}
+            disabled={applyMut.isPending}
+            onClick={() => applyMut.mutate(p.id)}
           >
             Apply
           </button>
@@ -93,7 +94,9 @@ export function PresetsPanel({ active }: { active: DeviceSet | null }) {
         </div>
       ))}
       {presets.data?.length === 0 && (
-        <span className="text-sm text-ink-dim">No presets saved.</span>
+        <span className="text-sm text-ink-dim">
+          No presets saved. Saving one takes every radio this workspace has open, where it is now.
+        </span>
       )}
     </div>
   );

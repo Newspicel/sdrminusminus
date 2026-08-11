@@ -15,7 +15,6 @@ import type {
   Bookmark,
   ChannelSettings,
   ChannelTypesResponse,
-  ClientsResponse,
   CreateBookmarkRequest,
   DecoderLogFilter,
   DecoderLogResponse,
@@ -73,7 +72,6 @@ export const RECORDINGS_KEY = ["get", "/api/recordings"] as const;
 export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
 export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
 export const AUTH_KEY = ["get", "/api/auth"] as const;
-export const CLIENTS_KEY = ["get", "/api/clients"] as const;
 export const DOCTOR_KEY = ["get", "/api/doctor"] as const;
 export const WORKSPACES_KEY = ["get", "/api/workspaces"] as const;
 export const PATCH_CATALOG_KEY = ["get", "/api/patch/catalog"] as const;
@@ -163,21 +161,12 @@ export function presetsQuery() {
   });
 }
 
-export async function createPreset(name: string, ds: number): Promise<number> {
-  return unwrap(
-    await client.POST("/api/presets", {
-      body: { name, device_set: ds },
-    }),
-  ).id;
+export async function createPreset(name: string): Promise<number> {
+  return unwrap(await client.POST("/api/presets", { body: { name } })).id;
 }
 
-export async function applyPreset(id: number, ds: number): Promise<void> {
-  unwrap(
-    await client.POST("/api/presets/{id}/apply", {
-      params: { path: { id } },
-      body: { device_set: ds },
-    }),
-  );
+export async function applyPreset(id: number): Promise<void> {
+  unwrap(await client.POST("/api/presets/{id}/apply", { params: { path: { id } } }));
 }
 
 export async function deletePreset(id: number): Promise<void> {
@@ -288,15 +277,6 @@ export function authQuery() {
     queryKey: AUTH_KEY,
     queryFn: async (): Promise<AuthInfo> => unwrap(await client.GET("/api/auth")),
     staleTime: Number.POSITIVE_INFINITY,
-  });
-}
-
-/** How many clients share this server (PLAN §16 M5). Invalidated by the `clients` scope on
- * every connect and disconnect — never polled. */
-export function clientsQuery() {
-  return queryOptions({
-    queryKey: CLIENTS_KEY,
-    queryFn: async (): Promise<ClientsResponse> => unwrap(await client.GET("/api/clients")),
   });
 }
 

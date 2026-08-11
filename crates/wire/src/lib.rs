@@ -49,22 +49,21 @@ pub use patch::{
     RACK_ROWS, RackCell, RackLayout, RackSlot, Size, port_stream, stream_port,
 };
 pub use rest::{
-    ApiError, ApplyPresetRequest, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse,
-    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
-    CreatePresetRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
-    DecoderLogResponse, DeletedCount, DevicesResponse, ExportFormat, PlaybackAction,
-    PlaybackRequest, PresetInfo, PresetSnapshot, RecordAction, RecordRequest,
-    RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse, TemplateInfo,
-    TemplatesResponse,
+    ApiError, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse, ClientsResponse,
+    CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
+    CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
+    DevicesResponse, ExportFormat, PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest,
+    PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery,
+    RecordingFormat, RecordingInfo, RecordingsResponse, TemplateInfo, TemplatesResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
 pub use state::{DeviceSet, DeviceSetStatus, PlaybackStatus, RecordingStatus, StateSnapshot};
 pub use workspace::{
-    CreateWorkspaceRequest, MAX_NAME_LEN, PatchApplyReport, PatchBinding, PatchRefusal,
-    UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail, WorkspaceError,
-    WorkspaceInfo, WorkspaceSnapshot, WorkspacesResponse,
+    CreateWorkspaceRequest, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport, PatchBinding,
+    PatchRefusal, UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail,
+    WorkspaceError, WorkspaceInfo, WorkspaceSettings, WorkspaceSnapshot, WorkspacesResponse,
 };
 pub use workspace_state::{
     WORKSPACE_STATE_VERSION, WorkspaceChannel, WorkspaceDevice, WorkspaceState,

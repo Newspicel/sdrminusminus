@@ -149,6 +149,9 @@ test.describe("the workspace", () => {
     await expect(node("scope").getByText(/pinned to the rack/i)).toHaveCount(0);
 
     const rack = page.getByRole("group", { name: "View" }).getByRole("button", { name: "Rack" });
+    // What is on the rack is answerable from the patch view: the button counts it, so pinning
+    // has an outcome you can see without switching to look for it.
+    await expect(rack).toHaveText(/2/);
     await rack.click();
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
 
@@ -299,6 +302,35 @@ test.describe("the workspace", () => {
     await map.locator("header").click();
     await attribution.locator("summary.maplibregl-ctrl-attrib-button").click();
     await expect(attribution.getByText("Stub basemap credits")).toBeVisible();
+  });
+
+  test("keeps the band plan in the workspace, not in the browser", async ({ page }) => {
+    // The region and the ruler moved out of `localStorage` and into the snapshot, so that two
+    // operators on one server stop drawing two different rulers over one signal. What proves it
+    // is the stored workspace, not the checkbox: the setting has to survive the round trip the
+    // canvas's own writes go through.
+    await page.goto("/");
+    await page
+      .getByRole("button", { name: /workspace/i })
+      .first()
+      .click();
+    const ruler = page.getByRole("checkbox", { name: /draw the ruler/i });
+    await expect(ruler).toBeChecked();
+    await ruler.click();
+
+    await expect
+      .poll(async () => {
+        const list = await page.request.get("/api/workspaces").then((r) => r.json());
+        const detail = await page.request
+          .get(`/api/workspaces/${list.active}`)
+          .then((r) => r.json());
+        return detail.snapshot.settings?.band_ruler;
+      })
+      .toBe(false);
+
+    // And back, so the leg leaves the workspace as it found it.
+    await ruler.click();
+    await expect(ruler).toBeChecked();
   });
 
   test("serves the mark to the tab and the top bar", async ({ page }) => {

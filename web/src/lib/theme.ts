@@ -10,6 +10,16 @@ import { useSyncExternalStore } from "react";
 export type ThemeChoice = "system" | "dark" | "light";
 export type ResolvedTheme = "dark" | "light";
 
+/** The order the one theme control walks. Auto first because it is where an install starts, then
+ * the two explicit choices in the order a night bench reaches for them. */
+export const THEME_CYCLE: readonly ThemeChoice[] = ["system", "dark", "light"];
+
+/** The choice one press of the theme control moves to. */
+export function nextTheme(choice: ThemeChoice): ThemeChoice {
+  const at = THEME_CYCLE.indexOf(choice);
+  return THEME_CYCLE[(at + 1) % THEME_CYCLE.length] ?? "system";
+}
+
 export interface ThemeState {
   choice: ThemeChoice;
   resolved: ResolvedTheme;

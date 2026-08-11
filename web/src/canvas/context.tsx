@@ -7,6 +7,7 @@ import type {
   DeviceSet,
   PatchGraph,
   RackLayout,
+  WorkspaceSettings,
   WorkspaceSnapshot,
 } from "../lib/types";
 import type { SdrSocket } from "../lib/ws";
@@ -15,10 +16,11 @@ import type { GraphContext } from "./graph";
 
 export interface Workspace {
   socket: SdrSocket;
-  connected: boolean;
   /** The patch as stored. Faces read their own node out of it; the canvas owns the geometry. */
   graph: PatchGraph;
   rack: RackLayout;
+  /** Choices that belong to the workspace rather than to a node on it — the band plan today. */
+  settings: WorkspaceSettings;
   /** Ports and channel types — the generated tables the drag-time rules are built from. */
   context: GraphContext;
   /** Every open device set, for the pickers that have to name a radio. */
@@ -32,6 +34,8 @@ export interface Workspace {
   select: (node: string | null) => void;
   /** Edit the stored patch. Debounced and revision-checked by the workspace hook. */
   edit: (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => void;
+  /** Change some of the workspace's settings, leaving the rest as they are. */
+  editSettings: (settings: Partial<WorkspaceSettings>) => void;
   /** Ask the server to bring the engine up to the patch (open radios, add channels). */
   apply: () => void;
 }

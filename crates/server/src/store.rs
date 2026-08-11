@@ -149,6 +149,15 @@ const MIGRATIONS: &[&str] = &[
     -- database keeps where its radios were tuned.
     ALTER TABLE station_state RENAME TO workspace_state;
     ",
+    "
+    -- A preset covers the whole workspace now (`PresetSnapshot` v2). A stored v1 row is one
+    -- radio's settings and names no workspace, so there is nothing to say which of a patch's
+    -- radios it meant: the rows go, like the M6 workspaces above, rather than a converter that
+    -- would guess. `device_id` goes with them, replaced by the radio *count* the switcher shows.
+    DELETE FROM presets;
+    ALTER TABLE presets DROP COLUMN device_id;
+    ALTER TABLE presets ADD COLUMN devices INTEGER NOT NULL DEFAULT 0;
+    ",
 ];
 
 /// Index fields for one finalized recording, derived from its SigMF pair during
@@ -185,10 +194,13 @@ impl Store {
 
     pub fn create_preset(&self, name: &str, snapshot: &PresetSnapshot) -> Result<i64, StoreError> {
         let json = serde_json::to_string(snapshot)?;
+        // Denormalized for the same reason `workspaces.nodes` is: a preset whose blob this build
+        // cannot read must break applying that one preset, never the list it is named in.
+        let devices = u32::try_from(snapshot.devices.len()).unwrap_or(u32::MAX);
         let conn = self.lock();
         conn.execute(
-            "INSERT INTO presets (name, created_at, device_id, snapshot) VALUES (?1, ?2, ?3, ?4)",
-            params![name, now_rfc3339(), snapshot.device_id, json],
+            "INSERT INTO presets (name, created_at, devices, snapshot) VALUES (?1, ?2, ?3, ?4)",
+            params![name, now_rfc3339(), devices, json],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -196,13 +208,13 @@ impl Store {
     pub fn list_presets(&self) -> Result<Vec<PresetInfo>, StoreError> {
         let conn = self.lock();
         let mut stmt =
-            conn.prepare("SELECT id, name, created_at, device_id FROM presets ORDER BY id")?;
+            conn.prepare("SELECT id, name, created_at, devices FROM presets ORDER BY id")?;
         let rows = stmt.query_map([], |row| {
             Ok(PresetInfo {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 created_at: row.get(2)?,
-                device_id: row.get(3)?,
+                devices: row.get(3)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -891,24 +903,27 @@ fn now_rfc3339() -> String {
 mod tests {
     use sdrmm_wire::{
         AdsbMessage, AprsPacket, ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings,
-        NfmParams,
+        NfmParams, PRESET_SNAPSHOT_VERSION, PresetDevice,
     };
 
     use super::*;
 
     fn snapshot() -> PresetSnapshot {
         PresetSnapshot {
-            version: 1,
-            device_id: "virtual:siggen".to_string(),
-            settings: DeviceSettings {
-                center_hz: Some(100_000_000.0),
-                sample_rate: Some(2_048_000.0),
-                ..DeviceSettings::default()
-            },
-            channels: vec![ChannelSettings {
-                offset_hz: 100_000.0,
-                squelch_db: Some(-60.0),
-                params: ChannelParams::Nfm(NfmParams::default()),
+            version: PRESET_SNAPSHOT_VERSION,
+            devices: vec![PresetDevice {
+                node: "device".to_string(),
+                device_id: "virtual:siggen".to_string(),
+                settings: DeviceSettings {
+                    center_hz: Some(100_000_000.0),
+                    sample_rate: Some(2_048_000.0),
+                    ..DeviceSettings::default()
+                },
+                channels: vec![ChannelSettings {
+                    offset_hz: 100_000.0,
+                    squelch_db: Some(-60.0),
+                    params: ChannelParams::Nfm(NfmParams::default()),
+                }],
             }],
         }
     }
@@ -935,7 +950,7 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, id);
         assert_eq!(listed[0].name, "fm broadcast");
-        assert_eq!(listed[0].device_id, "virtual:siggen");
+        assert_eq!(listed[0].devices, 1);
         // RFC3339 UTC: parseable and Z-suffixed.
         assert!(
             listed[0].created_at.ends_with('Z'),

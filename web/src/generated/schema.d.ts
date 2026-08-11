@@ -694,11 +694,6 @@ export interface components {
             detail?: string | null;
             error: string;
         };
-        /** @description Apply a stored preset to a live device set. */
-        ApplyPresetRequest: {
-            /** Format: int32 */
-            device_set: number;
-        };
         /** @description Apply a built-in template to a live device set. */
         ApplyTemplateRequest: {
             /** Format: int32 */
@@ -1366,10 +1361,8 @@ export interface components {
             /** Format: int64 */
             id: number;
         };
-        /** @description `POST /api/presets` — snapshot a live device set under a name. */
+        /** @description `POST /api/presets` — snapshot the active workspace's radios under a name. */
         CreatePresetRequest: {
-            /** Format: int32 */
-            device_set: number;
             name: string;
         };
         /** @description `POST /api/workspaces`. */
@@ -2174,26 +2167,47 @@ export interface components {
             /** Format: float */
             y: number;
         };
+        /** @description One device node's radio settings and channels, as the preset captured them. */
+        PresetDevice: {
+            channels: components["schemas"]["ChannelSettings"][];
+            /**
+             * @description `driver:key` of the radio it was captured on. The fallback match, so a preset still lands
+             *     after the node was redrawn, and what the client names in the list.
+             */
+            device_id: string;
+            /**
+             * @description [`crate::PatchNode::id`] of the device node this was captured from — the primary match on
+             *     apply, and the only one that is right when a patch draws two of the same radio.
+             */
+            node: string;
+            settings: components["schemas"]["DeviceSettings"];
+        };
         /** @description `GET /api/presets` list entry. */
         PresetInfo: {
             /** @description RFC3339 UTC. */
             created_at: string;
-            /** @description `driver:key` of the device the preset applies to. */
-            device_id: string;
+            /**
+             * Format: int32
+             * @description How many radios the preset carries, denormalized so the list never parses a blob.
+             */
+            devices: number;
             /** Format: int64 */
             id: number;
             name: string;
         };
-        /** @description The stored body of a preset: a full device-set + channels snapshot (PLAN §11). */
+        /**
+         * @description The stored body of a preset: where every radio a workspace draws was tuned, and what hung off
+         *     them (PLAN §11).
+         *
+         *     A preset is workspace-wide because a workspace is: an operator who saved "the morning airband
+         *     bench" means every radio on it, and a per-device preset made that several saves that could be
+         *     restored in the wrong order or half-applied. Applying one is one gesture over the whole patch.
+         */
         PresetSnapshot: {
-            channels: components["schemas"]["ChannelSettings"][];
-            /** @description `driver:key` of the device the preset was taken from. */
-            device_id: string;
-            settings: components["schemas"]["DeviceSettings"];
+            devices?: components["schemas"]["PresetDevice"][];
             /**
              * Format: int32
-             * @description Snapshot schema version, currently 1. Bump on any incompatible shape change so
-             *     stored presets can be migrated or rejected explicitly.
+             * @description [`PRESET_SNAPSHOT_VERSION`] at the time of writing.
              */
             version: number;
         };
@@ -2945,6 +2959,25 @@ export interface components {
             updated_at: string;
         };
         /**
+         * @description Choices that belong to the workspace rather than to a node on it or to the browser looking at
+         *     it.
+         *
+         *     The band plan is the whole of it today. It lives here because which plan is in force is a
+         *     property of the bench the patch describes — an aviation workspace and a marine one read
+         *     different tables of the same air — and because the ruler is drawn on the scope faces the
+         *     workspace itself draws. It was per-browser until M7 (`web/src/lib/bandRegion.ts`), which meant
+         *     two operators on one server saw two different rulers over one signal.
+         */
+        WorkspaceSettings: {
+            /** @description [`crate::BandRegion::id`], or `None` to follow the server's default for this install. */
+            band_region?: string | null;
+            /**
+             * @description Whether scope faces draw the band ruler. Absent means drawn: the plan is the reason the
+             *     region is stored at all, so a snapshot that predates this field opts in.
+             */
+            band_ruler?: boolean;
+        };
+        /**
          * @description The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written
          *     atomically, read whole, never queried by inner field).
          */
@@ -2955,6 +2988,7 @@ export interface components {
              *     (CANVAS §5).
              */
             rack?: components["schemas"]["RackLayout"];
+            settings?: components["schemas"]["WorkspaceSettings"];
             /**
              * Format: int32
              * @description [`WORKSPACE_SNAPSHOT_VERSION`] at the time of writing.
@@ -3895,8 +3929,8 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedRowId"];
                 };
             };
-            /** @description Device set not found */
-            404: {
+            /** @description No active workspace, or none of its device nodes is on a live radio */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3964,11 +3998,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ApplyPresetRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Preset applied */
             204: {
@@ -3977,7 +4007,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Preset rejected by the target device; `detail` reports what state a partial application left behind */
+            /** @description Preset rejected by a target radio, or none of its radios is on this workspace; `detail` reports what state a partial application left behind */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3986,17 +4016,8 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Preset or device set not found */
+            /** @description Preset not found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Malformed request body */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };

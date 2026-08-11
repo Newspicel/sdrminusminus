@@ -1193,8 +1193,8 @@
               }
             }
           },
-          "404": {
-            "description": "Device set not found",
+          "400": {
+            "description": "No active workspace, or none of its device nodes is on a live radio",
             "content": {
               "application/json": {
                 "schema": {
@@ -1273,22 +1273,12 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApplyPresetRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "204": {
             "description": "Preset applied"
           },
           "400": {
-            "description": "Preset rejected by the target device; `detail` reports what state a partial application left behind",
+            "description": "Preset rejected by a target radio, or none of its radios is on this workspace; `detail` reports what state a partial application left behind",
             "content": {
               "application/json": {
                 "schema": {
@@ -1298,17 +1288,7 @@
             }
           },
           "404": {
-            "description": "Preset or device set not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Malformed request body",
+            "description": "Preset not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -2198,20 +2178,6 @@
           },
           "error": {
             "type": "string"
-          }
-        }
-      },
-      "ApplyPresetRequest": {
-        "type": "object",
-        "description": "Apply a stored preset to a live device set.",
-        "required": [
-          "device_set"
-        ],
-        "properties": {
-          "device_set": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           }
         }
       },
@@ -3688,17 +3654,11 @@
       },
       "CreatePresetRequest": {
         "type": "object",
-        "description": "`POST /api/presets` — snapshot a live device set under a name.",
+        "description": "`POST /api/presets` — snapshot the active workspace's radios under a name.",
         "required": [
-          "name",
-          "device_set"
+          "name"
         ],
         "properties": {
-          "device_set": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
           "name": {
             "type": "string"
           }
@@ -5562,38 +5522,11 @@
           }
         }
       },
-      "PresetInfo": {
+      "PresetDevice": {
         "type": "object",
-        "description": "`GET /api/presets` list entry.",
+        "description": "One device node's radio settings and channels, as the preset captured them.",
         "required": [
-          "id",
-          "name",
-          "created_at",
-          "device_id"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "string",
-            "description": "RFC3339 UTC."
-          },
-          "device_id": {
-            "type": "string",
-            "description": "`driver:key` of the device the preset applies to."
-          },
-          "id": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "name": {
-            "type": "string"
-          }
-        }
-      },
-      "PresetSnapshot": {
-        "type": "object",
-        "description": "The stored body of a preset: a full device-set + channels snapshot (PLAN §11).",
-        "required": [
-          "version",
+          "node",
           "device_id",
           "settings",
           "channels"
@@ -5607,15 +5540,63 @@
           },
           "device_id": {
             "type": "string",
-            "description": "`driver:key` of the device the preset was taken from."
+            "description": "`driver:key` of the radio it was captured on. The fallback match, so a preset still lands\nafter the node was redrawn, and what the client names in the list."
+          },
+          "node": {
+            "type": "string",
+            "description": "[`crate::PatchNode::id`] of the device node this was captured from — the primary match on\napply, and the only one that is right when a patch draws two of the same radio."
           },
           "settings": {
             "$ref": "#/components/schemas/DeviceSettings"
+          }
+        }
+      },
+      "PresetInfo": {
+        "type": "object",
+        "description": "`GET /api/presets` list entry.",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "devices"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          },
+          "devices": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many radios the preset carries, denormalized so the list never parses a blob.",
+            "minimum": 0
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PresetSnapshot": {
+        "type": "object",
+        "description": "The stored body of a preset: where every radio a workspace draws was tuned, and what hung off\nthem (PLAN §11).\n\nA preset is workspace-wide because a workspace is: an operator who saved \"the morning airband\nbench\" means every radio on it, and a per-device preset made that several saves that could be\nrestored in the wrong order or half-applied. Applying one is one gesture over the whole patch.",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PresetDevice"
+            }
           },
           "version": {
             "type": "integer",
             "format": "int32",
-            "description": "Snapshot schema version, currently 1. Bump on any incompatible shape change so\nstored presets can be migrated or rejected explicitly.",
+            "description": "[`PRESET_SNAPSHOT_VERSION`] at the time of writing.",
             "minimum": 0
           }
         }
@@ -7163,6 +7144,23 @@
           }
         }
       },
+      "WorkspaceSettings": {
+        "type": "object",
+        "description": "Choices that belong to the workspace rather than to a node on it or to the browser looking at\nit.\n\nThe band plan is the whole of it today. It lives here because which plan is in force is a\nproperty of the bench the patch describes — an aviation workspace and a marine one read\ndifferent tables of the same air — and because the ruler is drawn on the scope faces the\nworkspace itself draws. It was per-browser until M7 (`web/src/lib/bandRegion.ts`), which meant\ntwo operators on one server saw two different rulers over one signal.",
+        "properties": {
+          "band_region": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "[`crate::BandRegion::id`], or `None` to follow the server's default for this install."
+          },
+          "band_ruler": {
+            "type": "boolean",
+            "description": "Whether scope faces draw the band ruler. Absent means drawn: the plan is the reason the\nregion is stored at all, so a snapshot that predates this field opts in."
+          }
+        }
+      },
       "WorkspaceSnapshot": {
         "type": "object",
         "description": "The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written\natomically, read whole, never queried by inner field).",
@@ -7177,6 +7175,9 @@
           "rack": {
             "$ref": "#/components/schemas/RackLayout",
             "description": "Faces pinned to the operate view. May be empty — the canvas alone is a complete UI\n(CANVAS §5)."
+          },
+          "settings": {
+            "$ref": "#/components/schemas/WorkspaceSettings"
           },
           "version": {
             "type": "integer",

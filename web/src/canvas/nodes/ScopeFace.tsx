@@ -34,7 +34,6 @@ import {
 } from "../../components/spectrumView";
 import { pixelRatio, zoomOf } from "../../gl/raster";
 import { attachWaterfall, COLORMAPS, type Colormap, type WaterfallView } from "../../gl/waterfall";
-import { setBandRuler } from "../../lib/bandRegion";
 import type { SpectrumFrame } from "../../lib/frame";
 import { spectrumHub } from "../../lib/spectrum";
 import { token } from "../../lib/tokens";
@@ -120,8 +119,8 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const { applyEdit } = useChannelPatch();
   const active = useFaceActive();
   // Read here and not only inside the ruler: the toolbar toggle has to reflect it too, and the
-  // preference is shared by every scope on the canvas.
-  const { ruler: bandRuler } = useBandPlan();
+  // setting is the workspace's, so every scope on the canvas draws the same answer.
+  const { ruler: bandRuler, setRuler } = useBandPlan();
 
   const plotRef = useRef<HTMLDivElement>(null);
   const waterfallRef = useRef<HTMLCanvasElement>(null);
@@ -518,7 +517,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
             type="button"
             className={plotButton(bandRuler)}
             aria-pressed={bandRuler}
-            onClick={() => setBandRuler(!bandRuler)}
+            onClick={() => setRuler(!bandRuler)}
           >
             bands
           </button>

@@ -216,6 +216,11 @@ Three states: `system` (default), `dark`, `light`. Stored in `localStorage` — 
 property of the eye looking at the screen, not of the workspace, so unlike the patch itself it does not
 sync between clients.
 
+The control is **one icon that cycles** them, not three permanent segments: the bar is for
+operating a radio, and a choice made twice a year does not hold a fifth of it. The guess a bare
+cycling icon leaves — *which state am I in?* — is closed by the glyph (sun, moon, split disc) and
+by the label naming the current state before the next one: "Theme: Auto. Switch to Dark".
+
 ---
 
 ## 3. Type
@@ -503,7 +508,10 @@ a surprise.
 
 **Keyboard.** The ruler is a pointer instrument; a lane row is one target, not one per band. The
 band explorer in the library drawer is the keyboard route to the same table — searchable, and
-every result tunable — and it is where a region is chosen. Sub-band targets on the ruler itself
+every result tunable. The region and the ruler's on/off are not chosen there: they are workspace
+settings (`WorkspaceSettings`, stored in the snapshot) and live under the workspace menu with the
+rest of them, because which plan is in force is a property of the bench and not of the browser
+looking at it. Sub-band targets on the ruler itself
 are not attempted: at a 2.4 MHz span a 25 kHz channel is a quarter of a pixel, and a target that
 small is a worse answer than a list.
 

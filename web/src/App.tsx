@@ -6,7 +6,7 @@
 // you are operating is the node you are looking at, and the wires leaving it.
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { bindChannels, bindDevices, deviceNodeOf } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { WorkspaceProvider } from "./canvas/context";
@@ -23,9 +23,7 @@ import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
 import {
   BOOKMARKS_KEY,
-  CLIENTS_KEY,
   channelTypesQuery,
-  clientsQuery,
   DECODER_LOG_KEY,
   DEVICES_KEY,
   PRESETS_KEY,
@@ -41,7 +39,7 @@ import { useDecodedStore } from "./lib/decoded";
 import { useScannerStore } from "./lib/scanner";
 import { spectrumHub } from "./lib/spectrum";
 import { pushToast } from "./lib/toasts";
-import type { PatchGraph, ServerEvent, StateScope } from "./lib/types";
+import type { PatchGraph, ServerEvent, StateScope, WorkspaceSettings } from "./lib/types";
 import { useChannelPatch } from "./lib/useChannelPatch";
 import { useDevicePatch } from "./lib/useDevicePatch";
 import { videoHub } from "./lib/video";
@@ -54,14 +52,12 @@ const MODE_RING = ["nfm", "wfm", "am", "ssb"] as const;
 export function App() {
   const queryClient = useQueryClient();
   const [socket, setSocket] = useState<SdrSocket | null>(null);
-  const [connected, setConnected] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<View>("patch");
   const [stepHz, setStepHz] = useState(100_000);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
   const state = useQuery(stateQuery());
-  const clients = useQuery(clientsQuery());
   const channelTypes = useQuery(channelTypesQuery());
   const catalog = useQuery(patchCatalogQuery());
   const workspace = useWorkspace();
@@ -73,7 +69,16 @@ export function App() {
 
   useEffect(() => {
     const s = new SdrSocket();
-    s.onStatus = setConnected;
+    // The bar carries no link light: a row of chrome spent on "still fine" is a row the patch
+    // does not get. A *lost* link is news, so it is said once, on the transition — every failed
+    // retry closes the socket again, and a toast per attempt would be the light back, blinking.
+    let up = false;
+    s.onStatus = (now) => {
+      if (up && !now) {
+        pushToast("Lost the server — reconnecting");
+      }
+      up = now;
+    };
     // Decoder frames bypass TanStack Query entirely (PLAN §5): under ADS-B traffic they arrive
     // hundreds a second, so they go straight into the batched store. The action identity is
     // stable, so this listener never needs re-registering.
@@ -147,6 +152,16 @@ export function App() {
   // re-placed (`pruneRack`) — the same normalisation every write goes through, so the operate
   // view and the next write cannot disagree about where a face is.
   const rack = useMemo(() => pruneRack(snapshot?.rack ?? {}, graph), [snapshot?.rack, graph]);
+  const settings = useMemo(() => snapshot?.settings ?? {}, [snapshot?.settings]);
+  const save = workspace.save;
+  const editSettings = useCallback(
+    (change: Partial<WorkspaceSettings>) =>
+      save((current) => ({
+        ...current,
+        settings: { ...current.settings, ...change },
+      })),
+    [save],
+  );
 
   const devices = useMemo(() => bindDevices(graph, deviceSets), [graph, deviceSets]);
   const channels = useMemo(() => bindChannels(graph, devices), [graph, devices]);
@@ -278,9 +293,9 @@ export function App() {
           <WorkspaceProvider
             value={{
               socket,
-              connected,
               graph,
               rack,
+              settings,
               context,
               deviceSets,
               devices,
@@ -288,6 +303,7 @@ export function App() {
               selected,
               select: setSelected,
               edit: workspace.save,
+              editSettings,
               apply: workspace.apply,
             }}
           >
@@ -299,8 +315,6 @@ export function App() {
               onActivate={workspace.activate}
               onCreate={workspace.create}
               onRemove={workspace.remove}
-              connected={connected}
-              clients={clients.data?.clients ?? 1}
               onShowShortcuts={() => setShowShortcuts(true)}
             />
             {view === "patch" ? (
@@ -358,9 +372,6 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       break;
     case "recordings":
       void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });
-      break;
-    case "clients":
-      void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
       break;
     case "workspaces":
       // Covers the list and every open workspace: the workspace queries are keyed under this prefix.

@@ -630,49 +630,46 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
+    /// A preset is the whole workspace: saving one names no radio, and applying it puts every
+    /// radio the patch draws back where it was.
     #[tokio::test]
     async fn preset_capture_apply_delete_roundtrip() {
         let app = test_router();
-        let source = create_virtual_set(&app).await;
+        let workspace = store_siggen_workspace(&app).await;
+        apply(&app, workspace).await;
+        let ds = get_state(&app).await.device_sets[0].id;
+
         let (status, _) = request(
             app.clone(),
             "PATCH",
-            &format!("/api/devicesets/{source}/device"),
+            &format!("/api/devicesets/{ds}/device"),
             Some(r#"{"center_hz":145500000.0,"sample_rate":2400000.0}"#),
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
+        let channel = get_state(&app).await.device_sets[0].channels[0].id;
         let (status, _) = request(
             app.clone(),
-            "POST",
-            &format!("/api/devicesets/{source}/channels"),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/channels/{channel}"),
             Some(
-                r#"{"settings":{"offset_hz":25000.0,"squelch_db":-70.0,"params":{"type":"nfm","settings":{}}}}"#,
+                r#"{"offset_hz":25000.0,"squelch_db":-70.0,"params":{"type":"nfm","settings":{}}}"#,
             ),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
+        assert_eq!(status, StatusCode::NO_CONTENT);
 
         let (status, body) = request(
             app.clone(),
             "POST",
             "/api/presets",
-            Some(&format!(r#"{{"name":"2m","device_set":{source}}}"#)),
+            Some(r#"{"name":"2m"}"#),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
         let preset = serde_json::from_slice::<CreatedRowId>(&body)
             .expect("json")
             .id;
-
-        let (status, _) = request(
-            app.clone(),
-            "POST",
-            "/api/presets",
-            Some(r#"{"name":"ghost","device_set":999}"#),
-        )
-        .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
 
         let (status, body) = request(app.clone(), "GET", "/api/presets", None).await;
         assert_eq!(status, StatusCode::OK);
@@ -680,52 +677,40 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, preset);
         assert_eq!(listed[0].name, "2m");
-        assert_eq!(listed[0].device_id, "virtual:siggen");
+        assert_eq!(listed[0].devices, 1);
 
-        let target = create_virtual_set(&app).await;
+        // Move the radio off the preset, then ask for it back.
         let (status, _) = request(
             app.clone(),
-            "POST",
-            &format!("/api/presets/{preset}/apply"),
-            Some(&format!(r#"{{"device_set":{target}}}"#)),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(r#"{"center_hz":100000000.0,"sample_rate":2048000.0}"#),
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
 
-        let snap = get_state(&app).await;
-        let source_set = snap
-            .device_sets
-            .iter()
-            .find(|s| s.id == source)
-            .expect("source");
-        let target_set = snap
-            .device_sets
-            .iter()
-            .find(|s| s.id == target)
-            .expect("target");
-        assert_eq!(target_set.settings.center_hz, Some(145_500_000.0));
-        assert_eq!(target_set.settings.sample_rate, Some(2_400_000.0));
-        assert_eq!(target_set.channels.len(), 1);
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/presets/{preset}/apply"),
+            None,
+        )
+        .await;
         assert_eq!(
-            target_set.channels[0].settings,
-            source_set.channels[0].settings
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
         );
 
-        let (status, _) = request(
-            app.clone(),
-            "POST",
-            "/api/presets/999/apply",
-            Some(&format!(r#"{{"device_set":{target}}}"#)),
-        )
-        .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        let (status, _) = request(
-            app.clone(),
-            "POST",
-            &format!("/api/presets/{preset}/apply"),
-            Some(r#"{"device_set":999}"#),
-        )
-        .await;
+        let set = &get_state(&app).await.device_sets[0];
+        assert_eq!(set.settings.center_hz, Some(145_500_000.0));
+        assert_eq!(set.settings.sample_rate, Some(2_400_000.0));
+        assert_eq!(set.channels.len(), 1);
+        assert_eq!(set.channels[0].settings.offset_hz, 25_000.0);
+        assert_eq!(set.channels[0].settings.squelch_db, Some(-70.0));
+
+        let (status, _) = request(app.clone(), "POST", "/api/presets/999/apply", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
 
         let (status, _) = request(
@@ -744,6 +729,112 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, body) = request(app, "GET", "/api/presets", None).await;
+        let listed: Vec<PresetInfo> = serde_json::from_slice(&body).expect("json");
+        assert!(listed.is_empty());
+    }
+
+    /// The reason presets became workspace-wide: a bench is several radios, and restoring it is
+    /// one gesture that must land on each of them — matched by the node that drew them, so two
+    /// radios never swap settings.
+    #[tokio::test]
+    async fn a_preset_carries_every_radio_the_workspace_draws() {
+        let app = test_router();
+        let mut snapshot = virtual_snapshot("siggen", &[]);
+        snapshot.graph.nodes.push(sdrmm_wire::PatchNode {
+            id: "second".to_string(),
+            body: sdrmm_wire::NodeBody::Device(sdrmm_wire::DeviceNode {
+                device: Some(sdrmm_wire::DeviceRef {
+                    backend: "virtual".to_string(),
+                    serial: None,
+                    key: Some("array4".to_string()),
+                }),
+            }),
+            position: sdrmm_wire::Position { x: 0.0, y: 600.0 },
+            size: None,
+            label: None,
+        });
+        let workspace = put_active_workspace(&app, &snapshot).await;
+        assert_eq!(apply(&app, workspace).await.opened, 2);
+
+        let tune = async |app: Router, ds: u32, hz: f64| {
+            let (status, _) = request(
+                app,
+                "PATCH",
+                &format!("/api/devicesets/{ds}/device"),
+                Some(&format!(r#"{{"center_hz":{hz}}}"#)),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+        };
+        let sets: Vec<u32> = get_state(&app)
+            .await
+            .device_sets
+            .iter()
+            .map(|s| s.id)
+            .collect();
+        tune(app.clone(), sets[0], 145_500_000.0).await;
+        tune(app.clone(), sets[1], 433_000_000.0).await;
+
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/presets",
+            Some(r#"{"name":"the bench"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let preset = serde_json::from_slice::<CreatedRowId>(&body)
+            .expect("json")
+            .id;
+        let (_, body) = request(app.clone(), "GET", "/api/presets", None).await;
+        let listed: Vec<PresetInfo> = serde_json::from_slice(&body).expect("json");
+        assert_eq!(listed[0].devices, 2);
+
+        tune(app.clone(), sets[0], 100_000_000.0).await;
+        tune(app.clone(), sets[1], 100_000_000.0).await;
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/presets/{preset}/apply"),
+            None,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::NO_CONTENT,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+
+        let state = get_state(&app).await;
+        let center = |ds: u32| {
+            state
+                .device_sets
+                .iter()
+                .find(|set| set.id == ds)
+                .and_then(|set| set.settings.center_hz)
+        };
+        assert_eq!(center(sets[0]), Some(145_500_000.0));
+        assert_eq!(center(sets[1]), Some(433_000_000.0));
+    }
+
+    /// Nothing to save is a refusal, not an empty preset: a stored preset that names no radio
+    /// would apply cleanly and change nothing, which reads as "the preset is broken" much later.
+    #[tokio::test]
+    async fn saving_a_preset_with_no_radio_open_is_refused() {
+        let app = test_router();
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            "/api/presets",
+            Some(r#"{"name":"empty bench"}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
+        assert!(err.error.contains("nothing to save"), "{err:?}");
+
         let (_, body) = request(app, "GET", "/api/presets", None).await;
         let listed: Vec<PresetInfo> = serde_json::from_slice(&body).expect("json");
         assert!(listed.is_empty());
@@ -784,14 +875,18 @@ mod tests {
 
     fn preset_250k(channels: Vec<ChannelSettings>) -> PresetSnapshot {
         PresetSnapshot {
-            version: rest::PRESET_VERSION,
-            device_id: "virtual:siggen".to_string(),
-            settings: DeviceSettings {
-                center_hz: Some(100_000_000.0),
-                sample_rate: Some(250_000.0),
-                ..DeviceSettings::default()
-            },
-            channels,
+            version: sdrmm_wire::PRESET_SNAPSHOT_VERSION,
+            devices: vec![sdrmm_wire::PresetDevice {
+                // The device node of `virtual_snapshot`, which is what these tests bring up.
+                node: "device".to_string(),
+                device_id: "virtual:siggen".to_string(),
+                settings: DeviceSettings {
+                    center_hz: Some(100_000_000.0),
+                    sample_rate: Some(250_000.0),
+                    ..DeviceSettings::default()
+                },
+                channels,
+            }],
         }
     }
 
@@ -809,7 +904,9 @@ mod tests {
     #[tokio::test]
     async fn apply_preset_replaces_channels_that_do_not_fit_the_preset_rate() {
         let (app, store) = test_router_with_store();
-        let ds = create_virtual_set(&app).await;
+        let workspace = put_active_workspace(&app, &virtual_snapshot("siggen", &[])).await;
+        apply(&app, workspace).await;
+        let ds = get_state(&app).await.device_sets[0].id;
         // Valid at the default 2.048 Msps, far outside the preset's ±125 kHz passband.
         let (status, _) = request(
             app.clone(),
@@ -827,7 +924,7 @@ mod tests {
             app.clone(),
             "POST",
             &format!("/api/presets/{preset}/apply"),
-            Some(&format!(r#"{{"device_set":{ds}}}"#)),
+            None,
         )
         .await;
         assert_eq!(
@@ -856,7 +953,9 @@ mod tests {
     #[tokio::test]
     async fn apply_preset_rejected_up_front_leaves_the_set_untouched() {
         let (app, store) = test_router_with_store();
-        let ds = create_virtual_set(&app).await;
+        let workspace = put_active_workspace(&app, &virtual_snapshot("siggen", &[])).await;
+        apply(&app, workspace).await;
+        let ds = get_state(&app).await.device_sets[0].id;
         let (status, _) = request(
             app.clone(),
             "POST",
@@ -874,7 +973,7 @@ mod tests {
             app.clone(),
             "POST",
             &format!("/api/presets/{preset}/apply"),
-            Some(&format!(r#"{{"device_set":{ds}}}"#)),
+            None,
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -883,9 +982,10 @@ mod tests {
             err.error.contains("exceeds"),
             "the rejection must name the problem: {err:?}"
         );
-        assert!(
-            err.detail.is_none(),
-            "nothing was applied, so there is no partial state to report: {err:?}"
+        assert_eq!(
+            err.detail.as_deref(),
+            Some("0 of 1 radios in the preset were configured"),
+            "nothing was applied to this radio, and the report says which radios were: {err:?}"
         );
 
         // Untouched: the original channel and the original rate are both still there.

@@ -51,6 +51,45 @@ pub struct WorkspaceSnapshot {
     /// (CANVAS §5).
     #[serde(default)]
     pub rack: RackLayout,
+    #[serde(default)]
+    pub settings: WorkspaceSettings,
+}
+
+/// Bound on a band region id, which is a slug the server hands out (`itu1`, `us`, …) and the
+/// client hands back. Long enough for any of them, short enough that a corrupt snapshot cannot
+/// carry a document in this field.
+pub const MAX_REGION_ID_LEN: usize = 32;
+
+/// Choices that belong to the workspace rather than to a node on it or to the browser looking at
+/// it.
+///
+/// The band plan is the whole of it today. It lives here because which plan is in force is a
+/// property of the bench the patch describes — an aviation workspace and a marine one read
+/// different tables of the same air — and because the ruler is drawn on the scope faces the
+/// workspace itself draws. It was per-browser until M7 (`web/src/lib/bandRegion.ts`), which meant
+/// two operators on one server saw two different rulers over one signal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct WorkspaceSettings {
+    /// [`crate::BandRegion::id`], or `None` to follow the server's default for this install.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band_region: Option<String>,
+    /// Whether scope faces draw the band ruler. Absent means drawn: the plan is the reason the
+    /// region is stored at all, so a snapshot that predates this field opts in.
+    #[serde(default = "default_band_ruler")]
+    pub band_ruler: bool,
+}
+
+const fn default_band_ruler() -> bool {
+    true
+}
+
+impl Default for WorkspaceSettings {
+    fn default() -> Self {
+        Self {
+            band_region: None,
+            band_ruler: true,
+        }
+    }
 }
 
 /// Why a snapshot was refused. Structural only — the checks are pure, so they run in `wire` and
@@ -61,6 +100,7 @@ pub enum WorkspaceError {
     Version(u32),
     Patch(PatchError),
     Name,
+    Region,
 }
 
 impl std::fmt::Display for WorkspaceError {
@@ -73,6 +113,10 @@ impl std::fmt::Display for WorkspaceError {
             ),
             Self::Patch(err) => write!(f, "{err}"),
             Self::Name => write!(f, "name must be 1..={MAX_NAME_LEN} characters"),
+            Self::Region => write!(
+                f,
+                "band region id must be 1..={MAX_REGION_ID_LEN} characters"
+            ),
         }
     }
 }
@@ -86,13 +130,14 @@ impl From<PatchError> for WorkspaceError {
 }
 
 impl WorkspaceSnapshot {
-    /// A snapshot holding `graph` and `rack` at this build's version.
+    /// A snapshot holding `graph` and `rack` at this build's version, with default settings.
     #[must_use]
     pub fn new(graph: PatchGraph, rack: RackLayout) -> Self {
         Self {
             version: WORKSPACE_SNAPSHOT_VERSION,
             graph,
             rack,
+            settings: WorkspaceSettings::default(),
         }
     }
 
@@ -105,6 +150,11 @@ impl WorkspaceSnapshot {
         }
         self.graph.validate()?;
         self.rack.validate(&self.graph)?;
+        if let Some(region) = &self.settings.band_region
+            && (region.is_empty() || region.len() > MAX_REGION_ID_LEN)
+        {
+            return Err(WorkspaceError::Region);
+        }
         Ok(())
     }
 
@@ -470,6 +520,23 @@ mod tests {
             serde_json::from_str(r#"{"version":2,"graph":{"nodes":[]}}"#).unwrap();
         assert!(bare.rack.slots.is_empty());
         assert!(bare.graph.edges.is_empty());
+        // …and follows the server's default region with the ruler drawn, which is what every
+        // workspace stored before the band plan became a workspace setting was doing.
+        assert_eq!(bare.settings.band_region, None);
+        assert!(bare.settings.band_ruler);
+    }
+
+    #[test]
+    fn validate_bounds_the_band_region_id() {
+        let mut snap = WorkspaceSnapshot::starter();
+        snap.settings.band_region = Some("itu1".to_owned());
+        snap.validate().expect("a region id the server hands out");
+
+        snap.settings.band_region = Some(String::new());
+        assert_eq!(snap.validate(), Err(WorkspaceError::Region));
+
+        snap.settings.band_region = Some("x".repeat(MAX_REGION_ID_LEN + 1));
+        assert_eq!(snap.validate(), Err(WorkspaceError::Region));
     }
 
     #[test]

@@ -148,12 +148,18 @@ export function NodeShell({
         )}
         <span className={`flex items-center gap-0.5 ${subtitle === undefined ? "ml-auto" : ""}`}>
           {actions}
+          {/* On the rack or not is a state of the *patch*, and the rack is a view you may not be
+              looking at — so it is carried by three things at once: a filled glyph against an
+              empty one, the accent, and the pressed fill every other toggle in the kit uses.
+              Colour alone would not survive a monochrome eye (DESIGN.md §2). */}
           <button
             type="button"
             aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
             aria-pressed={pinned}
-            title={pinned ? "Unpin from the rack" : "Pin to the rack"}
-            className={`${ICON_BTN} size-5 ${pinned ? "text-accent" : "text-ink-faint"}`}
+            title={pinned ? "On the rack — click to take it off" : "Pin to the rack"}
+            className={`${ICON_BTN} size-5 ${
+              pinned ? "bg-accent/15 text-accent" : "text-ink-faint"
+            }`}
             onClick={() =>
               workspace.edit((snapshot) => ({
                 ...snapshot,
@@ -163,7 +169,7 @@ export function NodeShell({
               }))
             }
           >
-            ▣
+            {pinned ? "▣" : "□"}
           </button>
           <button
             type="button"
