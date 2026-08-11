@@ -1,21 +1,40 @@
 # CI mirrors the local gate 1:1 (CLAUDE.md): every job here is an `xtask` subcommand a developer
-# can run unchanged — `check`, `test`, `smoke`, `audit`. It lands at M0 and grows each milestone
-# (PLAN §15). No hardware — everything runs on `device-virtual`.
+# can run unchanged — `check`, `test`, `smoke`, `desktop`, `audit`. No hardware — everything runs
+# on `device-virtual` (PLAN §14).
+#
+# Pull requests pay for Linux only. macOS bills at 10x the Linux minute rate for a job that has
+# never once failed on its own, so it runs on `main` and on release tags, where a platform-
+# specific break still gets caught before it can ship. `workflow_dispatch` forces the full set
+# onto a branch when a change is genuinely platform-shaped.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      all-platforms:
+        description: "Run the macOS jobs on this branch too"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Bump together with the version in `web/package.json`'s packageManager field.
+  PNPM_VERSION: 11.15.1
+  NODE_VERSION: 24
+
 jobs:
   gate:
     name: Full gate (ubuntu)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns
@@ -24,10 +43,10 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsoapysdr-dev
       - uses: pnpm/action-setup@v6
         with:
-          version: 11.15.1
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm --dir web install --frozen-lockfile
@@ -36,6 +55,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu
+      # `check` is ordered cheapest-first internally (fmt and the web lints before clippy), so
+      # a formatting break answers in seconds rather than after a cold workspace build.
       - name: cargo xtask check
         run: cargo xtask check
       - name: cargo xtask test
@@ -47,13 +68,72 @@ jobs:
       - name: cargo xtask smoke
         run: cargo xtask smoke
 
-  advisories:
-    name: Dependency advisories (ubuntu)
-    runs-on: ubuntu-latest
+  desktop:
+    name: Desktop shell (ubuntu)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # `cargo xtask` links libSoapySDR through sdrmm-server's default features, same as above.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsoapysdr-dev
+      # Tauri v2's Linux prerequisites; cmake is for audiopus_sys' vendored libopus.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev cmake file
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-ubuntu
+      # Its own job because `apps/desktop` is outside the workspace's `default-members` — the
+      # gate above never compiles it. Without this, a break in the Tauri shell stayed invisible
+      # until a tag was cut and the release job was the first thing to build it.
+      #
+      # Clippy only, not a bundle: the installers are release work, and the failure this job
+      # exists to catch is a compile error. That is also why there is no Node here — the
+      # compile gate needs no UI on disk (see the command's own comment).
+      - name: cargo xtask desktop
+        run: cargo xtask desktop
+
+  image:
+    name: Container image (amd64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      # Build without pushing, on the same gha cache scope the release job writes, so a broken
+      # Dockerfile fails on the pull request that broke it instead of on release day.
+      - uses: docker/build-push-action@v7
+        with:
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: sdrmm:ci
+          cache-from: type=gha,scope=linux/amd64
+          cache-to: type=gha,mode=max,scope=linux/amd64
+      # The image is only as good as what it does on start: this asserts the binary runs and
+      # that the UI really was embedded, which a `--version` check alone would not show.
+      - name: Smoke the image
+        run: |
+          set -euo pipefail
+          docker run --rm sdrmm:ci --version
+          docker run --rm --detach --name sdrmm-ci --publish 8080:8080 sdrmm:ci
+          trap 'docker rm --force sdrmm-ci >/dev/null 2>&1 || true' EXIT
+          for _ in $(seq 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8080/api/state; then ok=1; break; fi
+            sleep 1
+          done
+          test "${ok:-}" = 1 || { docker logs sdrmm-ci; exit 1; }
+          # `build.rs` ships a 503 "not built" placeholder when web/dist is empty, so a served
+          # index is the only proof the UI is actually in the image.
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root"'
+
+  advisories:
+    name: Dependency advisories (ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      # No libSoapySDR here, unlike the gate: xtask inherits `sdrmm-server` with
+      # `default-features = false`, so `soapysdr-sys` is not in its graph at all, and
+      # `cargo deny` reads the lockfile rather than compiling anything.
       - run: rustup show
       # Restore-only on the gate's cache: this job builds the same xtask binary and has nothing
       # of its own worth storing.
@@ -71,7 +151,10 @@ jobs:
 
   rust-macos:
     name: Rust tests (macos-arm64)
-    runs-on: macos-latest
+    # See the header: macOS bills at 10x and has never been the job that caught a break, so
+    # pull requests skip it and `main` does not.
+    if: github.event_name == 'push' || inputs.all-platforms
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns empty).
@@ -79,13 +162,15 @@ jobs:
       # `cargo xtask test` runs the web unit tests too, so it needs pnpm + node.
       - uses: pnpm/action-setup@v6
         with:
-          version: 11.15.1
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm --dir web install --frozen-lockfile
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos
       - run: cargo xtask test

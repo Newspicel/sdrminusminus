@@ -12,15 +12,17 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Server is authoritative — every client (browser, desktop window, MCP agent) sees the same state and converges over one WebSocket
 - **[shipped]** One frontend, two hosts — served by the server for browser access, and bundled into the Tauri v2 desktop shell
 - **[shipped]** Desktop app spawns an embedded server on an ephemeral loopback port (loopback-only, unauthenticated by design)
-- **[shipped]** Linux (x86_64 + aarch64) and macOS (arm64) release tarballs, multi-arch ghcr.io image and Tauri bundles, all built by a tag-triggered workflow
+- **[shipped]** Release archives for Linux (x86_64 + aarch64), macOS (arm64 + x86_64) and Windows (x86_64), a multi-arch ghcr.io image, and desktop installers (`.dmg`, `.deb`, `.AppImage`, `.msi`, `.exe`), all built by a tag-triggered workflow
 - **[shipped]** Release artifacts just run — `xtask dist` produces a ~25 MB binary linking only IOKit/CoreFoundation/libiconv/libSystem: no libusb, no libSoapySDR, no libopus, no libsqlite
+- **[shipped]** One version, one place — `[workspace.package] version` is the only copy; `tauri.conf.json` omits `version` so Tauri inherits it, `xtask dist` names archives from it, and the release workflow stamps it from the git tag with `xtask set-version`. Each built artifact is then run and asserted to report the version it is named after
+- **[shipped]** The Tauri shell and the Dockerfile are pull-request gates (`xtask desktop`, plus an image build that boots the container and asserts the UI is really embedded) — both used to be built for the first time on release day, since `apps/desktop` sits outside the workspace's `default-members`
+- **[shipped]** Pull requests are Linux-only by design; macOS tests run on `main` and on tags, where a platform break is still caught before it ships
 - **[shipped]** `sdrmm --doctor` and `GET /api/doctor` — compiled backends, devices found, Linux udev/USB permissions with the fix, database and recordings-path writability, one shared report so CLI and UI cannot disagree
 - **[shipped]** mdBook docs site + Pages deploy
 - **[shipped]** RustSec advisories are a CI gate (`xtask audit`, policy in `deny.toml`) covering the whole graph, Tauri shell included. It runs as its own job because a new advisory lands on RustSec's schedule, not on a pull request's. Standing exception: `RUSTSEC-2024-0429` (`glib` `VariantStrIter` unsoundness), unreachable here and unfixable below gtk4 — see `deny.toml`
 - **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
-- **[planned]** Signed/notarised macOS bundles — the workflow ships them unsigned until Apple secrets exist
-- **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one; the Docker image is likewise built only by the tag workflow, never here
-- **[skipped]** Windows
+- **[shipped]** Signed and notarised macOS bundles — a Developer ID Application certificate and the App Store notary service, driven by six repository secrets the release workflow passes through to Tauri
+- **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one
 - **[skipped]** Mobile/phone layouts — every mobile path was deleted with the M6 shell; pointer, keyboard and laptop-class viewport are assumed everywhere
 
 ## 2. Device support
