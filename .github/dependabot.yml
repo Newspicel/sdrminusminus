@@ -1,0 +1,50 @@
+# Dependency updates. Grouped and monthly on purpose: this is a pinned-nightly workspace with a
+# committed Cargo.lock, and a per-crate pull request storm would bury the ones that matter.
+# Security updates ignore both the schedule and the grouping, so an advisory still arrives the
+# day it lands — which is the case `cargo xtask audit` is gating for.
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      # Patch and minor together: the workspace pins majors deliberately (see the comments in
+      # Cargo.toml), so a major bump is a decision to make by hand, not a pull request to merge.
+      cargo-minor:
+        update-types: [minor, patch]
+    ignore:
+      # Bumping tauri's stack means re-testing four bundle formats; done deliberately at a
+      # milestone, not on dependabot's schedule. deny.toml's glib exception tracks the same
+      # graph and has to be revisited with it.
+      - dependency-name: tauri
+        update-types: [version-update:semver-major]
+      - dependency-name: tauri-build
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor:
+        update-types: [minor, patch]
+    ignore:
+      # Pinned exactly in web/package.json and upgraded with the toolchain, not ahead of it.
+      - dependency-name: "@typescript/native-preview"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly

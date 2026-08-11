@@ -1,13 +1,22 @@
-# Release artifacts (PLAN §15, milestone M5). Tag-driven; workflow_dispatch builds and uploads
-# everything without publishing, so the pipeline can be exercised off a branch.
+# Release artifacts (PLAN §15). Tag-driven; workflow_dispatch builds and uploads everything
+# without publishing, so the pipeline can be exercised off a branch.
 #
-# Two rules run through every job here:
-#  - the web UI is built first and its presence asserted. crates/server/build.rs creates
-#    web/dist when it is missing, so a Rust build with no UI *succeeds* and ships a 503 "not
-#    built" page — a silent failure this workflow exists to prevent.
-#  - binaries are built `--no-default-features` (drops `soapy`, whose sys crate links
-#    libSoapySDR) with the native pure-Rust backends on, because release artifacts must launch
-#    with no shared library installed.
+# Three rules run through every job here:
+#
+#  - The version comes from the tag and is stamped *once*, by the `version` job, which uploads
+#    the rewritten Cargo.toml + Cargo.lock for everything downstream to check out over. Before
+#    this existed the tag named the tarball and nothing else: bundles shipped as `0.0.0` and
+#    `sdrmm --version` disagreed with the release it came from.
+#
+#  - Binaries and images are built `--no-default-features` (drops `soapy`, whose sys crate
+#    links libSoapySDR) with the native pure-Rust backends on, because release artifacts must
+#    launch with no shared library installed. Those flags live in `xtask`, not here.
+#
+#  - The web UI is built by whatever produces the artifact and its presence is then asserted.
+#    crates/server/build.rs creates web/dist when it is missing, so a Rust build with no UI
+#    *succeeds* and ships a 503 "not built" page — a silent failure this pipeline prevents.
+#    `cargo xtask dist` does both, which is why one command reproduces a release artifact on a
+#    laptop; the Dockerfile has the same two steps as its own stages.
 name: Release
 
 on:
@@ -26,36 +35,51 @@ env:
   # ghcr rejects an uppercase reference and `github.repository` carries the owner's canonical
   # casing (`Newspicel/…`), so the name is lowercased at use rather than interpolated raw.
   IMAGE_NAME: ghcr.io/newspicel/sdrminusminus
+  # Bump together with the version in `web/package.json`'s packageManager field.
+  PNPM_VERSION: 11.15.1
+  NODE_VERSION: 24
 
 jobs:
-  # Built once and shared, so every artifact of a release embeds byte-identical assets.
-  web:
-    name: Web UI
+  version:
+    name: Stamp version
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.stamp.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      # Building xtask reaches sdrmm-server, so audiopus_sys' vendored libopus is compiled here
+      # too — the one reason a manifest edit needs a C toolchain.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
         with:
-          version: 11.15.1
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-      - run: pnpm --dir web install --frozen-lockfile
-      - run: pnpm --dir web build
-      - name: Assert the UI built
-        run: test -f web/dist/index.html
+          shared-key: ubuntu
+          save-if: false
+      - id: stamp
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Dispatch runs are pipeline rehearsals and are never published, so they keep the
+          # manifest's own version. A `0.0.0-<sha>` would only fail the Windows MSI bundler,
+          # whose ProductVersion has no room for a prerelease field.
+          if [ "$REF_TYPE" = tag ]; then version="${REF_NAME#v}"; else version=0.0.0; fi
+          cargo xtask set-version "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # Two files, and every build job below starts by checking them out over its own copy.
       - uses: actions/upload-artifact@v7
         with:
-          name: web-dist
-          path: web/dist
+          name: version-stamp
+          path: |
+            Cargo.toml
+            Cargo.lock
           if-no-files-found: error
           retention-days: 1
 
   binaries:
     name: sdrmm (${{ matrix.target }})
-    needs: web
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -66,59 +90,78 @@ jobs:
             runner: ubuntu-24.04-arm
           - target: aarch64-apple-darwin
             runner: macos-15
-    # Every entry is a native runner — GitHub's hosted arm64 Linux runners remove the need to
-    # cross-compile or emulate, so no sysroot, no cargo-zigbuild, no QEMU. The OS is pinned
+          # The one cross build: Apple ships both slices in a single SDK, so the arm64 runner
+          # produces the Intel binary without a sysroot of its own.
+          - target: x86_64-apple-darwin
+            runner: macos-15
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+    # Every other entry is a native runner — GitHub's hosted arm64 Linux runners remove the need
+    # to cross-compile or emulate, so no sysroot, no cargo-zigbuild, no QEMU. The OS is pinned
     # rather than `-latest` because the build machine's glibc is the floor of every Linux
     # artifact we ship, and a silent bump would strand older Pi installs.
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          name: web-dist
-          path: web/dist
-      - name: Assert the UI is present
-        run: test -f web/dist/index.html
-      # audiopus_sys builds vendored libopus through the cmake crate.
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
-      # Installs the pinned nightly from rust-toolchain.toml.
+      # Installs the pinned nightly from rust-toolchain.toml; `xtask dist` adds the cross
+      # target itself when `--target` names something other than the host.
       - run: rustup show
+      # Before the version stamp on purpose: rust-cache keys on Cargo.lock, and stamping
+      # rewrites every workspace entry in it. Restoring first means a release reuses the
+      # dependency artifacts `main` already built, and only the workspace crates rebuild.
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      # `cargo xtask dist` is the intended entry point (CLAUDE.md); until it lands with a
-      # defined output contract this job packages the binary directly.
-      - name: Build
-        run: cargo build --release --locked -p sdrmm --no-default-features --features rtl-native,hackrf-native
-      - name: Package
+      - uses: actions/download-artifact@v8
+        with:
+          name: version-stamp
+      # `xtask dist` builds the UI itself, so the toolchain has to be here rather than in a
+      # shared artifact — which is also what lets one command reproduce this on a laptop.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      # audiopus_sys builds vendored libopus through the cmake crate.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
+      - name: cargo xtask dist
+        run: cargo xtask dist --target ${{ matrix.target }}
+      # An artifact that reports a version other than the one it is named after is exactly the
+      # bug this pipeline was rebuilt to close, so assert it rather than trust it. The staged
+      # directory holds the same files the archive was packed from, which keeps this one step
+      # portable across all three shells instead of needing a per-OS unpacker.
+      # The Intel build cannot run on the arm64 runner, so it is checked for presence only.
+      - name: Smoke the artifact
         shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            version="$GITHUB_REF_NAME"
-          else
-            version="0.0.0-${GITHUB_SHA::7}"
-          fi
-          name="sdrmm-${version}-${{ matrix.target }}"
-          mkdir -p "dist/$name"
-          # README.md and LICENSE are release contents, not optional: a missing one fails here.
-          cp target/release/sdrmm README.md LICENSE "dist/$name/"
-          # Linux only: on aarch64-apple-darwin the linker's ad-hoc code signature is required
-          # for the binary to load at all, and `strip` invalidates it.
-          if [ "$RUNNER_OS" = Linux ]; then strip "dist/$name/sdrmm"; fi
-          # COPYFILE_DISABLE stops macOS bsdtar from emitting ._ AppleDouble members for
-          # extended attributes; ignored by GNU tar.
-          COPYFILE_DISABLE=1 tar -C dist -czf "dist/$name.tar.gz" "$name"
-          echo "ASSET=dist/$name.tar.gz" >> "$GITHUB_ENV"
+          staged="dist/sdrmm-${VERSION}-${TARGET}"
+          ls -l "$staged"
+          test -s "$staged.tar.gz" || test -s "$staged.zip"
+          if [ "$TARGET" = x86_64-apple-darwin ]; then exit 0; fi
+          bin="$staged/sdrmm"
+          if [ -f "$bin.exe" ]; then bin="$bin.exe"; fi
+          printed="$("$bin" --version)"
+          echo "$printed"
+          test "$printed" = "sdrmm $VERSION"
       - uses: actions/upload-artifact@v7
         with:
           name: sdrmm-${{ matrix.target }}
-          path: ${{ env.ASSET }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
           if-no-files-found: error
 
   image:
     name: Image (${{ matrix.platform }})
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -135,6 +178,14 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+      # Into the build context, so the binary inside the image reports the release version too.
+      # Unlike the cargo jobs this cannot be reordered around the cache: Cargo.toml is a layer
+      # input to the Dockerfile's dependency-compilation stage, so a tag build recompiles the
+      # dependency tree from cold. That is a few minutes per platform, on a workflow that runs
+      # per release — cheaper than teaching the Dockerfile to stamp itself.
+      - uses: actions/download-artifact@v8
+        with:
+          name: version-stamp
       # Artifact names cannot contain "/".
       - name: Platform slug
         env:
@@ -170,7 +221,7 @@ jobs:
 
   image-manifest:
     name: Image manifest
-    needs: image
+    needs: [version, image]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -199,6 +250,7 @@ jobs:
       - name: Create manifest list
         working-directory: /tmp/digests
         run: |
+          # shellcheck disable=SC2046  # both substitutions are argument lists, not one word
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf "${IMAGE_NAME}@sha256:%s " *)
@@ -207,28 +259,47 @@ jobs:
 
   desktop:
     name: Desktop (${{ matrix.label }})
-    needs: web
+    needs: version
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: macos-arm64
             runner: macos-15
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - label: macos-x86_64
+            runner: macos-15
+            target: x86_64-apple-darwin
             bundles: dmg
           - label: linux-x86_64
             runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
             bundles: deb,appimage
+          - label: windows-x86_64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+      - run: rustup show
+      - run: rustup target add ${{ matrix.target }}
+      # Before the version stamp, for the reason given in the binaries job.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-${{ matrix.label }}
       - uses: actions/download-artifact@v8
         with:
-          name: web-dist
-          path: web/dist
-      # The Tauri shell serves the same embedded UI through the in-process server, so it needs
-      # web/dist just as much as the headless binary does.
-      - name: Assert the UI is present
-        run: test -f web/dist/index.html
+          name: version-stamp
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
       # Tauri v2's Linux prerequisites; cmake is for audiopus_sys' vendored libopus.
       - if: runner.os == 'Linux'
         run: |
@@ -236,17 +307,26 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
             libxdo-dev libssl-dev cmake file
-      - run: rustup show
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: desktop-${{ matrix.label }}
-      # The action installs the Tauri CLI itself — nothing in this repo depends on it, and
-      # apps/desktop has no package.json to hang a devDependency on.
+      # tauri-action drives the bundle itself, so the UI has to be on disk before it starts —
+      # the Tauri shell serves the same embedded UI through the in-process server, and needs
+      # web/dist just as much as the headless binary does.
+      - run: pnpm --dir web install --frozen-lockfile
+      - run: pnpm --dir web build
+      - name: Assert the UI built
+        shell: bash
+        run: test -f web/dist/index.html
+      # `cargo xtask desktop --bundles` is the same build locally. CI goes through the action
+      # because signing a macOS bundle needs the certificate imported into a temporary keychain
+      # first, and that is the action's job.
       - uses: tauri-apps/tauri-action@v1
         env:
-          # Unset secrets mean unsigned bundles: the .dmg still mounts, but Gatekeeper
-          # quarantines the app and no notarization ticket is stapled, so users must clear the
-          # quarantine attribute by hand. Set all five to publish signed, notarized builds.
+          # macOS bundles are signed and notarized, which is what these six carry: the first
+          # three are the Developer ID Application certificate, the last three are the notary
+          # credentials. Tauri creates and unlocks its own temporary keychain from the .p12, so
+          # there is no KEYCHAIN_PASSWORD to set here.
+          # If any are missing the build still succeeds and produces an *unsigned* .dmg —
+          # Gatekeeper then quarantines the app with no ticket to staple, and users have to
+          # clear the quarantine attribute by hand.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -255,15 +335,18 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: apps/desktop
-          args: --no-default-features --features rtl-native,hackrf-native --bundles ${{ matrix.bundles }}
+          args: --target ${{ matrix.target }} --no-default-features --features rtl-native,hackrf-native --bundles ${{ matrix.bundles }}
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
       # — and the release job below treats every downloaded entry as a file to attach.
       - name: Collect bundles
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p bundles
-          find target/release/bundle -type f \
-            \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) \
+          find target/${{ matrix.target }}/release/bundle -type f \
+            \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \
+               -o -name '*.msi' -o -name '*-setup.exe' \) \
             -exec cp {} bundles/ \;
           ls -l bundles
       - uses: actions/upload-artifact@v7
@@ -276,10 +359,14 @@ jobs:
     name: GitHub Release
     # workflow_dispatch runs stop at the uploaded artifacts; only a tag publishes.
     if: github.ref_type == 'tag'
-    needs: [binaries, image-manifest, desktop]
+    needs: [version, binaries, image-manifest, desktop]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      # Provenance: every published file gets a signed statement tying it to this workflow at
+      # this commit, verifiable with `gh attestation verify <file> --repo <repo>`.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -291,16 +378,22 @@ jobs:
         run: |
           # `! -name SHA256SUMS`: the redirect creates the file before `find` runs, so without
           # it the manifest lists itself — hashed while still empty, since it sorts first.
+          # shellcheck disable=SC2094  # that exclusion is exactly what makes this safe
           find . -type f ! -name SHA256SUMS -printf '%P\0' \
             | sort -z | xargs -0 shasum -a 256 > SHA256SUMS
           cat SHA256SUMS
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: "artifacts/*"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
+          # shellcheck disable=SC2046  # the find is an asset list, one argument per file
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --generate-notes \
-            --notes "Container image: \`docker pull ${IMAGE_NAME}:${GITHUB_REF_NAME#v}\`" \
+            --notes "Container image: \`docker pull ${IMAGE_NAME}:${VERSION}\`" \
             $(find artifacts -type f | sort)

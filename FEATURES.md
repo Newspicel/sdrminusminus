@@ -12,15 +12,17 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Server is authoritative — every client (browser, desktop window, MCP agent) sees the same state and converges over one WebSocket
 - **[shipped]** One frontend, two hosts — served by the server for browser access, and bundled into the Tauri v2 desktop shell
 - **[shipped]** Desktop app spawns an embedded server on an ephemeral loopback port (loopback-only, unauthenticated by design)
-- **[shipped]** Linux (x86_64 + aarch64) and macOS (arm64) release tarballs, multi-arch ghcr.io image and Tauri bundles, all built by a tag-triggered workflow
+- **[shipped]** Release archives for Linux (x86_64 + aarch64), macOS (arm64 + x86_64) and Windows (x86_64), a multi-arch ghcr.io image, and desktop installers (`.dmg`, `.deb`, `.AppImage`, `.msi`, `.exe`), all built by a tag-triggered workflow
 - **[shipped]** Release artifacts just run — `xtask dist` produces a ~25 MB binary linking only IOKit/CoreFoundation/libiconv/libSystem: no libusb, no libSoapySDR, no libopus, no libsqlite
+- **[shipped]** One version, one place — `[workspace.package] version` is the only copy; `tauri.conf.json` omits `version` so Tauri inherits it, `xtask dist` names archives from it, and the release workflow stamps it from the git tag with `xtask set-version`. Each built artifact is then run and asserted to report the version it is named after
+- **[shipped]** The Tauri shell and the Dockerfile are pull-request gates (`xtask desktop`, plus an image build that boots the container and asserts the UI is really embedded) — both used to be built for the first time on release day, since `apps/desktop` sits outside the workspace's `default-members`
+- **[shipped]** Pull requests are Linux-only by design; macOS tests run on `main` and on tags, where a platform break is still caught before it ships
 - **[shipped]** `sdrmm --doctor` and `GET /api/doctor` — compiled backends, devices found, Linux udev/USB permissions with the fix, database and recordings-path writability, one shared report so CLI and UI cannot disagree
 - **[shipped]** mdBook docs site + Pages deploy
 - **[shipped]** RustSec advisories are a CI gate (`xtask audit`, policy in `deny.toml`) covering the whole graph, Tauri shell included. It runs as its own job because a new advisory lands on RustSec's schedule, not on a pull request's. Standing exception: `RUSTSEC-2024-0429` (`glib` `VariantStrIter` unsoundness), unreachable here and unfixable below gtk4 — see `deny.toml`
 - **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
-- **[planned]** Signed/notarised macOS bundles — the workflow ships them unsigned until Apple secrets exist
-- **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one; the Docker image is likewise built only by the tag workflow, never here
-- **[skipped]** Windows
+- **[shipped]** Signed and notarised macOS bundles — a Developer ID Application certificate and the App Store notary service, driven by six repository secrets the release workflow passes through to Tauri
+- **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one
 - **[skipped]** Mobile/phone layouts — every mobile path was deleted with the M6 shell; pointer, keyboard and laptop-class viewport are assumed everywhere
 
 ## 2. Device support
@@ -36,9 +38,9 @@ is a deliberate no. Within each section, shipped comes first.
 - **[shipped]** Auto-reconnect on replug — a faulted set whose radio re-enumerates is re-opened, its tuning re-applied and its channels rebuilt with ids, PCM identity and live audio subscriptions preserved
 - **[shipped]** Two-tier recovery — an in-place stream restart (measured 6.1–7.6 ms on the RTL-SDR, 0.8–1.2 ms on the HackRF, against ~1.6 s for a re-open) with a silent-stall detector on both radios, falling back to the engine's destructive fault path only when the restart budget is spent. Proven in three pieces (policy, transport, primitive); never yet driven by a genuinely halted pipe
 - **[shipped]** Soapy-free builds are a CI gate (`--no-default-features --features rtl-native,hackrf-native`)
+- **[shipped]** Direct sampling (HF via RTL-SDR) — the tuner goes to standby and the RTL2832U's own downconverter becomes the dial, so a dongle whose tuner starts at 24 MHz hears DC–14.4 MHz. Offered as an `off`/`i`/`q` setting on every board but the Blog V4, which upconverts into the tuner instead and would lose its antenna if the tuner were bypassed. Switching modes carries the dial into the range the new mode can reach and reports where it landed; the tuner's gain and IF filter are recorded while bypassed and written back when it returns, so a faulted HF set reconnects onto the same configuration. The register sequence follows librtlsdr line for line and every pure part of it is tested, but no modified dongle or Blog V3 has been attached — nothing has yet *heard* HF this way
 - **[shipped]** HackRF baseband filter as a control of its own — all sixteen MAX2837 widths offered, an off-grid request snapped down and *reported* at the width that landed, and a `0` that asks for whatever the sample rate implies. A rate change still carries the filter with it, but the width it lands on is now libhackrf's `0.75 × rate` rather than the rate itself: the old value asked for a filter wider than the passband it was there to bound, and no longer matched what the same radio does under `hackrf_transfer`
 - **[shipped]** HackRF hardware sweep mode — the firmware's `INIT_SWEEP` request and `RX_SWEEP` transceiver mode, the 16 KiB stamped-block framing, and a reader that hands out one located capture per block, half-duplex arbitrated against capture and transmit. Driver-level and Rust-only, like the transmit path: the plan encoding and the block parsing are golden-tested against libhackrf's and the firmware's own source, but no radio has run it and nothing above `device-hackrf` calls it yet (see §4)
-- **[planned]** Direct sampling (HF via RTL-SDR)
 - **[planned]** rtl_tcp / SpyServer client device
 - **[planned]** KiwiSDR client device
 - **[planned]** Remote source/sink between sdr-- instances; local routing between device sets
@@ -129,7 +131,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 - **[shipped]** Dark, light and auto themes (per browser, not synced — a theme belongs to the eye, not the workspace)
 - **[shipped]** Errors as a dismissible toast stack rather than a banner that shoves every panel down
 - **[shipped]** Playwright smoke flow (`xtask smoke`) driving the built UI against a real server
-- **[planned]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them
+- **[shipped]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them
 - **[planned]** A first-run wizard — the canvas has no guided first run
 - **[planned]** Band-plan explorer (§5)
 - **[planned]** Node kinds whose backends do not exist yet: GPS source, UDP sink, WAV sink, and the `iq-tap`/`position` port types that go with them
@@ -150,7 +152,7 @@ Nothing here is built; the dial and the plot were built so it can hang off them 
 
 ## 9. Digital voice
 
-- **[planned]** **DSD suite — DMR, D-Star, YSF, NXDN, P25, dPMR — default-on, voice included**
+- **[planned]** DMR, D-Star, YSF, NXDN, P25, dPMR
 - **[planned]** M17, FreeDV
 - **[planned]** Trunking following — P25 / DMR Tier III control channel decode with auto-steered voice channels
 - **[planned]** Hardware AMBE dongle/server support

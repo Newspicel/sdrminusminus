@@ -16,13 +16,13 @@
 //! two radios genuinely have in common, and getting them wrong on each side separately is the
 //! defect this driver exists to fix (PLAN §17). What is left here is the RTL-SDR itself.
 //!
-//! What the driver does not program is not advertised: direct sampling, offset tuning and the
-//! RTL2832U digital AGC. `apply` rejects those settings rather than accepting them silently.
+//! What the driver does not program is not advertised: offset tuning and the RTL2832U digital
+//! AGC. `apply` rejects those settings rather than accepting them silently.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use caps::{GainMode, Plan};
-use driver::{DeviceDescriptor, DeviceDescriptors, RtlSdr};
+use driver::{BoardVariant, DeviceDescriptor, DeviceDescriptors, RtlSdr};
 use sdrmm_device::{
     Capture, CaptureConfig, CaptureRadio, DeviceDriver, DeviceError, RxSink, SdrDevice, lock,
     single_rx_sink,
@@ -41,7 +41,7 @@ pub(crate) const DRIVER_ID: &str = "rtlsdr";
 /// nothing usable; these are the values the engine assumes when a device reports none, so
 /// hardware, reported settings and engine state agree from the first snapshot.
 const DEFAULT_SAMPLE_RATE_HZ: u32 = 2_048_000;
-const DEFAULT_CENTER_HZ: u32 = 100_000_000;
+pub(crate) const DEFAULT_CENTER_HZ: u32 = 100_000_000;
 
 fn map_err(err: driver::Error) -> DeviceError {
     let text = err.to_string();
@@ -165,21 +165,31 @@ impl RtlSdrDevice {
         // A dongle whose EEPROM forces it on ignores this (`RtlSdr::set_bias_t`).
         sdr.set_bias_t(false).map_err(map_err)?;
 
+        let mut extra = vec![
+            ExtraValue {
+                name: caps::BIAS_TEE.to_string(),
+                value: false.into(),
+            },
+            ExtraValue {
+                name: caps::AGC.to_string(),
+                value: true.into(),
+            },
+        ];
+        // Reported only where it is offered — the Blog V4 reaches HF through its upconverter and
+        // has no direct-sampling setting to report a value for.
+        if sdr.board_variant() != BoardVariant::RtlSdrBlogV4 {
+            extra.push(ExtraValue {
+                name: caps::DIRECT_SAMPLING.to_string(),
+                value: sdr.direct_sampling().as_str().into(),
+            });
+        }
+
         let settings = DeviceSettings {
             center_hz: Some(f64::from(sdr.center_freq())),
             sample_rate: Some(f64::from(sdr.sample_rate())),
             ppm: Some(f64::from(sdr.freq_correction())),
             antenna: Some("RX".to_string()),
-            extra: vec![
-                ExtraValue {
-                    name: caps::BIAS_TEE.to_string(),
-                    value: false.into(),
-                },
-                ExtraValue {
-                    name: caps::AGC.to_string(),
-                    value: true.into(),
-                },
-            ],
+            extra,
             ..DeviceSettings::default()
         };
 
@@ -196,6 +206,17 @@ impl RtlSdrDevice {
 }
 
 fn apply_to_hardware(sdr: &mut RtlSdr, plan: &Plan) -> Result<(), DeviceError> {
+    if let Some(mode) = plan.direct_sampling {
+        sdr.set_direct_sampling(mode).map_err(map_err)?;
+        // Before anything else retunes. The driver caches the centre and `set_sample_rate` and
+        // `set_freq_correction` both re-tune from that cache — which still holds the frequency
+        // the *previous* mode was on, and the mode being entered cannot reach it. `caps::validate`
+        // guarantees a centre accompanies every mode change for exactly this reason; the write
+        // below repeats it, which costs one tune on a mode switch and nothing otherwise.
+        if let Some(hz) = plan.center_hz {
+            sdr.set_center_freq(hz).map_err(map_err)?;
+        }
+    }
     // Rate first: `set_sample_rate` re-tunes the tuner and recomputes its filter from the new
     // rate (the driver mirrors librtlsdr here), so a center or bandwidth written before it
     // would be overwritten.
@@ -270,7 +291,7 @@ impl SdrDevice for RtlSdrDevice {
         self.settings.merge_from(&plan.applied);
         // `merge_from` cannot clear a field, and an automatic filter width is the absence of
         // one (as the Soapy backend reports it).
-        if plan.bandwidth == Some(0) {
+        if plan.clear_bandwidth {
             self.settings.bandwidth = None;
         }
         Ok(())

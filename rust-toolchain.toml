@@ -2,4 +2,7 @@
 # Pinned deliberately (PLAN §15). Bump only with CI green.
 channel = "nightly-2026-08-01"
 components = ["rustfmt", "clippy", "rust-src"]
-targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
+# No `targets` list on purpose. Every entry here is ~150 MB of rust-std that `rustup show`
+# fetches on *every* job, including the ones that only ever build for their own host. The
+# release targets are installed where they are used instead: `xtask dist`/`xtask desktop` add
+# the triple passed to `--target`, so a cross build works the same in CI and on a laptop.

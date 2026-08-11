@@ -38,11 +38,26 @@ enum Cmd {
     Smoke,
     /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
     Fixtures,
-    /// Build the self-contained release artifact for this host (PLAN §15).
+    /// Build the self-contained release archive for this host (PLAN §15).
     Dist {
         /// Cross-compile for this target triple instead of the host.
         #[arg(long)]
         target: Option<String>,
+    },
+    /// Build the Tauri desktop shell. Without `--bundles` this is the compile gate, which is
+    /// what CI runs on every pull request; with it, the installers for this host.
+    Desktop {
+        /// Cross-compile for this target triple instead of the host.
+        #[arg(long)]
+        target: Option<String>,
+        /// Comma-separated Tauri bundle targets (`dmg`, `deb`, `appimage`, `msi`, `nsis`).
+        #[arg(long)]
+        bundles: Option<String>,
+    },
+    /// Stamp a release version across the workspace (PLAN §15). CI runs this from the tag.
+    SetVersion {
+        /// Semver, with or without a leading `v`.
+        version: String,
     },
 }
 
@@ -56,6 +71,8 @@ fn main() -> Result<()> {
         Cmd::Smoke => smoke(&root()),
         Cmd::Fixtures => fixtures(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
+        Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
+        Cmd::SetVersion { version } => set_version(&root(), &version),
     }
 }
 
@@ -153,8 +170,22 @@ fn kill_process_tree(child: &mut Child) {
 }
 
 fn check(root: &Path) -> Result<()> {
-    // Rust gate (default members; the Tauri app is built separately, see workspace manifest).
+    // Ordered cheapest-first, and that ordering is load-bearing: formatting and the web lints
+    // answer in seconds, clippy takes minutes from a cold cache, and CI pays for the whole job
+    // either way. A misformatted pull request should not cost a full workspace build to say so.
     run("cargo", &["fmt", "--all", "--", "--check"], root)?;
+
+    // Web gate.
+    ensure_web_deps(root)?;
+    run("pnpm", &["--dir", "web", "exec", "biome", "ci", "."], root)?;
+    run(
+        "pnpm",
+        &["--dir", "web", "exec", "oxlint", "--type-aware"],
+        root,
+    )?;
+    run("pnpm", &["--dir", "web", "exec", "tsgo", "--noEmit"], root)?;
+
+    // Rust gate (default members; the Tauri app is `xtask desktop`, see workspace manifest).
     run(
         "cargo",
         &["clippy", "--all-targets", "--", "-D", "warnings"],
@@ -181,15 +212,6 @@ fn check(root: &Path) -> Result<()> {
         root,
     )?;
 
-    // Web gate.
-    ensure_web_deps(root)?;
-    run("pnpm", &["--dir", "web", "exec", "biome", "ci", "."], root)?;
-    run(
-        "pnpm",
-        &["--dir", "web", "exec", "oxlint", "--type-aware"],
-        root,
-    )?;
-    run("pnpm", &["--dir", "web", "exec", "tsgo", "--noEmit"], root)?;
     web_build(root)?;
 
     // Codegen must be reproducible: regenerate and fail on any diff (PLAN §4 step 5).
@@ -228,25 +250,35 @@ fn web_build(root: &Path) -> Result<()> {
     run("pnpm", &["--dir", "web", "build"], root)
 }
 
-/// Build the self-contained headless artifact (PLAN §15: "release artifacts just run").
-///
-/// The web build comes first and is then *asserted*: `crates/server/build.rs` creates an empty
-/// `web/dist` so the crate compiles on a fresh clone, which means a release built without the
-/// UI succeeds and silently ships the "not built" placeholder page instead of failing.
+/// `web/dist` exists *and holds a UI*. `crates/server/build.rs` creates the directory when it
+/// is missing so the crate compiles on a fresh clone, which means a release built without the
+/// UI succeeds and silently ships the "not built" placeholder page. Every path that produces a
+/// shippable artifact asserts this instead.
+fn assert_web_dist(root: &Path) -> Result<()> {
+    let index = root.join("web/dist/index.html");
+    ensure!(
+        index.exists(),
+        "{} is missing after the web build: the artifact would embed an empty UI",
+        index.display()
+    );
+    Ok(())
+}
+
+/// Build the self-contained headless artifact (PLAN §15: "release artifacts just run") and pack
+/// it the way its platform's users expect. The output contract — one archive per target at
+/// `dist/sdrmm-<version>-<triple>.{tar.gz,zip}`, holding the binary plus README and LICENSE —
+/// is what the release workflow uploads, so the build flags live here and only here.
 fn dist(root: &Path, target: Option<&str>) -> Result<()> {
     web_build(root)?;
-    let index = root.join("web/dist/index.html");
-    if !index.exists() {
-        bail!(
-            "{} is missing after the web build: the binary would embed an empty UI",
-            index.display()
-        );
-    }
+    assert_web_dist(root)?;
+    ensure_target(root, target)?;
+
     // rust-embed only embeds bytes in non-debug builds, so a debug artifact serves nothing.
     let features = release_features();
     let mut args = vec![
         "build",
         "--release",
+        "--locked",
         "-p",
         "sdrmm",
         &features[0],
@@ -259,24 +291,250 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
     }
     run("cargo", &args, root)?;
 
+    let triple = match target {
+        Some(triple) => triple.to_string(),
+        None => host_triple()?,
+    };
+    let windows = triple.contains("windows");
+    let exe = if windows { "sdrmm.exe" } else { "sdrmm" };
     let built = match target {
-        Some(triple) => root
-            .join("target")
-            .join(triple)
-            .join("release")
-            .join("sdrmm"),
-        None => root.join("target/release/sdrmm"),
+        Some(triple) => root.join("target").join(triple).join("release").join(exe),
+        None => root.join("target").join("release").join(exe),
     };
+
     let out = root.join("dist");
-    std::fs::create_dir_all(&out).with_context(|| format!("cannot create {}", out.display()))?;
-    let name = match target {
-        Some(triple) => format!("sdrmm-{triple}"),
-        None => "sdrmm".to_string(),
-    };
+    let name = format!("sdrmm-{}-{triple}", env!("CARGO_PKG_VERSION"));
     let staged = out.join(&name);
-    std::fs::copy(&built, &staged)
-        .with_context(|| format!("cannot copy {} to {}", built.display(), staged.display()))?;
-    println!("dist: {}", staged.display());
+    // A stale member from an earlier run would be packed into the archive as if it belonged.
+    if staged.exists() {
+        std::fs::remove_dir_all(&staged)
+            .with_context(|| format!("cannot clear {}", staged.display()))?;
+    }
+    std::fs::create_dir_all(&staged)
+        .with_context(|| format!("cannot create {}", staged.display()))?;
+
+    // README.md and LICENSE are release contents, not optional: a missing one fails here.
+    std::fs::copy(&built, staged.join(exe))
+        .with_context(|| format!("cannot stage {}", built.display()))?;
+    for doc in ["README.md", "LICENSE"] {
+        std::fs::copy(root.join(doc), staged.join(doc))
+            .with_context(|| format!("cannot stage {doc}"))?;
+    }
+
+    // Linux only: on Apple targets the linker's ad-hoc code signature is required for the
+    // binary to load at all, and `strip` invalidates it.
+    if triple.contains("linux") {
+        run(
+            "strip",
+            &[staged.join(exe).to_str().expect("utf8 path")],
+            root,
+        )?;
+    }
+
+    let archive = archive(root, &out, &name, windows)?;
+    println!("dist: {}", archive.display());
+    Ok(())
+}
+
+/// Pack `dist/<name>/` into the archive format that target's users expect.
+fn archive(root: &Path, out: &Path, name: &str, windows: bool) -> Result<PathBuf> {
+    let ext = if windows { "zip" } else { "tar.gz" };
+    let path = out.join(format!("{name}.{ext}"));
+    match std::fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err).with_context(|| format!("replace {}", path.display())),
+    }
+
+    if windows {
+        // PowerShell rather than the bundled bsdtar: `tar` on a Windows box resolves to Git's
+        // GNU tar as often as to the system's libarchive one, and GNU tar cannot write zip.
+        //
+        // `ZipFile::CreateFromDirectory` rather than `Compress-Archive`, for its last argument:
+        // `includeBaseDirectory = $true` puts the staged folder at the root of the archive, so a
+        // zip unpacks to the same layout as the tar.gz. Compress-Archive's own behaviour there
+        // depends on whether the path is given with a trailing wildcard.
+        run(
+            "powershell",
+            &[
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "Add-Type -AssemblyName System.IO.Compression.FileSystem; \
+                     [System.IO.Compression.ZipFile]::CreateFromDirectory('{}', '{}', \
+                     [System.IO.Compression.CompressionLevel]::Optimal, $true)",
+                    out.join(name).display(),
+                    path.display()
+                ),
+            ],
+            root,
+        )?;
+    } else {
+        // COPYFILE_DISABLE stops macOS bsdtar from emitting ._ AppleDouble members for
+        // extended attributes; ignored by GNU tar.
+        run_with_env(
+            "tar",
+            &[
+                "-C",
+                out.to_str().expect("utf8 path"),
+                "-czf",
+                path.to_str().expect("utf8 path"),
+                name,
+            ],
+            root,
+            &[("COPYFILE_DISABLE", "1")],
+        )?;
+    }
+    Ok(path)
+}
+
+/// Install the rust-std for a cross target on demand.
+///
+/// `rust-toolchain.toml` deliberately lists no `targets` (see the comment there): each one is
+/// ~150 MB that `rustup show` would fetch in every job, including the ones that only build for
+/// their own host. Adding it at the point of use keeps a cross build a single command locally
+/// and in CI both.
+fn ensure_target(root: &Path, target: Option<&str>) -> Result<()> {
+    let Some(triple) = target else {
+        return Ok(());
+    };
+    if triple == host_triple()? {
+        return Ok(());
+    }
+    run("rustup", &["target", "add", triple], root)
+}
+
+/// The host target triple as rustc reports it — the name a `dist` archive carries when no
+/// `--target` was asked for.
+fn host_triple() -> Result<String> {
+    let out = Command::new("rustc")
+        .arg("-vV")
+        .output()
+        .context("failed to spawn `rustc`")?;
+    ensure!(out.status.success(), "`rustc -vV` failed");
+    let stdout = String::from_utf8(out.stdout).context("`rustc -vV` printed non-utf8")?;
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(str::to_string)
+        .context("`rustc -vV` printed no host line")
+}
+
+/// Build the Tauri shell (PLAN §10). The workspace's `default-members` deliberately skips this
+/// crate — it pulls the platform webview toolchain — so without this command nothing builds it
+/// until release day.
+///
+/// `--bundles` shells out to the Tauri CLI, which is the local path. CI's release job drives
+/// `tauri-action` instead, because signing a macOS bundle needs the certificate imported into a
+/// temporary keychain first and that is the action's job, not this one's.
+fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<()> {
+    ensure_target(root, target)?;
+    let features = release_features();
+
+    let Some(bundles) = bundles else {
+        // No web build on this path, deliberately: the shell's `frontendDist` is its own
+        // placeholder page and `crates/server` embeds `web/dist` through a build script that
+        // creates the directory when it is absent, so compiling needs no UI on disk. Bundling
+        // below does, because that artifact is the one a user runs.
+        //
+        // Clippy rather than a plain build: the rest of the workspace is gated at
+        // `-D warnings` and this crate has no reason to be held to less.
+        let mut args = vec![
+            "clippy",
+            "-p",
+            "sdrmm-desktop",
+            "--all-targets",
+            &features[0],
+            &features[1],
+            &features[2],
+        ];
+        if let Some(triple) = target {
+            args.push("--target");
+            args.push(triple);
+        }
+        args.extend(["--", "-D", "warnings"]);
+        return run("cargo", &args, root);
+    };
+
+    web_build(root)?;
+    assert_web_dist(root)?;
+
+    let installed = Command::new("cargo")
+        .args(["tauri", "--version"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    ensure!(
+        installed,
+        "the Tauri CLI is missing: `cargo install --locked tauri-cli`"
+    );
+    let mut args = vec![
+        "tauri",
+        "build",
+        "--bundles",
+        bundles,
+        "--",
+        &features[0],
+        &features[1],
+        &features[2],
+    ];
+    if let Some(triple) = target {
+        // Before the `--`: the triple selects the bundle target, not just the cargo one.
+        args.insert(2, "--target");
+        args.insert(3, triple);
+    }
+    run("cargo", &args, &root.join("apps/desktop"))
+}
+
+/// Stamp `version` across everything a release artifact carries it in.
+///
+/// The workspace manifest is the only place it is written: `apps/desktop/tauri.conf.json`
+/// deliberately omits `version` so Tauri falls back to the crate's, and the archive names come
+/// from xtask's own `CARGO_PKG_VERSION` — which is this same field, so a stamped tree cannot
+/// name an artifact one version and have it report another.
+fn set_version(root: &Path, version: &str) -> Result<()> {
+    let version = version.strip_prefix('v').unwrap_or(version);
+    let (core, _pre) = version.split_once(['-', '+']).unwrap_or((version, ""));
+    let numeric: Vec<&str> = core.split('.').collect();
+    ensure!(
+        numeric.len() == 3
+            && numeric
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())),
+        "`{version}` is not a semver version: need major.minor.patch, e.g. 0.2.0"
+    );
+
+    let manifest_path = root.join("Cargo.toml");
+    let manifest = std::fs::read_to_string(&manifest_path).context("read Cargo.toml")?;
+    let mut section = "";
+    let mut hits = 0;
+    let mut out = String::with_capacity(manifest.len());
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            section = trimmed;
+        }
+        if section == "[workspace.package]" && trimmed.starts_with("version") {
+            out.push_str(&format!("version = \"{version}\"\n"));
+            hits += 1;
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    ensure!(
+        hits == 1,
+        "expected exactly one `version` under [workspace.package] in Cargo.toml, found {hits}"
+    );
+    std::fs::write(&manifest_path, out).context("write Cargo.toml")?;
+
+    // Every workspace member inherits the field, so the lock's own entries are now stale and a
+    // `--locked` release build would refuse to start. `--workspace --offline` rewrites exactly
+    // those entries and cannot reach the network to drag anything else along with them.
+    run("cargo", &["update", "--workspace", "--offline"], root)?;
+    println!("version: {version}");
     Ok(())
 }
 
@@ -673,9 +931,14 @@ fn ensure_web_deps(root: &Path) -> Result<()> {
 }
 
 fn run(program: &str, args: &[&str], cwd: &Path) -> Result<()> {
+    run_with_env(program, args, cwd, &[])
+}
+
+fn run_with_env(program: &str, args: &[&str], cwd: &Path, env: &[(&str, &str)]) -> Result<()> {
     println!("$ {program} {}", args.join(" "));
     let status = Command::new(program)
         .args(args)
+        .envs(env.iter().copied())
         .current_dir(cwd)
         .status()
         .with_context(|| format!("failed to spawn `{program}` (is it installed?)"))?;
