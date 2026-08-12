@@ -1,13 +1,42 @@
 # `sdrmm-modem` — Modulation Library Plan
 
-**Status:** in progress (phases 0–3 landed; `Fsk4Demod` deleted. Phase 3's first follow-on
-merge, the **MLSE tier**, has landed on the GMSK rows with its §5 bundle — measured +8.15 dB at
-BT 0.3 and +1.92 dB at BT 0.5 over the discriminator tier, and measured *inapplicable* to the
-Nyquist and full-response entries, whose responses truncate to one tap. Still open from phase 3:
-the multi-h/SOQPSK row (SOQPSK additionally needs a ternary precoded alphabet, which `Mapping`
-deliberately forbids — see §6), the coherent tiers (they wait on phase 4's carrier recovery),
-and the deferred receivers — APRS/RTTY/NAVTEX, wanting a per-entry centre-tracking axis and
-asynchronous start-stop framing, plus `subghz`'s clockless edge-timed tier. Next: phase 4.)
+**Status:** in progress (phases 0–4 landed).
+
+Phase 4 landed the linear engine and every linear row of §6 with its §5 bundle: OOK on both
+tiers, M-PAM and unipolar M-ASK, BPSK/QPSK/8-PSK, the DPSK family, OQPSK and π/2-BPSK,
+π/4-DQPSK on both tiers, square QAM 16–1024, cross-QAM 32/128, star-QAM coherently and
+differentially, DVB-T hierarchical QAM and DVB-S2 16/32-APSK — twenty-seven committed curves,
+twenty-two of them held to a closed form or to the table-driven union bound with the worst
+sitting 0.72 dB out. Three limits tables (one per tier), two perf baselines, level-1 E2E on
+every row, and three measured tier margins: coherent OOK 1.44 dB over the envelope tier,
+feedforward timing 0.92 dB over the tracking loop on 16-QAM, and π/4-DQPSK coherent 1.68 dB over
+its differential tier.
+
+Two things phase 4 had to build rather than parameterise, both because a measurement demanded
+it: a **feedforward timing tier** (Oerder–Meyr square-law, one estimate per burst) because a
+Gardner loop's residual jitter walls 64-QAM at 1e-4 and 256-QAM at 8e-3, and a **held** blind
+power estimate with the §3.4 anchor setting the scale, because the estimate's own drift is a
+scale error a 1024-QAM slicing margin cannot absorb.
+
+Still open from phase 3: the multi-h/SOQPSK row (SOQPSK additionally needs a ternary precoded
+alphabet, which `Mapping` deliberately forbids — see §6), the CPM coherent tiers, and the
+deferred receivers — APRS/RTTY/NAVTEX, wanting a per-entry centre-tracking axis and asynchronous
+start-stop framing, plus `subghz`'s clockless edge-timed tier.
+
+Open from phase 4, both scoped and reasoned rather than dropped:
+
+- **The TETRA downlink attachment.** The π/4-DQPSK entry it stands on is complete and measured on
+  both tiers; what remains is protocol and not modulation — TS 100 392-2 burst structure,
+  training-sequence correlation, scrambling, interleaving and the MAC — which is a channel-sized
+  piece of work in `channels`, not a library one, and it is staged as §6 says.
+- **morse and subghz-OOK did not move onto the envelope tier**, and will not in this shape. That
+  tier is symbol-synchronous; neither channel has a symbol clock to give it (hand-sent CW has
+  none at all, and a sub-GHz remote's is measured per frame from the keyed edges). What they
+  share with the committed OOK row is the modulation and the adaptive threshold, not the chain.
+  The clockless edge-timed tier they actually want is already the phase-3 follow-on §7 lists for
+  `subghz`; both modules now record the reasoning where a reader will meet it.
+
+Next: phase 5.
 **Audience:** implementer working in the `sdrmm` workspace
 
 ---
@@ -505,6 +534,10 @@ Attachment: **TETRA downlink**, staged as scoped in §6.
 *Accept:* all linear rows bundled; DPSK curves match theory; coherent beats
 differential by the measured, recorded margin; TETRA synthetic level-2 E2E decodes
 burst structure and MAC; recorded TETRA fixture added when captured.
+*Landed:* every linear row bundled, the DPSK rows on their exact oracles (DBPSK +0.14 dB,
+DQPSK +0.12 dB), and the coherent-over-differential margin recorded at 1.68 dB on π/4-DQPSK.
+The TETRA attachment is carried into a phase-4 follow-on with its reason stated in the status
+above; the entry it needs is done.
 
 **Phase 5 — Orthogonal M-FSK + PPM.** Filterbank detector; generalised M-PPM; ADS-B
 migrates onto `ppm/`.
