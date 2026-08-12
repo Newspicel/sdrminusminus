@@ -437,13 +437,11 @@ examples of who uses each waveform.
 
 ### Protocol attachments planned against the catalog
 
-TETRA downlink (π/4-DQPSK entry; scoped in stages — burst sync and MAC first, then
-coding/interleaving/logical channels: TETRA is substantially more than parameters),
-BLE 1M/2M advertising (GFSK entry + packet shape), Bluetooth EDR modulation (DPSK
-entries; hop-following is a hopping problem, not a modulation problem, and lives with
-the FHSS framework if pursued). Explicitly **not** planned: 802.11a/g, 802.11b and
-LoRa protocol attachments — their modulations (CP-OFDM, DSSS/CCK, CSS) are catalog
-entries with full bundles, and the library's involvement ends there.
+Exactly one: **TETRA downlink** (π/4-DQPSK entry; scoped in stages — burst sync and
+MAC first, then coding/interleaving/logical channels: TETRA is substantially more
+than parameters). Explicitly **not** planned: BLE, Bluetooth EDR, 802.11a/g, 802.11b
+and LoRa protocol attachments — their modulations (GFSK, DPSK, CP-OFDM, DSSS/CCK,
+CSS) are catalog entries with full bundles, and the library's involvement ends there.
 
 ---
 
