@@ -1,18 +1,5 @@
 # DESIGN.md — the visual and interaction system for sdr--
 
-This file is binding the way `CLAUDE.md` is binding. 
-
-This is the canvas edition (`CANVAS §8` phase ②). It replaces the edition written for the
-top-bar / tab-bar / dock shell. Two things are gone, not deprecated: the anodized single-accent
-chrome as an organising idea — colour is now spent first on **what a wire carries** — and every
-mobile and touch rule, because `PLAN §18` removed mobile support outright. What survived
-survived because it is function, not paint: the contrast floors, the plot-ink discipline, mono
-tabular numerals, the density scale, and "nothing moves that the operator did not move."
-
-The reference points are the ones `PLAN` §10 names, now joined by the ones `CANVAS` names: bench
-instruments, pro audio, and a modular rack — not landing pages, and not GRC. Everything below
-follows from three commitments.
-
 1. **The patch is the instrument.** The workspace is a graph the operator laid out, and the
    layout *is* the answer to "which radio is this?". Node chrome is the bezel around a face:
    quiet, dense, and out of the way.
@@ -26,29 +13,15 @@ follows from three commitments.
 
 ## 1. Direction
 
-**Bench at night** (`CANVAS §6`). A near-black canvas ground with a faint dot grid; nodes in
+**Bench at night**. A near-black canvas ground with a faint dot grid; nodes in
 quiet neutral graphite; colour on ports, wires, status, and a thin category strip on each node
 header. The graphite is the same warm-neutral family as before, and for the same reason — it
 separates chrome from the blue-violet that already lives in the magma colormap.
 
 **Signature element: the dial.** Unchanged in role, moved in place: the frequency readout is a
-machined tuning dial and it is the face of every device node (`CANVAS §6`). Each digit is its
+machined tuning dial and it is the face of every device node. Each digit is its
 own control — hover it, scroll it, arrow it, type over it. It is the only place in the UI with a
 display-scale type size.
-
-**Desktop-only.** `PLAN §18` removed mobile support and recorded the cost; `CANVAS §7` restates
-it. The client assumes a pointer, a keyboard and a laptop-class viewport. Concretely, from the
-previous edition of this file these rules are **deleted, not softened**: phone layouts, the
-touch-first paths, viewport-guarded layout writes, the ≥40px coarse-pointer target floor, and
-the coarse-pointer widening of spectrum marker hit areas. The floor that remains is §4's flat
-24px, on every pointer. A canvas of wired boxes is not a phone UI and pretending otherwise
-would cost density on the only viewport that exists.
-
-> Debt this edition names rather than fixes: `web/src/components/controls.ts` still carries
-> `pointer-coarse:min-h-10` / `pointer-coarse:size-10` variants, and `Slider.tsx` a
-> `pointer-coarse:h-10` whose comment still justifies itself by the 40px floor deleted above.
-> Neither file was touched by the canvas rewrite; both are vestigial under the rule above and
-> come out the next time they are opened.
 
 ---
 
@@ -519,27 +492,6 @@ small is a worse answer than a list.
 ---
 
 ## 10. Keyboard
-
-`PLAN` §10 requires the client to be keyboard-first. One listener on the document, one table,
-and every binding also listed in the `?` overlay — a shortcut nobody can find is not a feature.
-These are the bindings that exist:
-
-| key | action |
-|---|---|
-| `←` `→` | tune down / up one step |
-| `Shift` + `←` `→` | tune ten steps |
-| `[` `]` | smaller / larger tune step |
-| `f` | focus the selected receiver's dial — then Enter to type a frequency |
-| `,` `.` | previous / next channel |
-| `m` / `Shift+M` | cycle the selected channel's mode forward / back |
-| `-` `=` | squelch down / up 2 dB |
-| `s` | squelch on / off |
-| `Space` | start / stop audio on the selected channel |
-| `1`–`9` | select the nth node of the patch |
-| `p` | pin / unpin the selected face on the rack |
-| `v` | swap the patch and the rack |
-| `?` | this list |
-| `Esc` | close an overlay or a menu |
 
 Ownership rules, in the order they are applied:
 
