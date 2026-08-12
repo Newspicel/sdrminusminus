@@ -4537,7 +4537,7 @@
       },
       "DvFrame": {
         "type": "object",
-        "description": "One decoded digital-voice frame — the metadata of a call. Audio, where implemented, travels\nthrough the channel's PCM output rather than inside this event.\n\nDMR also decodes its conventional AMBE+2 payload to PCM. The other modes recover everything\naround their still-opaque voice payload — who keyed up, on which talkgroup, over which\nrepeater, with what encryption. Fields are `Option` because which of them exist is a property\nof the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR voice header\nthe reverse.",
+        "description": "One decoded digital-voice frame — the metadata of a call. Audio travels through the channel's\nPCM output rather than inside this event.\n\nEvery digital-voice mode decodes its AMBE, AMBE+2, IMBE or Codec2 payload to the channel PCM\nplane. This event carries the signalling around that audio — who keyed up, on which\ntalkgroup, over which repeater, with what encryption. Fields are `Option` because which of\nthem exist is a property of the mode and frame: a D-Star header has callsigns and no\ntalkgroup, a DMR voice header the reverse.",
         "required": [
           "mode",
           "kind",

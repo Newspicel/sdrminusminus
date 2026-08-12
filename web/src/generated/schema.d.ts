@@ -1663,14 +1663,14 @@ export interface components {
          */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
         /**
-         * @description One decoded digital-voice frame — the metadata of a call. Audio, where implemented, travels
-         *     through the channel's PCM output rather than inside this event.
+         * @description One decoded digital-voice frame — the metadata of a call. Audio travels through the channel's
+         *     PCM output rather than inside this event.
          *
-         *     DMR also decodes its conventional AMBE+2 payload to PCM. The other modes recover everything
-         *     around their still-opaque voice payload — who keyed up, on which talkgroup, over which
-         *     repeater, with what encryption. Fields are `Option` because which of them exist is a property
-         *     of the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR voice header
-         *     the reverse.
+         *     Every digital-voice mode decodes its AMBE, AMBE+2, IMBE or Codec2 payload to the channel PCM
+         *     plane. This event carries the signalling around that audio — who keyed up, on which
+         *     talkgroup, over which repeater, with what encryption. Fields are `Option` because which of
+         *     them exist is a property of the mode and frame: a D-Star header has callsigns and no
+         *     talkgroup, a DMR voice header the reverse.
          */
         DvFrame: {
             /**

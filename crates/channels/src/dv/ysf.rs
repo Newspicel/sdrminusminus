@@ -1,10 +1,10 @@
 //! System Fusion (YSF) decoder: C4FM at 4800 symbols per second in 12.5 kHz, 100 ms frames.
 //!
 //! Every frame opens with the same 40-bit sync and a 100-symbol frame information channel. The
-//! FICH is the part worth decoding without a vocoder: it says whether the frame is a header, a
-//! communication frame or a terminator, which of the four data modes it carries, and where it
-//! sits in the transmission — so a log gets one line when a call starts and one when it ends,
-//! rather than ten a second.
+//! FICH says whether the frame is a header, a communication frame or a terminator and which of
+//! the four data modes it carries, so a log gets one line when a call starts and one when it
+//! ends rather than ten a second. That data mode selects AMBE+2 V/D1, repetition-protected
+//! natural AMBE+2 V/D2, or full-rate IMBE Voice-FR framing for the audio plane.
 //!
 //! The FICH is protected three times over: a rate-1/2 convolutional code, four Golay(24,12,8)
 //! blocks over its 48 bits, and a CRC-16 across the result. All three have to agree, which is
@@ -24,7 +24,10 @@ use sdrmm_wire::{
     YsfParams,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params};
+use super::{
+    INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params,
+    vocoder::{AMBE_3600_INTERLEAVE, MbeDecoder, half_rate_code_vectors},
+};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const BAUD: f64 = 4_800.0;
@@ -49,13 +52,25 @@ const FICH_SYMBOLS: usize = 100;
 const FICH_CODED_BITS: usize = 200;
 const FICH_INFO_BITS: usize = 96;
 const FICH_BYTES: usize = 6;
+const PAYLOAD_SYMBOLS: usize = 360;
+const FRAME_AFTER_SYNC_SYMBOLS: usize = FICH_SYMBOLS + PAYLOAD_SYMBOLS;
+
+const VFR_INTERLEAVE: [usize; 144] = [
+    0, 24, 48, 72, 96, 120, 25, 1, 73, 49, 121, 97, 2, 26, 50, 74, 98, 122, 27, 3, 75, 51, 123, 99,
+    4, 28, 52, 76, 100, 124, 29, 5, 77, 53, 125, 101, 6, 30, 54, 78, 102, 126, 31, 7, 79, 55, 127,
+    103, 8, 32, 56, 80, 104, 128, 33, 9, 81, 57, 129, 105, 10, 34, 58, 82, 106, 130, 35, 11, 83,
+    59, 131, 107, 12, 36, 60, 84, 108, 132, 37, 13, 85, 61, 133, 109, 14, 38, 62, 86, 110, 134, 39,
+    15, 87, 63, 135, 111, 16, 40, 64, 88, 112, 136, 41, 17, 89, 65, 137, 113, 18, 42, 66, 90, 114,
+    138, 43, 19, 91, 67, 139, 115, 20, 44, 68, 92, 116, 140, 45, 21, 93, 69, 141, 117, 22, 46, 70,
+    94, 118, 142, 47, 23, 95, 71, 143, 119,
+];
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "ysf".to_owned(),
     name: "System Fusion".to_owned(),
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
     decoder_kind: Some("dv".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -132,12 +147,15 @@ struct Decoder {
     info: Vec<bool>,
     /// Frame type last reported, so a 100 ms heartbeat does not become a log entry per frame.
     last_kind: Option<DvFrameKind>,
+    bits: Vec<bool>,
+    half_vocoder: MbeDecoder,
+    full_vocoder: MbeDecoder,
 }
 
 impl Decoder {
     fn new() -> Self {
         Self {
-            window: SymbolWindow::new(FICH_SYMBOLS),
+            window: SymbolWindow::new(FRAME_AFTER_SYNC_SYMBOLS),
             viterbi: Viterbi5::new(),
             countdown: 0,
             hunting: true,
@@ -145,6 +163,9 @@ impl Decoder {
             coded: Vec::with_capacity(FICH_CODED_BITS),
             info: Vec::with_capacity(FICH_INFO_BITS),
             last_kind: None,
+            bits: Vec::with_capacity(PAYLOAD_SYMBOLS * 2),
+            half_vocoder: MbeDecoder::half_rate(),
+            full_vocoder: MbeDecoder::full_rate(),
         }
     }
 
@@ -153,6 +174,8 @@ impl Decoder {
         self.countdown = 0;
         self.hunting = true;
         self.last_kind = None;
+        self.half_vocoder.reset();
+        self.full_vocoder.reset();
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
@@ -161,8 +184,14 @@ impl Decoder {
             self.countdown -= 1;
             if self.countdown == 0 {
                 self.hunting = true;
-                if let Some(frame) = self.fich() {
-                    out.events.push(DecoderEvent::Dv(frame));
+                if let Some((frame, data_mode)) = self.fich() {
+                    self.voice(data_mode, frame.kind, out);
+                    if frame.kind != DvFrameKind::Voice
+                        || self.last_kind != Some(DvFrameKind::Voice)
+                    {
+                        out.events.push(DecoderEvent::Dv(frame.clone()));
+                    }
+                    self.last_kind = Some(frame.kind);
                 }
             }
             return;
@@ -170,13 +199,14 @@ impl Decoder {
         if self.hunting && self.window.sync_distance(SYNC, SYNC_BITS) <= SYNC_TOLERANCE {
             self.window.anchor(SYNC, SYNC_BITS);
             self.hunting = false;
-            self.countdown = FICH_SYMBOLS;
+            self.countdown = FRAME_AFTER_SYNC_SYMBOLS;
         }
     }
 
-    /// Decode the FICH sitting in the last 100 symbols.
-    fn fich(&mut self) -> Option<DvFrame> {
-        self.window.soft_bits(0, FICH_SYMBOLS, &mut self.soft);
+    /// Decode the 100-symbol FICH immediately before the payload now at the window tail.
+    fn fich(&mut self) -> Option<(DvFrame, u8)> {
+        self.window
+            .soft_bits(PAYLOAD_SYMBOLS, FICH_SYMBOLS, &mut self.soft);
         // De-interleave: the FICH is written into a 20 × 5 matrix by column and read by row,
         // so coded pair `i` comes from bit 2·(i/5) + 40·(i%5).
         self.coded.clear();
@@ -216,22 +246,111 @@ impl Decoder {
             2 => DvFrameKind::Terminator,
             _ => DvFrameKind::Voice,
         };
-        // A communication frame arrives ten times a second and says the same thing each time;
-        // only a change of frame type is news.
-        if kind == DvFrameKind::Voice && self.last_kind == Some(DvFrameKind::Voice) {
-            return None;
-        }
-        self.last_kind = Some(kind);
-
         let mut frame = DvFrame::new(DvMode::Ysf, kind);
         frame.errors_corrected = errors;
         frame.group_call = Some(fich[0] >> 2 & 0x03 != 0x03);
-        frame.opcode = Some(data_mode_name(fich[2] & 0x03).to_owned());
+        let data_mode = fich[2] & 0x03;
+        frame.opcode = Some(data_mode_name(data_mode).to_owned());
         let dg_id = fich[3] & 0x7F;
         if dg_id != 0 {
             frame.destination = Some(u32::from(dg_id));
         }
-        Some(frame)
+        Some((frame, data_mode))
+    }
+
+    fn voice(&mut self, data_mode: u8, kind: DvFrameKind, out: &mut ChannelOutputs) {
+        self.window.bits(0, PAYLOAD_SYMBOLS, &mut self.bits);
+        match data_mode {
+            // Five repetitions of 36 DCH symbols + one 36-symbol AMBE+2 frame.
+            0 => {
+                if kind != DvFrameKind::Voice {
+                    return;
+                }
+                for block in 0..5 {
+                    let start = (block * 72 + 36) * 2;
+                    let mut frame = [false; 72];
+                    frame.copy_from_slice(&self.bits[start..start + 72]);
+                    self.half_vocoder.decode_half_code_vectors(
+                        half_rate_code_vectors(&frame, &AMBE_3600_INTERLEAVE),
+                        false,
+                        out,
+                    );
+                }
+            }
+            // Five 20-symbol DCH blocks alternating with 52-symbol, repetition-protected
+            // natural-order AMBE+2 frames.
+            2 => {
+                if kind != DvFrameKind::Voice {
+                    return;
+                }
+                for block in 0..5 {
+                    let start = (block * 72 + 20) * 2;
+                    let raw = &self.bits[start..start + 104];
+                    let mut deinterleaved = [false; 104];
+                    let mut register = 0x1C9u16;
+                    let mut pn = [false; 104];
+                    for bit in &mut pn {
+                        *bit = register & 1 != 0;
+                        let feedback = (register ^ (register >> 4)) & 1;
+                        register = register >> 1 | feedback << 8;
+                    }
+                    for (i, &bit) in raw.iter().enumerate() {
+                        let target = (i % 4) * 26 + i / 4;
+                        deinterleaved[target] = bit ^ pn[target];
+                    }
+                    let mut info = [false; 49];
+                    for i in 0..27 {
+                        let ones = deinterleaved[i * 3..i * 3 + 3]
+                            .iter()
+                            .filter(|&&bit| bit)
+                            .count();
+                        info[i] = ones >= 2;
+                    }
+                    info[27..].copy_from_slice(&deinterleaved[81..103]);
+                    self.half_vocoder.decode_half_info(&info, false, out);
+                }
+            }
+            // Header Voice-FR frames reserve the first 216 symbols for the subheader; regular
+            // communication frames carry five back-to-back full-rate IMBE frames.
+            3 => {
+                let (first, count) = match kind {
+                    DvFrameKind::Header => (216, 2),
+                    DvFrameKind::Voice => (0, 5),
+                    _ => return,
+                };
+                for frame_index in 0..count {
+                    let start = (first + frame_index * 72) * 2;
+                    self.voice_fr(start, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn voice_fr(&mut self, start: usize, out: &mut ChannelOutputs) {
+        let transmitted = &self.bits[start..start + 144];
+        let mut raw = [false; 144];
+        for (i, &bit) in transmitted.iter().enumerate() {
+            raw[VFR_INTERLEAVE[i]] = bit;
+        }
+        let seed = raw[..12]
+            .iter()
+            .fold(0u16, |acc, &bit| acc << 1 | u16::from(bit));
+        let mut state = seed << 4;
+        for bit in &mut raw[23..137] {
+            state = state.wrapping_mul(173).wrapping_add(13_849);
+            *bit ^= state >> 15 != 0;
+        }
+        let widths = [23usize, 23, 23, 23, 15, 15, 15, 7];
+        let mut code = [0u32; 8];
+        let mut offset = 0;
+        for (word, width) in code.iter_mut().zip(widths) {
+            *word = raw[offset..offset + width]
+                .iter()
+                .fold(0u32, |acc, &bit| acc << 1 | u32::from(bit));
+            offset += width;
+        }
+        self.full_vocoder.decode_full_code_vectors(code, false, out);
     }
 }
 
@@ -248,7 +367,14 @@ fn data_mode_name(dt: u8) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{dv::testutil::decode, testgen::dv::ysf as tx, testutil::settings};
+    use crate::{
+        dv::{
+            testutil::{assert_tone_audio, decode, decode_with_audio},
+            vocoder::testutil::{full_rate_frames, half_rate_frames, natural_half_rate_frames},
+        },
+        testgen::dv::ysf as tx,
+        testutil::settings,
+    };
 
     fn channel() -> YsfChannel {
         YsfChannel::new(
@@ -292,6 +418,42 @@ mod tests {
             1,
             "{frames:?}"
         );
+    }
+
+    #[test]
+    fn decodes_vd1_ambe_voice() {
+        let voice = half_rate_frames(15);
+        let fich = tx::Fich {
+            data_mode: 0,
+            ..tx::Fich::default()
+        };
+        let iq = tx::transmission_with_voice(&fich, tx::Voice::Vd1(&voice), INPUT_RATE_HZ);
+        let (_, audio) = decode_with_audio(&mut channel(), &iq);
+        assert_tone_audio(&audio, 15);
+    }
+
+    #[test]
+    fn decodes_vd2_ambe_voice() {
+        let voice = natural_half_rate_frames(15);
+        let fich = tx::Fich {
+            data_mode: 2,
+            ..tx::Fich::default()
+        };
+        let iq = tx::transmission_with_voice(&fich, tx::Voice::Vd2(&voice), INPUT_RATE_HZ);
+        let (_, audio) = decode_with_audio(&mut channel(), &iq);
+        assert_tone_audio(&audio, 15);
+    }
+
+    #[test]
+    fn decodes_voice_fr_imbe() {
+        let voice = full_rate_frames(17);
+        let fich = tx::Fich {
+            data_mode: 3,
+            ..tx::Fich::default()
+        };
+        let iq = tx::transmission_with_voice(&fich, tx::Voice::FullRate(&voice), INPUT_RATE_HZ);
+        let (_, audio) = decode_with_audio(&mut channel(), &iq);
+        assert_tone_audio(&audio, 17);
     }
 
     #[test]

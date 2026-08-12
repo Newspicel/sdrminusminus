@@ -112,6 +112,10 @@ opus = "0.3"
 # DMR's standardized vocoder socket is codec-agnostic, but interoperable Tier II/III radios
 # conventionally carry three AMBE+2 3,600 x 2,450 frames in it.
 blip25-vocoder = { version = "1.0", default-features = false, features = ["decode"] }
+# M17's open 3,200 bit/s voice-only and 1,600 bit/s voice-plus-data modes. This is a
+# pure-Rust port of Codec2; the channel only needs the decoder, but the crate exposes
+# encode/decode together.
+codec2 = "0.3.1"
 
 # Persistence
 rusqlite = { version = "0.40", features = ["bundled"] }
@@ -136,6 +140,7 @@ tempfile = "3"
 
 # Performance baselines for the modem catalog (MODEM-PLAN §4.2); dev-dependency only.
 criterion = "0.7"
+cc = "1"
 
 # `cargo xtask icons` rasterises assets/icon.svg; xtask only, nothing shipped links it.
 # No default features: the mark is paths, and `text` would pull a whole font database into a
