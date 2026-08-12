@@ -310,14 +310,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `app` alongside `dmg` because the macOS updater artifact is the tarred `.app`, and
+          # the bundler only emits it when `app` is an explicit target — with `dmg` alone it
+          # builds the `.app`, wraps it, then deletes it, and the release loses its updater.
           - label: macos-arm64
             runner: macos-15
             target: aarch64-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
           - label: macos-x86_64
             runner: macos-15
             target: x86_64-apple-darwin
-            bundles: dmg
+            bundles: app,dmg
           - label: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
@@ -404,8 +407,11 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
           mkdir -p bundles
-          find "target/$TARGET/release/bundle" -type f \
+          # Bundles sit one directory under `bundle/`; `-maxdepth 2` keeps the walk out of the
+          # `.app` the macOS `app` target leaves behind, whose payload is not ours to collect.
+          find "target/$TARGET/release/bundle" -maxdepth 2 -type f \
             \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \
                -o -name '*.msi' -o -name '*-setup.exe' \
                -o -name '*.app.tar.gz' -o -name '*.AppImage.tar.gz' \
