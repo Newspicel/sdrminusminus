@@ -32,4 +32,4 @@
 - Desktop-only
 - Follow DESIGN.md for Design Principles
 
-Always update the Feature list at the end.
+Always update done features in FEATURES.md. (Do not add anything after implementation)
