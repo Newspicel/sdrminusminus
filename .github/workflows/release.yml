@@ -364,6 +364,49 @@ jobs:
       - name: Assert the UI built
         shell: bash
         run: test -f web/dist/index.html
+      # The AppImage bundler shells out to linuxdeploy, which it does not vendor: on the first
+      # bundle it pulls AppRun and the linuxdeploy tools from GitHub with one retry-less
+      # request each, and a dropped connection there kills the whole job *after* the release
+      # build has already been paid for (`failed to bundle project: io: Peer disconnected`).
+      # It only downloads what is missing from its tools directory, so fetching the same set
+      # here — with retries, and with each file moved into place only once it is complete —
+      # leaves the bundler with nothing to fetch and no network to be flaky.
+      - name: Prefetch the AppImage tooling
+        if: runner.os == 'Linux' && contains(matrix.bundles, 'appimage')
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          arch="${TARGET%%-*}"
+          # Where tauri-bundler looks: `dirs::cache_dir()/tauri`.
+          tools="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$tools"
+          fetch() {
+            # A partial file still `exists()`, and the bundler would then run a truncated
+            # binary rather than re-download it — so the target name is claimed last.
+            if ! curl --fail --location --silent --show-error \
+                 --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+                 --output "$tools/$2.part" "$1" || [ ! -s "$tools/$2.part" ]; then
+              rm -f "$tools/$2.part"
+              return 1
+            fi
+            chmod +x "$tools/$2.part"
+            mv "$tools/$2.part" "$tools/$2"
+          }
+          releases=https://github.com/tauri-apps/binary-releases/releases/download
+          plugins=https://raw.githubusercontent.com/tauri-apps
+          fetch "$releases/apprun-old/AppRun-$arch" "AppRun-$arch"
+          fetch "$releases/linuxdeploy/linuxdeploy-$arch.AppImage" "linuxdeploy-$arch.AppImage"
+          fetch "$plugins/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" linuxdeploy-plugin-gtk.sh
+          fetch "$plugins/linuxdeploy-plugin-gstreamer/master/linuxdeploy-plugin-gstreamer.sh" linuxdeploy-plugin-gstreamer.sh
+          # The one optional tool — linuxdeploy carries its own older copy — so a miss here is
+          # the bundler's own fallback, not a failed release. Note the name it is stored under
+          # drops the architecture the URL carries.
+          fetch "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-$arch.AppImage" \
+            linuxdeploy-plugin-appimage.AppImage \
+            || echo "AppImage plugin unavailable — linuxdeploy will use its built-in version."
+          ls -l "$tools"
       # `cargo xtask desktop --bundles` is the same build locally. CI goes through the action
       # because signing a macOS bundle needs the certificate imported into a temporary keychain
       # first, and that is the action's job.
