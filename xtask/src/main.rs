@@ -17,6 +17,7 @@ mod bandplan;
 mod ber;
 mod catalog;
 mod icons;
+mod updater;
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "sdr-- workspace tasks")]
@@ -88,6 +89,22 @@ enum Cmd {
         /// Semver, with or without a leading `v`.
         version: String,
     },
+    /// Write the Tauri updater's `latest.json` from the `.sig` files in a release directory
+    /// (PLAN §15). CI runs this once the desktop matrix's bundles are collected.
+    UpdaterManifest {
+        /// Release version the manifest offers, with or without a leading `v`.
+        #[arg(long)]
+        version: String,
+        /// Directory holding the collected bundles and their `.sig` files.
+        #[arg(long)]
+        dir: PathBuf,
+        /// Prefix the download URL of each artifact is built from.
+        #[arg(long)]
+        base_url: String,
+        /// Output path (default `<dir>/latest.json`).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -105,6 +122,12 @@ fn main() -> Result<()> {
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
         Cmd::SetVersion { version } => set_version(&root(), &version),
+        Cmd::UpdaterManifest {
+            version,
+            dir,
+            base_url,
+            out,
+        } => updater::manifest(&dir, &version, &base_url, out.as_deref()),
     }
 }
 
@@ -650,6 +673,18 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
         installed,
         "the Tauri CLI is missing: `cargo install --locked tauri-cli`"
     );
+    // `createUpdaterArtifacts` plus a configured pubkey makes the CLI *require* a private key,
+    // so a local bundle would otherwise fail outright for anyone who does not hold one. Unsigned
+    // is the right outcome here — only the release workflow has to produce a signature, and it
+    // asserts that it did — but it is said out loud rather than left to be inferred from a
+    // missing `.sig`.
+    let unsigned = std::env::var_os("TAURI_SIGNING_PRIVATE_KEY").is_none();
+    if unsigned {
+        println!(
+            "note: TAURI_SIGNING_PRIVATE_KEY is unset — bundling unsigned, so these installers \
+             cannot be served to the updater."
+        );
+    }
     let mut args = vec![
         "tauri",
         "build",
@@ -664,6 +699,9 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
         // Before the `--`: the triple selects the bundle target, not just the cargo one.
         args.insert(2, "--target");
         args.insert(3, triple);
+    }
+    if unsigned {
+        args.insert(2, "--no-sign");
     }
     run("cargo", &args, &root.join("apps/desktop"))
 }

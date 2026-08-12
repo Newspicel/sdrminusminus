@@ -31,6 +31,11 @@ sdrmm-server.workspace = true
 sdrmm-engine.workspace = true
 anyhow.workspace = true
 tauri = { version = "2", features = [] }
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
+# Not used directly: `generate_context!` expands the config's `plugins` section into
+# `serde_json` paths resolved against this crate's root.
+serde_json.workspace = true
 axum = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 tracing.workspace = true

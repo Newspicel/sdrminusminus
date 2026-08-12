@@ -68,6 +68,32 @@ Those are the Windows MSI bundler's limits, and an MSI ProductVersion has no fie
 suffix could occupy — so `set-version` rejects both up front rather than letting the tag build
 for twenty minutes and fail in the single job that bundles an installer.
 
+## Desktop updates
+
+The desktop app checks for updates once at startup and offers them in a native dialog. The check
+runs Rust-side through `UpdaterExt`, so the frontend is not involved and no Tauri capability is
+granted — the WebView is pointed at the embedded server's origin, and reaching the updater from
+JS would mean opening IPC to a remote URL.
+
+Clients poll `latest.json` on the newest non-prerelease GitHub release. Nightlies are
+prereleases, so they are never offered to someone on a stable build; a nightly's own version is
+`YY.M.D`, which sorts above any `0.x`, so nightly installs are simply never offered anything.
+
+Bundles carry an updater signature, which is separate from Apple's code signature and comes from
+the key in `TAURI_SIGNING_PRIVATE_KEY`. The public half lives in `apps/desktop/tauri.conf.json`,
+and a client trusts nothing else — losing the private key means no already-installed client can
+ever be updated again. Because a pubkey is configured, the Tauri CLI treats a missing private key
+as an error rather than skipping the signature, so `xtask desktop --bundles` passes `--no-sign`
+when the variable is unset and says so: a local bundle is installable but cannot be served as an
+update. The release workflow is the only place that matters, and it fails if no `.sig` was
+produced.
+
+`cargo xtask updater-manifest` builds `latest.json` from the `.sig` files in a release directory.
+It is strict about names: the macOS bundler writes a bare `sdr--.app.tar.gz` with no architecture
+in it, so both slices would arrive at one release under the same name — the workflow renames them
+and the generator fails on anything it cannot place, rather than shipping a manifest that is
+missing a platform.
+
 ## Nightlies
 
 The release pipeline also runs on a schedule, publishing the full matrix over a rolling

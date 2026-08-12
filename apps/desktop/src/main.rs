@@ -9,12 +9,17 @@ use anyhow::Context;
 use sdrmm_engine::Engine;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
+mod update;
+
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter("info,sdrmm=debug")
         .init();
 
     tauri::Builder::default()
+        // Both are driven from Rust only (see `update`), so neither needs a capability grant.
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Bind synchronously so the port is known before we build the window.
             let listener =
@@ -60,6 +65,8 @@ fn main() -> anyhow::Result<()> {
                 .title("sdr--")
                 .inner_size(1280.0, 800.0)
                 .build()?;
+
+            update::spawn(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

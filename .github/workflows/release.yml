@@ -379,6 +379,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # The updater's own signature, unrelated to the Apple ones above: the client trusts
+          # only this key, and `createUpdaterArtifacts` produces nothing without it. Missing here
+          # means a release with no `.sig` files, which the collect step below refuses.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           # `--target`/`--bundles` are the Tauri CLI's own and pick what gets bundled; the cargo
@@ -389,15 +394,38 @@ jobs:
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
       # — and the release job below treats every downloaded entry as a file to attach.
+      # The `.tar.gz`/`.zip`/`.sig` set is what the updater fetches; the installers beside them
+      # are what a human downloads. Both go to the release, and `latest.json` is built from the
+      # signatures — so a dropped `.sig` here is a platform that silently stops updating.
       - name: Collect bundles
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p bundles
-          find target/${{ matrix.target }}/release/bundle -type f \
+          find "target/$TARGET/release/bundle" -type f \
             \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \
-               -o -name '*.msi' -o -name '*-setup.exe' \) \
+               -o -name '*.msi' -o -name '*-setup.exe' \
+               -o -name '*.app.tar.gz' -o -name '*.AppImage.tar.gz' \
+               -o -name '*.nsis.zip' -o -name '*.msi.zip' -o -name '*.sig' \) \
             -exec cp {} bundles/ \;
+          # macOS names its updater artifact after the product alone (`sdr--.app.tar.gz`), with
+          # no architecture in it — so both slices would reach one release under the same name
+          # and whichever uploaded second would win. The other three targets carry their arch.
+          if [ "$RUNNER_OS" = macOS ]; then
+            arch="${TARGET%%-*}"
+            for f in bundles/*.app.tar.gz; do
+              mv "$f" "${f%.app.tar.gz}_${VERSION}_${arch}.app.tar.gz"
+              mv "$f.sig" "${f%.app.tar.gz}_${VERSION}_${arch}.app.tar.gz.sig"
+            done
+          fi
+          # An unsigned bundle still builds and still installs; it just can never be updated
+          # from, and nothing downstream notices until a release reaches nobody. Every strand of
+          # this matrix emits at least one updater artifact, so this is unconditional.
+          test -n "$(find bundles -name '*.sig')" \
+            || { echo "no .sig files — is TAURI_SIGNING_PRIVATE_KEY set?" >&2; exit 1; }
           ls -l bundles
       - uses: actions/upload-artifact@v7
         with:
@@ -405,11 +433,53 @@ jobs:
           path: bundles/*
           if-no-files-found: error
 
+  # Runs on a dispatch rehearsal too, deliberately: this is the one job whose input is the whole
+  # desktop matrix at once, so a bundler rename that collapses two platforms into one entry is
+  # only visible here. Rehearsing it off a branch is what keeps that from surfacing on tag day.
+  updater-manifest:
+    name: Updater manifest
+    needs: [version, desktop]
+    if: needs.version.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      # Before the download: checkout cleans the workspace and would take `bundles/` with it.
+      - uses: actions/checkout@v7
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends cmake
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu
+          save-if: false
+      - uses: actions/download-artifact@v8
+        with:
+          path: bundles
+          pattern: desktop-*
+          merge-multiple: true
+      - name: Write latest.json
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # A tag serves the manifest from its own release; the nightly from the rolling one. A
+          # dispatch has neither, and only exercises the generator.
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then tag=nightly; else tag="$GITHUB_REF_NAME"; fi
+          cargo xtask updater-manifest \
+            --version "$VERSION" \
+            --dir bundles \
+            --base-url "https://github.com/$GITHUB_REPOSITORY/releases/download/$tag" \
+            --out latest.json
+          cat latest.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: updater-manifest
+          path: latest.json
+          if-no-files-found: error
+
   release:
     name: GitHub Release
     # workflow_dispatch runs stop at the uploaded artifacts; a tag and a nightly publish.
     if: github.ref_type == 'tag' || github.event_name == 'schedule'
-    needs: [version, binaries, image-manifest, desktop]
+    needs: [version, binaries, image-manifest, desktop, updater-manifest]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -421,7 +491,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
-          pattern: "{sdrmm-*,desktop-*}"
+          pattern: "{sdrmm-*,desktop-*,updater-manifest}"
           merge-multiple: true
       - name: Checksums
         working-directory: artifacts
