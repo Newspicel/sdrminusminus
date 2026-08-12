@@ -13,9 +13,13 @@
 //!   additionally requires the noise variance the synchroniser estimates; a value without one
 //!   is a confidence on an arbitrary scale, and the type system keeps the two apart.
 //!
-//! - **Pulse normalisation: unit energy.** Every discrete pulse the library designs satisfies
-//!   `Σ h[n]² = 1`, asserted by test, so that a symbol's energy is its constellation point's
-//!   squared magnitude and every Eb/N0 in [`ber`] means the same thing across entries.
+//! - **Pulse normalisation: unit energy for amplitude pulses.** Every discrete pulse the
+//!   library shapes a waveform with satisfies `Σ h[n]² = 1`, asserted by test, so that a
+//!   symbol's energy is its constellation point's squared magnitude and every Eb/N0 in [`ber`]
+//!   means the same thing across entries. The choice is explicit at every call site
+//!   ([`pulse::Norm`]): CPM *frequency* pulses are instead read at unit area
+//!   ([`pulse::Norm::Area`]), which pins the phase pulse at q(∞) = ½ and the per-symbol phase
+//!   step at π·h — the phase-3 CPM engine contract (see [`pulse`]).
 //!
 //! Measurement accounting (MODEM-PLAN §4.1): Eb/N0 is per *information* bit unless a curve
 //! states otherwise; TDMA dead time is excluded from the energy accounting; uncoded SER/BER,
@@ -24,4 +28,6 @@
 
 pub mod ber;
 pub mod constellation;
+pub mod pulse;
 pub mod soft;
+pub mod symbolcode;

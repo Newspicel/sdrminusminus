@@ -19,7 +19,8 @@ pub mod ysf;
 use std::{f32::consts::PI, f64::consts::TAU};
 
 use num_complex::Complex;
-use sdrmm_dsp::{RealDecimator, design_rrc, fsk4};
+use sdrmm_dsp::{RealDecimator, fsk4};
+use sdrmm_modem::pulse::{self, Norm};
 
 /// Matched-filter span the receivers use, and so the span a transmitter must shape to for the
 /// cascade to be a Nyquist pulse.
@@ -55,7 +56,9 @@ pub fn c4fm_keyed(
     alpha: f64,
 ) -> Vec<Complex<f32>> {
     let sps = rate / baud;
-    let taps = design_rrc(sps, alpha, RRC_SPAN);
+    // Area (unit DC gain) is the normalisation the ×sps impulse scaling below and every
+    // committed baseline assume — under it the taps are `design_rrc`'s output bit for bit.
+    let taps = pulse::root_raised_cosine(sps, alpha, RRC_SPAN, Norm::Area);
     let mut impulses = vec![0.0f32; symbols.len() * sps as usize + taps.len()];
     for (i, dibit) in symbols.iter().enumerate() {
         if let Some(dibit) = dibit {

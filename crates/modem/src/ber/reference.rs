@@ -10,14 +10,14 @@
 //! The classic ways a harness fails this gate, so the next reader debugs in order: Eb accounted
 //! per coded or per channel bit instead of per information bit (curve shifts by the rate
 //! factor), noise sigma set per complex sample instead of per component (a 3 dB shift), and a
-//! pulse whose energy is not unity (a shift of 10·log10 Σh²). The third is why the RRC taps
-//! are re-normalised here: `design_rrc` normalises to unit *DC gain* — right for a channel
-//! filter, wrong for a pulse — and the crate-root convention is unit *energy*.
+//! pulse whose energy is not unity (a shift of 10·log10 Σh²). The third is why the taps come
+//! from [`pulse::root_raised_cosine`] at [`Norm::Energy`]: `design_rrc`'s native normalisation
+//! is unit *DC gain* — right for a channel filter, wrong for a pulse.
 
 use num_complex::Complex;
-use sdrmm_dsp::design_rrc;
 
 use super::sweep::Link;
+use crate::pulse::{self, Norm};
 
 /// Standard narrowband shaping: the roll-off half the catalog's protocols use, a span long
 /// enough that truncation ISI sits ~40 dB under the symbol energy, and 8 samples/symbol so the
@@ -34,12 +34,10 @@ const BITS_PER_TRIAL: usize = 4096;
 /// output at the correct instant is then exactly the ±1 symbol, and a block's measured energy
 /// is its bit count — so Eb/N0 set from measured energy is the textbook one.
 fn unit_energy_rrc() -> Vec<f32> {
-    let taps = design_rrc(SPS as f64, ALPHA, SPAN);
-    let energy: f64 = taps.iter().map(|&h| f64::from(h) * f64::from(h)).sum();
-    let scale = 1.0 / energy.sqrt();
-    taps.iter()
-        .map(|&h| (f64::from(h) * scale) as f32)
-        .collect()
+    // Bit-identical to normalising `design_rrc`'s taps by hand (§1 minimal duplication): the
+    // wrap under `Norm::Energy` performs the same f64 operations in the same order, so the
+    // committed BPSK calibration cannot move.
+    pulse::root_raised_cosine(SPS as f64, ALPHA, SPAN, Norm::Energy)
 }
 
 /// Ideal coherent BPSK over RRC pulses: bit 1 → +1, bit 0 → −1 (crate-root sign convention),

@@ -18,6 +18,10 @@ test-signals = []
 [dependencies]
 sdrmm-wire.workspace = true
 sdrmm-dsp.workspace = true
+# The §3.2 `channels → modem` edge (MODEM-PLAN): symbol pulses come from `modem::pulse` — the
+# live matched filters use it today, the phase-3 engines land here too, so it is unconditional
+# even while `testgen` sits behind `test-signals`.
+sdrmm-modem.workspace = true
 num-complex.workspace = true
 thiserror.workspace = true
 
@@ -27,9 +31,6 @@ rustfft.workspace = true
 # file, a shape `sweep::save_json` (one bare Curve) does not cover.
 serde.workspace = true
 serde_json.workspace = true
-# BER/limits harness for the phase-0 DMR baseline (MODEM-PLAN §7); dev-only until phase 3
-# puts modem engines on the receive path.
-sdrmm-modem.workspace = true
 # Dev-dependency on ourselves so integration tests see `testgen` (gated on `test-signals`,
 # which `#[cfg(test)]` alone does not enable for tests/ targets).
 sdrmm-channels = { workspace = true, features = ["test-signals"] }

@@ -353,7 +353,8 @@ pub fn bits_be(bytes: &[u8], offset: usize, len: usize) -> u64 {
 }
 
 /// Manchester/biphase symbol pair -> data bit; `None` when the pair has no transition (an
-/// error). A 1 is high-then-low (IEEE 802.3 biphase-L, as used by RDS).
+/// error). A 1 is high-then-low — the G. E. Thomas convention, as used by RDS (IEEE 802.3 is
+/// the complement, 1 = low-then-high).
 #[must_use]
 pub fn manchester_decode(first: bool, second: bool) -> Option<bool> {
     (first != second).then_some(first)

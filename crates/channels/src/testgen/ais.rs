@@ -3,7 +3,8 @@
 //! cannot cancel out between the two.
 
 use num_complex::Complex;
-use sdrmm_dsp::{RealDecimator, crc16_x25, design_gaussian, pack_lsb};
+use sdrmm_dsp::{RealDecimator, crc16_x25, pack_lsb};
+use sdrmm_modem::pulse::{self, Norm};
 
 use super::fm_modulate;
 
@@ -11,7 +12,7 @@ use super::fm_modulate;
 const BAUD: f64 = 9_600.0;
 const DEVIATION_HZ: f64 = 2_400.0;
 const BT: f64 = 0.4;
-/// Gaussian pulse truncation, in symbol periods either side.
+/// Gaussian pulse truncation: total span in symbol periods (`span·sps` taps).
 const SHAPING_SPAN: usize = 4;
 
 const FLAG: [bool; 8] = [false, true, true, true, true, true, true, false];
@@ -199,7 +200,8 @@ fn modulate(framed: &[bool], rate: f64) -> Vec<Complex<f32>> {
 
     let nrz = upsample(&nrzi_encode(&bits), sps);
     let mut shaped = Vec::with_capacity(nrz.len());
-    RealDecimator::new(&design_gaussian(sps, BT, SHAPING_SPAN), 1).process(&nrz, &mut shaped);
+    RealDecimator::new(&pulse::gaussian(sps, BT, SHAPING_SPAN, Norm::Area), 1)
+        .process(&nrz, &mut shaped);
     fm_modulate(&shaped, DEVIATION_HZ, rate)
 }
 

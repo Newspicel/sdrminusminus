@@ -15,9 +15,8 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{
-    BitSync, DcBlocker, FmDemod, RealDecimator, crc16_x25, design_gaussian, hamming_distance,
-};
+use sdrmm_dsp::{BitSync, DcBlocker, FmDemod, RealDecimator, crc16_x25, hamming_distance};
+use sdrmm_modem::pulse::{self, Norm};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DstarParams, DvFrame,
     DvFrameKind, DvMode,
@@ -106,7 +105,9 @@ impl ChannelRx for DstarChannel {
         let sps = ctx.input_rate / BAUD;
         Ok(Self {
             demod: FmDemod::new(ctx.input_rate, DEVIATION_HZ),
-            matched: RealDecimator::new(&design_gaussian(sps, BT, MATCHED_SPAN), 1),
+            // Area norm: the discriminator's level estimate relies on the filter's unit DC
+            // gain, and the taps are `design_gaussian`'s output bit for bit.
+            matched: RealDecimator::new(&pulse::gaussian(sps, BT, MATCHED_SPAN, Norm::Area), 1),
             dc: DcBlocker::new(),
             sync: BitSync::new(ctx.input_rate, BAUD),
             decoder: Decoder::new(),

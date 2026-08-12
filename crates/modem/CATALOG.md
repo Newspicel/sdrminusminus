@@ -50,6 +50,25 @@ migrates, and its artifacts become the migration's regression gate.
 |---|---|---|---|---|---|---|---|
 | DMR current chain (`Fsk4Demod`) | 48 kHz, 4800 baud, 4FSK ±1944 Hz outer deviation, RRC α=0.2 span 8 | discriminator + slicer, sync-anchored levels, TDMA gating | steady curve `crates/channels/baselines/dmr/dmr_steady_uncoded.json`; burst-model curve `crates/channels/baselines/dmr/dmr_burst_uncoded.json`; level-2 E2E + smoke gates in `crates/channels/tests/dmr_baseline.rs`; recorded fixture `decodes_a_recorded_call`; phase-1 soft-BPTC gate on the same chain — coded curves `crates/channels/baselines/dmr/dmr_bptc_hard.json` and `crates/channels/baselines/dmr/dmr_bptc_soft.json` (post-FEC BER over accepted frames, FER, undetected-error rate, each its own labelled curve), headline gain at BER 1e-3 in `crates/channels/baselines/dmr/dmr_bptc_gain.json`, measured and guarded by `crates/channels/tests/dmr_soft_gain.rs` | `crates/channels/baselines/dmr/dmr_limits.json` — every row carries a documented §4.3 override criterion (the chain's continuous-mode timing floor sits above the 1e-3 default; see the test's module docs) | `crates/modem/baselines/perf_phase0.json` (`fsk4_dmr_48k` row) | `dv/dmr` | provisional — pre-migration reference, superseded when phase 3 migrates DMR onto `cpm/` |
 
+## Shared infrastructure (not catalog entries)
+
+The §5 bundle applies to modulations; the substrate below the engines is measured through
+the entries that consume it, not row by row.
+
+- **`pulse/`** (phase 2) — the one place a pulse shape is defined: rect/LREC/LRC, raised
+  cosine and root-raised cosine, the Gaussian premod filter and the GMSK frequency pulse
+  (rect ⊗ Gaussian per Murota & Hirade), half-sine, plus the CPM phase-pulse helper
+  (q(∞) = ½, so a unit-area frequency pulse steps the carrier phase by exactly π·h — the
+  phase-3 engine contract). Every constructor takes an explicit normalisation
+  (`Norm::Energy`, Σh² = 1, for amplitude pulses and matched filters; `Norm::Area`, Σh = 1,
+  for level-preserving filters and CPM frequency pulses); the wrapped `sdrmm_dsp` designs
+  (`design_rrc`, `design_gaussian`) pass through bit-identical under `Norm::Area`, pinned by
+  test, as is the TX-RRC ⊗ RX-RRC Nyquist-ISI cascade. Consumers today: the live AIS and
+  D-STAR matched filters, all C4FM/GMSK `testgen` shaping, and `ber::reference`'s calibrated
+  BPSK link; the phase-3 engines draw from it next. No baseline artifacts of its own — its
+  acceptance tests are exact identities, and its measurements arrive through every entry
+  shaped by it.
+
 ## CPM / FSK engine (`cpm/`)
 
 | Entry | Parameters | Tiers | References / fixtures | Limits table | Perf baseline | Consumers | Status |
@@ -97,7 +116,7 @@ Analog rows use SINAD/THD vs input SNR in place of BER references (§5 item 4).
 
 | Entry | Parameters | Tiers | References / fixtures | Limits table | Perf baseline | Consumers | Status |
 |---|---|---|---|---|---|---|---|
-| NRZ / NRZI / Manchester / bi-phase / differential | per code | planned: codec round-trip (no detection tiers of their own) | — | — | — | subghz, testgen, framings | pending (phase 2) |
+| NRZ / NRZI / Manchester / bi-phase / differential | NRZI transition-on-zero (AX.25/HDLC/USB) and -on-one (FDDI); Manchester IEEE 802.3 and G. E. Thomas; bi-phase Mark/FM1 (AES3, S/PDIF, LTC) and Space/FM0 (EPC Gen2); differential binary XOR and M-ary symbol-index (the DPSK/π/4-DQPSK rule), any M ≥ 2 | codec round-trip (no detection tiers of their own); bit-pair slice decoders report per-bit coding violations and a half-bit alignment verdict | round-trip, slip-detection and corruption-flagging tests in `crates/modem/src/symbolcode/`; bit-exact cross-validation against `sdrmm_dsp::bits` (NRZI, differential, Manchester) on seeded random streams — the phase-3+ call-site swap contract | — (codes, not modulations: resistance is measured through the engine carrying them) | — | subghz, testgen, framings; dsp call sites swap in phase 3+ | measured (phase 2; no baseline artifacts — the acceptance tests are exact round-trips, not curves) |
 
 ## Frameworks (`ofdm/`, `multicarrier/`, `spread/`)
 

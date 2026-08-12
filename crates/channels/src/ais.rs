@@ -13,8 +13,9 @@ use std::sync::LazyLock;
 use num_complex::Complex;
 use sdrmm_dsp::{
     BitSync, DcBlocker, Decimator, FmDemod, HdlcDeframer, NrziDecoder, RealDecimator, bits_be,
-    design_gaussian, design_lowpass, hdlc_fcs_ok, reverse_byte,
+    design_lowpass, hdlc_fcs_ok, reverse_byte,
 };
+use sdrmm_modem::pulse::{self, Norm};
 use sdrmm_wire::{
     AisMessage, AisParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
 };
@@ -27,8 +28,9 @@ const CHANNEL_TAPS: usize = 129;
 const BAUD: f64 = 9_600.0;
 const DEVIATION_HZ: f64 = 2_400.0;
 const BT: f64 = 0.4;
-/// Matched-filter truncation in symbol periods either side. Three keeps the combined
-/// transmit+receive Gaussian's inter-symbol interference inside the eye at 5 samples per bit.
+/// Matched-filter truncation: total span in symbol periods (`span·sps` taps). Three keeps the
+/// combined transmit+receive Gaussian's inter-symbol interference inside the eye at 5 samples
+/// per bit.
 const MATCHED_SPAN: usize = 3;
 
 /// Shortest ITU-R M.1371 message (88 bits, type 15) plus the two FCS octets, and the longest
@@ -122,7 +124,9 @@ impl ChannelRx for AisChannelRx {
         Ok(Self {
             letter: p.ais_channel.letter(),
             demod: FmDemod::new(ctx.input_rate, DEVIATION_HZ),
-            matched: RealDecimator::new(&design_gaussian(sps, BT, MATCHED_SPAN), 1),
+            // Area norm: the discriminator's level estimate relies on the filter's unit DC
+            // gain, and the taps are `design_gaussian`'s output bit for bit.
+            matched: RealDecimator::new(&pulse::gaussian(sps, BT, MATCHED_SPAN, Norm::Area), 1),
             dc: DcBlocker::new(),
             sync: BitSync::new(ctx.input_rate, BAUD),
             nrzi: NrziDecoder::new(),
