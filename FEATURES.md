@@ -8,55 +8,17 @@ is a deliberate no. Within each section, shipped comes first.
 
 ## 1. Platform & deployment
 
-- **[shipped]** Client–server split — Rust server does all DSP/decoding, React client renders
-- **[shipped]** Server is authoritative — every client (browser, desktop window, MCP agent) sees the same state and converges over one WebSocket
-- **[shipped]** One frontend, two hosts — served by the server for browser access, and bundled into the Tauri v2 desktop shell
-- **[shipped]** Desktop app spawns an embedded server on an ephemeral loopback port (loopback-only, unauthenticated by design)
-- **[shipped]** Release archives for Linux (x86_64 + aarch64), macOS (arm64 + x86_64) and Windows (x86_64), a multi-arch ghcr.io image, and desktop installers (`.dmg`, `.deb`, `.AppImage`, `.msi`, `.exe`), all built by a tag-triggered workflow
-- **[shipped]** The desktop app updates itself — signed updater artifacts per platform, a `latest.json` generated from their signatures by `xtask updater-manifest`, and a check on startup that offers the new version in a native dialog. It runs entirely Rust-side (`UpdaterExt`), so the shell keeps its no-IPC stance and the frontend never learns the updater exists. The prompt is deliberately at startup and never silent: installing restarts the process, and a restart mid-capture is what turns a live recording into an unfinalized breadcrumb. `.deb` installs skip the check — the updater can only rewrite a running AppImage, so those update through the package manager
-- **[shipped]** Release artifacts just run — `xtask dist` produces a ~25 MB binary linking only IOKit/CoreFoundation/libiconv/libSystem: no libusb, no libSoapySDR, no libopus, no libsqlite
-- **[shipped]** One version, one place — `[workspace.package] version` is the only copy; `tauri.conf.json` omits `version` so Tauri inherits it, `xtask dist` names archives from it, and the release workflow stamps it from the git tag with `xtask set-version`. Each built artifact is then run and asserted to report the version it is named after
-- **[shipped]** The Tauri shell and the Dockerfile are pull-request gates (`xtask desktop`, plus an image build that boots the container and asserts the UI is really embedded) — both used to be built for the first time on release day, since `apps/desktop` sits outside the workspace's `default-members`
-- **[shipped]** Pull requests are Linux-only by design; macOS tests run on `main` and on tags, where a platform break is still caught before it ships
-- **[shipped]** Nightly builds of the full release matrix, published over a rolling `nightly` prerelease and a `nightly` container tag, versioned `YY.M.D` so `sdrmm --version` names the night it came from. It only spends runners when `main` moved: the `nightly` tag records the commit the last one was built from, and an unchanged tree skips all twelve jobs
-- **[shipped]** A release version is a plain `major.minor.patch` with major/minor ≤ 255, rejected at the point it is stamped rather than 20 minutes later in the one job of twelve that bundles an MSI — those are the Windows installer's limits, and a `-rc.1` suffix has nowhere to live in an MSI ProductVersion
-- **[shipped]** Node and pnpm are pinned in four files that four different tools update; `xtask check` fails when they disagree, so a lone Dependabot bump of the Dockerfile cannot leave the container building the UI on a different Node than CI does
-- **[shipped]** `sdrmm --doctor` and `GET /api/doctor` — compiled backends, devices found, Linux udev/USB permissions with the fix, database and recordings-path writability, one shared report so CLI and UI cannot disagree
-- **[shipped]** mdBook docs site + Pages deploy
-- **[shipped]** RustSec advisories are a CI gate (`xtask audit`, policy in `deny.toml`) covering the whole graph, Tauri shell included. It runs as its own job because a new advisory lands on RustSec's schedule, not on a pull request's. Standing exception: `RUSTSEC-2024-0429` (`glib` `VariantStrIter` unsoundness), unreachable here and unfixable below gtk4 — see `deny.toml`
 - **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
 - **[planned]** A native Save-As dialog for downloads in the desktop shell. The shell installs no `on_download` handler, so wry's default applies: a recording lands silently in the OS download directory (`~/Downloads`, `$XDG_DOWNLOAD_DIR`, `%USERPROFILE%\Downloads`), deduplicated as `name (1)`, with no dialog and no progress — and on Windows wry's `SetHandled(true)` suppresses even WebView2's own flyout. The gap that matters is failure: an export aborts its body rather than truncate, and that abort is invisible here. A Rust-side `tauri-plugin-dialog` handler would keep the shell's no-IPC stance, but a blocking dialog on the main thread needs care
-- **[shipped]** Signed and notarised macOS bundles — a Developer ID Application certificate and the App Store notary service, driven by six repository secrets the release workflow passes through to Tauri
-- **[planned]** A verified Raspberry Pi run — the Pi 4 is the stated performance floor and no field session has been on one
-- **[skipped]** Mobile/phone layouts — every mobile path was deleted with the M6 shell; pointer, keyboard and laptop-class viewport are assumed everywhere
 
 ## 2. Device support
 
-- **[shipped]** RTL-SDR — in-tree driver (RTL2832U registers, I²C bridge, R82xx tuner) over the shared pure-Rust USB transport. Verified on a Nooelec NESDR SMArt v5: enumerate, tune, rate, 29-step gain snapping, tuner AGC, bias-T, 45 s at 2.048 and 2.4 MS/s under 16 spinning threads with zero overruns and zero dropped transfers
-- **[shipped]** HackRF One — in-tree driver, both directions. Verified at 20 Msps with zero overruns, per-stage LNA (8 dB) / VGA (2 dB) gains checked against the radio's own noise floor rather than the API, amp and bias-T, off-grid gain requests snapped *and reported* at the snapped value
-- **[shipped]** PPM frequency correction — both halves (resampler registers and the tuner's crystal re-tune), verified against a real carrier at ±200 ppm
-- **[shipped]** SoapySDR backend as optional extra coverage — airspy, airspyhf, bladeRF 1/2, FUNcube Pro(+), Fobos, LimeSDR, Perseus, PlutoSDR, SDRplay (v3), USRP, XTRX, Aaronia RTSA. The contract is tested against fabricated capability data; no radio but RTL-SDR and HackRF has been attached
-- **[shipped]** Virtual devices — signal generator (tones, drifting sweep, noise, phase-continuous NFM/AM/WFM test carriers), file playback, SigMF file playback
-- **[shipped]** Auto-rendered device UI — frequency ranges, discrete or continuous sample rates, per-stage gains, antennas, bandwidths and typed extra settings all come from the capability model; a new setting needs zero frontend code
-- **[shipped]** Native drivers rank above Soapy in the serial merge; duplicates collapse by serial
-- **[shipped]** Hotplug detection by filtered re-enumeration + engine probe cross-check, with the fault path releasing the device so a replug can re-open it
-- **[shipped]** Auto-reconnect on replug — a faulted set whose radio re-enumerates is re-opened, its tuning re-applied and its channels rebuilt with ids, PCM identity and live audio subscriptions preserved
-- **[shipped]** Two-tier recovery — an in-place stream restart (measured 6.1–7.6 ms on the RTL-SDR, 0.8–1.2 ms on the HackRF, against ~1.6 s for a re-open) with a silent-stall detector on both radios, falling back to the engine's destructive fault path only when the restart budget is spent. Proven in three pieces (policy, transport, primitive); never yet driven by a genuinely halted pipe
-- **[shipped]** Soapy-free builds are a CI gate (`--no-default-features --features rtl-native,hackrf-native,net-client`)
-- **[shipped]** Direct sampling (HF via RTL-SDR) — the tuner goes to standby and the RTL2832U's own downconverter becomes the dial, so a dongle whose tuner starts at 24 MHz hears DC–14.4 MHz. Offered as an `off`/`i`/`q` setting on every board but the Blog V4, which upconverts into the tuner instead and would lose its antenna if the tuner were bypassed. Switching modes carries the dial into the range the new mode can reach and reports where it landed; the tuner's gain and IF filter are recorded while bypassed and written back when it returns, so a faulted HF set reconnects onto the same configuration. The register sequence follows librtlsdr line for line and every pure part of it is tested, but no modified dongle or Blog V3 has been attached — nothing has yet *heard* HF this way
-- **[shipped]** HackRF baseband filter as a control of its own — all sixteen MAX2837 widths offered, an off-grid request snapped down and *reported* at the width that landed, and a `0` that asks for whatever the sample rate implies. A rate change still carries the filter with it, but the width it lands on is now libhackrf's `0.75 × rate` rather than the rate itself: the old value asked for a filter wider than the passband it was there to bound, and no longer matched what the same radio does under `hackrf_transfer`
-- **[shipped]** HackRF hardware sweep mode — the firmware's `INIT_SWEEP` request and `RX_SWEEP` transceiver mode, the 16 KiB stamped-block framing, and a reader that hands out one located capture per block, half-duplex arbitrated against capture and transmit. Driver-level and Rust-only, like the transmit path: the plan encoding and the block parsing are golden-tested against libhackrf's and the firmware's own source, but no radio has run it and nothing above `device-hackrf` calls it yet (see §4)
-- **[shipped]** Network receivers — **rtl_tcp** and **SpyServer** clients, pure `std::net`, no new dependency. A remote is *named*, not discovered: an address typed into the device node is adopted by its driver, probed from then on, and restored from the stored workspace after a restart. A dropped connection is a stream failure, not a lost device — the capture supervisor re-dials and replays every setting before the first sample. rtl_tcp reports its tuner's own range and gain table; SpyServer reads its capability set off the handshake, including a locked server whose frequency range is the window it will let you slide inside. Exercised against in-process fake servers; not yet against a real rtl_tcp or SpyServer on the bench
 - **[planned]** KiwiSDR client device
 - **[planned]** Remote source/sink between sdr-- instances; local routing between device sets
 - **[planned]** Audio-input device (`cpal`) — soundcard as a receiver
-- **[planned]** rtl_tcp *server* (remote TCP sink)
-- **[skipped]** Android SDR driver input
 
 ## 3. Many radios at once & coherent arrays
 
-- **[shipped]** Unlimited simultaneous device sets, each with its own DSP thread, channels and recorder; both radios have been run together on the bench
-- **[shipped]** Spatial identity for them — a device node names `backend + serial` (with a key tie-break only where a backend exposes no serial), and an absent radio is a visibly disconnected node, never a silent rebind
 - **[planned]** Cross-device features: a scanner spanning devices, multi-VOR fix, diversity
 - **[planned]** `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output
 - **[planned]** KrakenSDR support — via its Heimdall DAQ network stream first, direct hardware drive later
@@ -70,14 +32,7 @@ is a deliberate no. Within each section, shipped comes first.
 
 ## 4. Spectrum, tuning & navigation
 
-- **[shipped]** Live spectrum + waterfall (WebGL2, one shared context for every scope face, off-screen views skipped, zoom-adjusted DPR), per-connection throttling
-- **[shipped]** Several scope faces at once — spectrum subscriptions are refcounted per device set and the socket fans to a listener set
-- **[shipped]** Plot gestures — wheel zoom about the cursor as a fixed point, drag to pan, click to tune, double-click to re-centre, marker drag to move a channel, frequency and dB axes on a 1-2-5 ladder that refines as you zoom
-- **[shipped]** Max-hold, a draggable trace/waterfall split, and five luminance-monotone colormaps (magma, inferno, plasma, viridis, gray)
-- **[shipped]** Digit-scrollable frequency dial — ten place-value targets, wheel/arrows/typing/direct entry (`145.5`, `433800k`, `2.4g`), clamped to the radio's range
-- **[shipped]** Keyboard-first operation — tune, tune step, mode, squelch, audio, channel and view switching, with a `?` overlay rendering the same table the handler switches on
-- **[shipped]** Frequency manager: workspace-wide presets and bookmarks — a preset snapshots *every* radio the workspace has open, and applying it puts each of them back on the node that drew it (matched by node, then by radio), so restoring a bench is one gesture rather than one per radio
-- **[shipped]** Frequency scanner — targets grouped into passband-sized tunings so one dwell measures every target in the passband, peak-hold over the dwell, post-retune settle and drain, hold-and-resume that parks a channel on the hit, and exclusive ownership of the set's centre frequency while it runs. A dwell never ends on nothing — it waits out a starting or momentarily starved capture thread, and only two seconds of silence counts as a device that stopped. Swept 88–108 MHz (201 targets) on both radios and held on real stations
+- **[planned]** Better Frequency scanner
 - **[planned]** Hardware-assisted wideband sweep — the HackRF driver now runs the radio's own sweep mode (§2), but the scanner still sweeps by retuning: a sweep delivers blocks stamped with their own frequency rather than a stream at one tuning, so the scanner's "measure the device-set spectrum tap" loop has nothing to read it with yet
 - **[planned]** Strongest-signal "close-call" finder
 - **[planned]** Signal-strength **hunt mode** — Geiger-style audio/visual feedback as you close on a transmitter
@@ -91,33 +46,12 @@ is a deliberate no. Within each section, shipped comes first.
 
 The dial and the plot were built so this could hang off them without rework, and it did.
 
-- **[shipped]** Band-plan / allocation layer overlaid on the spectrum and searchable
-- **[shipped]** Layered scopes, most-specific-wins: **World** (ITU Regions 1/2/3 + global services) → **Germany** (BNetzA Frequenzplan) → **US** (FCC), **UK** (Ofcom), EU CEPT — a JSON document and one registry line per layer, resolved by an active-set sweep that keeps everything each layer covers instead of overwriting it
-- **[shipped]** Region and ruler visibility are **workspace settings**, stored in the snapshot and shared by every client on the server — which plan is in force is a property of the bench, not of the browser; a "detect" button resolves the browser's coordinate to a region server-side, and says so when only the ITU region could be decided
-- **[shipped]** Band ruler with coloured allocation blocks; click-to-identify popover (service, allocation, authority, suggested mode, channel step, notes, and the layers the winner covers)
-- **[shipped]** Searchable band explorer ("show me marine VHF", "70 cm ham", "145.500") — word scoring, so filler words cost nothing, and a query that reads as a frequency is resolved as one
-- **[shipped]** One-click "tune here with the suggested mode" — moves the selected channel inside the passband, retunes the receiver outside it, and patches the node's type with the engine's so the face stays bound
-- **[shipped]** Amateur band plans (IARU R1) overlay, as a lane of its own rather than an override — an IARU plan divides a band the regulator already allocated
-- **[shipped]** Re-runnable importers with per-row provenance — `cargo xtask bandplan` parses each regulator's own publication into the layer documents the server reads, and every row carries the identifier it had in the source (`Eintrag 27001`, `FREQ_00001`). Ofcom's JSON (1522 rows) and the BNetzA Frequenzplan PDF (1877 rows) are generated; a run reports every service name it could not classify rather than quietly filing it under "other"
-- **[shipped]** Primary vs secondary allocations, read off the capitalisation both the ITU and BNetzA tables encode it in — a secondary service must accept interference from every primary one
-- **[shipped]** Co-allocations: where a regulator gives one range to several services at once, all of them survive into the block and the popover lists them
 - **[planned]** The FCC importer — one PDF yields ITU Regions 1/2/3 *and* the US table, but `pdftotext -layout` lays each page out independently, so its columns shift between a header page and its continuation. It needs word coordinates (`-bbox-layout`); until then ITU and US stay curated
 - **[planned]** A CEPT importer — EFIS publishes the ECA table and may expose it machine-readably (`efis.cept.org`, unreachable from the network this was written on). CEPT and IARU R1 are curated meanwhile
-- **[planned]** GPS auto-select from a receiver's own position — the browser's location needs a secure context, which a plain-HTTP LAN server does not have, and there is no GPS source node yet
 - **[planned]** User-extendable and override-able entries
-- **[planned]** Community overlays, "band plan of the day"
 
 ## 6. Recording, capture & replay
 
-- **[shipped]** Device-level SigMF v1.2.6 recorder — lossless DSP-thread tap, crash-safe breadcrumb-then-atomic-finalize lifecycle, atomic stem claiming, sample-count-exact `start_sample`, centre retunes recorded as capture segments, ring overruns counted into the status
-- **[shipped]** Recordings finalized on device fault, set removal and process exit; a writer fault surfaces as a hard error instead of a silent drop
-- **[shipped]** Recordings browser — rate, duration, size, guarded delete, and Play as the ordinary device-open flow (a finalized recording probes as a device, so replay needed no new endpoints)
-- **[shipped]** Files on disk are the source of truth; the SQLite index reconciles against them, serialized against delete and stop
-- **[shipped]** Recording download in two containers — a `.sigmf` archive (POSIX tar, lossless, re-openable as a device) and a two-channel float `.wav` with an `auxi` chunk for HDSDR/SDR#/Audacity, RF64 past the 4 GiB RIFF ceiling. Both stream off the blocking pool with an exact `Content-Length`, copy the samples verbatim, are excluded from gzip, and fail the transfer rather than truncate it
-- **[shipped]** Decoder log persisted server-side — indexed, composable filters (kind, set, wired channels, time window, free text, limit), batched writer with a retry queue and periodic prune, and lag/overflow reported as a visible `dropped` count
-- **[shipped]** Decoder log export as a real CSV/JSON download with RFC4180 quoting, scoped to the same wires the log node reads
-- **[shipped]** Recorder as a node face, gated on its receiver running, with a live elapsed/size/overruns readout
-- **[shipped]** Replay transport on a recording's device node — play/pause, stop-to-start, loop, and a scrubbable position against a live clock. Driven by atomic stores on a handle shared with the capture thread, so a pause lands mid-block and a snapshot never waits on the device lock; pause and position stay out of the saved workspace, `loop` stays the device setting it always was
 - **[planned]** Per-channel sinks — audio recording, baseband file, UDP out to external tools
 - **[planned]** RF replay-capture workflow — record a burst, annotate it, analyze it
 - **[planned]** **IQ time machine** — rolling ring buffer, retro-record the last N seconds after the fact
@@ -128,150 +62,18 @@ The dial and the plot were built so this could hang off them without rework, and
 
 ## 7. UI, workspaces & onboarding
 
-- **[shipped]** Patch-graph canvas — every radio, channel, scope, map, readout, log, video screen, speaker, recorder, export and scanner is a node; wiring is the UI; the palette and its ports are served from the server's catalog so a new node kind needs no frontend edit
-- **[shipped]** Node palette grouped by what a thing *is* (radios, modes, decoders, displays, sinks, tools) and searchable by name or type id, each channel entry stating the bandwidth it needs — two dozen decoders no longer arrive as one flat wrap
-- **[shipped]** Node faces sized to their instrument, opened framed (`fitView`), active-on-click so the wheel tunes the dial *or* pans the patch but never both
-- **[shipped]** Pin-board rack (12×8) — pin a face, drag a boundary and neighbours give up exactly what it takes, drop a face on another and they trade places
-- **[shipped]** Right-click menu: pin, reset size, cut a wire, fit the patch
-- **[shipped]** Rack membership readable without switching views — a face's header carries a filled-vs-empty glyph plus the pressed fill, and the bar's Rack button carries how many faces are on it
-- **[shipped]** Workspaces that apply **additively and idempotently** — loading a workspace opens the radios it names and creates the channels it draws, never closing or deleting anyone else's work; what it cannot satisfy is reported (`absent`, `refused` with the engine's reason) rather than skipped
-- **[shipped]** Revision-checked workspace writes with serialized edits, so an idle browser cannot overwrite the layout someone is arranging
-- **[shipped]** The canvas refuses invalid wiring where it is drawn — an ADS-B wire onto a 2.4 Msps receiver names the rate that works, using the same rule the engine enforces rather than a second copy of it
-- **[shipped]** A radio's left side is what is done *to* it — `control` in (the scanner owns the tuning, one wire), `tx` in (reserved, inert, refuses every wire with the server's own reason), `iq` out
-- **[shipped]** Template gallery — eight built-in workspaces (FM·RDS, airband, ADS-B, AIS, APRS, POCSAG, 2 m, marine VHF) with explainers, each validated to fit its own passband, re-applying replaces rather than stacks
-- **[shipped]** Library drawer for the things that are not nodes — templates, presets, bookmarks, band search, recordings — behind a pinned tab header, naming a target radio only where one section actually acts on one (a template card's own Apply button)
-- **[shipped]** Generic schema-rendered settings forms for anything without a dedicated face
-- **[shipped]** A channel face is settings and nothing else — everything a channel *produces* is read at the end of a wire, so what it produces is visible in the patch instead of buried in the node that made it. What a decoder is *holding* (an RDS station, a table of aircraft, a teleprinter roll, a tone) goes to a **readout** node, the frames it received to a **decoder log** node, its picture to a **video** node, its audio to a speaker
-- **[shipped]** The decoder log shows only what is wired into it — a filter the node builds from its own edges and the server applies in SQL, so two log nodes on different decoders are two different logs and clearing one clears only its own rows. A node with nothing wired in matches nothing rather than everything, which is what keeps its Clear button from emptying the log
-- **[shipped]** That scope is keyed on the **patch node in its workspace**, not the engine channel id: each stored row carries the node its channel belonged to and the workspace that binding came from, resolved as the row was written. Both halves are needed to name a decoder — engine ids are allocated per run and reused, and node ids are unique only inside one workspace (templates author theirs as slugs, so every workspace built from one holds `ch0`), so either alone hands a log node somebody else's history. Rows written before the columns, or before the binding caught up with a new channel, carry neither and are reached by the `device_set:channel` fallback, bounded to this server run — the only run those coordinates can honestly be attributed in. Everything older stays in the log, queryable and exportable, and out of every wire scope
-- **[shipped]** The log is live by construction, with no toggle to make it so: the WS tail and the stored page are merged into one newest-first table, so a frame is on screen the moment it is decoded rather than at the writer's next flush, and its stored twin replaces it in place half a second later without the table reordering around it
-- **[shipped]** A log row expands to the whole frame — NAVTEX and ACARS message bodies with their newlines intact, sub-GHz pulse/gap timings, APRS path and motion, DV signalling, the padded RIC. The one-line summary is what the table has room for, not what the log kept
-- **[shipped]** MapLibre map (OpenFreeMap, no API key) with a themed fallback, plotting only the decoders wired into it, GeoJSON updated on a throttled tick
-- **[shipped]** `DESIGN.md` as a binding rulebook — OKLCH role table, contrast measured in both themes, achromatic plot overlays, type/spacing/density/motion ladders
-- **[shipped]** The pointer names what it is over — one stylesheet rule by role rather than a class per control, so a box, a menu item or a headless primitive's trigger says it acts; a slider thumb takes the grip and keeps it for the whole sweep. Inside a node this had been the canvas's own `default` arrow inherited over every control on the face
-- **[shipped]** Dark, light and auto themes (per browser, not synced — a theme belongs to the eye, not the workspace), on one cycling icon that names the state it is in and the one a press moves to
-- **[shipped]** One product mark, one drawing — `assets/icon.svg` (a carrier peak over a noise floor broken into the name's two dashes, in the `DESIGN.md` §2 palette, with its geometry sized so the floor still reads at 16 px). `xtask icons` renders it into the browser tab, the top bar, the token gate, the docs site and the desktop bundle's `.icns`/`.ico`/PNG set — including the `.ico`'s DIB-below-256 layout the Windows resource compiler needs, and the 80.5 % inset macOS bakes into every Dock icon — so the tab, the Dock and the installer cannot drift apart
-- **[shipped]** Errors as a dismissible toast stack rather than a banner that shoves every panel down
-- **[shipped]** Playwright smoke flow (`xtask smoke`) driving the built UI against a real server
-- **[shipped]** Channel settings surviving a restart — apply recreates channels at their type's defaults, so offsets and squelch come back neutral unless a preset carries them
-- **[planned]** A first-run wizard — the canvas has no guided first run
-- **[shipped]** Band-plan search in the library drawer, its region and ruler under the workspace menu's settings, and the band ruler on every scope face (§5)
 - **[planned]** Node kinds whose backends do not exist yet: GPS source, UDP sink, WAV sink, and the `iq-tap`/`position` port types that go with them
 - **[planned]** A scope on a channel tap — a scope only takes a device today
 - **[planned]** Theme/skin system and a layout marketplace
-- **[planned]** Localization (DE/EN first)
 
 ## 8. Voice & analog channels
 
-- **[shipped]** AM, NFM, SSB (USB/LSB), WFM — DDC → mode-aware complex channel filter → squelch → demod → 48 kHz PCM
-- **[shipped]** Squelch (power + hysteresis + hold, measured on the filtered channel so a threshold means the same thing across modes), AGC, de-emphasis, DC blocking
-- **[shipped]** Mode changed in place on a live channel, keeping audio subscribers
-- **[shipped]** RDS — 19 kHz pilot PLL → 3rd harmonic → symbol sync → the library's BPSK table and its own `hard_slice` → `symbolcode`'s differential decode → offset-word block sync (the mapper is the modulation library's; the carrier deliberately is not, because RDS takes it from the pilot rather than from the data); groups 0A/0B (PS, TP/TA/MS, AF), 2A/2B (RadioText), PTY; emitted only when a field changes. **It decodes the synthesized fixture completely and has never decoded off air** — six real stations on two radios produced nothing, reproduced deterministically from a committed-out 8 s capture; the leading (untested) hypothesis is the stereo L−R subcarrier sitting against 57 kHz
-- **[shipped]** WFM **stereo** — 19 kHz pilot PLL → 38 kHz difference demod → L/R matrix, with the whole audio path two-channel end to end (interleaved PCM, stereo Opus, per-frame `ch_layout`, two-channel worklet); a station without a pilot falls back to the same programme on both channels, and the toggle switches layout under a live stream
-- **[shipped]** **ATV (analog TV)** — envelope (AM, negative-modulated) or discriminator (FM) → sync-tip/peak-white level tracking → pulse-width sync separation → per-line resampling into 8-bit luma. 625/25, 525/30 and 405/25 from their own timing tables; a flywheel that coasts through a sync the noise ate; interlace recovered from the half-line offset of the field's vertical sync; black clamped per line off its own back porch. Nothing reaches the picture until the line clock locks, so a dead channel shows nothing rather than a raster the decoder invented. **Specification-proven only** — it scans the synthesized raster from the reference modulator and has never seen a real transmission
-- **[shipped]** Video as a first-class stream — a `VIDEO_GRAY` binary WS frame kind, `SubscribeVideo` with per-connection ids drawn from the same media range audio uses, a refcounted client hub, and a video node the channel's picture is wired into. This is the transport WEFAX and SSTV were blocked on
 - **[planned]** ATV colour and the sound subcarrier — luma only today; chroma is left where it is in the video band
 - **[planned]** Notch and audio filters per channel
-- **[shipped]** CTCSS/DCS on NFM — the subaudible band decimated off the discriminator, a bank of 50 sliding correlators (half-second window, because the closest pair of standard tones is 2.3 Hz apart) and a DCS reader: Golay(23,12) at 134.4 bit/s, sliced against a tracked baseline so a carrier offset is not a decision threshold. Detect names what a repeater uses without gating; CTCSS and DCS gate on it, muting rather than skipping so the client's jitter buffer keeps its samples, and a 300 Hz highpass keeps the tone out of the audio it lets through. **The 83 standard DCS codes are part of the decoder, not a dropdown**: the code is cyclic, so a sliding window finds a valid word at all 23 alignments, and only that set reads back unambiguously — which is also why an inverted transmission comes out as the code's inverse-pair partner (023 ↔ 047) instead of needing a polarity switch
 - **[planned]** Selcall (CCIR/ZVEI)
 
 ## 9. Digital voice
 
-**These decode the call and the voice.** AMBE/AMBE+2/IMBE or Codec2 payloads from every mode
-below become bounded 48 kHz mono PCM on the same Opus/browser path as analog channels. The
-signalling around that payload still supplies the scanner log: who transmitted, to which
-talkgroup or callsign, on which colour code or network, encrypted or not.
-
-- **[shipped]** Shared C4FM front end — one `sdrmm-modem` CPM entry the six four-level modes
-  reach as parameters (the ETSI dibit table, each mode's deviation as a modulation index, its
-  root-raised-cosine as the frequency pulse), so the discriminator, matched filter, Gardner
-  symbol clock and *measured* rather than assumed decision levels are the library's, not this
-  crate's. An under-deviated transmitter still decodes, and one front end still serves the
-  ±1944 Hz 12.5 kHz modes and the ±1050 Hz 6.25 kHz ones alike. A **carrier gate** decides what those estimates are allowed to learn
-  from: DMR is TDMA and keys off for half of every 60 ms frame, and a clock, centre or level
-  that integrated the receiver's own noise in between would arrive at each burst having learned
-  the noise floor instead of the transmitter. The clock takes an error only from
-  equal-and-opposite transitions — on any other pair Gardner reads the pulse shaping itself as
-  a timing offset, a bias that puts the same fractional-symbol excursion at the same place in
-  every burst — and coasts dead time at a long average of its tracked rate, because a TDMA gap
-  multiplies whatever rate it coasts at by the gap's length
-- **[shipped]** DMR — all eight sync patterns, Golay(20,8) slot type, BPTC(196,96) signalling:
-  voice LC header, terminator, CSBK, PI and data headers, rate-½/rate-¾/rate-1 data visibility,
-  each confirmed by the Reed-Solomon or CRC mask that names its own frame type. Talkgroup,
-  radio ID, colour code, group/private, emergency and encryption ALG/KID/MI. FID+opcode/FLCO
-  dispatch prevents vendor opcode collisions from being interpreted as ETSI addresses; known
-  Motorola, Hytera, Tait, JVCKENWOOD, EMC, Radio Activity, Flyde Micro and PROD-EL
-  feature IDs are named while unknown proprietary payloads remain explicitly unparsed.
-  Standard GPS Info feeds the shared map coordinates, and talker-alias header plus three blocks
-  reassemble 7-bit, ISO-8, UTF-8 and UTF-16BE names. **Late entry**: the BPTC(128,77) embedded
-  link control is reassembled from bursts B–E of a voice superframe, so a call joined in
-  progress names itself within 240 ms.
-  Verified end to end against the generated keyed waveform — header, late-entry superframe and
-  terminator — and against a recorded off-air call (`fixtures/dmr_call_48k`): repeated headers
-  and three superframes' late entry, all naming the same radio
-- **[shipped]** DMR voice — the conventional three-frame AMBE+2 3,600 × 2,450 vocoder socket,
-  with DMR deinterleave, Golay correction and concealment status followed by band-limited
-  8 kHz → 48 kHz resampling into the existing Opus/browser audio path. Encrypted calls are
-  identified from the full LC service options and muted rather than decoded as noise. A
-  generated 440 Hz AMBE transmission proves all 18 frames of a superframe end to end, and the
-  committed off-air call now proves that its real payload produces bounded PCM
-- **[shipped]** DMR repeater slots and Short LC — Hamming(7,4) TACT is deinterleaved from CACH,
-  activating the slot filter for base-station signals. Two independent call, alias, privacy,
-  embedded-LC and vocoder states follow simultaneous slots without cross-latching. Four CACH
-  payloads rebuild the Hamming(17,12) product code and CRC-8 Short LC: activity/hash updates and
-  Tier III control/payload site parameters. Tier III CSBK ALOHA/AHOY and logical channel grants
-  expose their channel, slot, emergency, system and address parameters
-- **[shipped]** M17 — the one mode that names both parties in the clear: link setup frame through
-  derandomiser, quadratic interleaver, P1 depuncturing, Viterbi and CRC-16, with base-40
-  callsigns, encryption flag and end-of-transmission. Stream frames undo P2 puncturing and
-  rebuild late-entry link setup from six Golay-protected LICH fragments; voice-only streams
-  decode two Codec2 3200 blocks per frame, voice+data streams decode one 40 ms Codec2 1600
-  block, and encrypted streams are muted
-- **[shipped]** System Fusion (YSF) — FICH through its interleaver, Viterbi, four Golay(24,12,8)
-  blocks and CRC-16: frame type, data mode and DG-ID, one log line per call rather than ten a
-  second. All three speech layouts produce audio: carrier-interleaved AMBE+2 in V/D1,
-  repetition-protected natural 49-bit AMBE+2 in V/D2, and full-rate IMBE with its Voice-FR
-  interleaver and scrambler
-- **[shipped]** P25 Phase 1 — frame sync, status-symbol stripping and BCH(63,16,23) NID plus the
-  protected metadata behind it. HDU Golay(18,6)+RS(36,20,17) yields talkgroup and encryption
-  ALG/KID/MI at call start; LDU1 Hamming(10,6)+RS(24,12,13) yields MFID-gated group/private link
-  control, source, talkgroup, emergency and privacy; LDU2 RS(24,16,9) refreshes encryption sync.
-  Encrypted voice is muted. All nine Annex-H IMBE frames per LDU decode. Rate-½ trellis,
-  deinterleave and CRC-16 validate TSBKs and expose standard channel grants plus network/RFSS/
-  adjacent-site status; Motorola 0x90, Harris 0xA4 and unknown MFIDs remain vendor-gated. PDU
-  payloads are retained as data metadata rather than silently dropped
-- **[shipped]** dPMR — FS1/FS3/FS4 framing and the full header information field (descrambled,
-  de-interleaved, CRC-8 checked): called and calling IDs, colour code, individual versus group
-  call. Once that checked header establishes a voice mode, FS2 opens the complete 756-symbol
-  superframe and its four TCH blocks yield sixteen carrier-interleaved AMBE+2 frames
-- **[shipped]** NXDN — frame sync word and link information channel at both channel widths
-  (6.25 kHz at 2400 symbols/s, 12.5 kHz at 4800): channel type, direction, frame shape. A
-  frame is believed only once the next sync word lands a whole number of frames later — the
-  LICH's lone parity bit is no obstacle to noise, but the frame cadence is. The complete
-  post-sync payload is PN9-descrambled, LICH steal options select its traffic slots, and all
-  available EHR AMBE+2 frames are deinterleaved and decoded
-- **[shipped]** D-Star — GMSK receiver on the library's Gaussian CPM entry (BT 0.5 pulse, h = ½, its own matched filter) plus the slow-data channel, which is how a receiver that
-  joined a call in progress gets the header: URCALL, MYCALL, repeater and the text message, all
-  behind the header's own CRC. Every voice frame's first-generation AMBE 3,600 × 2,400 payload
-  is decoded by the statically linked ISC-licensed mbelib core; no system vocoder library is
-  required at runtime
-- **[shipped]** Every mode verified against its specification via a reference modulator that
-  encodes the real framing (the same BPTC, Golay, convolutional and CRC layers, in reverse), fed
-  through the decoder in ragged block splits, plus a noise-decodes-to-nothing test per mode.
-  Real encoded 440 Hz payloads additionally cross every carrier interleaver and vocoder into
-  bounded PCM (plus the standardized D-Star null frame). **DMR is the only one that has decoded
-  a real signal so far**, off a recorded PMR446 call; the
-  other six carry the same caveat the ADS-B/AIS/ACARS/NAVTEX decoders do, and the constants most
-  likely to be wrong are named in each module's header comment
-- **[shipped]** Sync-anchored level and centre estimation — a burst's own sync pattern says what
-  its four levels are, which is what a TDMA receiver should measure them from rather than from
-  loops that also run between bursts. Every matched sync is fitted by least squares against the
-  levels its pattern names, the slicer re-scaled by the average of the last four detections
-  (MMDVM's figure); a fit noise could have produced — implausible gain or centre, or symbols
-  that match the pattern's dibits but miss its levels — is discarded, and an anchor expires a
-  second after its last sync so the next transmitter meets clean estimates. Together with the
-  transition-gated clock this closed the late-entry gap: the generated keyed waveform now
-  decodes header, embedded link control and terminator alike
 - **[planned]** NXDN SACCH/FACCH addressing and YSF callsigns — the signalling layers below
   each mode's voice framing
 - **[planned]** FreeDV
@@ -281,25 +83,13 @@ talkgroup or callsign, on which colour code or network, encrypted or not.
 
 ## 10. Aviation & marine
 
-- **[shipped]** ADS-B + map — level-relative preamble correlation, Mode S CRC-24 with single-bit repair, identification, airborne/surface CPR position, velocity, Gillham and 25 ft altitude, bounded per-ICAO CPR cache
-- **[shipped]** Mode S beyond the extended squitter — DF11 all-call replies, DF4/20 altitude and DF5/21 identity (squawk) replies, plus the BDS 2,0 callsign a Comm-B reply may carry. A roll-call reply keys its address onto the parity and so proves nothing by itself: it is decoded only when that address was proved in the clear (DF11/17/18) within the last minute, and single-bit repair is confined to the bare-parity formats where it cannot invent a different aircraft
-- **[shipped]** ADS-B at **any receiver rate 2–4 MHz** — the decoder meets the radio instead of the radio meeting the decoder: per-chip half-chip boundaries, eight sub-sample phase tables arbitrated by the CRC, and overlap-weighted energy per half-chip. Measured 0% → 100% at 2.048 Msps off-grid and band-limited (98% at 34 dB SNR); 2.000 Msps keeps a physical half-sample blind spot that real 2.048 receivers do not have
-- **[shipped]** AIS + map — GMSK 9600 as a `sdrmm-modem` cpm entry (M = 2, h = ½, BT 0.4 Gaussian frequency pulse, Gaussian matched filter, `SymbolSync` burst timing) behind a channel-side amplitude-weighted carrier corrector that takes a ±1200 Hz dial error off the eye inside the 24-bit training sequence; NRZI + HDLC + CRC-16/X-25, types 1/2/3/5/18/24, `!AIVDM` output. Testgen renders bursts from the library's own `CpmMod` with ramped keying edges; decode proven from every sub-bit burst phase at every tested dial error, and against the committed pre-migration fixture
-- **[shipped]** ACARS — MSK on an AM carrier, mirrored-spectrum tolerant, strict validation: character parity *and* the ARINC 618 CRC both pass or the block is dropped, uplink/downlink field layouts distinguished
-- **[shipped]** NAVTEX / SITOR-B — CCIR 476 constant-ratio alphabet as a code→ITA2 map over the RTTY tables, mode-B time diversity repairing a character neither copy carries alone, `ZCZC`…`NNNN` framing so idle phasing never reaches the log
 - **[planned]** VOR, VOR localizer (multi-VOR fix), ILS, DSC
 - **[planned]** Inmarsat STD-C / AERO
 - **[planned]** VDL Mode 2; HFDL; Iridium bursts
 - **[planned]** ADS-B / AIS log enrichment against offline aircraft and ship databases
-- **[planned]** **Off-air proof for all four shipped decoders** — every one is verified against its specification via a reference modulator (independently written, or the mode's own transmitter where it has one), and none has yet decoded a real signal
 
 ## 11. Data, text & paging
 
-- **[shipped]** POCSAG — per-candidate-rate bit clocks where the rate that finds frame sync takes the lock, BCH corrections counted, numeric and alphanumeric bodies, 512/1200/2400 detected per transmission
-- **[shipped]** RTTY — ITA2 with LTRS/FIGS and unshift-on-space, start/stop framing with stop-bit rejection, 45.45/50/75 baud, 170/450/850 Hz shifts
-- **[shipped]** Morse — envelope + adaptive keying slicer, element/gap clustering that tracks sending speed, unknown sequences surface as `*` rather than vanishing, pure noise decodes to nothing
-- **[shipped]** APRS / AX.25 — AFSK1200 and 9600 G3RUH, SSIDs and the has-been-repeated flag, TNC2 line, uncompressed and base-91 compressed positions, course/speed, `/A=` altitude
-- **[shipped]** Mic-E — the one APRS form that is not a text format: six latitude digits and three indicator bits unpacked from the destination *callsign*, longitude/course/speed/symbol from an information field offset by 28, all 15 message codes named (and the standard/custom mixture the spec itself refuses to name), position ambiguity carried from the latitude into the longitude, telemetry told apart from status text, and the base-91 `xxx}` altitude
 - **[planned]** APRS *feature* — station/position collection, distinct from the channel
 - **[planned]** FLEX and further pager formats, ERMES
 - **[planned]** CW skimmer — every CW signal in the passband at once
@@ -308,7 +98,6 @@ talkgroup or callsign, on which colour code or network, encrypted or not.
 
 ## 12. Sub-GHz, ISM & IoT
 
-- **[shipped]** **Generic sub-GHz OOK/ASK/FSK capture-and-decode channel** — 250 kHz channel 150 kHz flat by default (these transmitters sit tens of kHz off nominal), OOK through an adaptive envelope slicer and FSK through a discriminator against a tracked level, then shared debounced edge timing, base-period estimation and classification. Pulse-width and Manchester recognized; unknown signals come back as raw edge timings you can still look at
 - **[shipped]** No chip is named — a 24-bit frame carries both the EV1527 reading (address + button) and the PT2262 tri-state string where every bit pair is a legal symbol
 - **[shipped]** Repeats inside 500 ms collapse into one counted event, and a better-classified frame supersedes a held one only while that one is a single sighting — which is what stops a capture that started mid-burst from logging its fragment
 - **[planned]** Rolling-code *analysis* — a KeeLoq-style remote decodes today as a structureless 66-bit PWM frame; analysis is gated TX-phase work (§20)
@@ -351,8 +140,6 @@ talkgroup or callsign, on which colour code or network, encrypted or not.
 
 ## 17. Audio processing
 
-- **[shipped]** Opus audio to the browser and desktop — per-channel encoder threads that follow the channel's layout (mono 64 kbit/s, stereo 96 kbit/s) mid-stream, WebCodecs fast path with a WASM fallback, AudioWorklet jitter buffer (100 ms target, underrun rebuffer, 400 ms drop-oldest), per-channel gain, gesture-unlocked context, auto-resubscribe on reconnect, timestamp-gap loss detection
-- **[shipped]** Speaker node — client-side mixing across every channel wired into it
 - **[planned]** Spectral noise reduction, noise blanker, auto-notch, AGC as advanced processing inside **every** voice channel rather than a separate channel type
 - **[planned]** Adaptive/auto DSP — auto-notch, auto-squelch, auto-gain, per-mode click and noise removal
 
@@ -368,35 +155,15 @@ talkgroup or callsign, on which colour code or network, encrypted or not.
 
 ## 19. API, automation & access
 
-- **[shipped]** REST control API with OpenAPI schema, generated typed client, and a codegen-drift gate — no hand-written frontend DTOs anywhere
-- **[shipped]** One WebSocket: JSON state events plus binary spectrum, audio and decoder frames, with drop-oldest backpressure, per-connection throttling, and lag surfaced as a typed loss count instead of a silent gap
-- **[shipped]** **MCP server** at `/mcp` — `rmcp` streamable HTTP, stateless, 13 tools over the same engine calls REST uses (state, devices, channel types, open/close, tune, add/remove channel, scan, record, decoder-log query, spectrum snapshot), with channel settings built through the wire enum so no parallel settings model exists
-- **[shipped]** Optional shared token over REST, WS and MCP alike — Bearer header *or* `?token=` (the browser WS API cannot set headers), constant-time comparison, one middleware, and auth/OpenAPI/docs endpoints public because they describe the API's shape and never its data
-- **[shipped]** Default LAN-trusted posture (bind `0.0.0.0`, no auth), same-origin CORS
-- **[shipped]** Multi-client polish — connection count surfaced in the UI, decoder frames serialized once for the whole server, WS reconnect backoff 1 s → 30 s, a 401 forgetting a stale token and asking again
-- **[shipped]** Config via `config.toml`, flags and env (`SDRMM_TOKEN` so a token need not appear in the process list)
 - **[planned]** Scripting recipes on the existing REST + MCP surface (scanner bots, "ping me when this callsign appears")
 - **[planned]** Alerting/notifications — rule engine on decoder events → desktop, push, webhook
 - **[planned]** Plugin SDK via WASM
 - **[planned]** Multi-user roles; remote fleet management across several Pi nodes
 - **[planned]** Offline reference bundles — band plans, TLE snapshots, callsign prefixes, PMTiles maps
-- **[skipped]** TLS termination — reverse-proxy or VPN it
+- **[planned]** Output Nodes for like Discord
 
-## 20. Transmit & RF security research
+## 20. Legitimate Security research
 
-A general-purpose, legitimate transmit and RF-research toolkit, behind a default-off
-"controlled RF environment / authorized test" gate. Test instruments for *contained, authorized*
-assessment — direct-connect, dummy load or shielded — against devices you are authorized to
-test. No presets exist whose purpose is uncontrolled over-the-air disruption of third parties.
-
-- **[shipped]** The device abstraction carries TX both ways — `Duplex` (`RxOnly`/`TxOnly`/`Half`/`Full`) and `tx_start` → `TxStream`; RX-only backends inherit the defaults and change nothing
-- **[shipped]** The HackRF's transmit path — bulk-OUT queue of 16 on the shared transport, the firmware's zero-filled end-of-burst marker, transmit VGA control, half-duplex arbitration in both directions, and a transfer policy that deliberately never re-sends a failed transmit transfer
-- **[shipped]** It is unreachable from outside the device layer, by construction — transmit VGA written to 0 dB on open, no wire type through which a client could ask, no `engine`/`server`/MCP/UI caller. `Capabilities.duplex` now states what the hardware *has* (a HackRF is `half`), which is what draws its reserved transmit input; the port emits nothing and accepts nothing. No node kind emits the `tx` port type, so no edge into it can validate, and a test fails the day one does
-- **[shipped]** `ChannelTx`, the transmit half of the channel surface — payload in on the control plane, IQ out on the hot path, raised-cosine burst edges so keying does not splatter, a bounded queue that refuses a backlog instead of growing, and a short fill as the "burst is over" signal. Deliberately not the same trait as `ChannelRx`: the two directions share a mode's constants and (next) its framing, not their state. A modulator sits in the same registry row as the demodulator it pairs with, and `can_transmit` on the wire is *derived* from whether that column is filled, so the flag a UI would draw a port from cannot disagree with what `create_tx` will build. Reaching an antenna is still gated exactly as before — nothing in `engine` or `server` calls it, and the samples land in a buffer
-- **[shipped]** NFM is the first mode with a modulator, round-tripped against its own demodulator in test at both channel spacings. Neither end carries pre- or de-emphasis, which is what makes the pair agree
-- **[shipped]** AM, SSB and APRS / AX.25 followed, each round-tripped against its own demodulator: AM keys an 80 %-depth envelope normalized so the peak, not the carrier, is full scale; SSB is a phasing exciter (Hilbert transformer) against a receiver that filters one side and takes the real part, so the two share a passband and no code; AX.25 owns the framing in both directions — addresses, stuffing, CRC-16/X.25, NRZI and the G3RUH scrambler on the way out, `dsp`'s deframer on the way back — and keys either Bell 202 AFSK1200 or 9600 baud FSK. Queue bound and burst envelope are shared by all four
-- **[shipped]** A mode with a modulator no longer has a reference encoder in `testgen`: the transmitter *is* the reference, and the fixture library and the end-to-end run key the mode's own transmitter instead of a stand-in — at its channel rate, resampled to whatever the device replays at. Receive-only modes keep their independently-written generators
-- **[planned]** The authorized-use gate itself, and everything below it
 - **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
 - **[planned]** Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use on licensed bands
 - **[planned]** Sub-GHz capture → decode → replay; fixed-code analysis and generation including de Bruijn sequences; rolling-code capture and implementation analysis against your own DUT
@@ -410,22 +177,5 @@ test. No presets exist whose purpose is uncontrolled over-the-air disruption of 
 
 ## 21. Cross-cutting engine capabilities
 
-- **[shipped]** Any number of channels per device set, each with its own DDC, settings and face; hot path holds no locks and allocates nothing in steady state, settings arriving by command queue between blocks
-- **[shipped]** Channels that need the radio's own rate get its samples mixed to their offset and nothing else, with the rule (`exact_rate_only`, derived once) shipped on the wire so the UI and the engine cannot disagree
-- **[shipped]** A device rate change rebuilds every hosted channel with ids and audio subscriptions preserved; recording blocks a rate change rather than mixing rates under one SigMF header
-- **[shipped]** Typed decoder events leave the DSP plane through a bounded sink with counted drops, are wall-clock stamped off the hot path, and are persisted by the server rather than the engine
-- **[shipped]** Squelch feeds decoders duration-exact silence instead of splicing the stream — a decoder measures its bit clock in the time a skip would delete
-- **[shipped]** Golden-vector tests on every DSP primitive, and a fixture library regenerated rather than committed. A receive-only decoder is tested against a reference modulator written independently of it; one whose mode ships a transmitter is tested against that transmitter, which shares the mode's constants but implements none of the same steps. The two artifacts no generator reproduces — a recorded off-air DMR call, and the pre-migration AIS burst the CPM engine is proven equivalent against — are committed under their own stems, never one `cargo xtask fixtures` writes, so a regeneration cannot quietly leave a generator proving itself; `cargo xtask check` fails on any fixture baked into a binary that git does not track
-- **[shipped]** Modulation measurement harness (`sdrmm-modem` `ber/`) — closed-form BER oracles verified against high-precision references, unit-calibrated impairments (every applied value measured back: AWGN, CFO, drift, phase noise, timing/clock, IQ imbalance, DC, multipath, interference, clipping, quantisation, burst/TDMA), a seeded bit-reproducible sweep runner calibrated to +0.05 dB of exact BPSK theory over 0–10 dB, a resistance-limits bisector, zero-alloc perf gates with committed Msamples/s baselines, a CATALOG.md docs-row CI rule, and one registry (`ber::catalog`) holding every entry's chain, grid, seed, error budget and §4.1 reference — so `cargo xtask ber <entry>` runs the same measurement the crate's gates run rather than a second one wearing its name, and covers `bpsk-ideal`, `mfsk`, `gmsk`, `msk`, `afsk`, `ask`, `psk`, `dpsk`, `oqpsk`, `pi4-dqpsk`, `qam`, `qam-cross`, `qam-star`, `qam-nonuniform` and `apsk` with each curve judged both as drift from its committed artifact and against its closed form where one exists (every entry currently reproduces its committed points bit-exactly, 0.0000 dB drift), and the current DMR chain baselined in full (steady + burst curves, limits table, level-2 E2E) as the pre-migration reference — including its measured ~1e-2 continuous-mode BER floor, now a committed floor for the CPM engine to beat
-- **[shipped]** Soft-decision substrate (`sdrmm-modem`) — `SoftBit`/`Llr` newtypes with the crate-locked positive-means-1 sign convention and documented lossy conversions to the Viterbi's i16 scale, table-driven constellations (always normalised to unit symbol energy) behind one generic demapper (max-log and exact log-sum-exp tiers, plus a noncoherent M-FSK energy-LLR path and a known-symbol noise-variance estimator), all verified against hand-computed 2- and 4-level LLRs and zero-alloc under the counting allocator; the harness gained a genie-LLR bound (exact posteriors at the true realised noise variance, fully paired per seed) that separates concept failures from LLR-quality failures — measured: honest max-log costs +0.03 dB over genie, a 10x noise-variance mis-scale +0.23 dB, hard-clipping to full confidence +2.67 dB, and a broken bit mapping floors at BER 0.5 even with genie LLRs
-- **[shipped]** Soft-decision BPTC measured end-to-end on the phase-0 DMR chain — the same C4FM -> channel filter -> four-level front end stream decoded hard and soft (Chase-2 `Bptc196::decode_soft` on the front end's per-bit soft output), with post-FEC BER over accepted frames, FER and undetected-error rate committed as separate curves: **1.60 dB gain at post-FEC BER 1e-3** (16.51 dB -> 14.91 dB) and FER collapsed 43% -> 8.6% at 16 dB, guarded as the phase-1 regression gate (`crates/channels/tests/dmr_soft_gain.rs`, `baselines/dmr/dmr_bptc_*.json`)
-- **[shipped]** Pulse and symbol-code substrate (`sdrmm-modem` `pulse/` + `symbolcode/`) — every pulse shape defined once (rect/LREC/LRC, raised cosine + its root, the Gaussian premod filter and the Murota–Hirade GMSK frequency pulse, half-sine) with the normalisation explicit at every call site: unit energy for amplitude pulses and matched filters, unit area for CPM frequency pulses, whose phase pulse reaches q(∞)=½ so a symbol advances the carrier by exactly π·h; wrapped `sdrmm_dsp` designs pass through bit-identical under the area norm, the TX-RRC ⊗ RX-RRC cascade is proven Nyquist (off-instant leakage <1e-3 at span 20) and equal to the closed-form raised cosine pointwise — and the live AIS/D-STAR matched filters, all C4FM/GMSK testgen shaping and the calibrated BPSK reference now draw their taps from it with the committed DMR baselines bit-identical. Line codes — NRZ, NRZI (both conventions), binary and M-ary differential (the DPSK rule), Manchester (IEEE 802.3 and G. E. Thomas), bi-phase Mark/FM1 and Space/FM0 — round-trip tested with per-bit violation flags and an honest half-bit alignment verdict, bit-exact against the `sdrmm_dsp::bits` decoders the live channels use
-- **[shipped]** One CPM/FSK engine behind thirteen channels (`sdrmm-modem` `cpm/`) — everything that separates one FSK standard from another is **data**: alphabet size and the symbol→level table, the modulation index in a single canonical form (a deviation set converts to it at construction), the frequency pulse from `pulse/`, the oversampling, the timing-loop bandwidth, and a known-symbol hook that says "positions i..j carry sequence S" and fits gain and centre by least squares for any alphabet and any pattern. A `match` on a named standard inside the engine is a defect, and there is none — the seven digital-voice modes, POCSAG, AIS, D-STAR, ACARS and the text modes' transmitters all arrive as parameters, complex baseband and real audio alike (audio-carried FSK enters through a tone-filterbank or analytic-discriminator detector; everything after it is the same code). Committed BER curves at M = 2, 4 and 8 — the 8-ary one attached to no protocol at all, because generality that nothing exercises rots — plus GMSK at BT 0.3/0.5, MSK and Bell-202 AFSK, each with its resistance table and throughput baseline. **The old front end's continuous-mode floor is gone**: 4FSK held for thousands of symbols used to wander into a ~1e-2 error floor, which turned out to be Gardner self-noise integrating at a hard-coded 0.015 cycles/symbol loop — measured, then made per-entry data, and a continuously keyed stream now runs 18 016 symbols through the full DMR chain with zero errors while the burst operating point keeps the 23 047 ppm clock pull-in a TDMA receiver acquires with. The migrated DMR chain measures 0.0–0.4 dB better than its pre-migration steady baseline and 0.8–1.1 dB better on the burst model, every resistance row no worse, the soft-BPTC advantage kept, the recorded off-air call decoding unchanged — and the four-level front end it replaced is deleted rather than kept alongside
-- **[shipped]** Sequence detection for partial-response CPM (`sdrmm-modem` `cpm/` MLSE tier) — a second detector tier over the same soft symbols the discriminator tier emits, deciding a symbol from the whole span its pulse touches rather than the one sample its peak lands on. The trellis is derived from the entry's own data — its frequency pulse convolved with its own receive filter, sampled at symbol spacing — so nothing is declared per standard and an entry with no ISI says so itself: a Nyquist RRC ⊗ RRC cascade (DMR/C4FM) and rect ⊗ rect (MSK) both truncate to one tap and one state, and the tier reduces to the slicer it would have been. Where there **is** ISI it pays for itself: GMSK BT = 0.3 improves **8.15 dB** at BER 1e-3 (20.95 → 12.80 dB) and BT = 0.5 by 1.95 dB, because the matched filter the slicer had to give up — the committed BT 0.3 chain deliberately runs an *unmatched* Gaussian to keep an eye open — comes back and its ISI becomes the trellis's job. Forward–backward min-sum, so it emits per-bit soft decisions on exactly the scale the slicer tier does (a FEC stage below cannot tell which fed it), and its hard decisions were checked against exhaustive minimum-distance search over every candidate sequence rather than against a re-run of itself. Two costs measured and committed rather than discovered later: throughput 98.8 → 63.8 Msamples/s at 4 states and 38.0 at 16 (still 791× real time at 4800 baud), and a sample-clock tolerance an order tighter than the slicer's (1953 vs 19 922 ppm) — structural, since a clock error walks the sampling instant and the trellis is matched to the whole response where a slicer needs only its peak. One measurement that came free: an alternating acquisition preamble sits in a strongly partial-response pulse's spectral null (BT 0.3 sums it to 0.119, 18 dB below the payload), so the MLSE chains acquire on data-like symbols instead — and because that left the tier row framed differently from the row it merges against, the discriminator rows were re-measured on the same framing under new artifact names to find out whether the headline was really the detector's. **It is**: the framing moved the 1e-3 crossing by 0.00 dB at BT 0.3 and 0.03 at BT 0.5, so the 8.15 dB stands with both tiers now sharing a transmitter by construction. What the framing did cost was the curve's *shape* — the old BT 0.3 artifact rises inside its own waterfall (4.066e-2 at 14 dB, 4.089e-2 at 15) where the new one is monotone — and what it bought back was resistance: an alternating stream has exactly zero symbol mean, so giving it up costs CFO headroom (1500 → 820 Hz) and sample-clock tolerance (19 922 → 5078 ppm, still 250× past any real crystal). Both generations stay committed and both stay reproducible, which is what let the loss be attributed to the framing rather than guessed at
-- **[shipped]** One linear engine behind every amplitude/phase modulation (`sdrmm-modem` `linear/` + `constellation/`) — OOK and M-ASK, M-PAM, BPSK through M-PSK, the DPSK family, OQPSK and π/2-BPSK, π/4-DQPSK, square QAM 16–1024, cross-QAM 32/128, star-QAM, DVB-T hierarchical QAM and DVB-S2 16/32-APSK, all from one modulator, one demodulator and one demapper. What separates them is a point table, an amplitude pulse, an oversampling, a per-symbol rotation and a quadrature stagger — nothing else — and the tables are generated, not written: exact Gray for the regular families (asserted: every nearest-neighbour pair one bit apart) and a deterministic 2-opt over a distance-weighted Hamming cost for the geometries no Gray code fits, whose reached penalty is pinned so a local optimum cannot silently get worse. Twenty-seven committed curves; **twenty-two held to a closed form or to a table-driven union bound, worst 0.72 dB out and most inside 0.4** — from BPSK at +0.18 dB to 1024-QAM at +0.47. Three tiers, each with the measurement that says where it belongs: coherent (one loop, decision-directed or M-th-power modulation stripping, with an FLL for cold acquisition), differential (~2.3 dB at 1e-3, and immune to the phase ambiguity by construction), and a noncoherent envelope tier that reads no phase at all and tolerates 932 Hz of carrier offset and 1497 ppm of clock error where the coherent chains tolerate 6 Hz and 31 ppm. Three tier margins recorded rather than asserted: coherent OOK 1.44 dB over the envelope tier, π/4-DQPSK coherent 1.68 dB over its differential tier, and feedforward timing 0.92 dB over the tracking loop on 16-QAM
-- **[shipped]** Feedforward burst timing and the §3.4 anchor in the linear domain (`sdrmm-modem` `linear/`) — two things the high-order rows could not be measured without, and both arrived because a measurement demanded them rather than because a design called for them. A Gardner loop's residual jitter is data-dependent, and on an amplitude-varying table it does not shift a waterfall, it **walls** one: 1e-4 on 64-QAM, 8e-3 on 256-QAM. So the burst rows run Oerder–Meyr square-law timing — one estimate over the whole frame from the signal's own spectral line, no loop and no acquisition transient, driving the same Farrow kernel `SymbolSync` does so the tier comparison reads the estimator — and 1024-QAM lands 0.47 dB from theory. The blind power estimate had to be *held* for the same class of reason: its ripple is a scale error, and a table whose outermost point sits 1.34 from the origin against a 0.038 slicing margin cannot absorb one. The scale comes instead from a least-squares fit over the unique word, which also resolves the M-fold phase ambiguity no blind loop can and removes the blind normaliser's √(1 + 1/SNR) bias. Two findings fell out of measuring that fit and are recorded where a reader meets them: Kay's parabolic weighting is not optional (a flat average of consecutive phase differences scatters the slope far enough to rotate the far end of the word it was fitted on), and the word should be constant-modulus — a QPSK anchor fits inside 5e-4 cycles/symbol where a 16-QAM one manages 3.1e-3, because a 16-QAM inner point carries a tenth of the mean energy and its phase is nearly unreadable at the SNR the outer points are comfortable at
-- **[shipped]** Orthogonal signalling, one closed form and two waveforms (`sdrmm-modem` `orthogonal/` + `ppm/`) — noncoherent M-FSK and M-PPM are the same signalling set (M orthogonal equal-energy signals under envelope detection), and the library measures them as such: the M-FSK matched tone filterbank at M = 2/4/8 sits **+0.15 / +0.22 / +0.17 dB** from the exact noncoherent orthogonal closed form and the M-PPM matched filter at M = 2/4 sits **+0.10 / +0.10 dB**, with the two entries' committed 1e-3 sensitivities agreeing to **0.06 dB at M = 2 and 0.01 dB at M = 4** across two engines, 48 kHz against 8 MHz, different framing and different seeds. Neither has a loop anywhere: a noncoherent detector has no error signal to ride, so timing is one feedforward estimate per burst (peak-energy for tones, energy-concentration for slots — a per-symbol-peak metric was measured *preferring a one-sample error*, because a whole-slot shift moves a pulse into the neighbouring symbol's window) plus the §3.4 known-symbol alignment. Both feed the crate's one energy demapper as true LLRs, because both banks are normalised so a noise-only bin reads exactly N0 — measured, not asserted. Against the CPM engine's discriminator tier at the same geometry the filterbank is **1.17 dB ahead at M = 2 and 5.27 dB at M = 4**, bought with bandwidth; PPM's envelope tier — magnitudes summed, the statistic a burst scan already holds — costs **2.38 dB** and buys immunity to the carrier axes outright: its CFO and drift limits are bracket-bound where the matched tier's CFO is 494 kHz. Golden vectors from the published WSJT-X FT8 definition: the Costas array checked to *be* one and to find a frame in noise at its three published positions, the Gray map's one-bit-apart property, the 6.25 Hz / 50 Hz / 12.64 s geometry, and the −21 dB decode threshold turned into a raw symbol-error rate that matches theory within 15 % — the LDPC that closes the remaining distance is FT8's, not this library's, and the test says so
-- **[shipped]** ADS-B's slot arithmetic became the library's (`sdrmm-modem` `ppm/`, consumed by `channels::adsb`) — the three things the field taught that decoder now live where any pulse-position waveform can have them: boundaries computed per slot instead of stepped by a constant (at 2.048 Msps a half-chip is 1.024 samples and a fixed stride drifts a whole sample across a frame), energy as a fractional-overlap sum instead of a sample peak, and one grid per assumed sub-sample phase with something downstream arbitrating. The migration is **byte-identical** — the same decoded frames from the same waveform, at every rate and phase the generator renders — and the decoder kept exactly what is Mode S rather than modulation: preamble correlation, CRC-24 and its overlays, the downlink formats, CPR. It also gained the byte-level regression it never had, asserting decoded hex rather than decoded fields
-- **[shipped]** One multicarrier framework, held to its own subcarriers' theory (`sdrmm-modem` `ofdm/`) — CP-OFDM and DMT at 802.11a/g's geometry (64-point transform, 16-sample cyclic prefix, 48 data + 4 pilot subcarriers, 20 MHz), waveform only: no PLCP, no SIGNAL field, no attachment. A framework is not a fifth mapper, so nothing in it knows what a QAM point is — the modulator takes points, the demodulator returns them, and the same tables the linear engine measures on a bare carrier are measured again on a subcarrier against the *same* closed forms, shifted by the frame's own overhead. That shift is **1.580 dB computed from the geometry** and identical for every modulation order (the bits per subcarrier cancel out of the ratio), which is what makes the acceptance an identity rather than a fitted offset: through a genie receiver the committed rows sit **−0.06 / +0.03 / +0.08 / −0.07 dB** at BPSK / QPSK / 16-QAM / 64-QAM. Everything the real chain costs on top is then a measured number instead of a tolerance — **acquisition +0.72 dB at BPSK, +2.23 at QPSK, +2.48 at 16-QAM, +2.67 at 64-QAM**, nearly all of it the channel estimate's σ²/2 per bin from two averaged training repeats, asserted directly against that closed form. Two estimator tiers, because they fail differently: the long training resolves any channel the prefix can carry, and the short training's stride-4 comb is **1.57 dB ahead under AWGN** (its twelve bins carry a whole symbol's energy ten times over) but resolves **5 samples of echo against 18** — the tier trade as one committed pair of numbers. The DMT flag is a *transmitter* property and there is no second receive path: a Hermitian spectrum radiates the same energy for half the payload, so it costs **exactly the 3.01 dB the geometry predicts, measured at 3.03**. Three findings the measurements forced: the pilot fit had to become an α-β tracker (a line through four pilots extrapolated to the band edge is worth ~0.47σ² of its own noise there, and a rate seeded from one noisy difference inverted 8 % of frames end to end behind a *perfect* acquisition); the transform window belongs four samples inside the prefix, since a window one sample early is a cyclic shift the estimate absorbs while one sample late is ISI nothing removes; and the frequency-selective limits are **fade-limited, not delay-limited** — a one-tap equaliser divides by the channel, so an uncoded chain loses a nulled subcarrier outright, which is exactly why every real OFDM system pairs this waveform with coding and interleaving
 - **[planned]** GPU spectrum path (wgpu) for very large FFTs or many channels
 - **[planned]** Diversity combine / noise cancelling with a reference antenna
