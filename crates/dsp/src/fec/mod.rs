@@ -103,6 +103,173 @@ pub fn rs129_parity(msg: &[u8]) -> [u8; 3] {
     [parity[2], parity[1], parity[0]]
 }
 
+/// Systematic Reed-Solomon code over GF(64), the symbol code used by P25 HDU and LDU metadata.
+/// `parity_symbols` is 12 for RS(24,12,13), 8 for RS(24,16,9), and 16 for RS(36,20,17).
+#[must_use]
+pub fn rs64_encode(data: &[u8], parity_symbols: usize) -> Vec<u8> {
+    let mut generator = vec![1u8];
+    for root in 1..=parity_symbols {
+        let mut next = vec![0u8; generator.len() + 1];
+        for (index, &coefficient) in generator.iter().enumerate() {
+            next[index] ^= coefficient;
+            next[index + 1] ^= gf64_mul(coefficient, gf64_pow(2, root as i32));
+        }
+        generator = next;
+    }
+    let mut codeword: Vec<u8> = data.iter().map(|symbol| symbol & 0x3F).collect();
+    codeword.resize(data.len() + parity_symbols, 0);
+    for index in 0..data.len() {
+        let coefficient = codeword[index];
+        if coefficient == 0 {
+            continue;
+        }
+        for (offset, &factor) in generator.iter().enumerate() {
+            codeword[index + offset] ^= gf64_mul(factor, coefficient);
+        }
+    }
+    codeword[..data.len()].copy_from_slice(data);
+    codeword
+}
+
+/// Correct a P25 GF(64) Reed-Solomon codeword and return its systematic data symbols plus the
+/// number of repaired symbols. Invalid or over-capacity words are rejected.
+#[must_use]
+pub fn rs64_decode(codeword: &[u8], data_symbols: usize) -> Option<(Vec<u8>, u32)> {
+    let parity = codeword.len().checked_sub(data_symbols)?;
+    if parity == 0 || parity >= 32 || codeword.len() > 63 {
+        return None;
+    }
+    let mut corrected: Vec<u8> = codeword.iter().map(|symbol| symbol & 0x3F).collect();
+    let mut syndromes = rs64_syndromes(&corrected, parity);
+    if syndromes.iter().all(|&value| value == 0) {
+        return Some((corrected[..data_symbols].to_vec(), 0));
+    }
+
+    // Berlekamp-Massey, with locator coefficients in ascending polynomial order.
+    let mut locator = vec![0u8; parity + 1];
+    let mut previous = vec![0u8; parity + 1];
+    locator[0] = 1;
+    previous[0] = 1;
+    let (mut degree, mut shift, mut discrepancy_at_update) = (0usize, 1usize, 1u8);
+    for n in 0..parity {
+        let mut discrepancy = syndromes[n];
+        for i in 1..=degree {
+            discrepancy ^= gf64_mul(locator[i], syndromes[n - i]);
+        }
+        if discrepancy == 0 {
+            shift += 1;
+            continue;
+        }
+        let saved = locator.clone();
+        let scale = gf64_mul(discrepancy, gf64_inv(discrepancy_at_update)?);
+        for i in 0..=parity - shift {
+            locator[i + shift] ^= gf64_mul(scale, previous[i]);
+        }
+        if 2 * degree <= n {
+            degree = n + 1 - degree;
+            previous = saved;
+            discrepancy_at_update = discrepancy;
+            shift = 1;
+        } else {
+            shift += 1;
+        }
+    }
+    if degree == 0 || degree > parity / 2 {
+        return None;
+    }
+
+    let mut positions = Vec::with_capacity(degree);
+    let mut powers = Vec::with_capacity(degree);
+    for position in 0..corrected.len() {
+        let power = corrected.len() - 1 - position;
+        let root = gf64_pow(2, -(power as i32));
+        if gf64_eval_ascending(&locator[..=degree], root) == 0 {
+            positions.push(position);
+            powers.push(power);
+        }
+    }
+    if positions.len() != degree {
+        return None;
+    }
+
+    // Solve the first `degree` syndrome equations for the error magnitudes.
+    let mut matrix = vec![vec![0u8; degree + 1]; degree];
+    for row in 0..degree {
+        for (column, &power) in powers.iter().enumerate() {
+            matrix[row][column] = gf64_pow(2, ((row + 1) * power) as i32);
+        }
+        matrix[row][degree] = syndromes[row];
+    }
+    for column in 0..degree {
+        let pivot = (column..degree).find(|&row| matrix[row][column] != 0)?;
+        matrix.swap(column, pivot);
+        let inverse = gf64_inv(matrix[column][column])?;
+        for value in &mut matrix[column][column..=degree] {
+            *value = gf64_mul(*value, inverse);
+        }
+        let pivot_row = matrix[column][column..=degree].to_vec();
+        for (row, target_row) in matrix.iter_mut().enumerate() {
+            if row == column {
+                continue;
+            }
+            let scale = target_row[column];
+            for (value, &pivot_value) in target_row[column..=degree].iter_mut().zip(&pivot_row) {
+                *value ^= gf64_mul(scale, pivot_value);
+            }
+        }
+    }
+    for (row, &position) in positions.iter().enumerate() {
+        corrected[position] ^= matrix[row][degree];
+    }
+    syndromes = rs64_syndromes(&corrected, parity);
+    if syndromes.iter().any(|&value| value != 0) {
+        return None;
+    }
+    Some((corrected[..data_symbols].to_vec(), degree as u32))
+}
+
+fn rs64_syndromes(codeword: &[u8], count: usize) -> Vec<u8> {
+    (1..=count)
+        .map(|root| {
+            let x = gf64_pow(2, root as i32);
+            codeword
+                .iter()
+                .fold(0, |value, &symbol| gf64_mul(value, x) ^ symbol)
+        })
+        .collect()
+}
+
+fn gf64_eval_ascending(poly: &[u8], x: u8) -> u8 {
+    poly.iter()
+        .rev()
+        .fold(0, |value, &coefficient| gf64_mul(value, x) ^ coefficient)
+}
+
+fn gf64_mul(a: u8, b: u8) -> u8 {
+    let (mut a, mut b, mut product) = (a & 0x3F, b & 0x3F, 0u8);
+    while b != 0 {
+        if b & 1 != 0 {
+            product ^= a;
+        }
+        let high = a & 0x20 != 0;
+        a <<= 1;
+        if high {
+            a ^= 0x43;
+        }
+        b >>= 1;
+    }
+    product & 0x3F
+}
+
+fn gf64_pow(base: u8, exponent: i32) -> u8 {
+    let exponent = exponent.rem_euclid(63);
+    (0..exponent).fold(1, |value, _| gf64_mul(value, base))
+}
+
+fn gf64_inv(value: u8) -> Option<u8> {
+    (value != 0).then(|| gf64_pow(value, 62))
+}
+
 /// GF(256) multiply modulo `x⁸ + x⁴ + x³ + x² + 1`.
 fn gf256_mul(a: u8, b: u8) -> u8 {
     let (mut a, mut b, mut product) = (a, b, 0u8);
@@ -446,6 +613,25 @@ pub fn rds_encode_block(data: u16, offset: RdsOffset) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn p25_reed_solomon_corrects_to_each_codes_capacity() {
+        for (data_symbols, parity_symbols) in [(12, 12), (16, 8), (20, 16)] {
+            let data: Vec<u8> = (0..data_symbols)
+                .map(|index| (index * 7 + 3) as u8 & 0x3F)
+                .collect();
+            let clean = rs64_encode(&data, parity_symbols);
+            assert_eq!(rs64_decode(&clean, data_symbols), Some((data.clone(), 0)));
+            let mut damaged = clean;
+            for index in 0..parity_symbols / 2 {
+                damaged[index * 2] ^= (index as u8 + 1) & 0x3F;
+            }
+            assert_eq!(
+                rs64_decode(&damaged, data_symbols),
+                Some((data, (parity_symbols / 2) as u32))
+            );
+        }
+    }
 
     const RDS_OFFSETS: [RdsOffset; 5] = [
         RdsOffset::A,

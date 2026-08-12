@@ -173,18 +173,68 @@ const DETAIL: {
       ["Mode", dvMode(f)],
       ["Frame", dvKind(f)],
       ["Network", dvNetwork(f)],
+      ["Vendor", dvVendor(f)],
       ["Parties", dvParties(f)],
+      ["Talker alias", f.talker_alias],
       ["Call", f.group_call == null ? undefined : f.group_call ? "talkgroup" : "private"],
       ["Via", f.via],
       ["Signalling", f.opcode],
+      ["Position", position(f.lat, f.lon)],
+      ["Position error", f.position_error_m == null ? undefined : `≤ ${f.position_error_m} m`],
+      ["Channel", f.channel == null ? undefined : String(f.channel)],
+      ["Rest channel", f.rest_channel == null ? undefined : String(f.rest_channel)],
+      ["Network ID", f.network_id == null ? undefined : String(f.network_id)],
+      ["System ID", f.system_id == null ? undefined : String(f.system_id)],
+      ["Site ID", f.site_id == null ? undefined : String(f.site_id)],
+      ["Emergency", flag(f.emergency)],
+      ["Slot activity", slotActivity(f)],
       // `Some(false)` is a positive statement that the payload is in the clear; absent means the
       // frame did not say, which is not the same thing.
       ["Encrypted", flag(f.encrypted)],
+      ["Algorithm", f.algorithm_id == null ? undefined : hex(f.algorithm_id, 2)],
+      ["Key ID", f.key_id == null ? undefined : hex(f.key_id, 4)],
+      ["Message indicator", f.message_indicator],
       ["Repaired", f.errors_corrected > 0 ? `${f.errors_corrected} bits` : undefined],
     ]),
-    body: f.text ?? null,
+    body: f.text ?? f.data ?? null,
   }),
 };
+
+function dvVendor(frame: DvFrame): string | undefined {
+  if (frame.vendor == null) return undefined;
+  const names: Record<NonNullable<DvFrame["vendor"]>, string> = {
+    standard: "standard",
+    etsi: "ETSI",
+    motorola: "Motorola",
+    hytera: "Hytera",
+    harris: "Harris",
+    tait: "Tait",
+    jvc_kenwood: "JVCKENWOOD",
+    emc: "EMC",
+    radio_activity: "Radio Activity",
+    flyde_micro: "Flyde Micro",
+    prod_el: "PROD-EL",
+    unknown: "unknown vendor",
+  };
+  const mfid = frame.manufacturer_id == null ? "" : ` (${hex(frame.manufacturer_id, 2)})`;
+  return `${names[frame.vendor]}${mfid}`;
+}
+
+function slotActivity(frame: DvFrame): string | undefined {
+  if (frame.slot_activity == null || frame.slot_activity.length === 0) return undefined;
+  return frame.slot_activity
+    .map(
+      (item) =>
+        `TS${item.slot} ${item.activity}${
+          item.destination_hash == null ? "" : ` (hash ${hex(item.destination_hash, 2)})`
+        }`,
+    )
+    .join(", ");
+}
+
+function hex(value: number, width: number): string {
+  return `0x${value.toString(16).toUpperCase().padStart(width, "0")}`;
+}
 
 /** What the frame was: the words a scanner shows rather than the specification's field names. */
 function dvKind(frame: Pick<DvFrame, "kind">): string {
