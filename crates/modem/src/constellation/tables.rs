@@ -80,6 +80,19 @@ pub fn ask(m: u32) -> Result<Constellation, ConstellationError> {
     Constellation::from_points(points, (0..m).map(gray).collect())
 }
 
+/// The crate's BPSK table, infallibly. [`pam`] returns a `Result` because a caller can ask for an
+/// order the family does not define; 2 is not such an order, and the several call sites that want
+/// *this* table — the calibration link's polarity, RDS's slicer — should not each carry an
+/// unreachable error branch.
+#[must_use]
+pub fn bpsk() -> Constellation {
+    match pam(2) {
+        Ok(table) => table,
+        // `pam` rejects only non-powers of two and orders outside 2..=1024.
+        Err(_) => unreachable!("pam(2) is a valid table by construction"),
+    }
+}
+
 /// On-off keying: [`ask`] at M = 2 — the off state carries no energy at all, so normalisation
 /// puts the on state at √2 and the table's mean Es is still 1. Named because the whole envelope
 /// tier and two repo channels (morse, subghz) speak of it by this name.
@@ -683,6 +696,13 @@ mod tests {
             v.push((format!("qam{m}"), qam_square(m).unwrap()));
         }
         v
+    }
+
+    /// The infallible BPSK constructor is the same table `pam(2)` builds, which is what makes it a
+    /// convenience rather than a second definition.
+    #[test]
+    fn the_bpsk_shortcut_is_pam_2() {
+        assert_eq!(bpsk(), pam(2).unwrap());
     }
 
     #[test]

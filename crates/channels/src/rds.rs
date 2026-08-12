@@ -9,6 +9,15 @@
 //! recovered symbols removes; differential decoding then makes its residual 180° ambiguity
 //! irrelevant.
 //!
+//! **What comes from the modulation library and what does not** (MODEM-PLAN §7 phase 4). The
+//! mapper does: the alphabet is `constellation::tables::bpsk()` — the crate's BPSK table, bit 1 at
+//! the positive point — and the decision is that table's own `hard_slice`, so RDS carries no
+//! private notion of what a BPSK symbol is. The differential decode is `symbolcode`'s, the one
+//! implementation of that rule in the workspace. The *carrier* deliberately stays here: RDS does
+//! not recover it from the data at all, it takes it from the 19 kHz pilot's third harmonic, and
+//! that is a property of this standard rather than of BPSK. A library carrier loop would be
+//! solving a problem RDS does not have.
+//!
 //! The composite is mixed before it is filtered. A real bandpass at the composite rate
 //! followed by a mixer is the same filter as a mixer followed by the translated lowpass, but
 //! the polyphase decimator evaluates the latter only at the instants it keeps — the same
@@ -19,8 +28,11 @@ use std::f64::consts::FRAC_1_SQRT_2;
 
 use num_complex::Complex;
 use sdrmm_dsp::{
-    Costas, Decimator, DifferentialDecoder, Nco, Pll, RdsOffset, SymbolSync, design_lowpass,
-    rds_check_block,
+    Costas, Decimator, Nco, Pll, RdsOffset, SymbolSync, design_lowpass, rds_check_block,
+};
+use sdrmm_modem::{
+    constellation::{Constellation, tables},
+    symbolcode::DifferentialDecoder,
 };
 use sdrmm_wire::{DecoderEvent, RdsUpdate};
 
@@ -132,6 +144,8 @@ pub(crate) struct RdsDecoder {
     matched: Decimator,
     timing: SymbolSync,
     phase: Costas,
+    /// The library's BPSK table — the alphabet this decoder slices against (see the module docs).
+    alphabet: Constellation,
     differential: DifferentialDecoder,
     frames: GroupDecoder,
     /// Scratch reused across calls: after warm-up `process` allocates nothing.
@@ -162,6 +176,7 @@ impl RdsDecoder {
             matched: Decimator::new(&matched_taps(sps, baseband_rate), 1),
             timing: SymbolSync::new(sps, TIMING_LOOP_BW),
             phase: Costas::new(PHASE_LOOP_BW, FRAC_1_SQRT_2, 0.0, PHASE_RANGE),
+            alphabet: tables::bpsk(),
             differential: DifferentialDecoder::new(),
             frames: GroupDecoder::default(),
             pilot_mix: Vec::new(),
@@ -201,7 +216,9 @@ impl RdsDecoder {
         self.symbols.clear();
         self.timing.process(&self.shaped, &mut self.symbols);
         for &symbol in &self.symbols {
-            let level = self.phase.process(symbol).re >= 0.0;
+            // The table's label *is* the bit: the BPSK table labels its positive point 1, the
+            // crate-root sign convention, so no local polarity rule survives here.
+            let level = self.alphabet.hard_slice(self.phase.process(symbol)) == 1;
             let bit = self.differential.decode(level);
             self.frames.push_bit(bit, out);
         }

@@ -147,7 +147,17 @@ pub(crate) fn channel_filter(p: &SubghzParams) -> Result<ChannelFilter, ChannelE
 /// sample resolution, so there is no symbol clock for `SymbolSync` to recover and no symbol
 /// stream to slice. The transmit side does ride the library (`testgen::subghz::pwm_fsk` keys
 /// `CpmMod`); the receive side needs a clockless sample-domain detector the engine does not
-/// offer. The OOK arm migrates to the linear engine's envelope tier in phase 4.
+/// offer.
+///
+/// **Why the OOK arm did not migrate to the library's envelope tier in phase 4.** That tier
+/// (`sdrmm_modem::linear::EnvelopeDemod`) is symbol-synchronous: it takes an oversampling, runs a
+/// symbol clock, and emits one soft amplitude per symbol period. This decoder cannot give it one —
+/// it *measures* the symbol rate per frame from the keyed edges, because a garage remote's clock is
+/// whatever its RC oscillator happened to be that day and two units of the same model differ by
+/// tens of percent. What the library entry and this front end share is therefore the alphabet and
+/// the adaptive threshold, not the chain: the OOK row's committed bundle characterises magnitude
+/// detection of a *clocked* keyed carrier, and the clockless edge-timed tier this needs is the
+/// follow-on MODEM-PLAN §7 already lists for subghz.
 enum Detector {
     Ook {
         envelope: Envelope,

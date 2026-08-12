@@ -16,6 +16,15 @@ use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, 
 
 const CHANNEL_TAPS: usize = 257;
 
+/// **Why this decoder does not run the library's envelope tier** (MODEM-PLAN §7 phase 4). Hand-sent
+/// CW has no symbol clock at all: an element's length is the operator's, the ratio of dot to dash
+/// is only nominally 1:3, and the decoder's whole job is to infer the timing from what it hears.
+/// `sdrmm_modem::linear::EnvelopeDemod` is symbol-synchronous by construction — it needs an
+/// oversampling and emits one amplitude per symbol period — so what the library's OOK row and this
+/// front end share is the modulation and the adaptive threshold, not the chain. The committed OOK
+/// bundle characterises magnitude detection of a *clocked* keyed carrier; asynchronous keying is a
+/// different receiver, and this is it.
+///
 /// Envelope smoothing: long enough to average the noise inside the CW filter, far shorter than
 /// the ~15 ms dot of the fastest speed this decoder tracks.
 const ENV_ATTACK_S: f64 = 2e-3;
