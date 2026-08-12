@@ -635,8 +635,8 @@ impl Default for AtvParams {
     }
 }
 
-/// Which DMR timeslot a channel reports. Both slots share one 12.5 kHz carrier in 30 ms
-/// alternation, so the receiver always hears both; this only decides what reaches the log.
+/// Which DMR timeslot a channel reports and plays. Both slots share one 12.5 kHz carrier in
+/// 30 ms alternation, so the receiver always hears both; this decides what reaches its outputs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DmrSlots {

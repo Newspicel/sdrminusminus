@@ -5,8 +5,9 @@
 //! spends its bits differently.
 //!
 //! What these generators do *not* produce is voice. Every mode's payload here is filler — the
-//! decoders read the signalling around it and there is no vocoder to feed — so a generated
-//! burst carries a deterministic pattern where a radio would carry AMBE or Codec2 frames.
+//! most decoders read only the signalling around it, so their generated bursts carry a
+//! deterministic pattern where a radio would carry AMBE or Codec2 frames. DMR's focused audio
+//! test supplies real encoded vocoder sockets through its transmitter's payload seam.
 
 pub mod dmr;
 pub mod dpmr;

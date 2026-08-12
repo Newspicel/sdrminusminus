@@ -4451,7 +4451,7 @@
       },
       "DmrSlots": {
         "type": "string",
-        "description": "Which DMR timeslot a channel reports. Both slots share one 12.5 kHz carrier in 30 ms\nalternation, so the receiver always hears both; this only decides what reaches the log.",
+        "description": "Which DMR timeslot a channel reports and plays. Both slots share one 12.5 kHz carrier in\n30 ms alternation, so the receiver always hears both; this decides what reaches its outputs.",
         "enum": [
           "both",
           "one",
@@ -4537,7 +4537,7 @@
       },
       "DvFrame": {
         "type": "object",
-        "description": "One decoded digital-voice frame — the *metadata* of a call, not its audio.\n\nNo mode here produces sound: DMR, D-Star, YSF, NXDN, P25 and dPMR all carry AMBE-family\nvocoder frames and this build ships no vocoder, and M17's Codec2 payload is not decoded\neither (see FEATURES §9). What a decoder does recover is everything *around* the voice —\nwho keyed up, on which talkgroup, over which repeater, with what encryption — which is what\na scanner log is actually made of. Fields are `Option` because which of them exist is a\nproperty of the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR\nvoice header the reverse.",
+        "description": "One decoded digital-voice frame — the metadata of a call. Audio, where implemented, travels\nthrough the channel's PCM output rather than inside this event.\n\nDMR also decodes its conventional AMBE+2 payload to PCM. The other modes recover everything\naround their still-opaque voice payload — who keyed up, on which talkgroup, over which\nrepeater, with what encryption. Fields are `Option` because which of them exist is a property\nof the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR voice header\nthe reverse.",
         "required": [
           "mode",
           "kind",

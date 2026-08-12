@@ -199,8 +199,14 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
   encryption flag. **Late entry**: the BPTC(128,77) embedded link control is reassembled from
   bursts B–E of a voice superframe, so a call joined in progress names itself within 240 ms.
   Verified end to end against the generated keyed waveform — header, late-entry superframe and
-  terminator — and against a recorded off-air call (`fixtures/dmr_call_48k`): three header
-  repeats and three superframes' late entry, all naming the same radio
+  terminator — and against a recorded off-air call (`fixtures/dmr_call_48k`): repeated headers
+  and three superframes' late entry, all naming the same radio
+- **[shipped]** DMR voice — the conventional three-frame AMBE+2 3,600 × 2,450 vocoder socket,
+  with DMR deinterleave, Golay correction and concealment status followed by band-limited
+  8 kHz → 48 kHz resampling into the existing Opus/browser audio path. Encrypted calls are
+  identified from the full LC service options and muted rather than decoded as noise. A
+  generated 440 Hz AMBE transmission proves all 18 frames of a superframe end to end, and the
+  committed off-air call now proves that its real payload produces bounded PCM
 - **[shipped]** M17 — the one mode that names both parties in the clear: link setup frame through
   derandomiser, quadratic interleaver, P1 depuncturing, Viterbi and CRC-16, with base-40
   callsigns, encryption flag and end-of-transmission
@@ -234,8 +240,8 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
   second after its last sync so the next transmitter meets clean estimates. Together with the
   transition-gated clock this closed the late-entry gap: the generated keyed waveform now
   decodes header, embedded link control and terminator alike
-- **[planned]** Vocoder audio — AMBE+2/IMBE for the six, Codec2 for M17. The framing above is
-  what a vocoder would plug into
+- **[planned]** Vocoder audio for D-Star, YSF, NXDN, P25, dPMR and M17 — DMR AMBE+2 is shipped;
+  the remaining AMBE/IMBE/Codec2 framing above is where each vocoder plugs in
 - **[planned]** P25 link control and trunking blocks (LDU1 link control, TSBK), NXDN SACCH/FACCH
   addressing, YSF callsigns, M17 stream LICH late entry — the layers below each mode's framing
 - **[planned]** FreeDV

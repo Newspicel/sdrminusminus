@@ -655,7 +655,7 @@ mod tests {
             );
             assert_eq!(
                 d.has_audio,
-                matches!(d.type_id.as_str(), "nfm" | "am" | "ssb" | "wfm"),
+                matches!(d.type_id.as_str(), "nfm" | "am" | "ssb" | "wfm" | "dmr"),
                 "{} audio flag does not match its mode class",
                 d.type_id
             );
@@ -692,6 +692,11 @@ mod tests {
                 "{} emitted a partial sample frame",
                 d.type_id
             );
+            // DMR is burst gated: idle/noise deliberately produces no PCM. Its decoded-call
+            // duration is checked against the 60 ms voice-burst cadence in the DMR tests.
+            if d.type_id == "dmr" {
+                continue;
+            }
             let frames = audio.len() / channels;
             // Filter warm-up is the only shortfall allowed: no mode's group delay reaches
             // 200 output frames at these tap counts.

@@ -23,7 +23,7 @@ const DEFAULT_SQUELCH_DB = -60;
 
 // Choice lists for the wire enums, typed off the generated union so a renamed or added variant
 // breaks here instead of shipping an option the server rejects.
-/** Which DMR timeslot reaches the log; the receiver always hears both. */
+/** Which DMR timeslot reaches the log and audio output; the receiver always hears both. */
 const DMR_SLOTS: Options<NonNullable<ChannelParamsOf<"dmr">["slots"]>> = [
   { value: "both", label: "Both" },
   { value: "one", label: "TS1" },

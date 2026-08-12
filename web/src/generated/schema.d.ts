@@ -1623,8 +1623,8 @@ export interface components {
             slots?: components["schemas"]["DmrSlots"];
         };
         /**
-         * @description Which DMR timeslot a channel reports. Both slots share one 12.5 kHz carrier in 30 ms
-         *     alternation, so the receiver always hears both; this only decides what reaches the log.
+         * @description Which DMR timeslot a channel reports and plays. Both slots share one 12.5 kHz carrier in
+         *     30 ms alternation, so the receiver always hears both; this decides what reaches its outputs.
          * @enum {string}
          */
         DmrSlots: "both" | "one" | "two";
@@ -1663,15 +1663,14 @@ export interface components {
          */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
         /**
-         * @description One decoded digital-voice frame — the *metadata* of a call, not its audio.
+         * @description One decoded digital-voice frame — the metadata of a call. Audio, where implemented, travels
+         *     through the channel's PCM output rather than inside this event.
          *
-         *     No mode here produces sound: DMR, D-Star, YSF, NXDN, P25 and dPMR all carry AMBE-family
-         *     vocoder frames and this build ships no vocoder, and M17's Codec2 payload is not decoded
-         *     either (see FEATURES §9). What a decoder does recover is everything *around* the voice —
-         *     who keyed up, on which talkgroup, over which repeater, with what encryption — which is what
-         *     a scanner log is actually made of. Fields are `Option` because which of them exist is a
-         *     property of the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR
-         *     voice header the reverse.
+         *     DMR also decodes its conventional AMBE+2 payload to PCM. The other modes recover everything
+         *     around their still-opaque voice payload — who keyed up, on which talkgroup, over which
+         *     repeater, with what encryption. Fields are `Option` because which of them exist is a property
+         *     of the mode and the frame: a D-Star header has callsigns and no talkgroup, a DMR voice header
+         *     the reverse.
          */
         DvFrame: {
             /**
