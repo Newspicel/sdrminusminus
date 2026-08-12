@@ -21,13 +21,13 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::Fsk4Demod;
+use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DpmrParams, DvFrame,
     DvFrameKind, DvMode,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32};
+use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 /// 4800 bit/s over 2400 symbols, at half the deviation of the 12.5 kHz modes.
@@ -68,7 +68,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct DpmrChannel {
-    demod: Fsk4Demod,
+    demod: CpmDemod,
     symbols: Vec<f32>,
     decoder: Decoder,
 }
@@ -101,7 +101,7 @@ impl ChannelRx for DpmrChannel {
         check_input_rate(ctx, &DESCRIPTOR)?;
         params(&settings)?;
         Ok(Self {
-            demod: Fsk4Demod::new(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA),
+            demod: c4fm_demod(&c4fm_params(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA)),
             symbols: Vec::new(),
             decoder: Decoder::new(),
         })

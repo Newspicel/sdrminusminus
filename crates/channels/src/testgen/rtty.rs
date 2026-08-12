@@ -2,14 +2,14 @@
 //! FSK at complex baseband, symmetric about DC.
 
 use num_complex::Complex;
+use sdrmm_modem::cpm::CpmMod;
 
-use super::fsk;
 // Deliberately the decoder's own tables rather than a second copy: a duplicated 32-entry
 // chart is one more thing to drift, and it would not catch a typo anyway — both sides would
 // have to be wrong the same way for a round trip to pass. What guards the alphabet is
 // `rtty::tests::ita2_rows_match_the_standard_alphabet`, which transcribes the whole chart
 // independently of both.
-use crate::rtty::{FIGS_CODE, FIGURES, LETTERS, LTRS_CODE, SPACE_CODE};
+use crate::rtty::{FIGS_CODE, FIGURES, LETTERS, LTRS_CODE, SPACE_CODE, cell_params};
 
 /// Mark idle either side of the message: a real link idles on mark, and the lead-in also
 /// primes the receiver's post-detection filter before the first start bit arrives.
@@ -85,13 +85,20 @@ pub fn encode_codes(codes: &[u8], stop_bits: f64) -> Vec<bool> {
     cells
 }
 
-/// Key half-bit `cells` as continuous-phase FSK: mark at `+shift_hz/2`, space at `−shift_hz/2`.
+/// Key half-bit `cells` as continuous-phase FSK — mark at `+shift_hz/2`, space at
+/// `−shift_hz/2` — through the library's own modulator, built from the decoder's entry data
+/// (MODEM-PLAN §1.2: the two cannot drift apart).
 #[must_use]
 pub fn modulate(cells: &[bool], baud: f64, shift_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     let mut keyed = vec![true; LEAD_IN_BITS * 2];
     keyed.extend_from_slice(cells);
     keyed.extend(std::iter::repeat_n(true, LEAD_OUT_BITS * 2));
-    fsk(&keyed, 2.0 * baud, shift_hz / 2.0, rate)
+    let symbols: Vec<u8> = keyed.iter().map(|&cell| u8::from(cell)).collect();
+    let mut modulator = CpmMod::new(cell_params(baud, shift_hz, rate));
+    let mut iq = Vec::new();
+    modulator.modulate(&symbols, &mut iq);
+    modulator.flush(&mut iq);
+    iq
 }
 
 /// Modulate `text` as two-tone FSK at complex baseband, symmetric about DC.

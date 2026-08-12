@@ -9,7 +9,6 @@ pub mod fec;
 pub mod fir;
 pub mod firc;
 pub mod fm;
-pub mod fsk4;
 pub mod iir;
 pub mod nco;
 pub mod pll;
@@ -43,7 +42,6 @@ pub use fec::{
 pub use fir::{design_bandpass, design_gaussian, design_lowpass, design_rrc};
 pub use firc::FirC;
 pub use fm::FmDemod;
-pub use fsk4::Fsk4Demod;
 pub use iir::{ComplexOnePole, DcBlocker, Deemphasis, Highpass, one_pole_coeff};
 pub use nco::Nco;
 pub use pll::{Costas, LoopFilter, Pll};

@@ -1,4 +1,6 @@
-//! POCSAG reference modulator (PLAN §14): pages → BCH codewords → two-level FSK baseband.
+//! POCSAG reference modulator (PLAN §14): pages → BCH codewords → two-level FSK baseband
+//! keyed by the library's own [`CpmMod`] (MODEM-PLAN §1.2: testgen builds every demodulator's
+//! test signals from the library's modulators, so the two can never drift apart).
 //!
 //! Everything here follows ITU-R M.584: 18 transmitted address bits plus a frame index, a
 //! batch of a frame sync codeword and 16 codewords, and characters packed
@@ -6,8 +8,10 @@
 
 use num_complex::Complex;
 use sdrmm_dsp::pocsag_bch_encode;
-
-use super::fsk;
+use sdrmm_modem::{
+    cpm::{CpmMod, CpmParams, Mapping},
+    pulse::{self, Norm},
+};
 
 /// Frame synchronisation codeword (ITU-R M.584 §2).
 const FRAME_SYNC: u32 = 0x7CD2_15D8;
@@ -79,17 +83,25 @@ pub fn transmission(pages: &[Page], baud: u16, deviation_hz: f64, rate: f64) -> 
 /// framing, so a test can transmit a deliberately damaged codeword sequence.
 #[must_use]
 pub fn keyed(words: &[u32], baud: u16, deviation_hz: f64, rate: f64) -> Vec<Complex<f32>> {
-    let mut bits = Vec::with_capacity(PREAMBLE_BITS + words.len() * CODEWORD_BITS as usize);
-    bits.extend((0..PREAMBLE_BITS).map(|i| i.is_multiple_of(2)));
+    let mut symbols = Vec::with_capacity(PREAMBLE_BITS + words.len() * CODEWORD_BITS as usize);
+    symbols.extend((0..PREAMBLE_BITS).map(|i| u8::from(i.is_multiple_of(2))));
     for &word in words {
-        bits.extend((0..CODEWORD_BITS).rev().map(|i| word >> i & 1 == 1));
+        symbols.extend((0..CODEWORD_BITS).rev().map(|i| (word >> i & 1) as u8));
     }
-    // Mark — the higher of the two frequencies — carries a 0 bit (ITU-R M.584 §2), and `fsk`
-    // puts `true` at +deviation.
-    for bit in &mut bits {
-        *bit = !*bit;
-    }
-    fsk(&bits, f64::from(baud), deviation_hz, rate)
+    // Mark — the higher of the two frequencies — carries a 0 bit (ITU-R M.584 §2), so the
+    // level table puts the 0 symbol at +1: a symbol index is the data bit it transmits.
+    let sps = rate / f64::from(baud);
+    let mut modulator = CpmMod::new(CpmParams::from_deviation(
+        Mapping::new(vec![1.0, -1.0]),
+        deviation_hz,
+        f64::from(baud),
+        pulse::rect(sps, Norm::Area),
+        sps,
+    ));
+    let mut iq = Vec::with_capacity((symbols.len() as f64 * sps) as usize + sps as usize + 1);
+    modulator.modulate(&symbols, &mut iq);
+    modulator.flush(&mut iq);
+    iq
 }
 
 fn put(batches: &mut Vec<[u32; BATCH_CODEWORDS]>, pos: usize, word: u32) {
@@ -223,7 +235,9 @@ mod tests {
         let pages = [page(1_234_567, 3, "TEST", false)];
         let words = codewords(&pages);
         let iq = transmission(&pages, 1_200, 4_500.0, 48_000.0);
-        let expected = (PREAMBLE_BITS + words.len() * CODEWORD_BITS as usize) * 40;
+        // 40 samples per bit, plus the one-pulse flush that drains the last bit's tail out
+        // of the modulator's shaper.
+        let expected = (PREAMBLE_BITS + words.len() * CODEWORD_BITS as usize) * 40 + 40;
         assert_eq!(iq.len(), expected);
         for s in &iq {
             assert!((s.norm() - 1.0).abs() < 1e-3, "magnitude {}", s.norm());

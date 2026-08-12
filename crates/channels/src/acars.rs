@@ -1,9 +1,12 @@
 //! ACARS decoder (PLAN §13 P2): MSK at 2400 bit/s amplitude-modulated onto a VHF carrier,
 //! carrying the character-oriented ARINC 618 block format.
 //!
-//! Chain: envelope detect the AM (the data rides on the carrier's amplitude, so the magnitude
-//! *is* the audio) → shift the 1200/2400 Hz tone pair down to ±600 Hz and decimate → quadrature
-//! discriminator → one-symbol matched filter → bit clock → byte framing.
+//! Chain (MODEM-PLAN §3.5): envelope detect the AM (the data rides on the carrier's amplitude,
+//! so the magnitude *is* the audio) → the library's audio-domain CPM engine
+//! ([`CpmDemod::real`], analytic discriminator about the 1800 Hz subcarrier) → byte framing.
+//! The AM stage is this protocol's and stays here; everything the modem knows about the
+//! waveform — MSK is 2-level CPFSK with a rect pulse at h = 2·600/2400 = ½ — is
+//! [`CpmParams`] data.
 //!
 //! MSK at h = 0.5 means the bit is carried by the instantaneous frequency alone, so a
 //! discriminator recovers it without a phase reference — and the sideband the receiver happens
@@ -18,8 +21,10 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{
-    BitSync, DcBlocker, Decimator, FmDemod, Nco, RealDecimator, crc16_ccitt, design_lowpass,
+use sdrmm_dsp::{DcBlocker, Decimator, crc16_ccitt, design_lowpass};
+use sdrmm_modem::{
+    cpm::{CpmDemod, CpmParams, Mapping, RealDetector, TIMING_BW_BURST},
+    pulse::{self, Norm},
 };
 use sdrmm_wire::{
     AcarsMessage, AcarsParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
@@ -33,14 +38,6 @@ const CHANNEL_TAPS: usize = 129;
 const BAUD: f64 = 2_400.0;
 const CENTRE_HZ: f64 = 1_800.0;
 const DEVIATION_HZ: f64 = 600.0;
-
-/// The tone pair is brought to baseband and decimated before the discriminator: ±600 Hz needs
-/// nothing like 48 kHz, and every tap below runs at the reduced rate.
-const DECIMATION: usize = 2;
-/// Taps for the image-rejecting lowpass after the mixer. The wanted band ends at 600 Hz and
-/// the mirror image starts at 3000 Hz, so the transition has 2.4 kHz to work in.
-const BASEBAND_TAPS: usize = 127;
-const BASEBAND_CUTOFF_HZ: f64 = 1_000.0;
 
 const SYN: u8 = 0x16;
 const SOH: u8 = 0x01;
@@ -84,16 +81,12 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 
 pub struct AcarsChannel {
     envelope: Vec<f32>,
+    /// The AM carrier's own DC would otherwise dominate the audio the modem gates and mix down
+    /// to the edge of its image filter, so the analog stage removes it before handing over.
     dc: DcBlocker,
-    mixer: Nco,
-    mixed: Vec<Complex<f32>>,
-    baseband: Decimator,
-    filtered: Vec<Complex<f32>>,
-    demod: FmDemod,
-    demod_buf: Vec<f32>,
-    matched: RealDecimator,
-    sliced: Vec<f32>,
-    sync: BitSync,
+    demod: CpmDemod,
+    soft: Vec<f32>,
+    mapping: Mapping,
     framer: Framer,
 }
 
@@ -145,23 +138,34 @@ impl ChannelRx for AcarsChannel {
         check_input_rate(ctx, &DESCRIPTOR)?;
         check_params(params(&settings)?)?;
         let rate = ctx.input_rate;
-        let baseband_rate = rate / DECIMATION as f64;
-        let matched_taps = ((baseband_rate / BAUD).round() as usize).max(3) | 1;
+        let sps = rate / BAUD;
+        // Natural 2-level order puts bit 1 at level +1 — the tone above the centre, which is
+        // where MSK keys a 1 (ARINC 618 §4.2). The framer's polarity hunt would absorb a swap,
+        // but the table should state the standard, not lean on the recovery.
+        let cpm = CpmParams::from_deviation(
+            Mapping::natural(2),
+            DEVIATION_HZ,
+            BAUD,
+            pulse::rect(sps, Norm::Area),
+            sps,
+        );
+        // Discriminator tier: the full-symbol rect is the matched receive filter, since the
+        // analytic discriminator has no integration of its own.
+        let demod = CpmDemod::real(
+            &cpm,
+            &pulse::rect(sps, Norm::Area),
+            TIMING_BW_BURST,
+            rate,
+            RealDetector::Discriminator {
+                centre_hz: CENTRE_HZ,
+            },
+        );
         Ok(Self {
             envelope: Vec::new(),
             dc: DcBlocker::new(),
-            mixer: Nco::new(-CENTRE_HZ as f32, rate as f32),
-            mixed: Vec::new(),
-            baseband: Decimator::new(
-                &design_lowpass(BASEBAND_TAPS, BASEBAND_CUTOFF_HZ / rate),
-                DECIMATION,
-            ),
-            filtered: Vec::new(),
-            demod: FmDemod::new(baseband_rate, DEVIATION_HZ),
-            demod_buf: Vec::new(),
-            matched: RealDecimator::new(&design_lowpass(matched_taps, BAUD / baseband_rate), 1),
-            sliced: Vec::new(),
-            sync: BitSync::new(baseband_rate, BAUD),
+            demod,
+            soft: Vec::new(),
+            mapping: cpm.mapping().clone(),
             framer: Framer::new(),
         })
     }
@@ -173,41 +177,21 @@ impl ChannelRx for AcarsChannel {
 
     fn retuned(&mut self) {
         self.framer = Framer::new();
-        self.sync.reset();
+        self.demod.reset();
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         // The data is the carrier's amplitude, so the envelope is the audio a legacy receiver
-        // would hand to a modem.
+        // would hand to a modem — and its power is the carrier's, which is exactly what the
+        // modem's gate reads presence off.
         self.envelope.clear();
         self.envelope.extend(iq.iter().map(|s| s.norm()));
         self.dc.process(&mut self.envelope);
 
-        // Real audio → complex baseband about the 1800 Hz centre in one pass; the lowpass
-        // below then discards the mirror image the real signal also produced.
-        let mixer = &mut self.mixer;
-        let mixed = &mut self.mixed;
-        mixed.clear();
-        mixed.extend(
-            self.envelope
-                .iter()
-                .map(|&s| Complex::new(s, 0.0) * mixer.next_sample()),
-        );
-        self.baseband.process(mixed, &mut self.filtered);
-
-        self.demod.process(&self.filtered, &mut self.demod_buf);
-        for s in &mut self.demod_buf {
-            *s = if s.is_finite() {
-                s.clamp(-1.5, 1.5)
-            } else {
-                0.0
-            };
-        }
-        self.matched.process(&self.demod_buf, &mut self.sliced);
-        for &level in &self.sliced {
-            if let Some(bit) = self.sync.push(level) {
-                self.framer.push(bit, out);
-            }
+        self.soft.clear();
+        self.demod.process_real(&self.envelope, &mut self.soft);
+        for &s in &self.soft {
+            self.framer.push(self.mapping.slice(s) == 1, out);
         }
     }
 }
@@ -420,11 +404,18 @@ mod tests {
     const BLOCKS: [usize; 7] = [997, 1, 4_096, 65, 2_048, 7, 1_024];
 
     fn channel() -> AcarsChannel {
-        AcarsChannel::new(
+        let mut chan = AcarsChannel::new(
             ChannelCtx { input_rate: RATE },
             settings(ChannelParams::Acars(AcarsParams::default())),
         )
-        .unwrap()
+        .unwrap();
+        // A receiver hears its own noise floor before anyone transmits; the modem's carrier
+        // gate measures that quiet before it lets the loops learn, so every test starts the
+        // channel the way the engine's stream does — one second of a dead channel.
+        let mut out = ChannelOutputs::default();
+        chan.process(&complex_noise(0x0b5e_11e5, 0.01, RATE as usize), &mut out);
+        assert!(out.events.is_empty(), "the dead channel decoded something");
+        chan
     }
 
     fn decode_blocks(

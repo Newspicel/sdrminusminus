@@ -15,8 +15,11 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{BitSync, DcBlocker, FmDemod, RealDecimator, crc16_x25, hamming_distance};
-use sdrmm_modem::pulse::{self, Norm};
+use sdrmm_dsp::{crc16_x25, hamming_distance};
+use sdrmm_modem::{
+    cpm::{CpmDemod, CpmParams, Mapping, TIMING_BW_BURST},
+    pulse::{self, Norm},
+};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DstarParams, DvFrame,
     DvFrameKind, DvMode,
@@ -26,9 +29,16 @@ use super::INPUT_RATE_HZ;
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const BAUD: f64 = 4_800.0;
-/// GMSK at ±1200 Hz with a 0.5 bandwidth-time product, which is what an ICOM radio transmits.
+/// GMSK at ±1200 Hz — h = ½ from the deviation, minimum shift — with a 0.5 bandwidth-time
+/// product, which is what an ICOM radio transmits.
 const DEVIATION_HZ: f64 = 1_200.0;
 const BT: f64 = 0.5;
+/// Total span of the entry's GMSK frequency pulse in symbol periods: the NRZ rect's own symbol
+/// plus a two-symbol truncation of the BT 0.5 premod Gaussian — ample at this BT, where the
+/// pulse concentrates faster than AIS's 0.4.
+const PULSE_SPAN: usize = 3;
+/// Matched-filter truncation, total span in symbol periods — the same `pulse::gaussian` taps
+/// the pre-cpm chain matched with, kept so the migration moves the glue and not the filter.
 const MATCHED_SPAN: usize = 3;
 const BANDWIDTH_HZ: f64 = 6_250.0;
 
@@ -66,13 +76,24 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct DstarChannel {
-    demod: FmDemod,
-    matched: RealDecimator,
-    dc: DcBlocker,
-    sync: BitSync,
+    demod: CpmDemod,
+    /// The M = 2 level table the soft symbols are sliced against.
+    slicer: Mapping,
     decoder: Decoder,
-    demod_buf: Vec<f32>,
-    filtered: Vec<f32>,
+    soft: Vec<f32>,
+}
+
+/// The D-Star waveform as `cpm/` entry data (MODEM-PLAN §3.3): M = 2, h = ½ converted from the
+/// ±1200 Hz deviation at 4800 baud, Gaussian frequency pulse at BT 0.5. `Mapping::natural(2)`
+/// puts the +1200 Hz tone at index 1, level +1 — the wire's `true` bit.
+fn cpm_params(sps: f64) -> CpmParams {
+    CpmParams::from_deviation(
+        Mapping::natural(2),
+        DEVIATION_HZ,
+        BAUD,
+        pulse::gaussian_freq(sps, BT, PULSE_SPAN, Norm::Area),
+        sps,
+    )
 }
 
 fn params(settings: &ChannelSettings) -> Result<&DstarParams, ChannelError> {
@@ -103,16 +124,21 @@ impl ChannelRx for DstarChannel {
         check_input_rate(ctx, &DESCRIPTOR)?;
         params(&settings)?;
         let sps = ctx.input_rate / BAUD;
+        let cpm = cpm_params(sps);
         Ok(Self {
-            demod: FmDemod::new(ctx.input_rate, DEVIATION_HZ),
-            // Area norm: the discriminator's level estimate relies on the filter's unit DC
-            // gain, and the taps are `design_gaussian`'s output bit for bit.
-            matched: RealDecimator::new(&pulse::gaussian(sps, BT, MATCHED_SPAN, Norm::Area), 1),
-            dc: DcBlocker::new(),
-            sync: BitSync::new(ctx.input_rate, BAUD),
+            // Area norm: the level estimates rely on the receive filter's unit DC gain, and
+            // the taps are `design_gaussian`'s output bit for bit. Burst timing bandwidth:
+            // the mode is push-to-talk keyed, so the clock must acquire in the 64-bit
+            // lead-in a transmitter opens with, and the gate coasts it through the dead
+            // time between transmissions.
+            demod: CpmDemod::new(
+                &cpm,
+                &pulse::gaussian(sps, BT, MATCHED_SPAN, Norm::Area),
+                TIMING_BW_BURST,
+            ),
+            slicer: cpm.mapping().clone(),
             decoder: Decoder::new(),
-            demod_buf: Vec::new(),
-            filtered: Vec::new(),
+            soft: Vec::new(),
         })
     }
 
@@ -122,19 +148,18 @@ impl ChannelRx for DstarChannel {
     }
 
     fn retuned(&mut self) {
-        self.sync.reset();
-        self.dc = DcBlocker::new();
+        self.demod.reset();
         self.decoder.reset();
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        self.demod.process(iq, &mut self.demod_buf);
-        self.dc.process(&mut self.demod_buf);
-        self.matched.process(&self.demod_buf, &mut self.filtered);
-        for &sample in &self.filtered {
-            if let Some(bit) = self.sync.push(sample) {
-                self.decoder.push(bit, out);
-            }
+        // The front end appends, as every streaming primitive in `dsp` does; the symbols of
+        // the last block have already been decoded.
+        self.soft.clear();
+        self.demod.process(iq, &mut self.soft);
+        for &symbol in &self.soft {
+            // Index 1 is the +1 level, the +1200 Hz mark tone: the wire's `true` bit.
+            self.decoder.push(self.slicer.slice(symbol) == 1, out);
         }
     }
 }

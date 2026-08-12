@@ -17,8 +17,9 @@ use sdrmm_dsp::fec::conv;
 
 /// A soft bit on an arbitrary confidence scale: the sign is the bit (positive = 1), the
 /// magnitude means "more sure" but in no particular unit. Producers in this crate emit ±1.0
-/// for a clean full-confidence symbol — the same "clean symbol reaches full scale" convention
-/// as `sdrmm_dsp::fsk4::soft_bits` — but the type promises nothing beyond the sign.
+/// for a clean full-confidence symbol — the "clean symbol reaches full scale" convention the
+/// phase-0 four-level front end set and [`crate::cpm::Mapping::soft_bits`] carries on — but the
+/// type promises nothing beyond the sign.
 ///
 /// Exactly 0.0 is an erasure: the absence of a vote, matching `fec::conv::ERASURE`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -54,9 +55,9 @@ impl SoftBit {
         self.0 == 0.0
     }
 
-    /// To the Viterbi's i16 scale: ±1.0 (a clean symbol) maps to ±`CONFIDENT`, the clamp
-    /// mirrors `fsk4::soft_bits` — an over-confident value must not out-vote the rest of the
-    /// frame. Lost: everything beyond unit magnitude saturates, and what survives is
+    /// To the Viterbi's i16 scale: ±1.0 (a clean symbol) maps to ±`CONFIDENT`, and the clamp is
+    /// why the scale is bounded at all — an over-confident value must not out-vote the rest of
+    /// the frame. Lost: everything beyond unit magnitude saturates, and what survives is
     /// quantised to 1/64 of full scale.
     #[must_use]
     pub fn to_fec(self) -> conv::Soft {

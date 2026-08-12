@@ -17,13 +17,14 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{CyclicCode, Fsk4Demod, Viterbi5, crc16_msb};
+use sdrmm_dsp::{CyclicCode, Viterbi5, crc16_msb};
+use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DvFrame, DvFrameKind, DvMode,
     YsfParams,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow};
+use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const BAUD: f64 = 4_800.0;
@@ -34,7 +35,13 @@ const BANDWIDTH_HZ: f64 = 12_500.0;
 /// The sync every frame opens with: 0xD471C9634D, 40 bits.
 const SYNC: u64 = 0x00D4_71C9_634D;
 const SYNC_BITS: u32 = 40;
-const SYNC_TOLERANCE: u32 = 3;
+/// Looser than the other modes' roughly-a-tenth, and measured: a transmission's first sync
+/// meets a cold front end whose clock and level scale are still converging, and unlike the
+/// all-outer-symbol syncs of DMR and P25 this pattern mixes ±1 and ±3 — acquisition ISI was
+/// measured putting six bit errors into it where the steady state puts zero. YSF can afford
+/// the width, alone in the family: everything reported stands behind the FICH's three codes,
+/// so a chance match costs a hundred symbols of hunting and never a frame.
+const SYNC_TOLERANCE: u32 = 6;
 
 /// The FICH occupies the 100 symbols after the sync.
 const FICH_SYMBOLS: usize = 100;
@@ -54,7 +61,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct YsfChannel {
-    demod: Fsk4Demod,
+    demod: CpmDemod,
     symbols: Vec<f32>,
     decoder: Decoder,
 }
@@ -87,7 +94,7 @@ impl ChannelRx for YsfChannel {
         check_input_rate(ctx, &DESCRIPTOR)?;
         params(&settings)?;
         Ok(Self {
-            demod: Fsk4Demod::new(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA),
+            demod: c4fm_demod(&c4fm_params(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA)),
             symbols: Vec::new(),
             decoder: Decoder::new(),
         })

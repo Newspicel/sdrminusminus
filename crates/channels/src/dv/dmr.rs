@@ -24,13 +24,14 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, Fsk4Demod, crc16_msb, rs129_parity};
+use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, crc16_msb, rs129_parity};
+use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DmrParams, DvFrame,
     DvFrameKind, DvMode,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, pack_bytes};
+use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params, pack_bytes};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const BAUD: f64 = 4_800.0;
@@ -139,7 +140,7 @@ const SYNCS: [Sync; 8] = [
 ];
 
 pub struct DmrChannel {
-    demod: Fsk4Demod,
+    demod: CpmDemod,
     symbols: Vec<f32>,
     decoder: Decoder,
 }
@@ -172,7 +173,7 @@ impl ChannelRx for DmrChannel {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = *params(&settings)?;
         Ok(Self {
-            demod: Fsk4Demod::new(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA),
+            demod: c4fm_demod(&c4fm_params(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA)),
             symbols: Vec::new(),
             decoder: Decoder::new(p),
         })

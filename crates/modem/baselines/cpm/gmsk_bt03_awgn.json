@@ -1,0 +1,80 @@
+{
+  "label": "gmsk BT=0.3 h=0.5 uncoded, CpmMod -> +/-6 kHz front lowpass -> CpmDemod (gaussian-BT0.5 rx, timing bw 0.015), 48 kHz 4800 baud, 96+24+24 symbol overhead in Eb, release, uncoded BER, seed 0x63a3",
+  "points": [
+    {
+      "ebn0_db": 12.0,
+      "errors": 2032,
+      "trials": 21504
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2056,
+      "trials": 28672
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 2040,
+      "trials": 50176
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2010,
+      "trials": 49152
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 2007,
+      "trials": 128000
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 2004,
+      "trials": 154624
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 2007,
+      "trials": 322560
+    },
+    {
+      "ebn0_db": 19.0,
+      "errors": 2005,
+      "trials": 552960
+    },
+    {
+      "ebn0_db": 20.0,
+      "errors": 2002,
+      "trials": 803840
+    },
+    {
+      "ebn0_db": 21.0,
+      "errors": 2000,
+      "trials": 2103296
+    },
+    {
+      "ebn0_db": 22.0,
+      "errors": 1646,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 23.0,
+      "errors": 671,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 24.0,
+      "errors": 249,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 25.0,
+      "errors": 83,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 26.0,
+      "errors": 27,
+      "trials": 4000768
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+[
+  {
+    "bench": "gmsk_bt05_demod",
+    "msamples_per_s": 98.82065925593511,
+    "realtime_factor": 2058.7637344986483,
+    "config": "GMSK BT=0.5 h=0.5, 10 sps, pulse-matched rx, timing bw 0.015",
+    "host": "aarch64-macos"
+  }
+]

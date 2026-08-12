@@ -6,12 +6,14 @@
 //! so four other characters separate them on the air (ITU-R M.625 §2).
 
 use num_complex::Complex;
+use sdrmm_modem::cpm::CpmMod;
 
-use super::fsk;
-use crate::{navtex::ccir_for, testgen::rtty::ita2_codes};
+use crate::{
+    navtex::{ccir_for, cpm_params},
+    testgen::rtty::ita2_codes,
+};
 
 const BAUD: f64 = 100.0;
-const SHIFT_HZ: f64 = 170.0;
 const CHAR_BITS: usize = 7;
 const FEC_SLOTS: usize = 5;
 
@@ -71,10 +73,17 @@ pub fn bits(slots: &[u8]) -> Vec<bool> {
     out
 }
 
-/// Key `bits` as continuous-phase FSK: mark at `+85 Hz`, space at `−85 Hz`.
+/// Key `bits` as continuous-phase FSK — mark at `+85 Hz`, space at `−85 Hz` — through the
+/// library's own modulator, built from the decoder's exact entry data (MODEM-PLAN §1.2: the
+/// two cannot drift apart).
 #[must_use]
 pub fn modulate(bits: &[bool], rate: f64) -> Vec<Complex<f32>> {
-    fsk(bits, BAUD, SHIFT_HZ / 2.0, rate)
+    let symbols: Vec<u8> = bits.iter().map(|&bit| u8::from(bit)).collect();
+    let mut modulator = CpmMod::new(cpm_params(rate));
+    let mut iq = Vec::new();
+    modulator.modulate(&symbols, &mut iq);
+    modulator.flush(&mut iq);
+    iq
 }
 
 /// A complete broadcast: phasing, then `text` with its repeat copies interleaved.

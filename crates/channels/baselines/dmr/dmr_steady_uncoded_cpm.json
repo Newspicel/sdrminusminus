@@ -1,0 +1,80 @@
+{
+  "label": "dmr steady uncoded, testgen c4fm (CpmMod) -> channel filter -> CpmDemod at burst timing bw, 88-symbol preamble + 24-symbol sync overhead in Eb, release, uncoded BER, seed 0xd59",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 3187,
+      "trials": 16384
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 3139,
+      "trials": 16384
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 3007,
+      "trials": 16384
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 3938,
+      "trials": 36864
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 3067,
+      "trials": 73728
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 3170,
+      "trials": 49152
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 3056,
+      "trials": 102400
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 3030,
+      "trials": 167936
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 3053,
+      "trials": 135168
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 3001,
+      "trials": 159744
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 3004,
+      "trials": 217088
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 3103,
+      "trials": 405504
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 3001,
+      "trials": 348160
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 3035,
+      "trials": 475136
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 3052,
+      "trials": 487424
+    }
+  ]
+}

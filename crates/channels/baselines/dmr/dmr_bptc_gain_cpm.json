@@ -1,0 +1,6 @@
+{
+  "at_ber": 0.001,
+  "gain_db": 1.3355978719964465,
+  "seed": 3423,
+  "recipe": "96 info bits -> Bptc196 -> tg::dibits -> steady framing (88 preamble + 24 sync + 98 payload + 40 tail) -> tg::c4fm (CpmMod) 48k/4800 -> AWGN (Eb per info bit, overhead charged) -> channel filter -> CpmDemod (burst timing bw) -> Mapping::soft_bits x CONFIDENT; hard = decode(sign), soft = decode_soft, same stream; gain = horizontal gap of the accepted-frame BER curves at 1e-3, release"
+}

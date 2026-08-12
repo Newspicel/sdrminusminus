@@ -1,14 +1,27 @@
 //! D-Star reference transmitter: GMSK voice frames whose slow-data channel repeats the header,
 //! which is the path a receiver joining a call in progress actually reads.
+//!
+//! The waveform comes from the library's own [`CpmMod`] (MODEM-PLAN §1.2), with the shaping
+//! parameters declared here from the spec rather than shared with the decoder, so a wrong
+//! constant cannot cancel out between the two.
 
 use num_complex::Complex;
 use sdrmm_dsp::crc16_x25;
+use sdrmm_modem::{
+    cpm::{CpmMod, CpmParams, Mapping},
+    pulse::{self, Norm},
+};
 
 use super::filler;
-use crate::testgen::fsk;
 
 const BAUD: f64 = 4_800.0;
+/// ±1200 Hz at 4800 bit/s is h = ½ — minimum shift — under a BT 0.5 premod Gaussian: what an
+/// ICOM radio transmits.
 const DEVIATION_HZ: f64 = 1_200.0;
+const BT: f64 = 0.5;
+/// Total span of the GMSK frequency pulse in symbol periods: the NRZ rect's own symbol plus a
+/// two-symbol truncation of the BT 0.5 Gaussian.
+const PULSE_SPAN: usize = 3;
 const SYNC: u32 = 0x0055_2D16;
 const FRAME_BITS: usize = 96;
 const HEADER_BYTES: usize = 41;
@@ -65,7 +78,26 @@ pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
             bits.extend(voice_frame(&scramble(bytes), superframe * 21 + frame));
         }
     }
-    fsk(&bits, BAUD, DEVIATION_HZ, rate)
+    gmsk(&bits, rate)
+}
+
+/// GMSK-modulate one bit per symbol to complex baseband at `rate`. Continuously keyed
+/// (modulate + flush): D-Star is push-to-talk, one carrier for the whole transmission.
+/// Index 1 is the +1 level, the +1200 Hz mark tone `true` rides on.
+fn gmsk(bits: &[bool], rate: f64) -> Vec<Complex<f32>> {
+    let sps = rate / BAUD;
+    let mut tx = CpmMod::new(CpmParams::from_deviation(
+        Mapping::natural(2),
+        DEVIATION_HZ,
+        BAUD,
+        pulse::gaussian_freq(sps, BT, PULSE_SPAN, Norm::Area),
+        sps,
+    ));
+    let symbols: Vec<u8> = bits.iter().map(|&b| u8::from(b)).collect();
+    let mut iq = Vec::new();
+    tx.modulate(&symbols, &mut iq);
+    tx.flush(&mut iq);
+    iq
 }
 
 fn sync_data() -> [u8; 3] {

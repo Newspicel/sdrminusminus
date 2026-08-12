@@ -1,0 +1,70 @@
+{
+  "label": "dmr burst uncoded, testgen c4fm (CpmMod) -> BurstModel 132/156 sym TDMA -> channel filter -> CpmDemod + KnownSymbols, sync+preamble overhead in Eb, dead time excluded, release, uncoded BER, seed 0xd5b",
+  "points": [
+    {
+      "ebn0_db": 6.0,
+      "errors": 3573,
+      "trials": 15552
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 3516,
+      "trials": 12960
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 3136,
+      "trials": 15552
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 3006,
+      "trials": 15552
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 3358,
+      "trials": 18144
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 3326,
+      "trials": 20736
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 3004,
+      "trials": 246240
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 3008,
+      "trials": 386208
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 3002,
+      "trials": 487296
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 3000,
+      "trials": 614304
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 3009,
+      "trials": 759456
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 3017,
+      "trials": 839808
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 3008,
+      "trials": 920160
+    }
+  ]
+}

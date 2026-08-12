@@ -1,0 +1,65 @@
+{
+  "label": "afsk 1200/2200 Hz 1200 baud uncoded, CpmMod on 1700 Hz subcarrier -> CpmDemod::real analytic discriminator (full-symbol rx rect, timing bw 0.015), 12 kHz audio, 64+24+16 symbol overhead in Eb, analytic-signal accounting, release, uncoded BER, seed 0xafd1",
+  "points": [
+    {
+      "ebn0_db": 7.0,
+      "errors": 2527,
+      "trials": 9216
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2063,
+      "trials": 10240
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2101,
+      "trials": 17408
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2042,
+      "trials": 19456
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2342,
+      "trials": 35840
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2012,
+      "trials": 65536
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2010,
+      "trials": 135168
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 2007,
+      "trials": 319488
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2001,
+      "trials": 951296
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 2000,
+      "trials": 3847168
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 356,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 53,
+      "trials": 4000768
+    }
+  ]
+}

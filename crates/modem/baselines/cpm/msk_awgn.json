@@ -1,0 +1,50 @@
+{
+  "label": "msk (1REC h=0.5) uncoded, CpmMod -> +/-6 kHz front lowpass -> CpmDemod (integrate-and-dump rx, timing bw 0.015), 48 kHz 4800 baud, 96+24+24 symbol overhead in Eb, release, uncoded BER, seed 0x635b",
+  "points": [
+    {
+      "ebn0_db": 7.0,
+      "errors": 2067,
+      "trials": 9216
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2024,
+      "trials": 29696
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2037,
+      "trials": 31744
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2013,
+      "trials": 134144
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2001,
+      "trials": 325632
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2000,
+      "trials": 989184
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2038,
+      "trials": 3123200
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 361,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 40,
+      "trials": 4000768
+    }
+  ]
+}

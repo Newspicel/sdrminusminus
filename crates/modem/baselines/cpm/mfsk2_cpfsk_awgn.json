@@ -1,0 +1,50 @@
+{
+  "label": "mfsk2 CPFSK h=0.5 rect, +-4.8 kHz select -> CpmDemod bw 0.003, 1500-sym preamble + 24-sym sync overhead in Eb, release, uncoded BER, seed 0x2f5c",
+  "points": [
+    {
+      "ebn0_db": 7.0,
+      "errors": 2272,
+      "trials": 30720
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2208,
+      "trials": 49152
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2008,
+      "trials": 79872
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2048,
+      "trials": 178176
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2030,
+      "trials": 448512
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2004,
+      "trials": 1456128
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2003,
+      "trials": 5658624
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 390,
+      "trials": 6002688
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 49,
+      "trials": 6002688
+    }
+  ]
+}

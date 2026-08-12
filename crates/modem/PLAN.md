@@ -1,6 +1,9 @@
 # `sdrmm-modem` — Modulation Library Plan
 
-**Status:** in progress (phase 0)
+**Status:** in progress (phases 0–3 landed; `Fsk4Demod` deleted. Deferred out of phase 3 with
+measured reasons and named follow-ons: the APRS/RTTY/NAVTEX *receivers* — a per-entry
+centre-tracking axis, asynchronous start-stop framing — and `subghz`'s clockless edge-timed
+tier. Next: phase 4.)
 **Audience:** implementer working in the `sdrmm` workspace
 
 ---
@@ -61,6 +64,11 @@ modulator and demodulator can never drift apart.
 ---
 
 ## 2. Current state
+
+*As surveyed before phase 0, and left standing as the survey the plan was drawn from. What
+phase 3 changed: `crates/modem/{ber,soft,constellation,pulse,symbolcode,cpm}/` exist, thirteen
+channels reach `cpm/`, and `dsp/fsk4.rs` is gone — §2.1's `Fsk4Demod` and everything §2.1–2.2
+says about it read in the past tense.*
 
 ### 2.1 Workspace layout
 

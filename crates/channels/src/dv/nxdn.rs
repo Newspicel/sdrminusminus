@@ -19,13 +19,13 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::Fsk4Demod;
+use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DvFrame, DvFrameKind, DvMode,
     NxdnBandwidth, NxdnParams,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32};
+use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 /// Frame sync word 0xCDF59, 20 bits.
@@ -66,7 +66,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct NxdnChannel {
-    demod: Fsk4Demod,
+    demod: CpmDemod,
     symbols: Vec<f32>,
     decoder: Decoder,
     bandwidth: NxdnBandwidth,
@@ -104,7 +104,7 @@ impl ChannelRx for NxdnChannel {
         let p = *params(&settings)?;
         let (baud, deviation, _) = shape(p.bandwidth);
         Ok(Self {
-            demod: Fsk4Demod::new(ctx.input_rate, baud, deviation, RRC_ALPHA),
+            demod: c4fm_demod(&c4fm_params(ctx.input_rate, baud, deviation, RRC_ALPHA)),
             symbols: Vec::new(),
             decoder: Decoder::new(),
             bandwidth: p.bandwidth,
@@ -118,7 +118,7 @@ impl ChannelRx for NxdnChannel {
             // A width change is a different symbol rate, so the front end is rebuilt rather
             // than retuned; nothing it has learned about the old signal applies.
             let (baud, deviation, _) = shape(p.bandwidth);
-            self.demod = Fsk4Demod::new(self.input_rate, baud, deviation, RRC_ALPHA);
+            self.demod = c4fm_demod(&c4fm_params(self.input_rate, baud, deviation, RRC_ALPHA));
             self.decoder.reset();
             self.bandwidth = p.bandwidth;
         }

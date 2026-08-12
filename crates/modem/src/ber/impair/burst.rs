@@ -2,8 +2,8 @@
 //! per-burst level step, and a receiver noise floor in the gaps. The floor is not optional
 //! decoration — a carrier gate measures its noise floor from the dead time, and digital
 //! silence would teach it a floor of zero and break the very behaviour the model exists to
-//! stress (the shape `sdrmm_dsp::fsk4`'s `keyed` test fixture established; this is that
-//! fixture promoted to a calibrated instrument).
+//! stress (the shape the phase-0 four-level front end's `keyed` test fixture established, now
+//! `cpm::demod`'s; this is that fixture promoted to a calibrated instrument).
 
 use num_complex::Complex;
 

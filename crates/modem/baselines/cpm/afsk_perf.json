@@ -1,0 +1,9 @@
+[
+  {
+    "bench": "afsk_filterbank_12k",
+    "msamples_per_s": 68.44139001184998,
+    "realtime_factor": 5703.449167654164,
+    "config": "AFSK 1200/2200 Hz tone filterbank, 12 kHz, 10 sps, half-symbol rx rect",
+    "host": "aarch64-macos"
+  }
+]

@@ -1,0 +1,55 @@
+{
+  "label": "gmsk BT=0.5 h=0.5 uncoded, CpmMod -> +/-6 kHz front lowpass -> CpmDemod (pulse-matched rx, timing bw 0.015), 48 kHz 4800 baud, 96+24+24 symbol overhead in Eb, release, uncoded BER, seed 0x63a5",
+  "points": [
+    {
+      "ebn0_db": 8.0,
+      "errors": 2021,
+      "trials": 18432
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2021,
+      "trials": 55296
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2282,
+      "trials": 86016
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2000,
+      "trials": 145408
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2005,
+      "trials": 401408
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2001,
+      "trials": 897024
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 2000,
+      "trials": 2060288
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 1466,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 535,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 153,
+      "trials": 4000768
+    }
+  ]
+}

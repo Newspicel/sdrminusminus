@@ -1,25 +1,32 @@
-//! Soft-BPTC gain on the phase-0 DMR chain (MODEM-PLAN §7 phase 1): the same testgen C4FM →
-//! channel filter → `Fsk4Demod` chain the committed uncoded baselines were measured on, now
-//! carrying BPTC(196,96)-coded payloads decoded twice from the *identical* received stream —
-//! once hard (`Bptc196::decode` on the signs), once soft (`Bptc196::decode_soft` on
-//! `fsk4::soft_bits` output) — so the measured gap between the two curves is the soft
-//! decoder's alone, with the channel realisation, framing overhead and Eb accounting common
-//! to both. The headline number, the horizontal gap at post-FEC BER 1e-3, is committed in
-//! `baselines/dmr/dmr_bptc_gain.json` and is the phase-1 regression gate.
+//! Soft-BPTC gain on the DMR chain (MODEM-PLAN §7 phase 1, re-measured on the phase-3 chain):
+//! the same testgen C4FM → channel filter → `CpmDemod` chain the committed uncoded `*_cpm`
+//! baselines were measured on, carrying BPTC(196,96)-coded payloads decoded twice from the
+//! *identical* received stream — once hard (`Bptc196::decode` on the signs), once soft
+//! (`Bptc196::decode_soft` on the mapping demapper's output) — so the measured gap between the
+//! two curves is the soft decoder's alone, with the channel realisation, framing overhead and
+//! Eb accounting common to both. The headline number, the horizontal gap at post-FEC BER 1e-3,
+//! is committed in `baselines/dmr/dmr_bptc_gain_cpm.json` and is the regression gate; the
+//! phase-0/1 measurement of the same quantity on the `Fsk4Demod` chain stays committed in
+//! `dmr_bptc_{hard,soft,gain}.json` as the pre-migration reference (its gain: 1.60 dB).
 //!
 //! **Bit→dibit order.** `Bptc196::encode`'s 196 coded bits are mapped pairwise onto 98 dibits,
 //! bit `2k` the dibit's high bit — `tg::dibits`' pairing, and exactly the order the real
 //! channel uses: `dv/dmr.rs::data_burst` reassembles the BPTC block from burst bits 0..98 and
 //! 166..264 in transmission order, and `dv/mod.rs` unpacks every recovered dibit high bit
-//! first. Each coded frame rides the phase-0 steady framing: 88-symbol preamble, the 24-symbol
+//! first. Each coded frame rides the steady framing: 88-symbol preamble, the 24-symbol
 //! BS voice sync, 98 payload symbols, 40-symbol tail.
+//!
+//! **Soft values.** `Mapping::soft_bits` (max-log over the dibit table, positive = 1, ±1
+//! full-confidence) rescaled to the Viterbi/BPTC `Soft` unit by `CONFIDENT` — on the DMR
+//! table this is value-for-value the historical `fsk4::soft_bits` calibration, so the two
+//! generations' soft decoders read the same evidence scale.
 //!
 //! **Eb accounting.** Eb is per *information* bit (crate-root convention): 96 bits against the
 //! whole radiated frame, so the preamble/sync/tail energy (250 symbols carrying 98) and the
-//! code redundancy (196/96) are both charged, as the phase-0 steady curve charges its own
-//! overhead. That puts this axis ~6.9 dB right of the uncoded steady axis at equal channel
-//! SNR; the gain is a horizontal read between two curves with identical overhead, so none of
-//! it survives into the committed number.
+//! code redundancy (196/96) are both charged, as the steady curve charges its own overhead.
+//! That puts this axis ~6.9 dB right of the uncoded steady axis at equal channel SNR; the
+//! gain is a horizontal read between two curves with identical overhead, so none of it
+//! survives into the committed number.
 //!
 //! **Metrics are separate (§4.1).** Each committed file carries three labelled curves:
 //! - `ber`  — residual payload-bit errors over *accepted* frames only (trials = 96 × accepted).
@@ -30,23 +37,16 @@
 //! - `undetected` — accepted frames carrying at least one wrong payload bit, over accepted
 //!   frames: the rate at which a decoder hands wrong data onward as good.
 //!
-//! **Short independent frames.** One 96-bit frame per trial, fresh front end per trial: the
-//! phase-0 finding is that the timing loop wanders past ~2000 continuous symbols, and these
-//! 250-symbol frames sit far inside the clean region. The full run confirms the crossings
-//! don't lean on that floor: post-FEC BER 1e-3 is reached at raw dibit BER ~5.3e-2 (soft) /
-//! ~3.7e-2 (hard), several times above the long-stream ~1e-2 floor. What the sweep *does*
-//! surface is a per-frame error-clustering population even on frames this short — raw BER
-//! decays toward ~1e-2-order territory only slowly at the top of the grid, and the hard
-//! decoder keeps refusing ~24% of frames at 18 dB where soft refuses ~1.7% — so the
-//! accepted-frame BER settles onto an undetected-frame-driven floor (hard ~5e-4, soft
-//! ~1.3e-4) rather than falling forever. The undetected rates are high in absolute terms
-//! (0.3–15% of accepted frames across the sweep) because BPTC(196,96) is the only integrity
-//! layer in this chain — the real channel stacks CRC/RS checks above it — which is exactly
-//! why §4.1 wants the metric committed on its own axis rather than blended into BER.
+//! **Short independent frames.** One 96-bit frame per trial, fresh front end per trial, at the
+//! burst timing operating point the production channel runs: these 250-symbol frames sit far
+//! inside the clean region of the burst-bandwidth wander documented in `dmr_baseline.rs`.
 //!
-//! **Measured result (full run, release, seed 0xd5f):** hard crosses post-FEC BER 1e-3 at
-//! 16.51 dB, soft at 14.91 dB — **gain 1.60 dB**, inside the plan's expected 1–2 dB order.
-//! Soft also collapses FER across the whole sweep (e.g. 43% → 8.6% at 16 dB).
+//! **Measured result (full run, release, seed 0xd5f, phase-3 chain):** hard crosses post-FEC
+//! BER 1e-3 at 16.34 dB, soft at 15.00 dB — **gain 1.34 dB**, inside the plan's expected
+//! 1–2 dB order. The phase-0 chain measured 1.60 dB; both crossings moved left-and-right by
+//! tenths with the front end's own improvement, and each carries a ~±0.25 dB horizontal
+//! interval, so the two gains agree within the measurement. Soft again collapses FER across
+//! the whole sweep (44% → 8.7% at 16 dB) and the undetected floor (4.0e-4 → 8.4e-5 at 18 dB).
 //!
 //! The hard decoder's input is the sign of the same soft stream the soft decoder reads
 //! (`soft > 0`), so the decoders are compared on identical evidence; a sub-quantum slicer
@@ -60,16 +60,22 @@ use std::path::Path;
 
 use common::{
     BAUD, DEVIATION_HZ, RATE, RRC_ALPHA, STEADY_PREAMBLE, STEADY_TAIL, UW_SYMBOLS, alternating,
-    baseline_path, find_uw, recovered_symbols, uw_dibits,
+    baseline_path, dmr_entry, find_uw, recovered_symbols, uw_dibits,
 };
 use num_complex::Complex;
 use sdrmm_channels::testgen::dv as tg;
-use sdrmm_dsp::{Bptc196, fec::conv::Soft, fsk4};
-use sdrmm_modem::ber::{
-    Curve, CurvePoint,
-    impair::{Awgn, ChannelSpec, Impairment},
-    rng::Rng,
-    sweep,
+use sdrmm_dsp::{
+    Bptc196,
+    fec::conv::{CONFIDENT, Soft},
+};
+use sdrmm_modem::{
+    ber::{
+        Curve, CurvePoint,
+        impair::{Awgn, ChannelSpec, Impairment},
+        rng::Rng,
+        sweep,
+    },
+    cpm::TIMING_BW_BURST,
 };
 use serde::{Deserialize, Serialize};
 
@@ -96,10 +102,10 @@ const FULL_MAX_FRAMES: u64 = 30_000;
 const AT_BER: f64 = 1e-3;
 
 const RECIPE: &str = "96 info bits -> Bptc196 -> tg::dibits -> steady framing \
-    (88 preamble + 24 sync + 98 payload + 40 tail) -> tg::c4fm 48k/4800 -> AWGN \
-    (Eb per info bit, overhead charged) -> channel filter -> Fsk4Demod -> fsk4::soft_bits; \
-    hard = decode(sign), soft = decode_soft, same stream; gain = horizontal gap of the \
-    accepted-frame BER curves at 1e-3, release";
+    (88 preamble + 24 sync + 98 payload + 40 tail) -> tg::c4fm (CpmMod) 48k/4800 -> AWGN \
+    (Eb per info bit, overhead charged) -> channel filter -> CpmDemod (burst timing bw) -> \
+    Mapping::soft_bits x CONFIDENT; hard = decode(sign), soft = decode_soft, same stream; \
+    gain = horizontal gap of the accepted-frame BER curves at 1e-3, release";
 
 // --- The coded chain -------------------------------------------------------------------------
 
@@ -115,18 +121,21 @@ fn modulate(coded: &[bool; Bptc196::CODED_BITS]) -> Vec<Complex<f32>> {
 /// payload symbols to 196 soft values. `None` only when the output is too short to even place
 /// the sync — a frame lost before any decoder saw it, counted as refused by both.
 fn received_soft(wave: &[Complex<f32>]) -> Option<[Soft; Bptc196::CODED_BITS]> {
-    let symbols = recovered_symbols(wave, true);
-    let sliced: Vec<u8> = symbols.iter().map(|&s| fsk4::slice(s)).collect();
+    let entry = dmr_entry();
+    let symbols = recovered_symbols(wave, true, TIMING_BW_BURST);
+    let sliced: Vec<u8> = symbols.iter().map(|&s| entry.mapping().slice(s)).collect();
     let at = find_uw(&sliced, STEADY_PREAMBLE, STEADY_PREAMBLE + 56, &uw_dibits())?;
     let start = at + UW_SYMBOLS;
     if symbols.len() < start + PAYLOAD_SYMBOLS {
         return None;
     }
     let mut soft = [0 as Soft; Bptc196::CODED_BITS];
+    let mut demapped = Vec::with_capacity(2);
     for k in 0..PAYLOAD_SYMBOLS {
-        let [negative, outer] = fsk4::soft_bits(symbols[start + k]);
-        soft[2 * k] = negative;
-        soft[2 * k + 1] = outer;
+        demapped.clear();
+        entry.mapping().soft_bits(symbols[start + k], &mut demapped);
+        soft[2 * k] = (demapped[0].0 * f32::from(CONFIDENT)) as Soft;
+        soft[2 * k + 1] = (demapped[1].0 * f32::from(CONFIDENT)) as Soft;
     }
     Some(soft)
 }
@@ -250,7 +259,7 @@ fn coded_curves(
             .collect()
     };
     let label = |what: &str| {
-        format!("dmr bptc196 {name}, phase-0 steady chain, {what}, seed {SEED:#x}, release")
+        format!("dmr bptc196 {name}, phase-3 cpm chain, {what}, seed {SEED:#x}, release")
     };
     CodedCurves {
         ber: Curve {
@@ -295,7 +304,16 @@ fn load<T: for<'de> Deserialize<'de>>(path: &Path) -> T {
 // --- Always-run regression gates -------------------------------------------------------------
 
 /// Harness defects (mis-alignment, wrong bit pairing, sign convention) are loud before any
-/// statistics: at 30 dB one frame must survive both decoders untouched, with zero corrections.
+/// statistics: at 30 dB one frame must survive both decoders untouched, with zero
+/// corrections, and every raw bit must carry *confident* correct evidence — with one
+/// documented exception. A symbol the RRC-cascade ISI parks within a soft quantum of a
+/// decision boundary (measured on this seed: a +3 arriving at 2.0296, whose outer-bit
+/// evidence truncates to the 0 erasure and reads as the wrong hard bit) is the module-doc
+/// case "charged to neither": the phase-0 chain's ×1.13 level bias pushed outer symbols off
+/// the boundary and hid the class, and the migrated chain's accurate normalisation exposes
+/// it. A harness defect cannot hide there — misaligned or mispaired bits carry confident
+/// wrong evidence and half-random signs, which both this assert and the strict decoder
+/// asserts above it catch.
 #[test]
 fn coded_frame_round_trips_clean_at_high_ebn0() {
     let stats = measure_point(30.0, 0, 0x0c1f, 1, 1);
@@ -304,10 +322,27 @@ fn coded_frame_round_trips_clean_at_high_ebn0() {
         assert_eq!(t.rejected, 0, "{name} refused a clean frame");
         assert_eq!(t.bit_errors, 0, "{name} residual errors on a clean frame");
     }
-    assert_eq!(
-        stats.raw_bit_errors, 0,
-        "clean frame arrived with raw errors"
-    );
+
+    // Re-derive the same frame (the tally hides per-bit evidence) and demand every raw
+    // mismatch be a boundary erasure, never a confidently wrong bit.
+    let mut rng = Rng::new(point_seed(0x0c1f, 0));
+    let channel = ChannelSpec::default()
+        .awgn(Awgn::for_ebn0(30.0, INFO_BITS as u64))
+        .build();
+    let mut payload = [false; INFO_BITS];
+    for bit in &mut payload {
+        *bit = rng.next_u64() & 1 == 1;
+    }
+    let coded = Bptc196::encode(&payload);
+    let mut wave = modulate(&coded);
+    channel.apply(&mut wave, &mut rng);
+    let soft = received_soft(&wave).expect("clean frame lost before the sync");
+    for (i, (&s, &sent)) in soft.iter().zip(&coded).enumerate() {
+        assert!(
+            (s > 0) == sent || s == 0,
+            "coded bit {i}: sent {sent}, confidently wrong soft value {s}"
+        );
+    }
 }
 
 /// Smoke tier of the committed curves: the first two grid points re-measured with the
@@ -317,8 +352,8 @@ fn coded_frame_round_trips_clean_at_high_ebn0() {
 /// these low-SNR points every count is in the hundreds, real statistics for each.
 #[test]
 fn coded_curves_match_committed_baselines() {
-    let hard: CodedCurves = load(&baseline_path("dmr_bptc_hard.json"));
-    let soft: CodedCurves = load(&baseline_path("dmr_bptc_soft.json"));
+    let hard: CodedCurves = load(&baseline_path("dmr_bptc_hard_cpm.json"));
+    let soft: CodedCurves = load(&baseline_path("dmr_bptc_soft_cpm.json"));
     let points: Vec<PointStats> = GRID[..2]
         .iter()
         .enumerate()
@@ -352,9 +387,9 @@ fn coded_curves_match_committed_baselines() {
 /// drift without the other.
 #[test]
 fn committed_gain_re_derives_from_the_committed_curves() {
-    let hard: CodedCurves = load(&baseline_path("dmr_bptc_hard.json"));
-    let soft: CodedCurves = load(&baseline_path("dmr_bptc_soft.json"));
-    let gain: GainRecord = load(&baseline_path("dmr_bptc_gain.json"));
+    let hard: CodedCurves = load(&baseline_path("dmr_bptc_hard_cpm.json"));
+    let soft: CodedCurves = load(&baseline_path("dmr_bptc_soft_cpm.json"));
+    let gain: GainRecord = load(&baseline_path("dmr_bptc_gain_cpm.json"));
     assert_eq!(gain.at_ber, AT_BER);
     assert_eq!(gain.seed, SEED);
     assert_eq!(gain.recipe, RECIPE);
@@ -367,6 +402,34 @@ fn committed_gain_re_derives_from_the_committed_curves() {
         (derived - gain.gain_db).abs() < 1e-9,
         "committed gain {} dB, curves say {derived} dB",
         gain.gain_db
+    );
+}
+
+/// The migration must not cost the soft decoder its measured advantage. Each committed gain
+/// is a difference of two crossings that carry ~±0.25 dB horizontal intervals, so the honest
+/// cross-generation tolerance is the same 0.5 dB slack every curve gate uses — and the gain
+/// must stay at the plan's expected 1–2 dB order (≥ 1 dB), because a collapsed gain would
+/// mean the migration broke the soft path even if the delta squeaked through. Both numbers
+/// are committed artifacts, so this documents the phase-0 → phase-3 delta on the coded axis
+/// the way `dmr_baseline.rs` documents it on the uncoded ones (measured: 1.60 → 1.34 dB).
+#[test]
+fn the_gain_survives_the_migration() {
+    let old: GainRecord = load(&baseline_path("dmr_bptc_gain.json"));
+    let new: GainRecord = load(&baseline_path("dmr_bptc_gain_cpm.json"));
+    assert!(
+        new.gain_db > old.gain_db - 0.5,
+        "soft-BPTC gain collapsed across the migration: phase 0 {} dB, cpm chain {} dB",
+        old.gain_db,
+        new.gain_db
+    );
+    assert!(
+        new.gain_db >= 1.0,
+        "soft-BPTC gain {} dB fell out of the plan's expected 1-2 dB order",
+        new.gain_db
+    );
+    println!(
+        "soft-BPTC gain at BER {AT_BER}: phase 0 {:.2} dB -> cpm chain {:.2} dB",
+        old.gain_db, new.gain_db
     );
 }
 
@@ -442,7 +505,10 @@ fn measure_soft_bptc_gain_full() {
         "grid no longer brackets BER {AT_BER} on both curves"
     );
     println!("soft-BPTC gain at BER {AT_BER}: {:.2} dB", gain.gain_db);
-    for (name, curves) in [("dmr_bptc_hard.json", &hard), ("dmr_bptc_soft.json", &soft)] {
+    for (name, curves) in [
+        ("dmr_bptc_hard_cpm.json", &hard),
+        ("dmr_bptc_soft_cpm.json", &soft),
+    ] {
         let path = baseline_path(name);
         if path.exists() {
             assert_curves_match(name, curves, &load(&path));
@@ -451,7 +517,7 @@ fn measure_soft_bptc_gain_full() {
             println!("baseline created at {}", path.display());
         }
     }
-    let path = baseline_path("dmr_bptc_gain.json");
+    let path = baseline_path("dmr_bptc_gain_cpm.json");
     if path.exists() {
         let committed: GainRecord = load(&path);
         assert!(

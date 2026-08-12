@@ -16,18 +16,15 @@ pub mod nxdn;
 pub mod p25;
 pub mod ysf;
 
-use std::{f32::consts::PI, f64::consts::TAU};
-
 use num_complex::Complex;
-use sdrmm_dsp::{RealDecimator, fsk4};
-use sdrmm_modem::pulse::{self, Norm};
+use sdrmm_modem::cpm::CpmMod;
 
-/// Matched-filter span the receivers use, and so the span a transmitter must shape to for the
-/// cascade to be a Nyquist pulse.
-const RRC_SPAN: usize = 8;
+use crate::dv::c4fm_params;
 
-/// A C4FM transmitter: one symbol per dibit through a root-raised-cosine shaping filter, then
-/// frequency modulation at `deviation_hz` for the outer levels.
+/// A C4FM transmitter: one symbol per dibit through the modulation library's CPM modulator,
+/// parameterised exactly as the receiving front end is (`dv::c4fm_params` — the shared dibit
+/// table, RRC frequency pulse, h from the outer deviation), so transmitter and demodulator can
+/// never drift apart. Continuously keyed: unit envelope, pulse tail flushed.
 #[must_use]
 pub fn c4fm(
     dibits: &[u8],
@@ -36,17 +33,18 @@ pub fn c4fm(
     deviation_hz: f64,
     alpha: f64,
 ) -> Vec<Complex<f32>> {
-    let keyed: Vec<Option<u8>> = dibits.iter().copied().map(Some).collect();
-    c4fm_keyed(&keyed, rate, baud, deviation_hz, alpha)
+    let mut tx = CpmMod::new(c4fm_params(rate, baud, deviation_hz, alpha));
+    let mut out = Vec::new();
+    tx.modulate(dibits, &mut out);
+    tx.flush(&mut out);
+    out
 }
 
 /// The same for a transmitter that keys off between bursts, as a TDMA radio does: `None` is a
-/// symbol period it neither modulates nor radiates.
-///
-/// A burst's shaping decays into silence, which is what leaves it the pulse tails a matched
-/// filter is built around — not into whatever the exciter had queued behind it. The amplifier
-/// ramps over a symbol either side rather than stepping, because a discontinuity in the
-/// envelope is not something any radio puts on the air.
+/// symbol period it neither modulates nor radiates. `CpmMod::keyed` carries the transmit
+/// judgments this generator used to hand-roll: a burst's shaping decays into silence with the
+/// pulse tails a matched filter is built around, and the amplifier ramps over a symbol rather
+/// than stepping.
 #[must_use]
 pub fn c4fm_keyed(
     symbols: &[Option<u8>],
@@ -55,49 +53,7 @@ pub fn c4fm_keyed(
     deviation_hz: f64,
     alpha: f64,
 ) -> Vec<Complex<f32>> {
-    let sps = rate / baud;
-    // Area (unit DC gain) is the normalisation the ×sps impulse scaling below and every
-    // committed baseline assume — under it the taps are `design_rrc`'s output bit for bit.
-    let taps = pulse::root_raised_cosine(sps, alpha, RRC_SPAN, Norm::Area);
-    let mut impulses = vec![0.0f32; symbols.len() * sps as usize + taps.len()];
-    for (i, dibit) in symbols.iter().enumerate() {
-        if let Some(dibit) = dibit {
-            impulses[i * sps as usize] = fsk4::level(*dibit) / 3.0 * sps as f32;
-        }
-    }
-    let mut shaped = Vec::new();
-    RealDecimator::new(&taps, 1).process(&impulses, &mut shaped);
-
-    // The amplifier is on for a symbol's shaping span either side of every symbol it sends,
-    // plus the symbol the ramp itself occupies.
-    let sps = sps as usize;
-    let reach = RRC_SPAN + 1;
-    let on: Vec<bool> = (0..shaped.len())
-        .map(|i| {
-            let k = i.saturating_sub(RRC_SPAN * sps) / sps;
-            symbols[k.saturating_sub(reach)..=(k + reach).min(symbols.len() - 1)]
-                .iter()
-                .any(Option::is_some)
-        })
-        .collect();
-
-    let mut phase = 0.0f64;
-    shaped
-        .iter()
-        .enumerate()
-        .map(|(i, &s)| {
-            phase += TAU * f64::from(s) * deviation_hz / rate;
-            let edge = (1..=sps)
-                .find(|&d| !on[i.saturating_sub(d)] || !on[(i + d).min(on.len() - 1)])
-                .map_or(sps, |d| d - 1);
-            let gain = if on[i] {
-                0.5 * (1.0 - (PI * edge as f32 / sps as f32).cos())
-            } else {
-                0.0
-            };
-            Complex::from_polar(gain, phase as f32)
-        })
-        .collect()
+    CpmMod::new(c4fm_params(rate, baud, deviation_hz, alpha)).keyed(symbols)
 }
 
 /// Split bits into the dibits a 4FSK symbol carries, most significant bit first.

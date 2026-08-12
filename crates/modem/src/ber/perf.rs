@@ -20,13 +20,12 @@
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
-    f64::consts::TAU,
     path::Path,
     time::Instant,
 };
 
 use num_complex::Complex;
-use sdrmm_dsp::{RealDecimator, design_rrc, fsk4};
+use sdrmm_dsp::{RealDecimator, design_rrc};
 use serde::{Deserialize, Serialize};
 
 /// Fraction of committed throughput a bench may lose before [`compare_perf`] fails the run
@@ -274,41 +273,6 @@ pub fn test_dibits(len: usize, seed: u32) -> Vec<u8> {
     (0..len).map(|_| (rng.next() & 3) as u8).collect()
 }
 
-/// A C4FM-like transmitter for bench input: symbol impulses through the transmit half of the
-/// root-raised-cosine pair (α = 0.2, the C4FM figure), frequency-modulated so the outer level
-/// sits at ±`deviation_hz` — the shaping recipe of the `sdrmm_dsp::fsk4` golden tests, kept
-/// identical so the bench demodulates the waveform the demodulator is tested against.
-/// Scaffolding until the library's own modulators exist (MODEM-PLAN phases 2–3); the bench
-/// and the baseline writer must share it so criterion and the committed number measure the
-/// same work.
-///
-/// # Panics
-/// If `rate` is not an integral multiple of `baud` of at least two samples per symbol.
-#[must_use]
-pub fn c4fm_iq(dibits: &[u8], rate: f64, baud: f64, deviation_hz: f64) -> Vec<Complex<f32>> {
-    let sps = rate / baud;
-    assert!(
-        sps >= 2.0 && (sps - sps.round()).abs() < 1e-9,
-        "need a whole number of samples per symbol, at least two"
-    );
-    let step = sps as usize;
-    let taps = design_rrc(sps, 0.2, 8);
-    let mut impulses = vec![0.0f32; dibits.len() * step + taps.len()];
-    for (i, &dibit) in dibits.iter().enumerate() {
-        impulses[i * step] = fsk4::level(dibit) / 3.0 * sps as f32;
-    }
-    let mut shaped = Vec::new();
-    RealDecimator::new(&taps, 1).process(&impulses, &mut shaped);
-    let mut phase = 0.0f64;
-    shaped
-        .iter()
-        .map(|&s| {
-            phase += TAU * f64::from(s) * deviation_hz / rate;
-            Complex::from_polar(1.0, phase as f32)
-        })
-        .collect()
-}
-
 /// Antipodal ±1 symbols through a root-raised-cosine (α = 0.35) at `sps` samples per symbol,
 /// as complex baseband with zero quadrature — the densest diet a Gardner loop gets, since
 /// every symbol change is an equal-and-opposite transition it takes an error from. That makes
@@ -339,7 +303,7 @@ pub fn shaped_bpsk_iq(symbols: usize, sps: f64, seed: u32) -> Vec<Complex<f32>> 
 mod tests {
     use std::hint::black_box;
 
-    use sdrmm_dsp::{Fsk4Demod, SymbolSync};
+    use sdrmm_dsp::SymbolSync;
 
     use super::*;
 
@@ -385,7 +349,7 @@ mod tests {
             std::process::id()
         ));
         let committed = vec![
-            baseline("fsk4_dmr_48k", 21.5),
+            baseline("cpm_demod_m4_48k", 21.5),
             baseline("symbol_sync_8sps", 84.25),
         ];
         save_baselines(&path, &committed).unwrap();
@@ -396,8 +360,8 @@ mod tests {
 
     #[test]
     fn a_doctored_regression_fails_the_gate() {
-        let committed = vec![baseline("fsk4_dmr_48k", 100.0)];
-        let measured = vec![baseline("fsk4_dmr_48k", 85.0)];
+        let committed = vec![baseline("cpm_demod_m4_48k", 100.0)];
+        let measured = vec![baseline("cpm_demod_m4_48k", 85.0)];
         let regressions = compare_perf(&measured, &committed, REGRESSION_FRACTION).unwrap_err();
         assert_eq!(regressions.len(), 1);
         assert!((regressions[0].change_fraction + 0.15).abs() < 1e-12);
@@ -405,8 +369,8 @@ mod tests {
 
     #[test]
     fn an_improvement_passes_and_is_reported() {
-        let committed = vec![baseline("fsk4_dmr_48k", 100.0)];
-        let measured = vec![baseline("fsk4_dmr_48k", 130.0)];
+        let committed = vec![baseline("cpm_demod_m4_48k", 100.0)];
+        let measured = vec![baseline("cpm_demod_m4_48k", 130.0)];
         let changes = compare_perf(&measured, &committed, REGRESSION_FRACTION).unwrap();
         assert_eq!(changes.len(), 1);
         assert!((changes[0].change_fraction - 0.30).abs() < 1e-12);
@@ -414,14 +378,14 @@ mod tests {
 
     #[test]
     fn a_wobble_inside_the_tolerance_passes() {
-        let committed = vec![baseline("fsk4_dmr_48k", 100.0)];
-        let measured = vec![baseline("fsk4_dmr_48k", 91.0)];
+        let committed = vec![baseline("cpm_demod_m4_48k", 100.0)];
+        let measured = vec![baseline("cpm_demod_m4_48k", 91.0)];
         assert!(compare_perf(&measured, &committed, REGRESSION_FRACTION).is_ok());
     }
 
     #[test]
     fn a_vanished_bench_is_a_full_regression() {
-        let committed = vec![baseline("fsk4_dmr_48k", 100.0)];
+        let committed = vec![baseline("cpm_demod_m4_48k", 100.0)];
         let regressions = compare_perf(&[], &committed, REGRESSION_FRACTION).unwrap_err();
         assert_eq!(regressions[0].change_fraction, -1.0);
     }
@@ -441,23 +405,11 @@ mod tests {
         );
     }
 
-    /// §4.2's first real zero-alloc gates. Two warm-up blocks, per the module-level
-    /// convention: streaming stages carry an inter-block remainder, so the second block is
-    /// the first whose buffers must fit remainder plus block, and only after it has the
-    /// capacity envelope stopped growing.
-    #[test]
-    fn fsk4_demod_steady_state_allocates_nothing() {
-        let iq = c4fm_iq(&test_dibits(1_200, 0x5eed), 48_000.0, 4_800.0, 1_944.0);
-        let mut demod = Fsk4Demod::new(48_000.0, 4_800.0, 1_944.0, 0.2);
-        let mut soft = Vec::with_capacity(iq.len());
-        demod.process(&iq, &mut soft);
-        soft.clear();
-        demod.process(&iq, &mut soft);
-        soft.clear();
-        assert_no_alloc("Fsk4Demod::process", || demod.process(&iq, &mut soft));
-        assert!(!soft.is_empty(), "the measured call recovered no symbols");
-    }
-
+    /// §4.2's zero-alloc gate on the shared timing stack. Two warm-up blocks, per the
+    /// module-level convention: streaming stages carry an inter-block remainder, so the second
+    /// block is the first whose buffers must fit remainder plus block, and only after it has
+    /// the capacity envelope stopped growing. The engines that compose it carry their own —
+    /// `cpm::demod`'s tests gate both input domains.
     #[test]
     fn symbol_sync_steady_state_allocates_nothing() {
         let iq = shaped_bpsk_iq(4_096, 8.0, 0x0dd5);
@@ -474,24 +426,20 @@ mod tests {
         );
     }
 
-    /// Reference processing rates the real-time factor divides by (§4.2): the input sample
-    /// rate each entry consumes in its named configuration — `SymbolSync` at 8 samples per
-    /// symbol of a 4800 baud channel eats 38.4 kHz.
-    const FSK4_RATE_HZ: f64 = 48_000.0;
+    /// Reference processing rate the real-time factor divides by (§4.2): the input sample rate
+    /// the entry consumes in its named configuration — `SymbolSync` at 8 samples per symbol of
+    /// a 4800 baud channel eats 38.4 kHz.
     const SYMBOL_SYNC_RATE_HZ: f64 = 8.0 * 4_800.0;
 
+    /// Committed rows whose chain no longer exists. `fsk4_dmr_48k` measured `Fsk4Demod`, which
+    /// phase 3 deleted when the `cpm` engine replaced it (MODEM-PLAN §7). A committed
+    /// measurement is never regenerated or edited (§8), so the number stays in the file as the
+    /// pre-migration reference the migration was judged against — but nothing can measure it
+    /// again, and neither the writer nor the gate may treat that as a change. The engine that
+    /// replaced it carries its own baseline, `baselines/cpm/mfsk_perf.json`.
+    const RETIRED: [&str; 1] = ["fsk4_dmr_48k"];
+
     fn measured_baselines() -> Vec<PerfBaseline> {
-        let host = host_id();
-
-        let iq = c4fm_iq(&test_dibits(2_400, 0x5eed), 48_000.0, 4_800.0, 1_944.0);
-        let mut demod = Fsk4Demod::new(48_000.0, 4_800.0, 1_944.0, 0.2);
-        let mut soft = Vec::with_capacity(iq.len());
-        demod.process(&iq, &mut soft);
-        let fsk4_msps = measure_throughput(300, iq.len() as u64, || {
-            soft.clear();
-            demod.process(&iq, &mut soft);
-        });
-
         let bpsk = shaped_bpsk_iq(4_096, 8.0, 0x0dd5);
         let mut sync = SymbolSync::new(8.0, 0.01);
         let mut symbols = Vec::with_capacity(bpsk.len());
@@ -501,30 +449,49 @@ mod tests {
             sync.process(&bpsk, &mut symbols);
         });
 
-        vec![
-            PerfBaseline {
-                bench: "fsk4_dmr_48k".into(),
-                msamples_per_s: fsk4_msps,
-                realtime_factor: fsk4_msps * 1e6 / FSK4_RATE_HZ,
-                config: "48 kHz, 4800 baud, ±1944 Hz outer deviation, RRC α=0.2 span 8".into(),
-                host: host.clone(),
-            },
-            PerfBaseline {
-                bench: "symbol_sync_8sps".into(),
-                msamples_per_s: sync_msps,
-                realtime_factor: sync_msps * 1e6 / SYMBOL_SYNC_RATE_HZ,
-                config: "8 sps, loop_bw 0.01, RRC α=0.35 shaped BPSK".into(),
-                host,
-            },
-        ]
+        vec![PerfBaseline {
+            bench: "symbol_sync_8sps".into(),
+            msamples_per_s: sync_msps,
+            realtime_factor: sync_msps * 1e6 / SYMBOL_SYNC_RATE_HZ,
+            config: "8 sps, loop_bw 0.01, RRC α=0.35 shaped BPSK".into(),
+            host: host_id(),
+        }]
+    }
+
+    /// The committed rows this scaffold can still measure — the file minus [`RETIRED`].
+    fn live_committed(committed: &[PerfBaseline]) -> Vec<PerfBaseline> {
+        committed
+            .iter()
+            .filter(|b| !RETIRED.contains(&b.bench.as_str()))
+            .cloned()
+            .collect()
     }
 
     fn committed_baseline_path() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("baselines/perf_phase0.json")
     }
 
+    /// The committed file still carries the deleted chain's row, and the gate still compares
+    /// every row that is not it — the two halves of the retirement, so neither the history nor
+    /// the live gate can be lost without a failure here.
+    #[test]
+    fn the_committed_file_keeps_its_history_and_gates_the_rest() {
+        let committed = load_baselines(&committed_baseline_path()).unwrap();
+        assert!(
+            committed.iter().any(|b| b.bench == "fsk4_dmr_48k"),
+            "the pre-migration reference row was removed from the committed baseline"
+        );
+        let live: Vec<String> = live_committed(&committed)
+            .into_iter()
+            .map(|b| b.bench)
+            .collect();
+        assert_eq!(live, ["symbol_sync_8sps"]);
+    }
+
     /// Rewrites the committed phase-0 baseline. Run deliberately, on the reference machine:
-    /// `cargo test -p sdrmm-modem --release write_perf_baseline -- --ignored`.
+    /// `cargo test -p sdrmm-modem --release write_perf_baseline -- --ignored`. The [`RETIRED`]
+    /// rows are carried through untouched — a rerun must not quietly erase the history the
+    /// migration was measured against.
     #[test]
     #[ignore = "rewrites the committed baseline; run explicitly in release on the reference host"]
     fn write_perf_baseline() {
@@ -532,8 +499,14 @@ mod tests {
             panic!("a debug-profile number must never become the committed baseline");
         }
         let path = committed_baseline_path();
+        let mut rows: Vec<PerfBaseline> = load_baselines(&path)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|b| RETIRED.contains(&b.bench.as_str()))
+            .collect();
+        rows.extend(measured_baselines());
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        save_baselines(&path, &measured_baselines()).unwrap();
+        save_baselines(&path, &rows).unwrap();
     }
 
     /// The nightly perf gate: measured against committed, failing past
@@ -552,6 +525,7 @@ mod tests {
             eprintln!("skipping the perf gate: baseline host is not {}", host_id());
             return;
         }
+        let committed = live_committed(&committed);
         match compare_perf(&measured_baselines(), &committed, REGRESSION_FRACTION) {
             Ok(changes) => {
                 for c in changes {

@@ -10,11 +10,20 @@
 //!
 //! Everything about the physical layer is fixed by the standard, so the only setting is which
 //! way round the sideband is.
+//!
+//! The waveform is the catalog's plain-CPFSK entry (`cpm_params`), and the reference
+//! modulator in `testgen` transmits it through the library's own `CpmMod`; the receive side
+//! still runs its discriminator + `BitSync` chain because the `cpm/` demodulator's centre
+//! estimate cannot yet carry this alphabet — the measured defect is documented at
+//! `cpm_params`.
 
 use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_dsp::{BitSync, Decimator, FmDemod, RealDecimator, design_lowpass};
+#[cfg(any(test, feature = "test-signals"))]
+use sdrmm_modem::cpm::{CpmParams, Mapping};
+use sdrmm_modem::pulse::{self, Norm};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, NavtexMessage, NavtexParams,
 };
@@ -173,11 +182,38 @@ pub(crate) fn channel_filter() -> ChannelFilter {
     ))
 }
 
-/// One symbol long, cut off at the baud rate: an integrate-and-dump matched filter, the same
-/// shape RTTY uses at its own rate.
+/// The NAVTEX waveform as `cpm/` entry data (MODEM-PLAN §3.3): two-level CPFSK, NRZ (rect)
+/// frequency pulse, ±85 Hz deviation at 100 baud. Mark — the upper tone — carries the 1 bit
+/// (ITU-R M.476), so index 1 transmits +1 and a soft symbol's sign is the soft bit the SITOR
+/// combiner wants. The reference modulator in `testgen` transmits this entry (MODEM-PLAN
+/// §1.2).
+///
+/// The receiver does **not** ride `CpmDemod` yet, and the block is measured, not stylistic:
+/// its centre estimate learns the *data mean*, and SITOR's constant-ratio alphabet is
+/// mark-biased forever (4 of 7 bits, +1/7 in level units — no averaging length fixes a static
+/// bias). The learned bias de-antipodalises transitions into the Gardner detector, whose
+/// S-curve then grows a *stable* false equilibrium half a symbol off: on the band-limited
+/// broadcast, initial timing phases in a ≈12 %-wide zone lock there persistently — 27–202 bit
+/// errors on a clean signal, identical from 0.003 to 0.08 cycles/symbol of loop bandwidth,
+/// zero errors at every phase with the same chain minus the centre estimate. Until the centre
+/// is per-entry data (off, or with the alphabet's expected mean), `BitSync`'s zero-crossing
+/// clock — which needs no centre — stays.
+#[cfg(any(test, feature = "test-signals"))]
+pub(crate) fn cpm_params(rate: f64) -> CpmParams {
+    let sps = rate / BAUD;
+    CpmParams::from_deviation(
+        Mapping::new(vec![-1.0, 1.0]),
+        SHIFT_HZ / 2.0,
+        BAUD,
+        pulse::rect(sps, Norm::Area),
+        sps,
+    )
+}
+
+/// One bit of integrate-and-dump — NRZ keying's own matched filter, from the shared pulse
+/// library (MODEM-PLAN §3.1), the same shape RTTY builds at its own rate.
 fn post_filter(rate: f64) -> RealDecimator {
-    let taps = ((rate / BAUD).round() as usize).max(3) | 1;
-    RealDecimator::new(&design_lowpass(taps, BAUD / rate), 1)
+    RealDecimator::new(&pulse::rect(rate / BAUD, Norm::Area), 1)
 }
 
 fn polarity(p: &NavtexParams) -> f32 {
@@ -664,6 +700,37 @@ mod tests {
         let messages = decode(&filtered);
         assert_eq!(messages.len(), 1, "{messages:?}");
         assert_eq!(messages[0].text, "GALE WARNING\nGERMAN BIGHT");
+    }
+
+    /// A transmitter whose bit clock runs 0.3 % slow drifts nearly three bit periods over
+    /// this broadcast — routine for the zero-crossing clock, and the tracking bar any future
+    /// front-end migration must meet.
+    #[test]
+    fn tracks_a_sample_clock_error_through_the_broadcast() {
+        let iq = testgen::resample(&transmission(BROADCAST, RATE), RATE, RATE * 1.003);
+        let messages = decode(&iq);
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        assert_eq!(messages[0].text, "GALE WARNING\nGERMAN BIGHT");
+        assert!(messages[0].complete);
+    }
+
+    /// Continuous-stream lock over ~9000 bits — NAVTEX never keys off, so the bit clock gets
+    /// no dead time to hide in. Clean signal in, zero repairs demanded: one slipped bit
+    /// anywhere would shred a character and surface as a repair or a truncated message.
+    #[test]
+    fn a_long_broadcast_holds_the_bit_clock_end_to_end() {
+        let body: String = (0..12)
+            .map(|i| format!("LINE {i:02} THE QUICK BROWN FOX JUMPS OVER 13 LAZY DOGS\r\n"))
+            .collect();
+        let messages = decode(&transmission(&format!("ZCZC DA07\r\n{body}NNNN"), RATE));
+        assert_eq!(messages.len(), 1, "{messages:?}");
+        let m = &messages[0];
+        assert!(m.complete);
+        assert_eq!(
+            m.errors_corrected, 0,
+            "repairs on a clean broadcast: the clock slipped"
+        );
+        assert_eq!(m.text, body.trim_end().replace("\r\n", "\n"));
     }
 
     #[test]

@@ -1,0 +1,65 @@
+{
+  "label": "afsk 1200/2200 Hz 1200 baud uncoded, CpmMod on 1700 Hz subcarrier -> CpmDemod::real tone filterbank (half-symbol rx rect, timing bw 0.015), 12 kHz audio, 64+24+16 symbol overhead in Eb, analytic-signal accounting, release, uncoded BER, seed 0xafb1",
+  "points": [
+    {
+      "ebn0_db": 7.0,
+      "errors": 2011,
+      "trials": 17408
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2042,
+      "trials": 25600
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2011,
+      "trials": 40960
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2028,
+      "trials": 75776
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2017,
+      "trials": 152576
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2000,
+      "trials": 375808
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2000,
+      "trials": 1134592
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 1809,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 328,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 43,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 4,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 0,
+      "trials": 4000768
+    }
+  ]
+}

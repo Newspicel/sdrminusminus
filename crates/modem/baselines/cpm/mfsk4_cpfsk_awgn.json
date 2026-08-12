@@ -1,0 +1,80 @@
+{
+  "label": "mfsk4 CPFSK ETSI dibits h=0.27 RRC a=0.2, +-6 kHz select -> CpmDemod bw 0.003, 1500-sym preamble + 24-sym sync overhead in Eb, release, uncoded BER, seed 0x4f5c",
+  "points": [
+    {
+      "ebn0_db": 6.0,
+      "errors": 2424,
+      "trials": 24576
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2208,
+      "trials": 36864
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2259,
+      "trials": 61440
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2240,
+      "trials": 98304
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2105,
+      "trials": 184320
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2042,
+      "trials": 368640
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2048,
+      "trials": 663552
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2019,
+      "trials": 1253376
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 2029,
+      "trials": 2592768
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2006,
+      "trials": 5185536
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 1484,
+      "trials": 6008832
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 872,
+      "trials": 6008832
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 608,
+      "trials": 6008832
+    },
+    {
+      "ebn0_db": 19.0,
+      "errors": 398,
+      "trials": 6008832
+    },
+    {
+      "ebn0_db": 20.0,
+      "errors": 356,
+      "trials": 6008832
+    }
+  ]
+}

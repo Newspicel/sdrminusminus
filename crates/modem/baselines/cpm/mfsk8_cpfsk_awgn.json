@@ -1,0 +1,60 @@
+{
+  "label": "mfsk8 CPFSK h=0.3 rect natural map, +-9.6 kHz select -> CpmDemod bw 0.003 + KnownSymbols per 128-sym frame, preamble + 16/128 sync overhead in Eb, release, uncoded BER, seed 0x8f5c",
+  "points": [
+    {
+      "ebn0_db": 10.0,
+      "errors": 2691,
+      "trials": 64512
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2075,
+      "trials": 80640
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2018,
+      "trials": 112896
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2032,
+      "trials": 177408
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 2026,
+      "trials": 322560
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2021,
+      "trials": 467712
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 2006,
+      "trials": 774144
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 2008,
+      "trials": 1225728
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 2000,
+      "trials": 1935360
+    },
+    {
+      "ebn0_db": 19.0,
+      "errors": 2008,
+      "trials": 2677248
+    },
+    {
+      "ebn0_db": 20.0,
+      "errors": 2002,
+      "trials": 4032000
+    }
+  ]
+}

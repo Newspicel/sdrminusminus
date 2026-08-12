@@ -28,6 +28,7 @@
 
 pub mod ber;
 pub mod constellation;
+pub mod cpm;
 pub mod pulse;
 pub mod soft;
 pub mod symbolcode;

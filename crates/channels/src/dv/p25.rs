@@ -18,13 +18,14 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{CyclicCode, Fsk4Demod};
+use sdrmm_dsp::CyclicCode;
+use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DvFrame, DvFrameKind, DvMode,
     P25Params,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow};
+use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const BAUD: f64 = 4_800.0;
@@ -65,7 +66,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct P25Channel {
-    demod: Fsk4Demod,
+    demod: CpmDemod,
     symbols: Vec<f32>,
     decoder: Decoder,
 }
@@ -98,7 +99,7 @@ impl ChannelRx for P25Channel {
         check_input_rate(ctx, &DESCRIPTOR)?;
         params(&settings)?;
         Ok(Self {
-            demod: Fsk4Demod::new(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA),
+            demod: c4fm_demod(&c4fm_params(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA)),
             symbols: Vec::new(),
             decoder: Decoder::new(),
         })

@@ -1,0 +1,9 @@
+[
+  {
+    "bench": "msk_demod",
+    "msamples_per_s": 98.14020028612303,
+    "realtime_factor": 2044.5875059608966,
+    "config": "MSK (1REC h=0.5), 10 sps, integrate-and-dump rx, timing bw 0.015",
+    "host": "aarch64-macos"
+  }
+]

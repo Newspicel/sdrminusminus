@@ -7,6 +7,12 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
+use sdrmm_modem::{
+    cpm::{CpmMod, CpmParams, Mapping},
+    pulse::{self, Norm},
+};
+
+use super::{shift, silence};
 
 /// Every burst ends with enough silence for a decoder to close its repeat-collapse window.
 const TAIL_S: f64 = 0.7;
@@ -135,35 +141,44 @@ pub fn manchester(bits: &[bool], half_cell_us: u32, repeats: u32, rate: f64) -> 
 
 /// The same pulse train carried by 2-FSK: the carrier never stops, it moves between two
 /// frequencies. `deviation_hz` is the half-separation of the pair.
+///
+/// The tone keying is the library's own CPFSK modulator (MODEM-PLAN §1.2) with the remote's
+/// base clock period as the symbol: every PWM duration is a whole number of base periods by
+/// construction, so the pulse train *is* a symbol stream at `1e6/short_us` baud, mark (pulse
+/// high) at index 1. Carrier on only for the burst itself; the silence either side is what a
+/// receiver's carrier detector uses to bound the transmission.
 #[must_use]
 pub fn pwm_fsk(frame: &Pwm, deviation_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     let one = pwm_timings(frame);
-    let mut timings = Vec::new();
+    let mut symbols = Vec::new();
     for _ in 0..frame.repeats.max(1) {
-        timings.extend_from_slice(&one);
+        let mut high = true;
+        for &us in &one {
+            symbols.extend(std::iter::repeat_n(
+                u8::from(high),
+                (us / frame.short_us) as usize,
+            ));
+            high = !high;
+        }
     }
-    let levels = envelope(&timings, rate);
-    let lead_in = (LEAD_IN_S * rate) as usize;
-    let tail = (TAIL_S * rate) as usize;
-    let carrier_end = levels.len().saturating_sub(tail);
-
-    let mut phase = 0.0f64;
-    levels
-        .iter()
-        .enumerate()
-        .map(|(k, &level)| {
-            let mark = level > 0.5;
-            let freq = CARRIER_OFFSET_HZ + if mark { deviation_hz } else { -deviation_hz };
-            phase += TAU * freq / rate;
-            if phase > TAU {
-                phase -= TAU;
-            }
-            // Carrier on only for the burst itself; the silence either side is what a
-            // receiver's carrier detector uses to bound the transmission.
-            let amplitude = f32::from(k >= lead_in && k < carrier_end);
-            Complex::from_polar(amplitude, phase as f32)
-        })
-        .collect()
+    let base_baud = 1e6 / f64::from(frame.short_us);
+    let sps = rate / base_baud;
+    let mut modulator = CpmMod::new(CpmParams::from_deviation(
+        Mapping::new(vec![-1.0, 1.0]),
+        deviation_hz,
+        base_baud,
+        pulse::rect(sps, Norm::Area),
+        sps,
+    ));
+    let mut burst = Vec::new();
+    modulator.modulate(&symbols, &mut burst);
+    // No flush: a transmitter keying down truncates its last tone, and the frame's own
+    // trailing sync gap is what the decoder times.
+    shift(&mut burst, CARRIER_OFFSET_HZ, rate);
+    let mut iq = silence((LEAD_IN_S * rate) as usize);
+    iq.extend(burst);
+    iq.extend(silence((TAIL_S * rate) as usize));
+    iq
 }
 
 #[cfg(test)]

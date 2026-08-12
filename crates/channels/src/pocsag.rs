@@ -1,17 +1,20 @@
 //! POCSAG pager decoder (PLAN §13 P2): two-level FSK at 512/1200/2400 bit/s carrying
 //! BCH(31,21) codewords (ITU-R M.584).
 //!
-//! Quadrature discriminator → slow slicing-level tracker → one integrate-and-dump filter and
-//! bit clock per candidate bit rate. A candidate that finds the frame sync codeword takes the
-//! lock and the others are reset; losing frame sync releases it, so the rate is re-detected on
-//! the next transmission. The channel produces decoder events only — no audio.
+//! One `sdrmm_modem::cpm` two-level CPFSK front end per candidate bit rate (quadrature
+//! discriminator → integrate-and-dump matched filter → `SymbolSync` → normalised soft
+//! symbols; the entry is data alone, MODEM-PLAN §3.3). A candidate that finds the frame sync
+//! codeword takes the lock and the others' framing restarts; losing frame sync releases it,
+//! so the rate is re-detected on the next transmission. The channel produces decoder events
+//! only — no audio.
 
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{
-    BitSync, Decimator, FmDemod, SyncDetector, design_lowpass, hamming_distance, one_pole_coeff,
-    pocsag_bch_decode,
+use sdrmm_dsp::{Decimator, SyncDetector, design_lowpass, hamming_distance, pocsag_bch_decode};
+use sdrmm_modem::{
+    cpm::{CpmDemod, CpmParams, Mapping, TIMING_BW_BURST},
+    pulse::{self, Norm},
 };
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PocsagBaud, PocsagMessage,
@@ -22,8 +25,10 @@ use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, 
 
 const CHANNEL_TAPS: usize = 129;
 
-/// Nominal deviation of a POCSAG transmitter (ITU-R M.584 §2). Only sets the discriminator's
-/// output scale — every decision downstream is on the sign, not the magnitude.
+/// Nominal deviation of a POCSAG transmitter (ITU-R M.584 §2) — the deviation the entry's
+/// modulation index is derived from. Only sets the discriminator's output scale: the front
+/// end's level normalisation absorbs a transmitter that deviates differently, and every
+/// decision downstream is on the sign, not the magnitude.
 const NOMINAL_DEVIATION_HZ: f64 = 4_500.0;
 
 /// Frame synchronisation codeword (ITU-R M.584 §2).
@@ -46,10 +51,17 @@ const SYNC_TOLERANCE: u32 = 2;
 /// truncated one would be worse than dropping it.
 const MAX_PAYLOAD_BITS: usize = 128 * PAYLOAD_BITS;
 
-/// Time constant of the slicing-level tracker. Long enough that no run of like bits at 512
-/// bit/s pulls it into the data, short enough to absorb a receiver tuning error within a
-/// preamble.
-const LEVEL_TAU_S: f64 = 0.1;
+/// Symbol periods of digital quiet each front end hears at construction — the cpm gate's
+/// 384-symbol floor-settle window, with margin. A floor measured on digital quiet is zero, so
+/// the gate reads everything after it as keyed and every loop learns always — the old
+/// discriminator chain's operating point, which POCSAG needs on all three counts: a
+/// transmission may meet the channel the moment it is created (the committed fixture is keyed
+/// from sample zero), each transmission re-acquires clock and level from its own 576-bit
+/// preamble rather than from channel history, and the integrate-and-dump chain decodes pages
+/// the BCH code repairs from below the gate's 6 dB carrier rise — a floor learned from real
+/// noise would gate out transmissions the old front end decoded. M = 2 slicing is a sign
+/// decision, so whatever an ungated level estimate learns from noise costs nothing.
+const QUIET_SYMBOLS: f64 = 512.0;
 
 /// BCD alphabet used when the function bits are 0 (ITU-R M.584 §2).
 const NUMERIC_ALPHABET: [char; 16] = [
@@ -69,16 +81,35 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct PocsagChannel {
-    demod: FmDemod,
-    demod_buf: Vec<f32>,
-    /// Slicing level tracked out of the discriminator output.
-    level: f32,
-    level_coeff: f32,
+    /// The M = 2 level table soft symbols are sliced against; a sliced index is the data bit.
+    slicer: Mapping,
     invert: bool,
     baud: PocsagBaud,
     candidates: Vec<Candidate>,
     /// Index into `candidates` of the rate currently holding frame sync.
     locked: Option<usize>,
+    /// Per-block soft-symbol scratch, reused across calls.
+    soft: Vec<f32>,
+}
+
+/// The symbol→level table, ITU-R M.584 §2's polarity as data: mark — the higher of the two
+/// frequencies — carries a 0 bit, so index 0 transmits +1 and a sliced symbol index is the
+/// data bit.
+fn mapping() -> Mapping {
+    Mapping::new(vec![1.0, -1.0])
+}
+
+/// The POCSAG waveform at one bit rate as `cpm/` entry data (MODEM-PLAN §3.3): two-level
+/// CPFSK, NRZ (rect) frequency pulse, ±4.5 kHz nominal deviation.
+fn cpm_params(rate: f64, baud: u16) -> CpmParams {
+    let sps = rate / f64::from(baud);
+    CpmParams::from_deviation(
+        mapping(),
+        NOMINAL_DEVIATION_HZ,
+        f64::from(baud),
+        pulse::rect(sps, Norm::Area),
+        sps,
+    )
 }
 
 fn params(settings: &ChannelSettings) -> Result<&PocsagParams, ChannelError> {
@@ -161,60 +192,10 @@ struct Pending {
     poisoned: bool,
 }
 
-/// Integrate-and-dump matched filter for NRZ keying: a boxcar exactly one bit long, so the
-/// value at a bit centre is that bit's own energy and nothing else. `dsp` has no running-mean
-/// primitive, and a FIR would cost one multiply per tap where this costs one add and one
-/// subtract per sample — at 512 bit/s the window is 94 samples wide.
-struct BitIntegrator {
-    ring: Vec<f32>,
-    pos: usize,
-    sum: f64,
-    since_rebuild: usize,
-}
-
-impl BitIntegrator {
-    fn new(len: usize) -> Self {
-        Self {
-            ring: vec![0.0; len.max(1)],
-            pos: 0,
-            sum: 0.0,
-            since_rebuild: 0,
-        }
-    }
-
-    fn push(&mut self, sample: f32) -> f32 {
-        let leaving = self.ring[self.pos];
-        self.ring[self.pos] = sample;
-        self.pos = (self.pos + 1) % self.ring.len();
-        self.sum += f64::from(sample) - f64::from(leaving);
-        self.since_rebuild += 1;
-        if self.since_rebuild >= self.ring.len() {
-            self.rebuild();
-        }
-        (self.sum / self.ring.len() as f64) as f32
-    }
-
-    /// A running sum accumulates rounding error without bound and would latch a non-finite
-    /// sample forever. Recomputing straight from the ring once per window bounds both at O(1)
-    /// amortized cost.
-    fn rebuild(&mut self) {
-        self.sum = self.ring.iter().copied().map(f64::from).sum();
-        self.since_rebuild = 0;
-    }
-
-    fn reset(&mut self) {
-        self.ring.fill(0.0);
-        self.pos = 0;
-        self.sum = 0.0;
-        self.since_rebuild = 0;
-    }
-}
-
-/// One candidate bit rate: its own matched filter, bit clock, sync correlator and framing.
+/// One candidate bit rate: its own cpm front end, sync correlator and framing.
 struct Candidate {
     baud: u16,
-    integrator: BitIntegrator,
-    clock: BitSync,
+    demod: CpmDemod,
     detector: SyncDetector,
     batching: Batching,
     pending: Option<Pending>,
@@ -224,10 +205,18 @@ struct Candidate {
 
 impl Candidate {
     fn new(rate: f64, baud: u16) -> Self {
+        let params = cpm_params(rate, baud);
+        let sps = params.sps();
+        // Rect is NRZ keying's own matched filter — the integrate-and-dump the old chain
+        // ran, as unit-DC-gain taps the level estimates rely on. Burst timing bandwidth: a
+        // transmission's 576-bit preamble is the clock's whole acquisition budget, and
+        // 0.015 cycles/symbol locks inside a seventh of it.
+        let mut demod = CpmDemod::new(&params, &pulse::rect(sps, Norm::Area), TIMING_BW_BURST);
+        let quiet = vec![Complex::new(0.0, 0.0); (QUIET_SYMBOLS * sps).ceil() as usize];
+        demod.process(&quiet, &mut Vec::new());
         Self {
             baud,
-            integrator: BitIntegrator::new((rate / f64::from(baud)).round() as usize),
-            clock: BitSync::new(rate, f64::from(baud)),
+            demod,
             detector: SyncDetector::new(u64::from(FRAME_SYNC), CODEWORD_BITS, SYNC_TOLERANCE),
             batching: Batching::Hunt,
             pending: None,
@@ -235,22 +224,15 @@ impl Candidate {
         }
     }
 
+    /// Restart the framing search. The front end is deliberately left alone: its estimates
+    /// describe the channel rather than the transmission that just ended, and
+    /// `CpmDemod::reset` would re-enter the gate's floor-settle window — deaf to what it
+    /// hears — right when the next transmission's preamble may already be arriving.
     fn reset(&mut self) {
-        self.integrator.reset();
-        self.clock.reset();
         self.detector.reset();
         self.batching = Batching::Hunt;
         self.pending = None;
         self.payload.clear();
-    }
-
-    /// Feed one DC-corrected discriminator sample.
-    fn push(&mut self, level: f32, out: &mut Vec<DecoderEvent>) -> Framing {
-        let Some(high) = self.clock.push(self.integrator.push(level)) else {
-            return Framing::Held;
-        };
-        // Mark — the higher of the two frequencies — carries a 0 bit (ITU-R M.584 §2).
-        self.bit(!high, out)
     }
 
     fn bit(&mut self, bit: bool, out: &mut Vec<DecoderEvent>) -> Framing {
@@ -398,14 +380,12 @@ impl ChannelRx for PocsagChannel {
         let p = params(&settings)?;
         check_params(p)?;
         Ok(Self {
-            demod: FmDemod::new(ctx.input_rate, NOMINAL_DEVIATION_HZ),
-            demod_buf: Vec::new(),
-            level: 0.0,
-            level_coeff: one_pole_coeff(ctx.input_rate, LEVEL_TAU_S),
+            slicer: mapping(),
             invert: p.invert,
             baud: p.baud,
             candidates: candidates(ctx.input_rate, p.baud),
             locked: None,
+            soft: Vec::new(),
         })
     }
 
@@ -425,48 +405,43 @@ impl ChannelRx for PocsagChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        let mut buf = std::mem::take(&mut self.demod_buf);
-        self.demod.process(iq, &mut buf);
-        // A single non-finite sample would latch the level tracker forever; healing per block
-        // bounds the damage from a driver glitch to one block.
-        if !self.level.is_finite() {
-            self.level = 0.0;
+        let mut soft = std::mem::take(&mut self.soft);
+        for index in 0..self.candidates.len() {
+            // Every front end runs on every block, so a candidate's clock and level
+            // estimates are warm the moment the lock releases; only the lock holder — or,
+            // unlocked, every candidate — frames bits from its symbols.
+            soft.clear();
+            self.candidates[index].demod.process(iq, &mut soft);
+            if self.locked.is_some_and(|held| held != index) {
+                continue;
+            }
+            for &symbol in &soft {
+                let symbol = if self.invert { -symbol } else { symbol };
+                // Index 0 transmits +1 — mark, the 0 bit — so the sliced index is the bit.
+                let bit = self.slicer.slice(symbol) == 1;
+                match self.candidates[index].bit(bit, &mut out.events) {
+                    Framing::Held => {}
+                    Framing::Acquired => self.acquire(index),
+                    Framing::Lost => {
+                        self.candidates[index].reset();
+                        self.locked = None;
+                    }
+                }
+            }
         }
-        for &sample in &buf {
-            self.sample(sample, &mut out.events);
-        }
-        self.demod_buf = buf;
+        self.soft = soft;
     }
 }
 
 impl PocsagChannel {
-    fn sample(&mut self, sample: f32, out: &mut Vec<DecoderEvent>) {
-        self.level += self.level_coeff * (sample - self.level);
-        let sliced = sample - self.level;
-        let sliced = if self.invert { -sliced } else { sliced };
-
-        if let Some(index) = self.locked {
-            let Some(candidate) = self.candidates.get_mut(index) else {
-                return;
-            };
-            if candidate.push(sliced, out) == Framing::Lost {
+    /// A candidate matched the frame sync codeword: it takes the lock and the others'
+    /// framing restarts. A candidate that matched by chance fails its next batch boundary
+    /// and hands the lock back, so a false lock costs a batch rather than the transmission.
+    fn acquire(&mut self, index: usize) {
+        self.locked = Some(index);
+        for (i, candidate) in self.candidates.iter_mut().enumerate() {
+            if i != index {
                 candidate.reset();
-                self.locked = None;
-            }
-            return;
-        }
-        // A candidate that matched the sync word by chance loses it one batch later and hands
-        // the lock back, so a false lock costs a batch rather than the transmission.
-        let acquired = self
-            .candidates
-            .iter_mut()
-            .position(|c| c.push(sliced, out) == Framing::Acquired);
-        if let Some(index) = acquired {
-            self.locked = Some(index);
-            for (i, candidate) in self.candidates.iter_mut().enumerate() {
-                if i != index {
-                    candidate.reset();
-                }
             }
         }
     }

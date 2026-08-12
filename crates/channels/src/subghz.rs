@@ -140,6 +140,14 @@ pub(crate) fn channel_filter(p: &SubghzParams) -> Result<ChannelFilter, ChannelE
 /// Turns IQ into a keyed on/off stream. Both arms share the carrier detector — the FSK one
 /// needs it too, because a discriminator with no carrier to discriminate produces noise that
 /// looks exactly like data.
+///
+/// The FSK arm deliberately does not ride a `cpm/` front end even though MODEM-PLAN §3.1
+/// lists subghz under the CPFSK row: a remote's symbol rate is a per-frame *measurement* —
+/// `base_period` reads it off the decoded edges after the fact — and frames are edge-timed at
+/// sample resolution, so there is no symbol clock for `SymbolSync` to recover and no symbol
+/// stream to slice. The transmit side does ride the library (`testgen::subghz::pwm_fsk` keys
+/// `CpmMod`); the receive side needs a clockless sample-domain detector the engine does not
+/// offer. The OOK arm migrates to the linear engine's envelope tier in phase 4.
 enum Detector {
     Ook {
         envelope: Envelope,

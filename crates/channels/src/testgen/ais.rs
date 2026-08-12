@@ -1,19 +1,25 @@
 //! AIS reference modulator (PLAN §14): ITU-R M.1371 bursts as 9600 bit/s GMSK at complex
-//! baseband, built from the spec rather than from the decoder's constants so a wrong constant
-//! cannot cancel out between the two.
+//! baseband. The waveform comes from the library's own [`CpmMod`] (MODEM-PLAN §1.2: testgen
+//! builds every demodulator's test signals from the library's modulators, so the two can
+//! never drift apart); the parameters feeding it are declared here from the spec rather than
+//! shared with the decoder, so a wrong constant cannot cancel out between the two.
 
 use num_complex::Complex;
-use sdrmm_dsp::{RealDecimator, crc16_x25, pack_lsb};
-use sdrmm_modem::pulse::{self, Norm};
-
-use super::fm_modulate;
+use sdrmm_dsp::{crc16_x25, pack_lsb};
+use sdrmm_modem::{
+    cpm::{CpmMod, CpmParams, Mapping},
+    pulse::{self, Norm},
+};
 
 /// ITU-R M.1371 Annex 2 §2.2: 9600 bit/s, ±2400 Hz deviation (modulation index 0.5), BT 0.4.
 const BAUD: f64 = 9_600.0;
 const DEVIATION_HZ: f64 = 2_400.0;
 const BT: f64 = 0.4;
-/// Gaussian pulse truncation: total span in symbol periods (`span·sps` taps).
-const SHAPING_SPAN: usize = 4;
+/// Total span of the GMSK frequency pulse in symbol periods: the NRZ rect's own symbol plus
+/// a four-symbol truncation of the Gaussian premod filter — the same support the pre-cpm
+/// shaping chain had (a span-4 Gaussian applied to the rect NRZ line), kept so the committed
+/// fixture and the migrated generator describe the same transmitter.
+const PULSE_SPAN: usize = 5;
 
 const FLAG: [bool; 8] = [false, true, true, true, true, true, true, false];
 /// ITU-R M.1371 Annex 2 §3.3.7.2 training sequence: 24 bits of alternating line level. Zero
@@ -198,11 +204,22 @@ fn modulate(framed: &[bool], rate: f64) -> Vec<Complex<f32>> {
     bits.extend(FLAG);
     bits.extend(std::iter::repeat_n(false, BUFFER_BITS));
 
-    let nrz = upsample(&nrzi_encode(&bits), sps);
-    let mut shaped = Vec::with_capacity(nrz.len());
-    RealDecimator::new(&pulse::gaussian(sps, BT, SHAPING_SPAN, Norm::Area), 1)
-        .process(&nrz, &mut shaped);
-    fm_modulate(&shaped, DEVIATION_HZ, rate)
+    // Natural order: the high NRZI line state is index 1, the +2400 Hz mark tone. The keyed
+    // builder ramps the envelope over one bit against each adjoining dead bit — ITU-R M.1371
+    // allocates the slot's first bits to exactly that ramp-up, and a stepped envelope is not
+    // something any radio puts on the air: its splash through the receiver's channel filter
+    // reads as a discriminator excursion several times the outermost level.
+    let mut symbols: Vec<Option<u8>> = vec![None];
+    symbols.extend(nrzi_encode(&bits).into_iter().map(|b| Some(u8::from(b))));
+    symbols.push(None);
+    CpmMod::new(CpmParams::from_deviation(
+        Mapping::natural(2),
+        DEVIATION_HZ,
+        BAUD,
+        pulse::gaussian_freq(sps, BT, PULSE_SPAN, Norm::Area),
+        sps,
+    ))
+    .keyed(&symbols)
 }
 
 /// Bit writer for the big-endian fields an AIS message is defined in.
@@ -296,15 +313,6 @@ fn nrzi_encode(bits: &[bool]) -> Vec<bool> {
         .collect()
 }
 
-fn upsample(line: &[bool], sps: f64) -> Vec<f32> {
-    (0..(line.len() as f64 * sps) as usize)
-        .map(|k| {
-            let i = ((k as f64 / sps) as usize).min(line.len() - 1);
-            if line[i] { 1.0 } else { -1.0 }
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use sdrmm_dsp::hdlc_fcs_ok;
@@ -351,22 +359,39 @@ mod tests {
     }
 
     #[test]
-    fn burst_is_constant_envelope_and_the_expected_length() {
+    fn burst_holds_unit_envelope_between_ramped_edges() {
         let payload = position_payload(&report());
         let iq = burst(&payload, 48_000.0);
         // 24 training + 8 flag + 184 stuffed data + 8 flag + 24 buffer bits, at 5 samples
-        // per bit; the exact stuffed count depends on the payload, so bound it instead.
+        // per bit plus the pulse tail; the exact stuffed count depends on the payload, so
+        // bound it instead.
         assert!(
             (1_240..1_400).contains(&iq.len()),
             "burst length {}",
             iq.len()
         );
+        // Constant envelope through the body, ramped at the edges: never over unit, exactly
+        // unit away from the keying edges, and no sample-to-sample envelope step anywhere —
+        // a step's splash through the receiver's channel filter is what the ramp exists to
+        // avoid.
         for (k, s) in iq.iter().enumerate() {
+            assert!(s.norm() <= 1.0 + 1e-3, "sample {k} magnitude {}", s.norm());
+        }
+        for (k, s) in iq.iter().enumerate().skip(10).take(iq.len() - 40) {
             assert!(
                 (s.norm() - 1.0).abs() < 1e-3,
                 "sample {k} magnitude {}",
                 s.norm()
             );
         }
+        for (k, w) in iq.windows(2).enumerate() {
+            let step = (w[1].norm() - w[0].norm()).abs();
+            assert!(step < 0.5, "envelope step {step} at sample {k}");
+        }
+        assert!(iq[0].norm() < 0.1, "burst keys up from silence");
+        assert!(
+            iq.last().unwrap().norm() < 0.1,
+            "burst keys down to silence"
+        );
     }
 }

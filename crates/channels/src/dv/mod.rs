@@ -8,9 +8,10 @@
 //! callsign, on which colour code or network, through which repeater, encrypted or not. That is
 //! what a scanner log is made of, and it is decodable without a vocoder.
 //!
-//! Six of the seven share a front end — [`sdrmm_dsp::Fsk4Demod`], four-level FSK at 4800 or
-//! 2400 symbols per second — and differ only in their sync patterns, framing and error coding.
-//! D-Star is the exception: it is two-level GMSK and demodulates like AIS does.
+//! Six of the seven share a front end — the four-level CPFSK entry of the modulation library
+//! ([`sdrmm_modem::cpm`]), at 4800 or 2400 symbols per second — and differ only in the values
+//! they put in its parameters ([`c4fm_params`]) plus their sync patterns, framing and error
+//! coding. D-Star is the exception: it is two-level GMSK and demodulates like AIS does.
 //!
 //! Each mode is a module here with its own `type_id`, because they occupy different bandwidths
 //! and an operator picks a mode by name. They all emit the same [`DvFrame`](sdrmm_wire::DvFrame)
@@ -32,13 +33,67 @@ pub use dstar::DstarChannel;
 pub use m17::M17Channel;
 pub use nxdn::NxdnChannel;
 pub use p25::P25Channel;
-use sdrmm_dsp::{Decimator, design_lowpass, fsk4};
+use sdrmm_dsp::{Decimator, design_lowpass, fec::conv::CONFIDENT};
+use sdrmm_modem::{
+    cpm::{CpmDemod, CpmParams, KnownSymbols, Mapping, TIMING_BW_BURST},
+    pulse::{self, Norm},
+    soft::SoftBit,
+};
 pub use ysf::YsfChannel;
 
 use crate::ChannelFilter;
 
 /// Every C4FM mode here runs at this rate: 10 samples per symbol at 4800 baud, 20 at 2400.
 pub(crate) const INPUT_RATE_HZ: f64 = 48_000.0;
+
+/// Shaping/matched-filter span either side of the pulse, in symbol periods — the C4FM root
+/// pair every mode here transmits and receives with.
+pub(crate) const RRC_SPAN: usize = 8;
+
+/// Symbols an anchored level estimate survives without a fresh sync. The longest gap any of
+/// the modes leaves between syncs is DMR's 360 ms voice superframe — 1728 symbols — so a
+/// channel this long without one is between transmissions, and the next transmitter must meet
+/// the front end's own estimates rather than the last transmitter's correction.
+const ANCHOR_TIMEOUT_SYMBOLS: u32 = 4_800;
+
+/// The symbol table every four-level mode here shares (ETSI TS 102 361-1 §4.2.2, and the same
+/// in TIA-102 and the M17 spec): dibit 00 → +1, 01 → +3, 10 → −1, 11 → −3. Under this table a
+/// symbol *index* is the dibit itself, which is what lets the sync registers below hold sliced
+/// indices directly.
+pub(crate) fn dibit_mapping() -> Mapping {
+    Mapping::new(vec![1.0, 3.0, -1.0, -3.0])
+}
+
+/// A mode's C4FM waveform as modulation-library data: the shared dibit table, h converted from
+/// the mode's outer deviation, and the mode's root-raised-cosine as the frequency pulse. The
+/// same params drive the reference transmitter in `testgen` and the receiver here, so the two
+/// cannot drift apart.
+pub(crate) fn c4fm_params(input_rate: f64, baud: f64, deviation_hz: f64, alpha: f64) -> CpmParams {
+    let sps = input_rate / baud;
+    CpmParams::from_deviation(
+        dibit_mapping(),
+        deviation_hz,
+        baud,
+        pulse::root_raised_cosine(sps, alpha, RRC_SPAN, Norm::Area),
+        sps,
+    )
+}
+
+/// The shared four-level front end: the entry's discriminator-tier demodulator with the RRC
+/// receive half of the root pair (the frequency pulse itself — C4FM shapes frequency, so the
+/// matched filter is the same taps), at the burst timing operating point — every mode here is
+/// TDMA or push-to-talk keyed, so the clock must acquire within one burst's preamble and the
+/// carrier gate coasts it through the dead time.
+pub(crate) fn c4fm_demod(params: &CpmParams) -> CpmDemod {
+    CpmDemod::new(params, params.freq_pulse(), TIMING_BW_BURST)
+}
+
+/// The level hook every [`SymbolWindow`] carries. The fit reads only the symbol table, which
+/// is the one thing all six four-level modes share — they differ in baud, deviation and pulse,
+/// and none of that reaches the estimate.
+fn window_hook() -> KnownSymbols {
+    KnownSymbols::from_mapping(&dibit_mapping(), ANCHOR_TIMEOUT_SYMBOLS)
+}
 
 /// Channel-selection filter for a digital-voice mode of `bandwidth_hz`. Long enough to reject
 /// the adjacent channel at 12.5 kHz spacing, which is where these modes live.
@@ -57,7 +112,7 @@ pub(crate) fn channel_filter(bandwidth_hz: f64) -> ChannelFilter {
 /// history, because the error-correcting codes above want soft bits and the sync search wants
 /// hard ones. Index 0 is always the most recent symbol.
 ///
-/// Every symbol read out — hard or soft — passes through a [`fsk4::SyncLevels`] correction the
+/// Every symbol read out — hard or soft — passes through a [`KnownSymbols`] correction the
 /// modes feed by calling [`anchor`](Self::anchor) on each matched sync. The history keeps the
 /// symbols as the front end produced them, so a burst whose sync sits mid-burst is read back
 /// against what its *own* sync measured, first half included — the estimate could not have been
@@ -66,8 +121,11 @@ pub(crate) struct SymbolWindow {
     soft: VecDeque<f32>,
     register: u64,
     capacity: usize,
-    levels: fsk4::SyncLevels,
+    mapping: Mapping,
+    levels: KnownSymbols,
     measured: Vec<f32>,
+    pattern: Vec<u8>,
+    soft_scratch: Vec<SoftBit>,
 }
 
 impl SymbolWindow {
@@ -78,8 +136,11 @@ impl SymbolWindow {
             soft: VecDeque::with_capacity(capacity),
             register: 0,
             capacity,
-            levels: fsk4::SyncLevels::new(),
+            mapping: dibit_mapping(),
+            levels: window_hook(),
             measured: Vec::new(),
+            pattern: Vec::new(),
+            soft_scratch: Vec::new(),
         }
     }
 
@@ -89,7 +150,8 @@ impl SymbolWindow {
         }
         self.soft.push_back(symbol);
         self.levels.tick();
-        self.register = self.register << 2 | u64::from(fsk4::slice(self.levels.correct(symbol)));
+        self.register =
+            self.register << 2 | u64::from(self.mapping.slice(self.levels.correct(symbol)));
     }
 
     /// A sync pattern of `bits` bits just matched, ending at the most recent symbol: measure
@@ -98,10 +160,12 @@ impl SymbolWindow {
     /// in the front end have to learn from payload and dead time, and this does not.
     pub(crate) fn anchor(&mut self, pattern: u64, bits: u32) {
         self.measured.clear();
+        self.pattern.clear();
         for i in 0..bits as usize / 2 {
             self.measured.push(self.raw(i));
+            self.pattern.push((pattern >> (2 * i)) as u8 & 0b11);
         }
-        self.levels.anchor(pattern, &self.measured);
+        self.levels.anchor(&self.pattern, &self.measured);
     }
 
     /// Bit distance between the last `bits` bits shifted in and `pattern`.
@@ -136,17 +200,26 @@ impl SymbolWindow {
     pub(crate) fn bits(&self, end_back: usize, symbols: usize, out: &mut Vec<bool>) {
         out.clear();
         for i in (0..symbols).rev() {
-            let dibit = fsk4::slice(self.soft(end_back + i));
+            let dibit = self.mapping.slice(self.soft(end_back + i));
             out.push(dibit & 0b10 != 0);
             out.push(dibit & 0b01 != 0);
         }
     }
 
-    /// Soft bit values of the same span, for the convolutional decoders.
-    pub(crate) fn soft_bits(&self, end_back: usize, symbols: usize, out: &mut Vec<i16>) {
+    /// Soft bit values of the same span, for the convolutional decoders — the mapping's ±1
+    /// full-confidence demap rescaled to the Viterbi's `CONFIDENT` unit, which on the dibit
+    /// table reproduces the historical `fsk4::soft_bits` values exactly.
+    pub(crate) fn soft_bits(&mut self, end_back: usize, symbols: usize, out: &mut Vec<i16>) {
         out.clear();
         for i in (0..symbols).rev() {
-            out.extend_from_slice(&fsk4::soft_bits(self.soft(end_back + i)));
+            self.soft_scratch.clear();
+            self.mapping
+                .soft_bits(self.soft(end_back + i), &mut self.soft_scratch);
+            out.extend(
+                self.soft_scratch
+                    .iter()
+                    .map(|b| (b.0 * f32::from(CONFIDENT)) as i16),
+            );
         }
     }
 
