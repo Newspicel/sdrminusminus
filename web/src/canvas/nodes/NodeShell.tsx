@@ -62,9 +62,13 @@ const CATEGORY_STRIP: Record<NodeCategory, string> = {
   sink: "bg-cat-sink",
 };
 
+// Every shape is cut out of the handle's own box. A rotation would be the obvious way to draw the
+// diamond and is wrong here: React Flow centres a handle on its anchor with `transform:
+// translate(±50%, -50%)`, and CSS applies the `rotate` property *before* `transform`, so that
+// translation runs along the rotated axes and the marker lands off its own wire.
 const PORT_SHAPE: Record<PortType, string> = {
   iq: "rounded-full",
-  audio: "rotate-45",
+  audio: "[clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]",
   events: "rounded-[1px]",
   // A triangle standing on its base — a picture is scanned top to bottom, and the shape has to
   // read apart from `control`'s arrowhead, which lies on its side and points.

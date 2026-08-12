@@ -22,6 +22,20 @@ async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
   await page.mouse.up();
 }
 
+/** How far a port's marker sits from the middle of its own label, in pixels. Both are placed from
+ * the same `top`, so anything above a rounding error is a marker that has moved under its paint. */
+async function rowOffset(node: Locator, port: string): Promise<number> {
+  const handle = `.react-flow__handle[data-handleid="${port}"]`;
+  const marker = await node.locator(handle).boundingBox();
+  // The label is the handle's own sibling — the face's body has text of its own, and some of it
+  // is the same word.
+  const label = await node.locator(`${handle} + span`).boundingBox();
+  if (marker === null || label === null) {
+    throw new Error(`a ${port} port with a label`);
+  }
+  return Math.abs(marker.y + marker.height / 2 - (label.y + label.height / 2));
+}
+
 /** One face in the rack. The rack has no wires and no pane, so its faces are addressed by the
  * node they render rather than through React Flow. */
 function rackNode(page: Page, id: string): Locator {
@@ -134,6 +148,15 @@ test.describe("the workspace", () => {
     // Still one face, still bound — not the "not created" state a desynced node falls into.
     await expect(channel).toHaveCount(1);
     await expect(channel.getByText(/nothing feeds this channel|not been created/i)).toHaveCount(0);
+
+    // A conditional port belongs to the channel types that have it and to no other: WFM scans out
+    // no picture, so there is nothing on this face to wire a screen to.
+    await expect(channel.locator('.react-flow__handle[data-handleid="video"]')).toHaveCount(0);
+    // Each marker sits on its own row, which is the only thing pairing it with its label — a
+    // marker drawn through a transform of its own drifts off the line it names.
+    for (const port of ["iq", "audio"]) {
+      expect(await rowOffset(channel, port)).toBeLessThan(1);
+    }
 
     // The scope is running before the view switch below, which is what gives that switch
     // something to preserve.

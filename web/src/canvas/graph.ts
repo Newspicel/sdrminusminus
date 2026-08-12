@@ -142,18 +142,25 @@ export function portsOf(context: GraphContext, graph: PatchGraph, node: PatchNod
   const capabilities = context.bound?.get(node.id)?.capabilities;
   return entry.ports
     .filter((port) => {
-      switch (port.condition) {
+      switch (port.condition ?? "always") {
+        case "always":
+          return true;
         case "channel_has_audio":
           return descriptor?.has_audio === true;
         case "channel_is_decoder":
           return descriptor?.decoder_kind != null;
+        case "channel_has_video":
+          return descriptor?.has_video === true;
         case "device_is_tx_capable":
           // The reserved transmit input is drawn on a radio that *has* a send side, whatever
           // PLAN §12a lets it do with one: `rx_only` is the wire default, so a radio that says
           // nothing gets no port.
           return hasTransmitter(capabilities?.duplex);
         default:
-          return true;
+          // A condition this build has no answer for, exactly as `PortSpec::applies_to` reads it:
+          // a port drawn without checking is one the operator can be told to wire and then
+          // refused, which is how the video output arrived on every channel.
+          return false;
       }
     })
     .flatMap((port) => expandStreams(port, node.id, graph.edges ?? [], capabilities));

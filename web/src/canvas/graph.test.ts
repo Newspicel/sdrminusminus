@@ -5,6 +5,7 @@ import type {
   PatchCatalog,
   PatchGraph,
   PatchNode,
+  PortCondition,
   PortSpec,
   WorkspaceSnapshot,
 } from "../lib/types";
@@ -82,6 +83,13 @@ const CATALOG: PatchCatalog = {
           multi: true,
           condition: "channel_is_decoder",
         },
+        {
+          name: "video",
+          port_type: "video",
+          direction: "out",
+          multi: true,
+          condition: "channel_has_video",
+        },
       ],
     },
     {
@@ -123,6 +131,15 @@ const TYPES: ChannelDescriptor[] = [
     decoder_kind: "adsb",
     exact_rate_only: false,
     native_rate_max_hz: 4_000_000,
+  },
+  {
+    type_id: "atv",
+    name: "ATV",
+    bandwidth_hz: 6_000_000,
+    input_rate_hz: 6_000_000,
+    has_audio: false,
+    has_video: true,
+    exact_rate_only: false,
   },
 ];
 
@@ -203,8 +220,33 @@ describe("ports", () => {
     const graph = workspace();
     const nfm = graph.nodes[2];
     const adsb = node("adsb", { kind: "channel", data: { channel_type: "adsb" } });
+    const atv = node("atv", { kind: "channel", data: { channel_type: "atv" } });
     expect(nfm && portsOf(context, graph, nfm).map((p) => p.name)).toEqual(["iq", "audio"]);
     expect(portsOf(context, graph, adsb).map((p) => p.name)).toEqual(["iq", "events"]);
+    // The picture output belongs to the modes that scan one out, and to no other channel.
+    expect(portsOf(context, graph, atv).map((p) => p.name)).toEqual(["iq", "video"]);
+  });
+
+  /** A condition this build cannot answer is not a port: a handle drawn on a guess accepts a wire
+   * the server then refuses (mirrors `PortSpec::applies_to`). */
+  it("leaves off a port whose condition it does not know", () => {
+    const graph = workspace();
+    const nfm = graph.nodes[2];
+    const catalog: PatchCatalog = {
+      nodes: CATALOG.nodes.map((entry) =>
+        entry.kind === "channel"
+          ? {
+              ...entry,
+              ports: entry.ports.map((spec) =>
+                spec.name === "audio"
+                  ? { ...spec, condition: "channel_is_telepathic" as PortCondition }
+                  : spec,
+              ),
+            }
+          : entry,
+      ),
+    };
+    expect(nfm && portsOf({ ...context, catalog }, graph, nfm).map((p) => p.name)).toEqual(["iq"]);
   });
 
   it("gives an unknown channel type only its input", () => {
