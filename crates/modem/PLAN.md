@@ -421,22 +421,29 @@ implemented once.
 
 | Entry | Key parameters | Detection chain | Reference | Standards examples | Repo consumer |
 |---|---|---|---|---|---|
-| CP-OFDM | FFT size, CP, pilot pattern, subcarrier map | preamble autocorr → CFO → channel est → one-tap EQ → demap | theory per subcarrier | 802.11a/g, DAB-like, DRM-like | 802.11 (new) |
+| CP-OFDM | FFT size, CP, pilot pattern, subcarrier map | preamble autocorr → CFO → channel est → one-tap EQ → demap | theory per subcarrier | 802.11a/g, DAB-like, DRM-like | — (modulation only) |
 | DMT | Hermitian flag on CP-OFDM | same | theory | wireline | — |
 | OTFS / FBMC / GFDM / UFMC | per waveform | per waveform | committed (+ published curves where available) | research / 5G-adjacent | — |
-| DSSS | PN sequence, chip rate | correlator; processing gain measured vs 10·log₁₀(N) | theory | 802.11b 1/2 Mbps, GPS-like | 802.11b (new) |
-| CCK | codebooks | codeword correlator bank | committed | 802.11b 5.5/11 Mbps | 802.11b (new) |
-| CSS (chirp) | SF, BW, chirp map | dechirp + FFT peak | committed | LoRa | lora (new) |
+| DSSS | PN sequence, chip rate | correlator; processing gain measured vs 10·log₁₀(N) | theory | 802.11b 1/2 Mbps, GPS-like | — (modulation only) |
+| CCK | codebooks | codeword correlator bank | committed | 802.11b 5.5/11 Mbps | — (modulation only) |
+| CSS (chirp) | SF, BW, chirp map | dechirp + FFT peak | committed | LoRa | — (modulation only) |
 | FHSS | hop sequencer + underlying entry | framework | committed | Bluetooth BR, ISM | — |
+
+**Scope decision (explicit):** for Wi-Fi (802.11a/g/b) and LoRa, only the *modulations* are
+in scope — CP-OFDM, DSSS, CCK, CSS with their full §5 bundles on synthetic vectors. The
+*protocols* are not: no preamble/PLCP/SIGNAL-field decoding, no LoRa preamble/header RX, no
+`wifi`/`lora` channel attachments. Their standards remain in the tables above purely as
+examples of who uses each waveform.
 
 ### Protocol attachments planned against the catalog
 
 TETRA downlink (π/4-DQPSK entry; scoped in stages — burst sync and MAC first, then
 coding/interleaving/logical channels: TETRA is substantially more than parameters),
-BLE 1M/2M advertising (GFSK entry + packet shape), 802.11a/g (CP-OFDM entry; SIGNAL
-field at BPSK-1/2 first, higher rates via the existing demapper), 802.11b (DSSS/CCK),
-LoRa RX (CSS), Bluetooth EDR modulation (DPSK entries; hop-following is a hopping
-problem, not a modulation problem, and lives with the FHSS framework if pursued).
+BLE 1M/2M advertising (GFSK entry + packet shape), Bluetooth EDR modulation (DPSK
+entries; hop-following is a hopping problem, not a modulation problem, and lives with
+the FHSS framework if pursued). Explicitly **not** planned: 802.11a/g, 802.11b and
+LoRa protocol attachments — their modulations (CP-OFDM, DSSS/CCK, CSS) are catalog
+entries with full bundles, and the library's involvement ends there.
 
 ---
 
@@ -495,22 +502,22 @@ migrates onto `ppm/`.
 demodulation validated against published WSJT test vectors as the orthogonal entry's
 golden-vector test.
 
-**Phase 6 — OFDM framework.** Built and validated synthetically end-to-end before any
-protocol: per-subcarrier BPSK→64-QAM loopback under AWGN + CFO + named multipath
-profiles; channel-estimation error curves; DMT flag.
-Attachment: **802.11a/g**, staged — preamble detect, LTF sync, SIGNAL at BPSK-1/2,
-then higher rates through the phase-4 demapper. Golden vectors from published example
-frames; recorded fixture when captured.
+**Phase 6 — OFDM framework.** Built and validated synthetically end-to-end:
+per-subcarrier BPSK→64-QAM loopback under AWGN + CFO + named multipath profiles;
+channel-estimation error curves; DMT flag. No 802.11 protocol attachment (scope
+decision in §6): an 802.11a/g-*like* parameterisation (64-FFT, 16-sample CP, 48+4
+subcarrier map) serves as the reference configuration for the bundle, exercised on
+synthetic vectors only.
 *Accept:* synthetic OFDM bundle complete with limits tables (notably CFO,
-sample-clock ppm, and multipath rows); 802.11 SIGNAL decode on golden vectors.
+sample-clock ppm, and multipath rows) at the reference configuration.
 
 **Phase 7 — Spread, chirp, hopping.** DSSS with processing gain measured against
 10·log₁₀(chips/symbol); CCK codebooks; CSS across SF7–SF12; FHSS framework driving an
-underlying entry through a synthetic hop schedule.
-Attachments: 802.11b (DSSS/CCK), LoRa preamble/header RX.
+underlying entry through a synthetic hop schedule. No 802.11b or LoRa protocol
+attachments (scope decision in §6) — Barker-11 DSSS, the CCK codebooks and LoRa-like
+CSS parameterisations are exercised as modulation entries on synthetic vectors only.
 *Accept:* processing-gain and CSS detection curves committed; hop-framework level-1
-E2E (payload survives a hopping channel with the sequencer known); attachment E2Es on
-synthetic vectors.
+E2E (payload survives a hopping channel with the sequencer known).
 
 **Phase 8 — Analog consolidation.** The five analog channels migrate onto `analog/`
 engines; VSB as configuration; SINAD-based correctness and limits (co-channel,
