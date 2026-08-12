@@ -48,6 +48,6 @@ pub use pll::{Costas, LoopFilter, Pll};
 pub use resamp::FracResampler;
 pub use spectrum::{SpectrumAnalyzer, decimate_max, quantize_db};
 pub use squelch::Squelch;
-pub use sync::{BitSync, SymbolSync};
+pub use sync::{BitSync, SymbolSync, farrow};
 pub use tone::{Envelope, Goertzel, KeyingSlicer, KeyingTiming, ToneCorrelator};
 pub use window::{coherent_gain, hann};

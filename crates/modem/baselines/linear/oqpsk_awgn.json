@@ -1,0 +1,35 @@
+{
+  "label": "oqpsk uncoded, staggered LinearMod -> unstagger -> feedforward timing -> 4th-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x952",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 2092,
+      "trials": 131072
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 2070,
+      "trials": 262144
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2025,
+      "trials": 589824
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2005,
+      "trials": 1638400
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 1331,
+      "trials": 4014080
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 249,
+      "trials": 4014080
+    }
+  ]
+}

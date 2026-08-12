@@ -1,0 +1,30 @@
+{
+  "label": "dqpsk uncoded, differentially encoded indices -> LinearMod -> feedforward timing -> open loop -> y·conj(y₋₁) -> unique-word anchor on the differences, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0xd9b5",
+  "points": [
+    {
+      "ebn0_db": 7.0,
+      "errors": 2094,
+      "trials": 196608
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2071,
+      "trials": 425984
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2001,
+      "trials": 1179648
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2001,
+      "trials": 3866624
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 454,
+      "trials": 4014080
+    }
+  ]
+}

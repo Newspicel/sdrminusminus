@@ -1,0 +1,30 @@
+{
+  "label": "16-star-qam uncoded, differential tier: differentially encoded indices -> LinearMod -> feedforward timing -> open loop -> y·conj(y₋₁)/|y₋₁|, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x57a2",
+  "points": [
+    {
+      "ebn0_db": 13.0,
+      "errors": 2047,
+      "trials": 655360
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 2026,
+      "trials": 1441792
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2016,
+      "trials": 3571712
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 799,
+      "trials": 4030464
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 180,
+      "trials": 4030464
+    }
+  ]
+}

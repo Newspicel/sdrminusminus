@@ -1,0 +1,51 @@
+{
+  "entry": "linear/ook_envelope_limits",
+  "seed": 229,
+  "sensitivity_db_1e2": 9.081227966269797,
+  "sensitivity_db_1e3": 11.60297654003507,
+  "sensitivity_db_1e4": 13.34679084678911,
+  "rows": [
+    {
+      "axis": "static CFO",
+      "unit": "Hz",
+      "threshold": 932.373046875,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "frequency drift",
+      "unit": "Hz/s",
+      "threshold": 933.837890625,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "sample clock",
+      "unit": "ppm",
+      "threshold": 1496.58203125,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "static timing offset",
+      "unit": "fraction of a symbol",
+      "threshold": 0.5,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "IQ gain imbalance",
+      "unit": "dB",
+      "threshold": 6.0,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "IQ phase imbalance",
+      "unit": "degrees",
+      "threshold": 30.0,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "profile:static-indoor",
+      "unit": "dB",
+      "threshold": -0.017271031232715117,
+      "criterion": "Eb/N0 degradation at BER 1e-3"
+    }
+  ]
+}

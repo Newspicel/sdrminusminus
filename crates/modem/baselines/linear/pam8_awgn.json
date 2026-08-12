@@ -1,0 +1,35 @@
+{
+  "label": "8-pam uncoded, coherent tier: LinearMod -> feedforward timing -> decision-directed Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x84a3",
+  "points": [
+    {
+      "ebn0_db": 12.0,
+      "errors": 2041,
+      "trials": 172032
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2093,
+      "trials": 319488
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 2000,
+      "trials": 663552
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2022,
+      "trials": 1744896
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 1435,
+      "trials": 4005888
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 377,
+      "trials": 4005888
+    }
+  ]
+}

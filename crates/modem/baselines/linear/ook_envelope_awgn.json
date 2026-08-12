@@ -1,0 +1,40 @@
+{
+  "label": "ook uncoded, noncoherent envelope tier: matched filter -> |·| -> DC removal -> tracking timing -> fitted pedestal and scale, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0xe5",
+  "points": [
+    {
+      "ebn0_db": 8.0,
+      "errors": 2049,
+      "trials": 90112
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2100,
+      "trials": 188416
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2029,
+      "trials": 409600
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2005,
+      "trials": 983040
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2003,
+      "trials": 3121152
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 699,
+      "trials": 4005888
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 144,
+      "trials": 4005888
+    }
+  ]
+}

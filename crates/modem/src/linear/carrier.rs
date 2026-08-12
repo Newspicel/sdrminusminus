@@ -16,7 +16,9 @@
 //! - [`PhaseDetector::MthPower`] raises the symbol to the M-th power, which annihilates an
 //!   M-PSK modulation outright: no decisions, no amplitude dependence, so it acquires from a
 //!   cold start at an SNR where decisions are still mostly wrong. It applies only to a
-//!   constant-modulus M-PSK table.
+//!   constant-modulus M-PSK table, and it strips against *that table's* M-th power rather than
+//!   against 1 — a rotated table's is a fixed phasor, and an unsubtracted constant error is a
+//!   ramp to a type-2 loop rather than an offset it settles at.
 //!
 //! **Ambiguity is not resolved here, deliberately.** Both detectors are blind to a rotation by
 //! a table symmetry — π for BPSK, π/2 for QPSK, 2π/M in general — because the modulation they
@@ -84,18 +86,37 @@ impl PhaseDetector {
                 f64::from((y * x.conj()).arg())
             }
             Self::MthPower { m } => {
-                let mut u = Complex::new(1.0f64, 0.0);
-                let y = Complex::new(f64::from(y.re), f64::from(y.im));
-                // Unit-normalised before the power so a large-amplitude symbol cannot dominate
-                // the running estimate, and so m = 8 cannot overflow the f32 range.
-                let unit = y / y.norm();
-                for _ in 0..m {
-                    u *= unit;
+                // The table's own M-th power, not 1. `psk(M)` raised to M gives +1, but a
+                // *rotated* M-PSK table gives a fixed phasor instead — and subtracting it is not
+                // cosmetic: an unsubtracted constant error is a ramp to a type-2 loop, which
+                // spins forever rather than locking. Measured, when it did: QPSK in its
+                // two-rails (π/4-rotated) orientation decoded at 6e-2 BER where the same chain
+                // on the unrotated table decoded at 3e-3.
+                let reference = unit_power(table.points()[0], m);
+                let stripped = unit_power(y, m);
+                if reference.norm() <= 0.0 || stripped.norm() <= 0.0 {
+                    return 0.0;
                 }
-                u.arg() / f64::from(m)
+                (stripped * reference.conj()).arg() / f64::from(m)
             }
         }
     }
+}
+
+/// `(y/|y|)^m` in f64 — the modulation-stripping nonlinearity. Unit-normalised before the power
+/// so a large-amplitude symbol cannot dominate and so m = 8 cannot leave the f32 range.
+fn unit_power(y: Complex<f32>, m: u32) -> Complex<f64> {
+    let y = Complex::new(f64::from(y.re), f64::from(y.im));
+    let norm = y.norm();
+    if norm <= 0.0 {
+        return Complex::new(0.0, 0.0);
+    }
+    let unit = y / norm;
+    let mut acc = Complex::new(1.0f64, 0.0);
+    for _ in 0..m {
+        acc *= unit;
+    }
+    acc
 }
 
 /// The tracking loop. Fed one symbol at a time; returns the de-rotated symbol.
@@ -178,14 +199,9 @@ impl CarrierLoop {
         let PhaseDetector::MthPower { m } = self.detector else {
             return 0.0;
         };
-        if y.re == 0.0 && y.im == 0.0 {
+        let stripped = unit_power(y, m);
+        if stripped.norm() <= 0.0 {
             return self.fll_freq;
-        }
-        let y = Complex::new(f64::from(y.re), f64::from(y.im));
-        let unit = y / y.norm();
-        let mut stripped = Complex::new(1.0f64, 0.0);
-        for _ in 0..m {
-            stripped *= unit;
         }
         if let Some(previous) = self.last_stripped {
             let rotation = (stripped * previous.conj()).arg() / f64::from(m);

@@ -32,9 +32,13 @@
 //! M-fold phase ambiguity no blind loop can, removes the blind normaliser's √(1 + 1/SNR) scale
 //! bias, and gives a short burst a frequency estimate its loop had no time to acquire.
 //!
-//! **Timing recovery is `sdrmm_dsp::SymbolSync`** — the one timing stack (§3.2). This module
-//! schedules it; it never reimplements it. The same is true of the loop filter behind
-//! [`CarrierLoop`] and of the peak/floor tracker behind [`EnvelopeDemod`].
+//! **Two timing tiers.** [`LinearDemod`] tracks the clock with `sdrmm_dsp::SymbolSync` — the one
+//! timing stack (§3.2), scheduled here and never reimplemented — which is the answer for a
+//! continuously-keyed stream. [`FeedforwardTiming`] estimates a whole burst's offset in one shot
+//! from the square-law spectral line, which is the answer for a burst and the only one the
+//! high-order QAM rows can be measured through: at the tracking loop's best bandwidth their
+//! waterfalls hit a wall at 1e-4 (64-QAM) and 8e-3 (256-QAM), and the wall is timing jitter.
+//! Both drive the same Farrow kernel, so a comparison between them reads the estimator.
 
 mod anchor;
 mod carrier;
@@ -43,11 +47,15 @@ mod differential;
 mod envelope;
 mod modulator;
 mod params;
+mod timing;
 
 pub use anchor::{AnchorError, PhaseAnchor};
 pub use carrier::{CarrierLoop, PhaseDetector};
-pub use demod::{LinearDemod, LinearTiming, TIMING_BW_BURST, TIMING_BW_CONTINUOUS};
+pub use demod::{
+    LinearBurstDemod, LinearDemod, LinearTiming, TIMING_BW_BURST, TIMING_BW_CONTINUOUS,
+};
 pub use differential::{DifferentialDetector, differential_detect};
 pub use envelope::{EnvelopeDemod, EnvelopeTiming, slice_amplitude};
 pub use modulator::LinearMod;
 pub use params::{LinearError, LinearParams};
+pub use timing::{FeedforwardTiming, MIN_SPS, resample_at, square_law_offset};

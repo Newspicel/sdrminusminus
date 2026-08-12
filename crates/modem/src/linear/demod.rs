@@ -30,7 +30,7 @@
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, SymbolSync};
 
-use super::{carrier::CarrierLoop, params::LinearParams};
+use super::{carrier::CarrierLoop, params::LinearParams, timing::FeedforwardTiming};
 
 /// Timing loop bandwidth for continuously-keyed linear entries, in cycles per symbol. The same
 /// reasoning — and the same measured number — as the CPM engine's
@@ -52,7 +52,9 @@ pub const TIMING_BW_BURST: f64 = 0.015;
 pub struct LinearTiming {
     /// `SymbolSync` loop bandwidth, cycles per symbol.
     pub timing_bw: f64,
-    /// One-pole time constant of the mean-power estimate, in symbols.
+    /// One-pole time constant of the mean-power estimate, in symbols. `f64::INFINITY` *holds* the
+    /// estimate at its initial unit mean power, which is what a burst chain wants: the scale is
+    /// then the §3.4 anchor's business, and the blind estimate cannot drift across the frame.
     pub power_symbols: f64,
 }
 
@@ -77,13 +79,16 @@ impl LinearTiming {
         power_symbols: 1_000.0,
     };
 
-    /// Burst operating point: both loops fast enough to acquire inside a preamble, at the ripple
-    /// and self-noise that buys. A burst entry's scale reference is the §3.4 known-symbol anchor
-    /// ([`PhaseAnchor`](super::PhaseAnchor)), which is what makes the looser blind estimate here
-    /// affordable.
+    /// Burst operating point: the timing loop fast enough to acquire inside a preamble, and the
+    /// power estimate **held**. A burst's transmitter level is constant, so there is nothing for
+    /// the estimate to track — and its ripple is not harmless: on 1024-QAM, whose outermost point
+    /// sits 1.34 from the origin against a slicing margin of 0.038, a 1000-symbol estimate's own
+    /// wander across the frame put an error floor at 1.4e-4 that a *held* estimate plus the §3.4
+    /// anchor removes entirely (measured: 5.7e-4 at 25 dB against the estimate's 5.2e-3, and
+    /// 1.1e-5 at 28 dB against 3.1e-4).
     pub const BURST: Self = Self {
         timing_bw: TIMING_BW_BURST,
-        power_symbols: 100.0,
+        power_symbols: f64::INFINITY,
     };
 }
 
@@ -92,22 +97,110 @@ impl LinearTiming {
 /// which would divide the first symbols by nothing.
 const INITIAL_POWER: f32 = 1.0;
 
-/// Linear demodulator, coherent tier. Streaming: filter, timing, level and carrier state carry
-/// across calls, so any block split gives the same symbols.
-pub struct LinearDemod {
-    matched: Decimator,
-    sync: SymbolSync,
+/// The stages every timing tier shares: blind power normalisation, de-rotation, carrier loop.
+/// Factored out because [`LinearDemod`] and [`LinearBurstDemod`] differ *only* in how they place
+/// the symbol instants — a second copy of this would let the two tiers' measurements drift apart
+/// on something other than the timing, which is the one thing a tier comparison must not do.
+struct SymbolStage {
     carrier: Option<CarrierLoop>,
     params: LinearParams,
-    /// Running mean power of the recovered symbols, and its one-pole coefficient.
     power: f32,
     power_alpha: f32,
     /// Symbols emitted so far — the de-rotation schedule's index. Integer, so a long
     /// transmission's rotation is exact.
     symbols_out: u64,
-    /// The stagger delay line, holding the in-phase rail's last `stagger` samples.
-    stagger: Vec<f32>,
-    stagger_at: usize,
+}
+
+impl SymbolStage {
+    fn new(params: &LinearParams, power_symbols: f64, carrier: Option<CarrierLoop>) -> Self {
+        Self {
+            carrier,
+            params: params.clone(),
+            power: INITIAL_POWER,
+            // An infinite time constant is a held estimate, not a division by infinity that
+            // happens to work: it is the burst chains' operating point and it is named.
+            power_alpha: if power_symbols.is_finite() {
+                (1.0 / power_symbols) as f32
+            } else {
+                0.0
+            },
+            symbols_out: 0,
+        }
+    }
+
+    fn push(&mut self, y: Complex<f32>) -> Complex<f32> {
+        // The power estimate leads the scaling: a symbol contributes to the estimate it is then
+        // divided by, which is what keeps a level step from passing through unscaled.
+        self.power += self.power_alpha * (y.norm_sqr() - self.power);
+        let scale = self.power.max(f32::MIN_POSITIVE).sqrt().recip();
+        let mut symbol = y * scale;
+        if self.params.rotation_rad() != 0.0 {
+            let theta =
+                -((self.symbols_out as f64 * self.params.rotation_rad()) % std::f64::consts::TAU);
+            symbol *= Complex::new(theta.cos() as f32, theta.sin() as f32);
+        }
+        if let Some(carrier) = &mut self.carrier {
+            symbol = carrier.advance(symbol, self.params.constellation());
+        }
+        self.symbols_out += 1;
+        symbol
+    }
+
+    fn reset(&mut self) {
+        if let Some(carrier) = &mut self.carrier {
+            carrier.reset();
+        }
+        self.power = INITIAL_POWER;
+        self.symbols_out = 0;
+    }
+}
+
+/// The half-symbol delay line the stagger axis needs, on the in-phase rail.
+#[derive(Clone, Debug, Default)]
+struct Unstagger {
+    line: Vec<f32>,
+    at: usize,
+}
+
+impl Unstagger {
+    fn new(len: usize) -> Self {
+        Self {
+            line: vec![0.0; len],
+            at: 0,
+        }
+    }
+
+    /// Hold the in-phase rail back so both rails land on the same instants. A zero-length line is
+    /// the unstaggered case and copies through.
+    fn apply(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
+        out.clear();
+        out.reserve(iq.len());
+        if self.line.is_empty() {
+            out.extend_from_slice(iq);
+            return;
+        }
+        let n = self.line.len();
+        for &s in iq {
+            let delayed = self.line[self.at];
+            self.line[self.at] = s.re;
+            self.at = (self.at + 1) % n;
+            out.push(Complex::new(delayed, s.im));
+        }
+    }
+
+    fn reset(&mut self) {
+        self.line.fill(0.0);
+        self.at = 0;
+    }
+}
+
+/// Linear demodulator, coherent tier, **tracking timing**. Streaming: filter, timing, level and
+/// carrier state carry across calls, so any block split gives the same symbols.
+pub struct LinearDemod {
+    matched: Decimator,
+    sync: SymbolSync,
+    stage: SymbolStage,
+    stagger: Unstagger,
     aligned: Vec<Complex<f32>>,
     filtered: Vec<Complex<f32>>,
     retimed: Vec<Complex<f32>>,
@@ -131,26 +224,12 @@ impl LinearDemod {
         timing: LinearTiming,
         carrier: Option<CarrierLoop>,
     ) -> Self {
-        assert!(!receive_filter.is_empty(), "receive filter must have taps");
-        let energy: f64 = receive_filter
-            .iter()
-            .map(|&h| f64::from(h) * f64::from(h))
-            .sum();
-        assert!(
-            (energy - 1.0).abs() < 1e-3,
-            "receive filter must be unit-energy (pulse::Norm::Energy), got Σh² = {energy}"
-        );
-        let stagger = params.stagger_samples();
+        assert_unit_energy(receive_filter);
         Self {
             matched: Decimator::new(receive_filter, 1),
             sync: SymbolSync::new(params.sps() as f64, timing.timing_bw),
-            carrier,
-            params: params.clone(),
-            power: INITIAL_POWER,
-            power_alpha: (1.0 / timing.power_symbols) as f32,
-            symbols_out: 0,
-            stagger: vec![0.0; stagger],
-            stagger_at: 0,
+            stage: SymbolStage::new(params, timing.power_symbols, carrier),
+            stagger: Unstagger::new(params.stagger_samples()),
             aligned: Vec::new(),
             filtered: Vec::new(),
             retimed: Vec::new(),
@@ -159,14 +238,15 @@ impl LinearDemod {
 
     #[must_use]
     pub fn params(&self) -> &LinearParams {
-        &self.params
+        &self.stage.params
     }
 
     /// The loop's carrier frequency estimate in cycles per symbol, or 0 for an open-loop tier —
     /// what a limits row reads to state what a CFO search actually pulled in.
     #[must_use]
     pub fn carrier_freq_cycles_per_symbol(&self) -> f64 {
-        self.carrier
+        self.stage
+            .carrier
             .as_ref()
             .map_or(0.0, CarrierLoop::freq_cycles_per_symbol)
     }
@@ -174,59 +254,98 @@ impl LinearDemod {
     /// Demodulate a block of complex baseband, appending one soft symbol per recovered symbol
     /// period to `out`.
     pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
-        let input = if self.stagger.is_empty() {
-            iq
-        } else {
-            self.unstagger(iq);
-            &self.aligned
-        };
-        self.matched.process(input, &mut self.filtered);
+        self.stagger.apply(iq, &mut self.aligned);
+        self.matched.process(&self.aligned, &mut self.filtered);
         // `SymbolSync::process` appends where `Decimator::process` replaces; the buffer is the
         // engine's own scratch, so it is cleared here rather than growing across blocks.
         self.retimed.clear();
         self.sync.process(&self.filtered, &mut self.retimed);
         for &y in &self.retimed {
-            // The power estimate leads the scaling: a symbol contributes to the estimate it is
-            // then divided by, which is what keeps a level step from passing through unscaled.
-            self.power += self.power_alpha * (y.norm_sqr() - self.power);
-            let scale = self.power.max(f32::MIN_POSITIVE).sqrt().recip();
-            let mut symbol = y * scale;
-            if self.params.rotation_rad() != 0.0 {
-                let theta = -((self.symbols_out as f64 * self.params.rotation_rad())
-                    % std::f64::consts::TAU);
-                symbol *= Complex::new(theta.cos() as f32, theta.sin() as f32);
-            }
-            if let Some(carrier) = &mut self.carrier {
-                symbol = carrier.advance(symbol, self.params.constellation());
-            }
-            self.symbols_out += 1;
-            out.push(symbol);
-        }
-    }
-
-    /// Hold the in-phase rail back by half a symbol so both rails land on the same instants.
-    fn unstagger(&mut self, iq: &[Complex<f32>]) {
-        let n = self.stagger.len();
-        self.aligned.clear();
-        self.aligned.reserve(iq.len());
-        for &s in iq {
-            let delayed = self.stagger[self.stagger_at];
-            self.stagger[self.stagger_at] = s.re;
-            self.stagger_at = (self.stagger_at + 1) % n;
-            self.aligned.push(Complex::new(delayed, s.im));
+            out.push(self.stage.push(y));
         }
     }
 
     pub fn reset(&mut self) {
         self.sync.reset();
-        if let Some(carrier) = &mut self.carrier {
-            carrier.reset();
-        }
-        self.power = INITIAL_POWER;
-        self.symbols_out = 0;
-        self.stagger.fill(0.0);
-        self.stagger_at = 0;
+        self.stage.reset();
+        self.stagger.reset();
     }
+}
+
+/// Linear demodulator, coherent tier, **feedforward timing**: the burst form. One call is one
+/// burst — [`FeedforwardTiming`] needs the whole thing before it can place the first symbol — and
+/// everything after the timing is the identical [`SymbolStage`] the tracking demodulator runs, so
+/// a comparison between the two reads the timing and nothing else.
+///
+/// This is the tier the high-order rows are measured on; the numbers behind that are in
+/// [`timing`](super::timing).
+pub struct LinearBurstDemod {
+    timing: FeedforwardTiming,
+    stage: SymbolStage,
+    stagger: Unstagger,
+    aligned: Vec<Complex<f32>>,
+    retimed: Vec<Complex<f32>>,
+}
+
+impl LinearBurstDemod {
+    /// `power_symbols` is the blind level estimate's time constant, as in [`LinearTiming`]; the
+    /// timing has no bandwidth to size, which is the point of the tier.
+    ///
+    /// # Panics
+    /// As [`FeedforwardTiming::new`].
+    #[must_use]
+    pub fn new(
+        params: &LinearParams,
+        receive_filter: &[f32],
+        power_symbols: f64,
+        carrier: Option<CarrierLoop>,
+    ) -> Self {
+        Self {
+            timing: FeedforwardTiming::new(params, receive_filter),
+            stage: SymbolStage::new(params, power_symbols, carrier),
+            stagger: Unstagger::new(params.stagger_samples()),
+            aligned: Vec::new(),
+            retimed: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn params(&self) -> &LinearParams {
+        &self.stage.params
+    }
+
+    /// Demodulate one burst, appending its symbols to `out`. Returns the measured timing offset
+    /// in samples — a number a limits row records rather than a diagnostic.
+    pub fn process(&mut self, iq: &[Complex<f32>], out: &mut Vec<Complex<f32>>) -> f64 {
+        self.stagger.apply(iq, &mut self.aligned);
+        self.retimed.clear();
+        let offset = self.timing.process(&self.aligned, &mut self.retimed);
+        for &y in &self.retimed {
+            out.push(self.stage.push(y));
+        }
+        offset
+    }
+
+    #[must_use]
+    pub fn carrier_freq_cycles_per_symbol(&self) -> f64 {
+        self.stage
+            .carrier
+            .as_ref()
+            .map_or(0.0, CarrierLoop::freq_cycles_per_symbol)
+    }
+}
+
+/// The receive-filter contract, checked once for both tiers.
+fn assert_unit_energy(receive_filter: &[f32]) {
+    assert!(!receive_filter.is_empty(), "receive filter must have taps");
+    let energy: f64 = receive_filter
+        .iter()
+        .map(|&h| f64::from(h) * f64::from(h))
+        .sum();
+    assert!(
+        (energy - 1.0).abs() < 1e-3,
+        "receive filter must be unit-energy (pulse::Norm::Energy), got Σh² = {energy}"
+    );
 }
 
 #[cfg(test)]

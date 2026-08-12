@@ -1,0 +1,45 @@
+{
+  "label": "1024-qam uncoded, coherent tier: LinearMod -> feedforward timing -> decision-directed Costas (bw 0.0003) -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x9a10",
+  "points": [
+    {
+      "ebn0_db": 20.0,
+      "errors": 3370,
+      "trials": 163840
+    },
+    {
+      "ebn0_db": 21.0,
+      "errors": 2096,
+      "trials": 163840
+    },
+    {
+      "ebn0_db": 22.0,
+      "errors": 2245,
+      "trials": 245760
+    },
+    {
+      "ebn0_db": 23.0,
+      "errors": 2068,
+      "trials": 491520
+    },
+    {
+      "ebn0_db": 24.0,
+      "errors": 2074,
+      "trials": 1064960
+    },
+    {
+      "ebn0_db": 25.0,
+      "errors": 2038,
+      "trials": 2539520
+    },
+    {
+      "ebn0_db": 26.0,
+      "errors": 1016,
+      "trials": 4014080
+    },
+    {
+      "ebn0_db": 27.0,
+      "errors": 266,
+      "trials": 4014080
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "label": "π/4-dqpsk uncoded, coherent tier: 4th-power Costas -> unique-word anchor -> slice -> differential decode of the indices, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x9144",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 2254,
+      "trials": 32768
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 4217,
+      "trials": 98304
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2052,
+      "trials": 262144
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2014,
+      "trials": 770048
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2000,
+      "trials": 2670592
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 654,
+      "trials": 4014080
+    }
+  ]
+}

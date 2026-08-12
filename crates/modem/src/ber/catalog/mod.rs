@@ -15,10 +15,14 @@
 //! own gates apply, restated in one place instead of two.
 
 pub mod afsk;
+pub mod ask;
 pub mod framing;
 pub mod gmsk;
+pub mod linear;
 pub mod mfsk;
 pub mod msk;
+pub mod psk;
+pub mod qam;
 
 use crate::ber::{
     Curve,
@@ -248,7 +252,58 @@ pub const ENTRIES: &[Entry] = &[
         name: "afsk",
         measurements: afsk::MEASUREMENTS,
     },
+    Entry {
+        name: "ask",
+        measurements: ask::MEASUREMENTS,
+    },
+    Entry {
+        name: "psk",
+        measurements: psk::COHERENT,
+    },
+    Entry {
+        name: "dpsk",
+        measurements: psk::DIFFERENTIAL,
+    },
+    Entry {
+        name: "oqpsk",
+        measurements: psk::OFFSET,
+    },
+    Entry {
+        name: "pi4-dqpsk",
+        measurements: psk::PI4,
+    },
+    Entry {
+        name: "qam",
+        measurements: qam::SQUARE,
+    },
+    Entry {
+        name: "qam-cross",
+        measurements: qam::CROSS,
+    },
+    Entry {
+        name: "qam-star",
+        measurements: qam::STAR,
+    },
+    Entry {
+        name: "qam-nonuniform",
+        measurements: qam::HIERARCHICAL,
+    },
+    Entry {
+        name: "apsk",
+        measurements: qam::APSK,
+    },
 ];
+
+impl Entry {
+    /// Whether this entry's artifacts live under the linear engine's baseline directory — how the
+    /// crate's own tooling picks the linear rows out of the registry without a second list.
+    #[must_use]
+    pub fn stem_prefix_is_linear(&self) -> bool {
+        self.measurements
+            .iter()
+            .all(|m| m.stem.starts_with("linear/"))
+    }
+}
 
 /// The entry registered under `name`, if any.
 #[must_use]

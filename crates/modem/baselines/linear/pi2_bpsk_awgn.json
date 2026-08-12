@@ -1,0 +1,35 @@
+{
+  "label": "π/2-bpsk uncoded, rotated LinearMod -> feedforward timing -> de-rotate -> 2nd-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x9120",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 2086,
+      "trials": 139264
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 2026,
+      "trials": 253952
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2003,
+      "trials": 614400
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2002,
+      "trials": 1826816
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 1127,
+      "trials": 4005888
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 223,
+      "trials": 4005888
+    }
+  ]
+}

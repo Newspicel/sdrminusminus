@@ -1,0 +1,30 @@
+{
+  "label": "π/4-dqpsk uncoded, differentially encoded indices + π/4 per symbol -> LinearMod -> feedforward timing -> de-rotate -> open loop -> y·conj(y₋₁), RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x9143",
+  "points": [
+    {
+      "ebn0_db": 7.0,
+      "errors": 2101,
+      "trials": 196608
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2013,
+      "trials": 409600
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2020,
+      "trials": 1163264
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2005,
+      "trials": 3899392
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 449,
+      "trials": 4014080
+    }
+  ]
+}

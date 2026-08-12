@@ -1,0 +1,30 @@
+[
+  {
+    "bench": "linear_qpsk_burst",
+    "msamples_per_s": 17.356785641022288,
+    "realtime_factor": 361.599700854631,
+    "config": "4-QAM, 8 sps, RRC α=0.35 span 8, feedforward timing, decision-directed Costas (bw 0.003), held power estimate",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "linear_qam16_burst",
+    "msamples_per_s": 17.06990205522169,
+    "realtime_factor": 355.62295948378517,
+    "config": "16-QAM, 8 sps, RRC α=0.35 span 8, feedforward timing, decision-directed Costas (bw 0.003), held power estimate",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "linear_qam1024_burst",
+    "msamples_per_s": 5.200696452400802,
+    "realtime_factor": 108.34784275835004,
+    "config": "1024-QAM, 8 sps, RRC α=0.35 span 8, feedforward timing, decision-directed Costas (bw 0.0003), held power estimate",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "linear_qam16_tracked",
+    "msamples_per_s": 18.190288583536173,
+    "realtime_factor": 378.96434549033694,
+    "config": "16-QAM, 8 sps, RRC α=0.35 span 8, SymbolSync (bw 0.015), decision-directed Costas",
+    "host": "aarch64-macos"
+  }
+]

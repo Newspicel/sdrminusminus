@@ -422,30 +422,27 @@ pub fn mfsk_noncoherent_ber(m: u32, ebn0_db: f64) -> f64 {
 
 // --- Table-driven nearest-neighbour bound -----------------------------------------------------
 
-/// The high-SNR error rate of an *arbitrary* constellation, computed from the table itself
-/// (MODEM-PLAN §3.3: constellations are data — so is their reference curve).
+/// The error rate of an *arbitrary* constellation, computed from the table itself (MODEM-PLAN
+/// §3.3: constellations are data — so is their reference curve).
 ///
 /// The closed forms above exist because PAM, PSK and square QAM have regular geometries whose
-/// error probability integrates in closed form. Cross-QAM, star-QAM, non-uniform QAM and APSK
-/// do not — but every one of them obeys the same nearest-neighbour asymptote, and that is the
-/// acceptance reference §4.1 asks for wherever a curve has no exact oracle:
+/// error probability integrates in closed form. Cross-QAM, star-QAM, non-uniform QAM and APSK do
+/// not, and §4.1 still asks for an acceptance reference. This is the **union bound on bit
+/// errors**, read off the table:
 ///
 /// ```text
-/// SER ≈ N̄ · Q(d_min / (2σ)),   σ² = N0/2,  Es = 1  ⇒  SER ≈ N̄ · Q(d_min·√(k·γ_b/2))
+/// BER ≤ (1/(M·k)) · Σ_{i≠j} hamming(label_i, label_j) · Q(d_ij / 2σ),   σ² = N0/2
 /// ```
 ///
-/// with `d_min` the table's minimum distance and `N̄` the mean number of points at that
-/// distance. This is the union bound truncated to the closest shell: it *over*counts (every
-/// pair beyond the shell is dropped, but the shell's own overlaps are double-counted) by a
-/// factor that vanishes as SNR grows, so it is an upper bound in the tail and an approximation
-/// at the shoulder. Tolerances against it are therefore stated at high SNR, and every entry
-/// using it also commits its measured curve.
+/// A true upper bound at every SNR, asymptotically tight, and — unlike the nearest-neighbour
+/// truncation of the same sum — it does not collapse on a geometry whose second shell is nearly
+/// as close as its first. That case is not hypothetical: the catalog's 16-star table has its
+/// eight inner-ring pairs at d_min and its radial pairs only 30 % farther, and the truncated form
+/// understates it by more than 2 dB.
 ///
-/// The BER form divides by the labelling's own measured cost rather than assuming Gray: a
-/// nearest-neighbour symbol error costs [`Self::bits_per_error`] bits on average, which for the
-/// closed-form families is exactly 1 and for the descent-labelled ones is what the descent
-/// reached.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// [`Self::d_min`] and friends are kept because they are what a catalog row *reports* — the
+/// geometry in three numbers — even though the curve no longer comes from them alone.
+#[derive(Clone, Debug, PartialEq)]
 pub struct NearestNeighbour {
     /// Minimum distance of the unit-mean-energy table.
     pub d_min: f64,
@@ -455,6 +452,10 @@ pub struct NearestNeighbour {
     pub bits_per_error: f64,
     /// log2 of the table size.
     pub bits_per_symbol: f64,
+    /// Every unordered pair as `(distance, Hamming weight)`, which is the whole union sum.
+    pairs: Vec<(f64, f64)>,
+    /// Table size.
+    points: f64,
 }
 
 /// Relative slack defining "at the minimum distance", matching the constellation module's own:
@@ -463,8 +464,8 @@ pub struct NearestNeighbour {
 const SHELL_SLACK: f64 = 1.002;
 
 impl NearestNeighbour {
-    /// Reads the three geometric numbers off a table. O(M²) — a setup-time measurement, not a
-    /// per-point one; hold the result and call [`Self::ser`] on the grid.
+    /// Reads the geometry off a table. O(M²) — a setup-time measurement, not a per-point one;
+    /// hold the result and call [`Self::ber`] on the grid.
     #[must_use]
     pub fn of(c: &crate::constellation::Constellation) -> Self {
         let p = c.points();
@@ -477,36 +478,51 @@ impl NearestNeighbour {
             }
         }
         let limit = min * SHELL_SLACK;
-        let (mut pairs, mut bits) = (0u64, 0u64);
+        let (mut shell_pairs, mut shell_bits) = (0u64, 0u64);
+        let mut pairs = Vec::with_capacity(n * (n - 1) / 2);
         for i in 0..n {
             for j in (i + 1)..n {
-                if d2(i, j) <= limit {
-                    pairs += 1;
-                    bits += u64::from((c.labels()[i] ^ c.labels()[j]).count_ones());
+                let d = d2(i, j);
+                let bits = f64::from((c.labels()[i] ^ c.labels()[j]).count_ones());
+                pairs.push((d.sqrt(), bits));
+                if d <= limit {
+                    shell_pairs += 1;
+                    shell_bits += bits as u64;
                 }
             }
         }
         Self {
             d_min: min.sqrt(),
             // Each pair is one neighbour for each of its two endpoints.
-            neighbours: 2.0 * pairs as f64 / n as f64,
-            bits_per_error: bits as f64 / pairs as f64,
+            neighbours: 2.0 * shell_pairs as f64 / n as f64,
+            bits_per_error: shell_bits as f64 / shell_pairs as f64,
             bits_per_symbol: f64::from(c.bits_per_symbol() as u32),
+            pairs,
+            points: n as f64,
         }
     }
 
-    /// Symbol error rate at Eb/N0 in dB, per the module's per-information-bit accounting.
+    /// The nearest-neighbour *symbol* error rate — the truncated form, kept because it is the
+    /// number a catalog row quotes when describing a geometry's sensitivity, and because the
+    /// closed forms it generalises are stated the same way.
     #[must_use]
-    pub fn ser(self, ebn0_db: f64) -> f64 {
+    pub fn ser(&self, ebn0_db: f64) -> f64 {
         let gs = self.bits_per_symbol * ebn0_lin(ebn0_db);
         (self.neighbours * q(self.d_min * (0.5 * gs).sqrt())).min(1.0)
     }
 
-    /// Bit error rate: symbol errors times the labelling's measured bits per error, spread over
-    /// the symbol's bits.
+    /// The union bound on the bit error rate — the acceptance reference (see the type docs).
     #[must_use]
-    pub fn ber(self, ebn0_db: f64) -> f64 {
-        (self.ser(ebn0_db) * self.bits_per_error / self.bits_per_symbol).min(1.0)
+    pub fn ber(&self, ebn0_db: f64) -> f64 {
+        // σ² = N0/2 and Es = 1, so d/(2σ) = d·√(k·γ_b/2).
+        let scale = (0.5 * self.bits_per_symbol * ebn0_lin(ebn0_db)).sqrt();
+        let sum: f64 = self
+            .pairs
+            .iter()
+            .map(|&(d, bits)| bits * q(d * scale))
+            .sum();
+        // Each unordered pair contributes to both of its endpoints' error events.
+        (2.0 * sum / (self.points * self.bits_per_symbol)).min(1.0)
     }
 }
 
@@ -671,19 +687,30 @@ mod tests {
         assert!((pam4.bits_per_error - 1.0).abs() < 1e-12);
         for db in [12.0, 15.0, 18.0] {
             assert_rel(pam4.ser(db), mpam_ser(4, db), 0.02, "4-PAM SER");
-            assert_rel(pam4.ber(db), mpam_ber(4, db), 0.02, "4-PAM BER");
+            // The union bound is an upper bound, tight in the tail: within 2% by 15 dB and never
+            // below the closed form.
+            assert!(
+                pam4.ber(db) >= mpam_ber(4, db) * 0.999,
+                "4-PAM union bound below theory"
+            );
+            assert_rel(pam4.ber(db), mpam_ber(4, db), 0.05, "4-PAM BER");
         }
         let qam16 = NearestNeighbour::of(&tables::qam_square(16).unwrap());
         assert!((qam16.neighbours - 3.0).abs() < 1e-12, "{qam16:?}");
         for db in [14.0, 17.0, 20.0] {
             assert_rel(qam16.ser(db), mqam_ser(16, db), 0.02, "16-QAM SER");
-            assert_rel(qam16.ber(db), mqam_ber(16, db), 0.02, "16-QAM BER");
+            assert!(
+                qam16.ber(db) >= mqam_ber(16, db) * 0.999,
+                "16-QAM union bound below theory"
+            );
+            assert_rel(qam16.ber(db), mqam_ber(16, db), 0.05, "16-QAM BER");
         }
         // BPSK is the degenerate case the whole harness is calibrated on: one neighbour at
         // distance 2, so the bound is the exact curve.
         let bpsk = NearestNeighbour::of(&tables::pam(2).unwrap());
         for db in [0.0, 5.0, 10.0] {
-            assert_rel(bpsk.ser(db), bpsk_ber(db), 1e-9, "BPSK");
+            assert_rel(bpsk.ser(db), bpsk_ber(db), 1e-9, "BPSK SER");
+            assert_rel(bpsk.ber(db), bpsk_ber(db), 1e-9, "BPSK union bound");
         }
     }
 
@@ -703,9 +730,29 @@ mod tests {
         // DVB-S2 16-APSK gives away Euclidean distance to stay circular; on a linear channel
         // that is a measurable loss against 16-QAM, and the bound must say so.
         assert!(apsk16.d_min < qam16.d_min, "{apsk16:?} vs {qam16:?}");
-        for nn in [cross32, apsk16] {
+        for nn in [&cross32, &apsk16] {
             assert!(nn.ser(25.0) < 1e-6 && nn.ser(0.0) <= 1.0);
+            assert!(nn.ber(25.0) < 1e-5 && nn.ber(0.0) <= 1.0);
         }
+        // What the union sum buys over the truncated form, and where. On the 16-star table the
+        // radial pairs sit 31 % beyond d_min, so at the shoulder they are a real share of the
+        // error rate and the truncation misses half of it; by the tail their Q has collapsed and
+        // the two agree. A reference that only matched in the tail would be judging the shoulder
+        // of every committed curve against a number it never meant.
+        let star = NearestNeighbour::of(&tables::qam_star(&[1.0, 2.0], 8).unwrap());
+        let truncated = |db: f64| star.ser(db) * star.bits_per_error / star.bits_per_symbol;
+        assert!(
+            star.ber(6.0) > 1.3 * truncated(6.0),
+            "shoulder: union {} vs truncated {}",
+            star.ber(6.0),
+            truncated(6.0)
+        );
+        assert!(
+            star.ber(18.0) < 1.02 * truncated(18.0),
+            "tail: union {} vs truncated {}",
+            star.ber(18.0),
+            truncated(18.0)
+        );
     }
 
     /// Every reference value in this module was computed independently with mpmath at 40

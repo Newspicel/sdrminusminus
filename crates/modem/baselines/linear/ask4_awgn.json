@@ -1,0 +1,30 @@
+{
+  "label": "4-ask (unipolar) uncoded, coherent tier: LinearMod -> feedforward timing -> decision-directed Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0x4a54",
+  "points": [
+    {
+      "ebn0_db": 13.0,
+      "errors": 2022,
+      "trials": 229376
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 2055,
+      "trials": 524288
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2016,
+      "trials": 1310720
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 1968,
+      "trials": 4014080
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 539,
+      "trials": 4014080
+    }
+  ]
+}

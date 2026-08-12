@@ -1,0 +1,9 @@
+[
+  {
+    "bench": "linear_ook_envelope",
+    "msamples_per_s": 18.68177057592172,
+    "realtime_factor": 389.2035536650359,
+    "config": "OOK, 8 sps, RRC α=0.35 span 8, magnitude + DC removal + tracking timing",
+    "host": "aarch64-macos"
+  }
+]

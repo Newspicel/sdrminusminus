@@ -1,0 +1,51 @@
+{
+  "entry": "linear/qam16_limits",
+  "seed": 39446,
+  "sensitivity_db_1e2": 8.417745568387689,
+  "sensitivity_db_1e3": 10.935737229732183,
+  "sensitivity_db_1e4": 12.598288300082485,
+  "rows": [
+    {
+      "axis": "static CFO",
+      "unit": "Hz",
+      "threshold": 2.44140625,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "frequency drift",
+      "unit": "Hz/s",
+      "threshold": 33.5693359375,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "sample clock",
+      "unit": "ppm",
+      "threshold": 14.0380859375,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "static timing offset",
+      "unit": "fraction of a symbol",
+      "threshold": 0.5,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "IQ gain imbalance",
+      "unit": "dB",
+      "threshold": 1.125,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "IQ phase imbalance",
+      "unit": "degrees",
+      "threshold": 6.97265625,
+      "criterion": "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "profile:static-indoor",
+      "unit": "dB",
+      "threshold": 0.4141377304823006,
+      "criterion": "Eb/N0 degradation at BER 1e-3"
+    }
+  ]
+}

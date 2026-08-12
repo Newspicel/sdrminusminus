@@ -1,0 +1,30 @@
+{
+  "label": "128-cross-qam uncoded, coherent tier: LinearMod -> feedforward timing -> decision-directed Costas (bw 0.001) -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0xc128",
+  "points": [
+    {
+      "ebn0_db": 15.0,
+      "errors": 2051,
+      "trials": 229376
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 2102,
+      "trials": 458752
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 2143,
+      "trials": 1204224
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 2026,
+      "trials": 3383296
+    },
+    {
+      "ebn0_db": 19.0,
+      "errors": 596,
+      "trials": 4014080
+    }
+  ]
+}

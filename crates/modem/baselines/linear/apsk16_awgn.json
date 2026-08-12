@@ -1,0 +1,30 @@
+{
+  "label": "16-apsk (DVB-S2 γ=3.15) uncoded, coherent tier: LinearMod -> feedforward timing -> decision-directed Costas (bw 0.003) -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, uncoded BER, seed 0xa516",
+  "points": [
+    {
+      "ebn0_db": 9.0,
+      "errors": 2314,
+      "trials": 262144
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2043,
+      "trials": 458752
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2025,
+      "trials": 1114112
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2022,
+      "trials": 2850816
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 848,
+      "trials": 4030464
+    }
+  ]
+}

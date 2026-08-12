@@ -1,0 +1,35 @@
+{
+  "label": "bpsk uncoded, LinearMod -> feedforward timing -> 2nd-power Costas -> unique-word anchor, RRC α=0.35 span 8, 8 sps, 48 kHz 6000 baud, 64+32+16 symbol overhead in Eb, uncoded BER, seed 0xb95",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 2066,
+      "trials": 131072
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 2055,
+      "trials": 253952
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2001,
+      "trials": 630784
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2002,
+      "trials": 1712128
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 1235,
+      "trials": 4005888
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 214,
+      "trials": 4005888
+    }
+  ]
+}

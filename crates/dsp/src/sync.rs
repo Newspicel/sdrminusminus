@@ -219,7 +219,16 @@ impl SymbolSync {
 }
 
 /// Piecewise-parabolic interpolation at `mu` in [0, 1) between `w[1]` and `w[2]`.
-fn farrow(w: &[Complex<f32>], mu: f32) -> Complex<f32> {
+///
+/// Public because it is the workspace's one fractional-delay kernel (MODEM-PLAN §3.2: one
+/// Farrow). [`SymbolSync`] drives it from a tracking loop; a feedforward timing estimator drives
+/// the same four taps from a computed offset, and the two must interpolate identically or a
+/// comparison between the tiers would read the interpolator instead of the estimator.
+///
+/// # Panics
+/// If `w` is shorter than four samples.
+#[must_use]
+pub fn farrow(w: &[Complex<f32>], mu: f32) -> Complex<f32> {
     let curvature = w[3] - w[2] - w[1] + w[0];
     w[1] + (w[2] - w[1]) * mu + curvature * (FARROW_CURVATURE * mu * (mu - 1.0))
 }
