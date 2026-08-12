@@ -177,10 +177,10 @@ The dial and the plot were built so this could hang off them without rework, and
 
 ## 9. Digital voice
 
-**These decode the call, not the voice.** Every mode below but M17 carries an AMBE-family
-vocoder, and this build ships none — no digital-voice channel produces audio. What they do
-recover is the signalling around the payload, which is what a scanner log is made of: who
-transmitted, to which talkgroup or callsign, on which colour code or network, encrypted or not.
+**These decode the call and the voice.** AMBE/AMBE+2/IMBE or Codec2 payloads from every mode
+below become bounded 48 kHz mono PCM on the same Opus/browser path as analog channels. The
+signalling around that payload still supplies the scanner log: who transmitted, to which
+talkgroup or callsign, on which colour code or network, encrypted or not.
 
 - **[shipped]** Shared C4FM front end — one `sdrmm-modem` CPM entry the six four-level modes
   reach as parameters (the ETSI dibit table, each mode's deviation as a modulation index, its
@@ -211,26 +211,40 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
   committed off-air call now proves that its real payload produces bounded PCM
 - **[shipped]** M17 — the one mode that names both parties in the clear: link setup frame through
   derandomiser, quadratic interleaver, P1 depuncturing, Viterbi and CRC-16, with base-40
-  callsigns, encryption flag and end-of-transmission
+  callsigns, encryption flag and end-of-transmission. Stream frames undo P2 puncturing and
+  rebuild late-entry link setup from six Golay-protected LICH fragments; voice-only streams
+  decode two Codec2 3200 blocks per frame, voice+data streams decode one 40 ms Codec2 1600
+  block, and encrypted streams are muted
 - **[shipped]** System Fusion (YSF) — FICH through its interleaver, Viterbi, four Golay(24,12,8)
   blocks and CRC-16: frame type, data mode and DG-ID, one log line per call rather than ten a
-  second
+  second. All three speech layouts produce audio: carrier-interleaved AMBE+2 in V/D1,
+  repetition-protected natural 49-bit AMBE+2 in V/D2, and full-rate IMBE with its Voice-FR
+  interleaver and scrambler
 - **[shipped]** P25 Phase 1 — frame sync, status-symbol stripping and the BCH(63,16,23) network
   identifier: NAC and data unit id, so headers, calls, terminators and trunking blocks are
-  distinguished and a system is identified by its NAC
+  distinguished and a system is identified by its NAC. LDU1 and LDU2 are collected at their
+  exact 1728-bit wire length, status dibits removed, and all nine Annex-H IMBE frames decoded
 - **[shipped]** dPMR — FS1/FS3/FS4 framing and the full header information field (descrambled,
   de-interleaved, CRC-8 checked): called and calling IDs, colour code, individual versus group
+  call. Once that checked header establishes a voice mode, FS2 opens the complete 756-symbol
+  superframe and its four TCH blocks yield sixteen carrier-interleaved AMBE+2 frames
 - **[shipped]** NXDN — frame sync word and link information channel at both channel widths
   (6.25 kHz at 2400 symbols/s, 12.5 kHz at 4800): channel type, direction, frame shape. A
   frame is believed only once the next sync word lands a whole number of frames later — the
-  LICH's lone parity bit is no obstacle to noise, but the frame cadence is
+  LICH's lone parity bit is no obstacle to noise, but the frame cadence is. The complete
+  post-sync payload is PN9-descrambled, LICH steal options select its traffic slots, and all
+  available EHR AMBE+2 frames are deinterleaved and decoded
 - **[shipped]** D-Star — GMSK receiver on the library's Gaussian CPM entry (BT 0.5 pulse, h = ½, its own matched filter) plus the slow-data channel, which is how a receiver that
   joined a call in progress gets the header: URCALL, MYCALL, repeater and the text message, all
-  behind the header's own CRC
+  behind the header's own CRC. Every voice frame's first-generation AMBE 3,600 × 2,400 payload
+  is decoded by the statically linked ISC-licensed mbelib core; no system vocoder library is
+  required at runtime
 - **[shipped]** Every mode verified against its specification via a reference modulator that
   encodes the real framing (the same BPTC, Golay, convolutional and CRC layers, in reverse), fed
   through the decoder in ragged block splits, plus a noise-decodes-to-nothing test per mode.
-  **DMR is the only one that has decoded a real signal so far**, off a recorded PMR446 call; the
+  Real encoded 440 Hz payloads additionally cross every carrier interleaver and vocoder into
+  bounded PCM (plus the standardized D-Star null frame). **DMR is the only one that has decoded
+  a real signal so far**, off a recorded PMR446 call; the
   other six carry the same caveat the ADS-B/AIS/ACARS/NAVTEX decoders do, and the constants most
   likely to be wrong are named in each module's header comment
 - **[shipped]** Sync-anchored level and centre estimation — a burst's own sync pattern says what
@@ -242,10 +256,8 @@ transmitted, to which talkgroup or callsign, on which colour code or network, en
   second after its last sync so the next transmitter meets clean estimates. Together with the
   transition-gated clock this closed the late-entry gap: the generated keyed waveform now
   decodes header, embedded link control and terminator alike
-- **[planned]** Vocoder audio for D-Star, YSF, NXDN, P25, dPMR and M17 — DMR AMBE+2 is shipped;
-  the remaining AMBE/IMBE/Codec2 framing above is where each vocoder plugs in
 - **[planned]** P25 link control and trunking blocks (LDU1 link control, TSBK), NXDN SACCH/FACCH
-  addressing, YSF callsigns, M17 stream LICH late entry — the layers below each mode's framing
+  addressing and YSF callsigns — the signalling layers below each mode's voice framing
 - **[planned]** FreeDV
 - **[planned]** Trunking following — P25 / DMR Tier III control channel decode with auto-steered
   voice channels. Needs the control-channel payloads above first

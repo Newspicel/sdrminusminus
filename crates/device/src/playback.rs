@@ -18,6 +18,10 @@ const NO_SEEK: u64 = u64::MAX;
 #[derive(Debug)]
 pub struct PlaybackShared {
     position: AtomicU64,
+    /// Last position fixed by pause, seek or stop. A worker whose in-flight block loses a race
+    /// with that request restores this value instead of publishing stale progress.
+    requested_position: AtomicU64,
+    position_generation: AtomicU64,
     total: AtomicU64,
     paused: AtomicBool,
     seek: AtomicU64,
@@ -28,6 +32,8 @@ impl PlaybackShared {
     pub fn new(total_samples: u64) -> Self {
         Self {
             position: AtomicU64::new(0),
+            requested_position: AtomicU64::new(0),
+            position_generation: AtomicU64::new(0),
             total: AtomicU64::new(total_samples),
             paused: AtomicBool::new(false),
             seek: AtomicU64::new(NO_SEEK),
@@ -49,7 +55,13 @@ impl PlaybackShared {
     pub fn control(&self, request: &PlaybackRequest) {
         match request.action {
             PlaybackAction::Play => self.paused.store(false, Ordering::Relaxed),
-            PlaybackAction::Pause => self.paused.store(true, Ordering::Relaxed),
+            PlaybackAction::Pause => {
+                self.paused.store(true, Ordering::Relaxed);
+                // Freeze at the last published boundary. The seek both invalidates a block
+                // already in flight and makes resume continue from the position returned to
+                // the client, rather than from beyond an unseen block.
+                self.request_seek(self.position.load(Ordering::SeqCst));
+            }
             PlaybackAction::Stop => {
                 self.paused.store(true, Ordering::Relaxed);
                 self.request_seek(0);
@@ -60,18 +72,47 @@ impl PlaybackShared {
         }
     }
 
-    /// Publish where the worker has got to.
-    pub fn set_position(&self, samples: u64) {
-        self.position.store(samples, Ordering::Relaxed);
+    /// Snapshot the seek generation before the worker starts reading a block.
+    #[must_use]
+    pub fn position_generation(&self) -> u64 {
+        self.position_generation.load(Ordering::SeqCst)
+    }
+
+    /// Publish where the worker has got to, unless pause, seek or stop landed while its block
+    /// was in flight. The second generation check closes the race where the request arrives
+    /// between the first check and the position store.
+    pub fn set_position(&self, samples: u64, generation: u64) {
+        if self.position_generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        self.position.store(samples, Ordering::SeqCst);
+        if self.position_generation.load(Ordering::SeqCst) == generation {
+            return;
+        }
+
+        // A request crossed the store above. Restore its position, retrying if another request
+        // arrives while the restoration itself is in progress.
+        loop {
+            let current = self.position_generation.load(Ordering::SeqCst);
+            let requested = self.requested_position.load(Ordering::SeqCst);
+            self.position.store(requested, Ordering::SeqCst);
+            if self.position_generation.load(Ordering::SeqCst) == current {
+                break;
+            }
+        }
     }
 
     fn request_seek(&self, samples: u64) {
+        let requested = samples.min(self.total());
         // The position moves with the request rather than when the worker gets there: a paused
         // transport never reaches the worker, and a scrub that snapped back until playback
         // resumed would read as a dropped input.
-        self.position
-            .store(samples.min(self.total()), Ordering::Relaxed);
-        self.seek.store(samples, Ordering::Relaxed);
+        // Publish the requested value before advancing the generation. That gives an in-flight
+        // worker a stable value to restore if it crosses this request.
+        self.requested_position.store(requested, Ordering::SeqCst);
+        self.seek.store(samples, Ordering::SeqCst);
+        self.position_generation.fetch_add(1, Ordering::SeqCst);
+        self.position.store(requested, Ordering::SeqCst);
     }
 
     /// The pending seek target, cleared as it is taken — a seek is an event, and replaying it
@@ -129,13 +170,48 @@ mod tests {
     #[test]
     fn stop_pauses_and_rewinds_in_one_step() {
         let shared = PlaybackShared::new(1_000);
-        shared.set_position(400);
+        shared.set_position(400, shared.position_generation());
 
         shared.control(&request(PlaybackAction::Stop, None));
         let status = shared.status();
         assert!(status.paused);
         assert_eq!(status.position_samples, 0);
         assert_eq!(shared.take_seek(), Some(0));
+    }
+
+    /// The worker may have read a block before stop arrived. Completing that old block must not
+    /// move the stopped transport away from zero.
+    #[test]
+    fn stale_worker_progress_cannot_overwrite_a_stop() {
+        let shared = PlaybackShared::new(1_000);
+        let in_flight = shared.position_generation();
+
+        shared.control(&request(PlaybackAction::Stop, None));
+        shared.set_position(1_000, in_flight);
+
+        assert_eq!(
+            shared.status(),
+            PlaybackStatus {
+                position_samples: 0,
+                total_samples: 1_000,
+                paused: true,
+            }
+        );
+    }
+
+    /// Pause returns a status synchronously. A block that was already being read must not make
+    /// the immediately following state snapshot disagree with that response.
+    #[test]
+    fn stale_worker_progress_cannot_overwrite_a_pause() {
+        let shared = PlaybackShared::new(1_000);
+        let in_flight = shared.position_generation();
+
+        shared.control(&request(PlaybackAction::Pause, None));
+        let paused = shared.status();
+        shared.set_position(1_000, in_flight);
+
+        assert_eq!(shared.status(), paused);
+        assert_eq!(shared.take_seek(), Some(paused.position_samples));
     }
 
     /// The readout has to follow the scrub immediately: while paused the worker never runs, so
@@ -170,7 +246,7 @@ mod tests {
     #[test]
     fn a_seek_without_a_position_is_a_seek_to_the_start() {
         let shared = PlaybackShared::new(1_000);
-        shared.set_position(500);
+        shared.set_position(500, shared.position_generation());
         shared.control(&request(PlaybackAction::Seek, None));
         assert_eq!(shared.take_seek(), Some(0));
         assert_eq!(shared.status().position_samples, 0);

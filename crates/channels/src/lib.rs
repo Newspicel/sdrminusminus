@@ -655,7 +655,20 @@ mod tests {
             );
             assert_eq!(
                 d.has_audio,
-                matches!(d.type_id.as_str(), "nfm" | "am" | "ssb" | "wfm" | "dmr"),
+                matches!(
+                    d.type_id.as_str(),
+                    "nfm"
+                        | "am"
+                        | "ssb"
+                        | "wfm"
+                        | "dmr"
+                        | "dstar"
+                        | "ysf"
+                        | "nxdn"
+                        | "p25"
+                        | "dpmr"
+                        | "m17"
+                ),
                 "{} audio flag does not match its mode class",
                 d.type_id
             );
@@ -692,9 +705,9 @@ mod tests {
                 "{} emitted a partial sample frame",
                 d.type_id
             );
-            // DMR is burst gated: idle/noise deliberately produces no PCM. Its decoded-call
-            // duration is checked against the 60 ms voice-burst cadence in the DMR tests.
-            if d.type_id == "dmr" {
+            // Digital voice is burst gated: idle/noise deliberately produces no PCM. Each
+            // mode's encoded-waveform test checks decoded duration at its own frame cadence.
+            if d.decoder_kind.as_deref() == Some("dv") {
                 continue;
             }
             let frames = audio.len() / channels;

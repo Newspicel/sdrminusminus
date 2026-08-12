@@ -25,6 +25,12 @@ sdrmm-modem.workspace = true
 num-complex.workspace = true
 thiserror.workspace = true
 blip25-vocoder.workspace = true
+codec2.workspace = true
+
+[build-dependencies]
+# Builds the small, statically linked first-generation AMBE decoder used only by D-STAR.
+# There is no runtime system-library dependency.
+cc.workspace = true
 
 [dev-dependencies]
 rustfft.workspace = true

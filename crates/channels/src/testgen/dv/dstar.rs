@@ -12,8 +12,6 @@ use sdrmm_modem::{
     pulse::{self, Norm},
 };
 
-use super::filler;
-
 const BAUD: f64 = 4_800.0;
 /// ±1200 Hz at 4800 bit/s is h = ½ — minimum shift — under a BT 0.5 premod Gaussian: what an
 /// ICOM radio transmits.
@@ -26,6 +24,9 @@ const SYNC: u32 = 0x0055_2D16;
 const FRAME_BITS: usize = 96;
 const HEADER_BYTES: usize = 41;
 const SCRAMBLER: [u8; 3] = [0x70, 0x4F, 0x93];
+/// The standardized AMBE 3,600 x 2,400 null frame used by D-STAR radios while no speech is
+/// available. Keeping it valid makes the reference waveform exercise the native vocoder too.
+const AMBE_NULL: [u8; 9] = [0x9E, 0x8D, 0x32, 0x88, 0x26, 0x1A, 0x3F, 0x61, 0xE8];
 
 /// One call, as the header names it.
 pub struct Call {
@@ -121,9 +122,14 @@ fn build_packet(header: u8, payload: &[u8]) -> [u8; 6] {
     packet
 }
 
-/// 72 bits of vocoder filler and 24 bits of data.
-fn voice_frame(data: &[u8; 3], seed: usize) -> Vec<bool> {
-    let mut bits = filler(FRAME_BITS - 24, 97 + seed as u32);
+/// A standardized 72-bit AMBE null frame and 24 bits of data.
+fn voice_frame(data: &[u8; 3], _seed: usize) -> Vec<bool> {
+    let mut bits = Vec::with_capacity(FRAME_BITS);
+    for &byte in &AMBE_NULL {
+        for i in (0..8).rev() {
+            bits.push(byte >> i & 1 == 1);
+        }
+    }
     for &byte in data {
         for i in (0..8).rev() {
             bits.push(byte >> i & 1 == 1);

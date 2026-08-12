@@ -11,10 +11,10 @@
 //! frame of latency and a transmission's last frame its confirmation, and costs a noise-only
 //! channel everything.
 //!
-//! The addresses live one layer further in, in the SACCH and FACCH, behind a punctured
-//! convolutional code and an interleaver this does not implement (FEATURES §9). What is
-//! reported is therefore the frame's shape, not its parties: enough to see a system, its
-//! direction and when it is busy.
+//! The physical PN9 randomiser is removed across the complete post-sync frame. LICH steal
+//! options then select the EHR traffic slots, whose four AMBE+2 frames are carrier-deinterleaved
+//! and decoded. Addresses remain one layer further in, behind the SACCH/FACCH convolutional
+//! code; signalling therefore reports frame shape and direction while audio is complete.
 
 use std::sync::LazyLock;
 
@@ -25,7 +25,10 @@ use sdrmm_wire::{
     NxdnBandwidth, NxdnParams,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params};
+use super::{
+    INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params,
+    vocoder::{AMBE_3600_INTERLEAVE, MbeDecoder, half_rate_code_vectors},
+};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 /// Frame sync word 0xCDF59, 20 bits.
@@ -34,8 +37,8 @@ const FSW_BITS: u32 = 20;
 const SYNC_TOLERANCE: u32 = 2;
 
 /// The LICH is the 16 bits after the sync.
-const LICH_BITS: usize = 16;
-const LICH_SYMBOLS: usize = LICH_BITS / 2;
+const LICH_BITS: usize = 8;
+const LICH_SYMBOLS: usize = 8;
 /// The sync outlasts the LICH in the window: its ten symbols are what the level and centre
 /// estimates are anchored to.
 const FSW_SYMBOLS: usize = FSW_BITS as usize / 2;
@@ -43,6 +46,9 @@ const FSW_SYMBOLS: usize = FSW_BITS as usize / 2;
 /// One frame, sync word to sync word: 384 bits at either channel width. The cadence every
 /// real transmission holds, and the confirmation a lone parity bit cannot give.
 const FRAME_SYMBOLS: u64 = 192;
+const POST_FSW_SYMBOLS: usize = FRAME_SYMBOLS as usize - FSW_SYMBOLS;
+const SACCH_SYMBOLS: usize = 30;
+const VOICE_START: usize = LICH_SYMBOLS + SACCH_SYMBOLS;
 
 const RRC_ALPHA: f64 = 0.2;
 
@@ -60,7 +66,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "NXDN".to_owned(),
     bandwidth_hz: 6_250.0,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
     decoder_kind: Some("dv".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -151,19 +157,29 @@ struct Decoder {
     clock: u64,
     /// The last sync's frame and where its sync word ended, held until the next sync word
     /// confirms the cadence.
-    held: Option<(u64, DvFrame)>,
+    held: Option<Held>,
+    sync_at: u64,
+    vocoder: MbeDecoder,
+}
+
+struct Held {
+    at: u64,
+    frame: DvFrame,
+    voice: Vec<[bool; 72]>,
 }
 
 impl Decoder {
     fn new() -> Self {
         Self {
-            window: SymbolWindow::new(FSW_SYMBOLS),
+            window: SymbolWindow::new(POST_FSW_SYMBOLS.max(FSW_SYMBOLS)),
             countdown: 0,
             hunting: true,
             bits: Vec::with_capacity(LICH_BITS),
             last_kind: None,
             clock: 0,
             held: None,
+            sync_at: 0,
+            vocoder: MbeDecoder::half_rate(),
         }
     }
 
@@ -174,6 +190,8 @@ impl Decoder {
         self.last_kind = None;
         self.clock = 0;
         self.held = None;
+        self.sync_at = 0;
+        self.vocoder.reset();
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
@@ -183,19 +201,11 @@ impl Decoder {
             self.countdown -= 1;
             if self.countdown == 0 {
                 self.hunting = true;
-                let fsw_at = self.clock - LICH_SYMBOLS as u64;
-                match self.lich() {
-                    Some(frame) => {
-                        if let Some((at, held)) = self.held.take()
-                            && on_cadence(fsw_at - at)
-                        {
-                            self.emit(held, out);
-                        }
-                        self.held = Some((fsw_at, frame));
-                    }
-                    // A failed parity is not a frame; whatever was held has lost its cadence.
-                    None => self.held = None,
-                }
+                self.held = self.frame().map(|(frame, voice)| Held {
+                    at: self.sync_at,
+                    frame,
+                    voice,
+                });
             }
             return;
         }
@@ -203,14 +213,27 @@ impl Decoder {
             // No transmitter puts a sync word mid-frame: while a held frame's cadence is
             // still running, a match there is noise that happened to look like one, and
             // following it would throw away the frame the real sync is about to confirm.
-            if let Some((at, _)) = self.held
-                && self.clock < at + FRAME_SYMBOLS - 1
+            if let Some(held) = &self.held
+                && self.clock < held.at + FRAME_SYMBOLS - 1
             {
                 return;
             }
+            if let Some(held) = self.held.take()
+                && on_cadence(self.clock - held.at)
+            {
+                self.emit(held.frame, out);
+                for frame in held.voice {
+                    self.vocoder.decode_half_code_vectors(
+                        half_rate_code_vectors(&frame, &AMBE_3600_INTERLEAVE),
+                        false,
+                        out,
+                    );
+                }
+            }
             self.window.anchor(FSW, FSW_BITS);
             self.hunting = false;
-            self.countdown = LICH_SYMBOLS;
+            self.sync_at = self.clock;
+            self.countdown = POST_FSW_SYMBOLS;
         }
     }
 
@@ -222,16 +245,24 @@ impl Decoder {
         out.events.push(DecoderEvent::Dv(frame));
     }
 
-    fn lich(&mut self) -> Option<DvFrame> {
-        self.window.bits(0, LICH_SYMBOLS, &mut self.bits);
+    fn frame(&mut self) -> Option<(DvFrame, Vec<[bool; 72]>)> {
+        self.window.bits(0, POST_FSW_SYMBOLS, &mut self.bits);
+        // NXDN's x^9+x^5+1 physical randomiser inverts the high bit of selected dibits.
+        let mut register = 0xE4u16;
+        for symbol in 0..POST_FSW_SYMBOLS {
+            let pn = register & 1 != 0;
+            let feedback = (register ^ (register >> 4)) & 1;
+            register = register >> 1 | feedback << 8;
+            self.bits[symbol * 2] ^= pn;
+        }
         // RF channel type, functional channel type, option, direction, then odd parity over
-        // the seven bits before it.
-        let information = &self.bits[..8];
+        // the seven bits before it. The information is the high bit of each LICH dibit.
+        let information: Vec<bool> = (0..LICH_SYMBOLS).map(|i| self.bits[i * 2]).collect();
         if information.iter().filter(|b| **b).count() % 2 == 0 {
             return None;
         }
-        let rf_channel = bits_to_u32(information, 0, 2);
-        let functional = bits_to_u32(information, 2, 2);
+        let rf_channel = bits_to_u32(&information, 0, 2);
+        let functional = bits_to_u32(&information, 2, 2);
         let outbound = information[6];
 
         let kind = match functional {
@@ -247,7 +278,24 @@ impl Decoder {
             channel_name(rf_channel),
             if outbound { "outbound" } else { "inbound" }
         ));
-        Some(frame)
+        let option = bits_to_u32(&information, 4, 2);
+        let mut voice = Vec::new();
+        if rf_channel != 0 && matches!(functional, 0 | 2) {
+            let ranges: &[(usize, usize)] = match option {
+                1 => &[(VOICE_START + 72, VOICE_START + 144)],
+                2 => &[(VOICE_START, VOICE_START + 72)],
+                3 => &[(VOICE_START, VOICE_START + 144)],
+                _ => &[],
+            };
+            for &(start, end) in ranges {
+                for frame_start in (start..end).step_by(36) {
+                    let mut frame_bits = [false; 72];
+                    frame_bits.copy_from_slice(&self.bits[frame_start * 2..frame_start * 2 + 72]);
+                    voice.push(frame_bits);
+                }
+            }
+        }
+        Some((frame, voice))
     }
 }
 
@@ -270,7 +318,14 @@ fn channel_name(rf_channel: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{dv::testutil::decode, testgen::dv::nxdn as tx, testutil::settings};
+    use crate::{
+        dv::{
+            testutil::{assert_tone_audio, decode, decode_with_audio},
+            vocoder::testutil::half_rate_frames,
+        },
+        testgen::dv::nxdn as tx,
+        testutil::settings,
+    };
 
     fn channel(bandwidth: NxdnBandwidth) -> NxdnChannel {
         NxdnChannel::new(
@@ -311,6 +366,18 @@ mod tests {
             .find(|f| f.kind == DvFrameKind::Control)
             .expect("control channel frame");
         assert_eq!(control.opcode.as_deref(), Some("control channel inbound"));
+    }
+
+    #[test]
+    fn decodes_ehr_voice_to_audio() {
+        let encoded = half_rate_frames(20);
+        let voice: [[[bool; 72]; 4]; 5] =
+            std::array::from_fn(|frame| std::array::from_fn(|slot| encoded[frame * 4 + slot]));
+        let iq = tx::transmission_with_voice(&tx::Shape::default(), 1, true, &voice, INPUT_RATE_HZ);
+        let (_, audio) = decode_with_audio(&mut channel(NxdnBandwidth::Narrow), &iq);
+        // The last frame deliberately remains unreported: NXDN waits for the following sync
+        // to confirm cadence before trusting its one-bit LICH parity.
+        assert_tone_audio(&audio, 16);
     }
 
     #[test]

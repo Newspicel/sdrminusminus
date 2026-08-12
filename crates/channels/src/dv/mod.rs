@@ -1,10 +1,10 @@
 //! Digital-voice decoders (PLAN §13 wave 3): DMR, D-Star, System Fusion, NXDN, P25 Phase 1,
 //! dPMR and M17.
 //!
-//! DMR decodes its conventional AMBE+2 vocoder socket to audio. The other six modes currently
-//! decode the call but not the voice: their IMBE/AMBE/Codec2 payloads are left where they are,
-//! while the signalling around them still reports who transmitted, to which talkgroup or
-//! callsign, on which colour code or network, encrypted or not.
+//! Every mode produces 48 kHz mono PCM through the channel audio plane: AMBE+2 for DMR, NXDN,
+//! dPMR and YSF V/D, IMBE for P25 and YSF Voice FR, first-generation AMBE for D-Star, and
+//! Codec2 3200/1600 for M17. Carrier-specific framing stays in each state machine; codec state,
+//! concealment and 8 kHz resampling live in the shared vocoder adapter.
 //!
 //! Six of the seven share a front end — the four-level CPFSK entry of the modulation library
 //! ([`sdrmm_modem::cpm`]), at 4800 or 2400 symbols per second — and differ only in the values
@@ -21,6 +21,7 @@ pub(crate) mod dstar;
 pub(crate) mod m17;
 pub(crate) mod nxdn;
 pub(crate) mod p25;
+pub(crate) mod vocoder;
 pub(crate) mod ysf;
 
 use std::collections::VecDeque;
@@ -251,15 +252,23 @@ pub(crate) mod testutil {
     use sdrmm_wire::{DecoderEvent, DvFrame};
 
     use super::INPUT_RATE_HZ;
-    use crate::{ChannelOutputs, ChannelRx};
+    use crate::{AUDIO_RATE, ChannelOutputs, ChannelRx};
 
     /// Feed a generated transmission through a channel in deliberately ragged blocks and
     /// collect the frames it decoded. The block sizes are the point: every decoder here carries
     /// timing, sync and reassembly state across calls, and a burst split across two blocks must
     /// decode the same as one that is not.
     pub(crate) fn decode(chan: &mut dyn ChannelRx, iq: &[Complex<f32>]) -> Vec<DvFrame> {
+        decode_with_audio(chan, iq).0
+    }
+
+    pub(crate) fn decode_with_audio(
+        chan: &mut dyn ChannelRx,
+        iq: &[Complex<f32>],
+    ) -> (Vec<DvFrame>, Vec<f32>) {
         let mut out = ChannelOutputs::default();
         let mut frames = Vec::new();
+        let mut audio = Vec::new();
         // A receiver meets a transmission on a channel it was already listening to, and what
         // it hears until then is its own noise — the same level the generators put under their
         // signals. The 4FSK front end measures its carrier-detect floor from exactly this, and
@@ -277,6 +286,7 @@ pub(crate) mod testutil {
             let end = (pos + len).min(iq.len());
             out.reset();
             chan.process(&iq[pos..end], &mut out);
+            audio.extend_from_slice(&out.audio_pcm);
             for event in out.events.drain(..) {
                 match event {
                     DecoderEvent::Dv(frame) => frames.push(frame),
@@ -285,6 +295,24 @@ pub(crate) mod testutil {
             }
             pos = end;
         }
-        frames
+        (frames, audio)
+    }
+
+    pub(crate) fn assert_tone_audio(audio: &[f32], frames: usize) {
+        assert!(
+            (audio.len() as isize - (frames * 960) as isize).abs() <= 1,
+            "expected {frames} vocoder frames, got {} PCM samples",
+            audio.len()
+        );
+        assert!(audio.iter().all(|sample| sample.is_finite()));
+        assert!(audio.iter().all(|sample| sample.abs() <= 1.0));
+        let settled = &audio[3 * 960..];
+        let rms = crate::testutil::rms(settled);
+        let (frequency, _) = crate::testutil::dominant_tone(settled, f64::from(AUDIO_RATE));
+        assert!(rms > 0.005, "decoded tone is silent: rms {rms}");
+        assert!(
+            (frequency - 440.0).abs() < 50.0,
+            "decoded tone shifted to {frequency} Hz"
+        );
     }
 }

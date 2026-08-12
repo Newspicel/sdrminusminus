@@ -8,9 +8,10 @@
 //!   72-bit header information either side of the colour code, so a receiver that misses one
 //!   still has the other.
 //! * **FS4** (48 bits) opens a packet-data header, laid out the same way.
-//! * **FS3** (24 bits) marks the end frame. The superframe's own FS2 marker is not hunted
-//!   for: 24 bits with no payload check behind them match noise several times a minute, and
-//!   the header already says a call is running.
+//! * **FS2** (24 bits) opens a 756-symbol payload superframe. It is trusted only after a
+//!   CRC-checked header establishes a call; all four TCH blocks then yield sixteen AMBE+2
+//!   frames.
+//! * **FS3** (24 bits) marks the end frame.
 //!
 //! Header information is CRC-8 checked, split into ten bytes, each carried by a shortened
 //! Hamming(12,8), interleaved 12 × 10 and scrambled with `x⁹ + x⁵ + 1` (§7.7). The Hamming code
@@ -27,7 +28,10 @@ use sdrmm_wire::{
     DvFrameKind, DvMode,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params};
+use super::{
+    INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params,
+    vocoder::{AMBE_3600_INTERLEAVE, MbeDecoder, half_rate_code_vectors},
+};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 /// 4800 bit/s over 2400 symbols, at half the deviation of the 12.5 kHz modes.
@@ -40,6 +44,7 @@ const BANDWIDTH_HZ: f64 = 6_250.0;
 const FS1: u64 = 0x57FF_5F75_D577;
 const FS4: u64 = 0xFD55_F5DF_7FDD;
 const FS3: u64 = 0x7D_DFF5;
+const FS2: u64 = 0x5F_F77D;
 const LONG_SYNC_BITS: u32 = 48;
 const SHORT_SYNC_BITS: u32 = 24;
 const LONG_TOLERANCE: u32 = 4;
@@ -56,13 +61,18 @@ const HI_SYMBOLS: usize = HI_CODED_BITS / 2;
 const CC_SYMBOLS: usize = 12;
 /// Everything the header frame carries after FS1: HI0, the colour code, HI1.
 const HEADER_SYMBOLS: usize = HI_SYMBOLS * 2 + CC_SYMBOLS;
+/// Four CCH/TCH pairs, two colour-code fields and the repeated FS2 in the middle.
+const SUPERFRAME_SYMBOLS: usize = 756;
+const TCH_STARTS: [usize; 4] = [36, 228, 420, 612];
+const TCH_SYMBOLS: usize = 144;
+const AMBE_SYMBOLS: usize = 36;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dpmr".to_owned(),
     name: "dPMR".to_owned(),
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
     decoder_kind: Some("dv".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -131,52 +141,69 @@ impl ChannelRx for DpmrChannel {
 struct Decoder {
     window: SymbolWindow,
     countdown: usize,
-    /// Set while a header's payload is arriving; carries whether it was a packet-data header.
-    pending_packet: Option<bool>,
+    pending: Option<Pending>,
     bits: Vec<bool>,
     /// True while a superframe is being received, so its repeated sync marks nothing new.
     in_call: bool,
+    voice_call: bool,
+    vocoder: MbeDecoder,
+}
+
+#[derive(Clone, Copy)]
+enum Pending {
+    Header { packet: bool },
+    Superframe,
 }
 
 impl Decoder {
     fn new() -> Self {
         Self {
-            window: SymbolWindow::new(HEADER_SYMBOLS),
+            window: SymbolWindow::new(SUPERFRAME_SYMBOLS),
             countdown: 0,
-            pending_packet: None,
-            bits: Vec::with_capacity(HEADER_SYMBOLS * 2),
+            pending: None,
+            bits: Vec::with_capacity(SUPERFRAME_SYMBOLS * 2),
             in_call: false,
+            voice_call: false,
+            vocoder: MbeDecoder::half_rate(),
         }
     }
 
     fn reset(&mut self) {
         self.window.reset();
         self.countdown = 0;
-        self.pending_packet = None;
+        self.pending = None;
         self.in_call = false;
+        self.voice_call = false;
+        self.vocoder.reset();
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
         self.window.push(symbol);
         if self.countdown > 0 {
             self.countdown -= 1;
-            if self.countdown == 0
-                && let Some(packet) = self.pending_packet.take()
-                && let Some(frame) = self.header(packet)
-            {
-                out.events.push(DecoderEvent::Dv(frame));
+            if self.countdown == 0 {
+                match self.pending.take() {
+                    Some(Pending::Header { packet }) => {
+                        if let Some((frame, voice_call)) = self.header(packet) {
+                            self.in_call = true;
+                            self.voice_call = voice_call;
+                            out.events.push(DecoderEvent::Dv(frame));
+                        }
+                    }
+                    Some(Pending::Superframe) => self.superframe(out),
+                    None => {}
+                }
             }
             return;
         }
-        if self.pending_packet.is_some() {
+        if self.pending.is_some() {
             return;
         }
         for (sync, packet) in [(FS1, false), (FS4, true)] {
             if self.window.sync_distance(sync, LONG_SYNC_BITS) <= LONG_TOLERANCE {
                 self.window.anchor(sync, LONG_SYNC_BITS);
-                self.pending_packet = Some(packet);
+                self.pending = Some(Pending::Header { packet });
                 self.countdown = HEADER_SYMBOLS;
-                self.in_call = true;
                 return;
             }
         }
@@ -186,9 +213,16 @@ impl Decoder {
         if !self.in_call {
             return;
         }
+        if self.window.sync_distance(FS2, SHORT_SYNC_BITS) <= SHORT_TOLERANCE {
+            self.window.anchor(FS2, SHORT_SYNC_BITS);
+            self.pending = Some(Pending::Superframe);
+            self.countdown = SUPERFRAME_SYMBOLS;
+            return;
+        }
         if self.window.sync_distance(FS3, SHORT_SYNC_BITS) <= SHORT_TOLERANCE {
             self.window.anchor(FS3, SHORT_SYNC_BITS);
             self.in_call = false;
+            self.voice_call = false;
             out.events.push(DecoderEvent::Dv(DvFrame::new(
                 DvMode::Dpmr,
                 DvFrameKind::Terminator,
@@ -197,7 +231,7 @@ impl Decoder {
     }
 
     /// The two header copies and the colour code between them.
-    fn header(&mut self, packet: bool) -> Option<DvFrame> {
+    fn header(&mut self, packet: bool) -> Option<(DvFrame, bool)> {
         self.window.bits(0, HEADER_SYMBOLS, &mut self.bits);
         let colour = colour_code(&self.bits[HI_CODED_BITS..HI_CODED_BITS + CC_SYMBOLS * 2]);
         // Either copy will do; the second exists because the first may not survive.
@@ -216,8 +250,29 @@ impl Decoder {
         frame.destination = Some(bits_to_u32(&hi, 4, 24));
         frame.source = Some(bits_to_u32(&hi, 28, 24));
         // Communication mode 0 is an individual call; the rest are group and all-call modes.
-        frame.group_call = Some(bits_to_u32(&hi, 52, 3) != 0);
-        Some(frame)
+        let mode = bits_to_u32(&hi, 52, 3);
+        frame.group_call = Some(mode != 0);
+        // Voice, voice with slow data, and voice followed by appended data all carry AMBE+2
+        // in each traffic channel. Modes 2..4 are data-only.
+        Some((frame, matches!(mode, 0 | 1 | 5)))
+    }
+
+    fn superframe(&mut self, out: &mut ChannelOutputs) {
+        if !self.voice_call {
+            return;
+        }
+        self.window.bits(0, SUPERFRAME_SYMBOLS, &mut self.bits);
+        for start in TCH_STARTS {
+            for frame_start in (start..start + TCH_SYMBOLS).step_by(AMBE_SYMBOLS) {
+                let mut frame = [false; 72];
+                frame.copy_from_slice(&self.bits[frame_start * 2..frame_start * 2 + 72]);
+                self.vocoder.decode_half_code_vectors(
+                    half_rate_code_vectors(&frame, &AMBE_3600_INTERLEAVE),
+                    false,
+                    out,
+                );
+            }
+        }
     }
 }
 
@@ -286,7 +341,14 @@ fn crc8(data: &[u8]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{dv::testutil::decode, testgen::dv::dpmr as tx, testutil::settings};
+    use crate::{
+        dv::{
+            testutil::{assert_tone_audio, decode, decode_with_audio},
+            vocoder::testutil::half_rate_frames,
+        },
+        testgen::dv::dpmr as tx,
+        testutil::settings,
+    };
 
     fn channel() -> DpmrChannel {
         DpmrChannel::new(
@@ -329,6 +391,14 @@ mod tests {
         let header = frames.first().expect("a decoded frame");
         assert_eq!(header.group_call, Some(false));
         assert_eq!(header.destination, Some(call.called));
+    }
+
+    #[test]
+    fn decodes_superframe_voice_to_audio() {
+        let voice = half_rate_frames(32);
+        let iq = tx::transmission_with_voice(&tx::Call::default(), &voice, INPUT_RATE_HZ);
+        let (_, audio) = decode_with_audio(&mut channel(), &iq);
+        assert_tone_audio(&audio, 32);
     }
 
     #[test]

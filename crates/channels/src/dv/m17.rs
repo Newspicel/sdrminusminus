@@ -11,14 +11,15 @@
 //! 46-byte sequence, deinterleave by the quadratic permutation, restore the bits the puncturing
 //! pattern removed, then Viterbi-decode and check the CRC.
 //!
-//! The Codec2 payload of a stream frame is not decoded (FEATURES §9) — that is a vocoder, and
-//! this build has none — so a stream frame is reported only through its link setup.
+//! Stream frames also rebuild the link setup from their six Golay-protected LICH fragments for
+//! late entry, undo P2 puncturing, and decode either two Codec2 3200 voice blocks or the Codec2
+//! 1600 half of a voice+data block. Encrypted stream types are reported and emitted as silence.
 
 use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_dsp::{
-    Viterbi5, crc16_msb,
+    CyclicCode, Viterbi5, crc16_msb,
     fec::conv::{ERASURE, Soft},
 };
 use sdrmm_modem::cpm::CpmDemod;
@@ -27,7 +28,7 @@ use sdrmm_wire::{
     M17Params,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params};
+use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params, vocoder::Codec2Decoder};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const BAUD: f64 = 4_800.0;
@@ -53,6 +54,8 @@ const PAYLOAD_BITS: usize = 368;
 const LSF_CODED_BITS: usize = 488;
 const LSF_BITS: usize = 240;
 const LSF_BYTES: usize = LSF_BITS / 8;
+const STREAM_CODED_BITS: usize = 296;
+const STREAM_BITS: usize = 144;
 
 /// P1, the puncturing pattern a link setup frame is thinned with: 46 of every 61 coded bits are
 /// transmitted, which is exactly 368 of 488.
@@ -92,7 +95,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "M17".to_owned(),
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
     decoder_kind: Some("dv".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -177,6 +180,13 @@ struct Decoder {
     /// A stream carries its link setup once and then repeats it in fragments; reporting the
     /// same call every 40 ms would drown the log.
     in_stream: bool,
+    stream_type: Option<u16>,
+    /// Six late-entry LICH chunks rebuild the LSF for a receiver joining mid-call.
+    late_lsf: [bool; LSF_BITS],
+    late_chunks: u8,
+    stream_coded: Vec<Soft>,
+    stream_info: Vec<bool>,
+    vocoder: Codec2Decoder,
 }
 
 impl Decoder {
@@ -190,6 +200,12 @@ impl Decoder {
             coded: Vec::with_capacity(LSF_CODED_BITS),
             info: Vec::with_capacity(LSF_BITS + 4),
             in_stream: false,
+            stream_type: None,
+            late_lsf: [false; LSF_BITS],
+            late_chunks: 0,
+            stream_coded: Vec::with_capacity(STREAM_CODED_BITS),
+            stream_info: Vec::with_capacity(STREAM_BITS + 4),
+            vocoder: Codec2Decoder::new(),
         }
     }
 
@@ -198,6 +214,9 @@ impl Decoder {
         self.pending = None;
         self.countdown = 0;
         self.in_stream = false;
+        self.stream_type = None;
+        self.late_chunks = 0;
+        self.vocoder.reset();
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
@@ -206,7 +225,7 @@ impl Decoder {
             self.countdown -= 1;
             if self.countdown == 0
                 && let Some(kind) = self.pending.take()
-                && let Some(frame) = self.payload(kind)
+                && let Some(frame) = self.payload(kind, out)
             {
                 out.events.push(DecoderEvent::Dv(frame));
             }
@@ -221,6 +240,8 @@ impl Decoder {
         if self.in_stream && self.window.sync_distance(SYNC_EOT, SYNC_BITS) <= SYNC_TOLERANCE {
             self.window.anchor(SYNC_EOT, SYNC_BITS);
             self.in_stream = false;
+            self.stream_type = None;
+            self.late_chunks = 0;
             out.events.push(DecoderEvent::Dv(DvFrame::new(
                 DvMode::M17,
                 DvFrameKind::Terminator,
@@ -241,7 +262,7 @@ impl Decoder {
         }
     }
 
-    fn payload(&mut self, kind: FrameType) -> Option<DvFrame> {
+    fn payload(&mut self, kind: FrameType, out: &mut ChannelOutputs) -> Option<DvFrame> {
         match kind {
             FrameType::LinkSetup => {
                 let frame = self.link_setup();
@@ -251,11 +272,8 @@ impl Decoder {
                 self.in_stream |= frame.is_some();
                 frame
             }
-            // A stream frame carries a sixth of the link setup — six of them rebuild it, which
-            // is how a receiver joins a call in progress — and a Codec2 payload. Neither is
-            // decoded yet (FEATURES §9), and a sync burst on its own is 16 bits: too little to
-            // report on, since noise clears that bar several times a second.
-            FrameType::Stream => None,
+            // A stream frame carries both a late-entry LSF fragment and Codec2 audio.
+            FrameType::Stream => self.stream(out),
             FrameType::Packet => self
                 .in_stream
                 .then(|| DvFrame::new(DvMode::M17, DvFrameKind::Data)),
@@ -302,26 +320,119 @@ impl Decoder {
             return None;
         }
 
-        let mut frame = DvFrame::new(DvMode::M17, DvFrameKind::Header);
-        frame.destination_call = callsign(u64::from_be_bytes([
-            0, 0, lsf[0], lsf[1], lsf[2], lsf[3], lsf[4], lsf[5],
-        ]));
-        frame.source_call = callsign(u64::from_be_bytes([
-            0, 0, lsf[6], lsf[7], lsf[8], lsf[9], lsf[10], lsf[11],
-        ]));
-        let stream_type = u16::from_be_bytes([lsf[12], lsf[13]]);
-        frame.group_call = Some(frame.destination_call.as_deref() == Some("ALL"));
-        frame.encrypted = Some(stream_type >> 3 & 0b11 != 0);
-        frame.opcode = Some(
-            if stream_type & 1 == 1 {
-                "stream"
-            } else {
-                "packet"
-            }
-            .to_owned(),
-        );
-        Some(frame)
+        self.stream_type = Some(u16::from_be_bytes([lsf[12], lsf[13]]));
+        frame_from_lsf(&lsf)
     }
+
+    fn stream(&mut self, out: &mut ChannelOutputs) -> Option<DvFrame> {
+        self.window.soft_bits(0, PAYLOAD_SYMBOLS, &mut self.soft);
+        for (i, value) in self.soft.iter_mut().enumerate() {
+            if RANDOMIZER[i / 8] >> (7 - i % 8) & 1 == 1 {
+                *value = -*value;
+            }
+        }
+        let mut deinterleaved = [ERASURE; PAYLOAD_BITS];
+        for (i, &value) in self.soft.iter().enumerate() {
+            deinterleaved[interleave_index(i)] = value;
+        }
+
+        let late = self.late_entry(&deinterleaved[..96]);
+
+        // Stream contents are a 296-bit rate-1/2 code punctured by deleting every twelfth
+        // coded bit. Restore those positions as erasures before Viterbi decoding.
+        self.stream_coded.clear();
+        let mut read = 96;
+        for i in 0..STREAM_CODED_BITS {
+            if i % 12 == 11 {
+                self.stream_coded.push(ERASURE);
+            } else {
+                self.stream_coded.push(deinterleaved[read]);
+                read += 1;
+            }
+        }
+        self.stream_info.clear();
+        self.viterbi
+            .decode(&self.stream_coded, &mut self.stream_info);
+        if self.stream_info.len() < STREAM_BITS {
+            return late;
+        }
+        let mut payload = [0u8; 16];
+        for (i, &bit) in self.stream_info[16..STREAM_BITS].iter().enumerate() {
+            payload[i / 8] |= u8::from(bit) << (7 - i % 8);
+        }
+        if let Some(stream_type) = self.stream_type {
+            let encrypted = stream_type >> 3 & 0b11 != 0;
+            match stream_type >> 1 & 0b11 {
+                0b10 => self.vocoder.decode_3200(&payload, encrypted, out),
+                0b11 => self.vocoder.decode_1600(&payload, encrypted, out),
+                _ => {}
+            }
+        }
+        late
+    }
+
+    fn late_entry(&mut self, coded: &[Soft]) -> Option<DvFrame> {
+        let mut decoded = [false; 48];
+        for block in 0..4 {
+            let word = coded[block * 24..(block + 1) * 24]
+                .iter()
+                .fold(0u64, |acc, &bit| acc << 1 | u64::from(bit > 0));
+            let (info, _) = CyclicCode::GOLAY_24_12.decode(word)?;
+            for bit in 0..12 {
+                decoded[block * 12 + bit] = info >> (11 - bit) & 1 == 1;
+            }
+        }
+        let chunk = decoded[40..43]
+            .iter()
+            .fold(0u8, |acc, &bit| acc << 1 | u8::from(bit));
+        if chunk >= 6 {
+            return None;
+        }
+        self.late_lsf[usize::from(chunk) * 40..usize::from(chunk + 1) * 40]
+            .copy_from_slice(&decoded[..40]);
+        self.late_chunks |= 1 << chunk;
+        if self.late_chunks != 0x3F {
+            return None;
+        }
+        self.late_chunks = 0;
+        let mut lsf = [0u8; LSF_BYTES];
+        for (i, &bit) in self.late_lsf.iter().enumerate() {
+            lsf[i / 8] |= u8::from(bit) << (7 - i % 8);
+        }
+        if crc16_msb(CRC_POLY, CRC_INIT, &lsf) != 0 {
+            return None;
+        }
+        self.stream_type = Some(u16::from_be_bytes([lsf[12], lsf[13]]));
+        let joined_late = !self.in_stream;
+        self.in_stream = true;
+        if joined_late {
+            frame_from_lsf(&lsf)
+        } else {
+            None
+        }
+    }
+}
+
+fn frame_from_lsf(lsf: &[u8; LSF_BYTES]) -> Option<DvFrame> {
+    let mut frame = DvFrame::new(DvMode::M17, DvFrameKind::Header);
+    frame.destination_call = callsign(u64::from_be_bytes([
+        0, 0, lsf[0], lsf[1], lsf[2], lsf[3], lsf[4], lsf[5],
+    ]));
+    frame.source_call = callsign(u64::from_be_bytes([
+        0, 0, lsf[6], lsf[7], lsf[8], lsf[9], lsf[10], lsf[11],
+    ]));
+    let stream_type = u16::from_be_bytes([lsf[12], lsf[13]]);
+    frame.group_call = Some(frame.destination_call.as_deref() == Some("ALL"));
+    frame.encrypted = Some(stream_type >> 3 & 0b11 != 0);
+    frame.opcode = Some(
+        if stream_type & 1 == 1 {
+            "stream"
+        } else {
+            "packet"
+        }
+        .to_owned(),
+    );
+    Some(frame)
 }
 
 /// Base-40 callsign decoding (M17 spec §2.3.1). `0xFFFFFFFFFF` is the broadcast address, which
@@ -360,8 +471,14 @@ fn encode_callsign(call: &str) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use codec2::{Codec2, Codec2Mode};
+
     use super::*;
-    use crate::{dv::testutil::decode, testgen::dv::m17 as tx, testutil::settings};
+    use crate::{
+        dv::testutil::{assert_tone_audio, decode, decode_with_audio},
+        testgen::dv::m17 as tx,
+        testutil::settings,
+    };
 
     fn channel() -> M17Channel {
         M17Channel::new(
@@ -390,6 +507,64 @@ mod tests {
         assert!(
             frames.iter().any(|f| f.kind == DvFrameKind::Terminator),
             "no end of transmission: {frames:?}"
+        );
+    }
+
+    #[test]
+    fn decodes_codec2_stream_audio() {
+        let mut encoder = Codec2::new(Codec2Mode::MODE_3200);
+        let mut voice = [[0u8; 16]; 8];
+        for (radio_frame, payload) in voice.iter_mut().enumerate() {
+            for codec_frame in 0..2 {
+                let frame = radio_frame * 2 + codec_frame;
+                let pcm: [i16; 160] = std::array::from_fn(|i| {
+                    let sample = frame * 160 + i;
+                    (12_000.0 * (std::f64::consts::TAU * 440.0 * sample as f64 / 8_000.0).sin())
+                        as i16
+                });
+                encoder.encode(&mut payload[codec_frame * 8..codec_frame * 8 + 8], &pcm);
+            }
+        }
+        let iq = tx::transmission_with_voice("ALL", "DL1ABC", &voice, INPUT_RATE_HZ);
+        let (_, audio) = decode_with_audio(&mut channel(), &iq);
+        // The front end acquires the stream cadence on the first two short sync bursts; the
+        // remaining six frames prove twelve independently framed Codec2 blocks end to end.
+        assert_tone_audio(&audio, 12);
+    }
+
+    #[test]
+    fn decodes_codec2_voice_and_data_audio() {
+        let mut encoder = Codec2::new(Codec2Mode::MODE_1600);
+        let mut payloads = [[0u8; 16]; 8];
+        for (frame, payload) in payloads.iter_mut().enumerate() {
+            let pcm: [i16; 320] = std::array::from_fn(|i| {
+                let sample = frame * 320 + i;
+                (12_000.0 * (std::f64::consts::TAU * 440.0 * sample as f64 / 8_000.0).sin()) as i16
+            });
+            encoder.encode(&mut payload[..8], &pcm);
+            payload[8..].fill(frame as u8);
+        }
+        let iq = tx::transmission_with_voice_data("ALL", "DL1ABC", &payloads, INPUT_RATE_HZ);
+        let (_, audio) = decode_with_audio(&mut channel(), &iq);
+        assert_tone_audio(&audio, 16);
+    }
+
+    #[test]
+    fn joins_a_stream_from_lich_late_entry() {
+        let iq = tx::late_entry("ALL", "DL1ABC", INPUT_RATE_HZ);
+        let frames = decode(&mut channel(), &iq);
+        let header = frames
+            .iter()
+            .find(|frame| frame.kind == DvFrameKind::Header)
+            .expect("late-entry link setup");
+        assert_eq!(header.source_call.as_deref(), Some("DL1ABC"));
+        assert_eq!(header.destination_call.as_deref(), Some("ALL"));
+        assert_eq!(
+            frames
+                .iter()
+                .filter(|frame| frame.kind == DvFrameKind::Header)
+                .count(),
+            1
         );
     }
 

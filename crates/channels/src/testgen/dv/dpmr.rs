@@ -36,19 +36,45 @@ impl Default for Call {
 /// Preamble, header frame, two superframe halves and an end frame.
 #[must_use]
 pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
+    transmission_with_voice(call, &[[false; 72]; 32], rate)
+}
+
+/// Build a call with carrier-interleaved AMBE+2 frames. Every 16 frames form one dPMR
+/// superframe; a partial final superframe is padded with quiet code words.
+#[must_use]
+pub fn transmission_with_voice(call: &Call, voice: &[[bool; 72]], rate: f64) -> Vec<Complex<f32>> {
     let mut symbols = dibits(&filler(400, 67));
     symbols.extend(dibits(&bits(FS1, 48)));
     symbols.extend(dibits(&header_info(call)));
     symbols.extend(dibits(&colour_code(call.colour_code)));
     symbols.extend(dibits(&header_info(call)));
 
-    for _ in 0..2 {
+    for frames in voice.chunks(16) {
         symbols.extend(dibits(&bits(FS2, 24)));
-        symbols.extend(dibits(&filler(456, 71)));
+        symbols.extend(superframe(frames));
     }
     symbols.extend(dibits(&bits(FS3, 24)));
     symbols.extend(dibits(&filler(400, 73)));
     c4fm(&symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
+}
+
+fn superframe(frames: &[[bool; 72]]) -> Vec<u8> {
+    let mut padded = [[false; 72]; 16];
+    padded[..frames.len()].copy_from_slice(frames);
+    let mut out = Vec::with_capacity(756);
+    for section in 0..4 {
+        out.extend(dibits(&filler(72, 71 + section as u32)));
+        for frame in &padded[section * 4..section * 4 + 4] {
+            out.extend(dibits(frame));
+        }
+        if section == 1 {
+            out.extend(dibits(&bits(FS2, 24)));
+        } else if section != 3 {
+            out.extend(dibits(&colour_code(0)));
+        }
+    }
+    debug_assert_eq!(out.len(), 756);
+    out
 }
 
 /// Twelve colour-code bits, each sent as `01` for zero and `11` for one (§6.1.5).

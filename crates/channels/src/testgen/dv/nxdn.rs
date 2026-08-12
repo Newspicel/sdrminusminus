@@ -25,29 +25,76 @@ impl Default for Shape {
 /// A transmission: a signalling frame, three traffic frames and a closing signalling frame.
 #[must_use]
 pub fn transmission(shape: &Shape, rf_channel: u8, outbound: bool, rate: f64) -> Vec<Complex<f32>> {
+    transmission_inner(shape, rf_channel, outbound, None, rate)
+}
+
+#[must_use]
+#[allow(dead_code)]
+pub(crate) fn transmission_with_voice(
+    shape: &Shape,
+    rf_channel: u8,
+    outbound: bool,
+    voice: &[[[bool; 72]; 4]; 5],
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    transmission_inner(shape, rf_channel, outbound, Some(voice), rate)
+}
+
+fn transmission_inner(
+    shape: &Shape,
+    rf_channel: u8,
+    outbound: bool,
+    voice: Option<&[[[bool; 72]; 4]; 5]>,
+    rate: f64,
+) -> Vec<Complex<f32>> {
     let mut symbols = dibits(&filler(400, 53));
-    for functional in [0u8, 2, 2, 2, 0] {
-        symbols.extend(frame(rf_channel, functional, outbound));
+    for (index, functional) in [0u8, 2, 2, 2, 0].into_iter().enumerate() {
+        symbols.extend(frame(
+            rf_channel,
+            functional,
+            outbound,
+            voice.map(|frames| &frames[index]),
+        ));
     }
     symbols.extend(dibits(&filler(200, 59)));
     c4fm(&symbols, rate, shape.baud, shape.deviation_hz, RRC_ALPHA)
 }
 
 /// One 384-bit frame.
-fn frame(rf_channel: u8, functional: u8, outbound: bool) -> Vec<u8> {
+fn frame(
+    rf_channel: u8,
+    functional: u8,
+    outbound: bool,
+    voice: Option<&[[bool; 72]; 4]>,
+) -> Vec<u8> {
     let mut lich = bits(u64::from(rf_channel) & 0x03, 2);
     lich.extend(bits(u64::from(functional) & 0x03, 2));
-    // Option, then direction.
-    lich.extend(bits(0, 2));
+    // Option 3: no FACCH stealing, all four EHR frames are voice.
+    lich.extend(bits(3, 2));
     lich.push(outbound);
     // Odd parity over the seven bits before it.
     let ones = lich.iter().filter(|b| **b).count();
     lich.push(ones % 2 == 0);
-    // The eight bits the specification reserves for the channel's own use.
-    lich.extend(bits(0, 8));
-
     let mut out = dibits(&bits(FSW, 20));
-    out.extend(dibits(&lich));
-    out.extend(dibits(&filler(348, 61 + u32::from(functional))));
+    let mut post: Vec<u8> = lich.into_iter().map(|bit| u8::from(bit) << 1).collect();
+    post.extend(dibits(&filler(60, 61 + u32::from(functional))));
+    if let Some(voice) = voice {
+        for frame in voice {
+            post.extend(dibits(frame));
+        }
+    } else {
+        post.extend(dibits(&filler(288, 67 + u32::from(functional))));
+    }
+    assert_eq!(post.len(), 182);
+    let mut register = 0xE4u16;
+    for dibit in &mut post {
+        let pn = register & 1 != 0;
+        let feedback = (register ^ (register >> 4)) & 1;
+        register = register >> 1 | feedback << 8;
+        if pn {
+            *dibit ^= 0b10;
+        }
+    }
+    out.extend(post);
     out
 }

@@ -29,12 +29,82 @@ const CALLSIGN_ALPHABET: &[u8; 40] = b" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/."
 /// A transmission: link setup, three stream frames, end of transmission.
 #[must_use]
 pub fn transmission(destination: &str, source: &str, rate: f64) -> Vec<Complex<f32>> {
+    const CODEC2_SILENCE_PAIR: [u8; 16] = [
+        0x01, 0x00, 0x09, 0x43, 0x9C, 0xE4, 0x21, 0x08, 0x01, 0x00, 0x09, 0x43, 0x9C, 0xE4, 0x21,
+        0x08,
+    ];
+    let voice = [CODEC2_SILENCE_PAIR; 3];
+    transmission_with_voice(destination, source, &voice, rate)
+}
+
+/// A stream with caller-supplied pairs of Codec2 3200 frames.
+#[must_use]
+pub(crate) fn transmission_with_voice(
+    destination: &str,
+    source: &str,
+    voice: &[[u8; 16]],
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    transmission_with_type(destination, source, voice, 0b0101, rate)
+}
+
+/// M17 voice+data: one Codec2 1600 frame in the first eight bytes and eight bytes of data.
+#[must_use]
+#[allow(dead_code)]
+pub(crate) fn transmission_with_voice_data(
+    destination: &str,
+    source: &str,
+    payloads: &[[u8; 16]],
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    transmission_with_type(destination, source, payloads, 0b0111, rate)
+}
+
+fn transmission_with_type(
+    destination: &str,
+    source: &str,
+    voice: &[[u8; 16]],
+    stream_type: u16,
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    stream_transmission(destination, source, voice, stream_type, true, rate)
+}
+
+/// A receiver joins after the link setup frame and reconstructs it from six stream LICH chunks.
+#[must_use]
+#[allow(dead_code)]
+pub(crate) fn late_entry(destination: &str, source: &str, rate: f64) -> Vec<Complex<f32>> {
+    const CODEC2_SILENCE_PAIR: [u8; 16] = [
+        0x01, 0x00, 0x09, 0x43, 0x9C, 0xE4, 0x21, 0x08, 0x01, 0x00, 0x09, 0x43, 0x9C, 0xE4, 0x21,
+        0x08,
+    ];
+    stream_transmission(
+        destination,
+        source,
+        &[CODEC2_SILENCE_PAIR; 8],
+        0b0101,
+        false,
+        rate,
+    )
+}
+
+fn stream_transmission(
+    destination: &str,
+    source: &str,
+    voice: &[[u8; 16]],
+    stream_type: u16,
+    link_setup_frame: bool,
+    rate: f64,
+) -> Vec<Complex<f32>> {
     let mut symbols = dibits(&filler(400, 79));
-    symbols.extend(dibits(&bits(SYNC_LSF, 16)));
-    symbols.extend(dibits(&link_setup(destination, source)));
-    for i in 0..3 {
+    let lsf = lsf_bits(destination, source, stream_type);
+    if link_setup_frame {
+        symbols.extend(dibits(&bits(SYNC_LSF, 16)));
+        symbols.extend(dibits(&link_setup(&lsf)));
+    }
+    for (i, payload) in voice.iter().enumerate() {
         symbols.extend(dibits(&bits(SYNC_STREAM, 16)));
-        symbols.extend(dibits(&filler(PAYLOAD_BITS, 83 + i)));
+        symbols.extend(dibits(&stream_frame(&lsf, i as u16, payload)));
     }
     symbols.extend(dibits(&bits(SYNC_EOT, 16)));
     symbols.extend(dibits(&filler(200, 89)));
@@ -42,11 +112,10 @@ pub fn transmission(destination: &str, source: &str, rate: f64) -> Vec<Complex<f
 }
 
 /// The 368 payload bits of a link setup frame.
-fn link_setup(destination: &str, source: &str) -> Vec<bool> {
+fn lsf_bits(destination: &str, source: &str, stream_type: u16) -> Vec<bool> {
     let mut lsf = bits(callsign(destination), 48);
     lsf.extend(bits(callsign(source), 48));
-    // Stream type: voice over a stream, unencrypted.
-    lsf.extend(bits(0b0000_0000_0000_0101, 16));
+    lsf.extend(bits(u64::from(stream_type), 16));
     // 112 bits of metadata, which a plain voice call leaves empty.
     lsf.extend(std::iter::repeat_n(false, 112));
     let bytes: Vec<u8> = lsf
@@ -56,7 +125,11 @@ fn link_setup(destination: &str, source: &str) -> Vec<bool> {
         .map(|chunk| chunk.iter().fold(0u8, |acc, &b| acc << 1 | u8::from(b)))
         .collect();
     lsf.extend(bits(u64::from(crc16_msb(0x5935, 0xFFFF, &bytes)), 16));
+    lsf
+}
 
+fn link_setup(lsf: &[bool]) -> Vec<bool> {
+    let mut lsf = lsf.to_vec();
     // Four flush bits, then the rate-1/2 code and its puncturing pattern.
     lsf.extend([false; 4]);
     let mut coded = Vec::with_capacity(LSF_CODED_BITS);
@@ -76,6 +149,44 @@ fn link_setup(destination: &str, source: &str) -> Vec<bool> {
     for (i, bit) in interleaved.iter_mut().enumerate() {
         if RANDOMIZER[i / 8] >> (7 - i % 8) & 1 == 1 {
             *bit = !*bit;
+        }
+    }
+    interleaved
+}
+
+fn stream_frame(lsf: &[bool], number: u16, payload: &[u8; 16]) -> Vec<bool> {
+    let chunk = usize::from(number % 6);
+    let mut lich = lsf[chunk * 40..(chunk + 1) * 40].to_vec();
+    lich.extend(bits(chunk as u64, 3));
+    lich.extend([false; 5]);
+    let mut combined = Vec::with_capacity(PAYLOAD_BITS);
+    for block in lich.as_chunks::<12>().0 {
+        let value = block
+            .iter()
+            .fold(0u32, |acc, &bit| acc << 1 | u32::from(bit));
+        combined.extend(bits(sdrmm_dsp::CyclicCode::GOLAY_24_12.encode(value), 24));
+    }
+
+    let mut contents = bits(u64::from(number), 16);
+    for &byte in payload {
+        contents.extend(bits(u64::from(byte), 8));
+    }
+    contents.extend([false; 4]);
+    let mut coded = Vec::with_capacity(296);
+    conv::encode(&contents, &mut coded);
+    combined.extend(
+        coded
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, bit)| (i % 12 != 11).then_some(bit)),
+    );
+    assert_eq!(combined.len(), PAYLOAD_BITS);
+
+    let mut interleaved = vec![false; PAYLOAD_BITS];
+    for (i, slot) in interleaved.iter_mut().enumerate() {
+        *slot = combined[(45 * i + 92 * i * i) % PAYLOAD_BITS];
+        if RANDOMIZER[i / 8] >> (7 - i % 8) & 1 == 1 {
+            *slot = !*slot;
         }
     }
     interleaved

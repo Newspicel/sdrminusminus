@@ -202,6 +202,10 @@ impl SdrDevice for FilePlayback {
             let mut next = Instant::now();
             'stream: while running.load(Ordering::Acquire) {
                 let params = *shared.load_full();
+                // Capture before taking a seek: a request arriving anywhere after this point
+                // invalidates the position produced by this iteration. A seek already pending
+                // at the boundary belongs to this generation and is safe to publish.
+                let position_generation = transport.position_generation();
                 if let Some(target) = transport.take_seek()
                     && let Err(err) = reader.seek_to(target)
                 {
@@ -237,7 +241,7 @@ impl SdrDevice for FilePlayback {
                 if filled > 0 {
                     sink.push(&block[..filled]);
                 }
-                transport.set_position(reader.position());
+                transport.set_position(reader.position(), position_generation);
                 if filled < block.len() {
                     // End of data with looping off: hold silent (the spectrum freezes —
                     // honest idle), but keep watching so re-enabling `loop`, or scrubbing back

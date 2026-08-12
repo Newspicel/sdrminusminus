@@ -5,15 +5,14 @@
 //! from the next on a shared frequency, and the 4-bit data unit id that says what the frame is.
 //! The NID is a BCH(63,16,23) codeword with a parity bit, so eleven bit errors still decode.
 //!
-//! That is what this reports: the NAC, and the shape of the transmission — header, call in
-//! progress, terminator, trunking. The link control inside a voice frame, and the trunking
-//! blocks inside a TSDU, are not unpacked (FEATURES §9): both need the frame's own interleaver
-//! and, for the trunking blocks, the rate-1/2 trellis code, and neither can be verified here
-//! against anything but itself.
+//! Voice LDUs are collected at their complete 1728-bit wire length, their status dibits removed,
+//! and their nine Annex-H IMBE frames decoded. This reports the NAC and transmission shape;
+//! link control inside an LDU and trunking blocks inside a TSDU remain signalling follow-up
+//! work (FEATURES §9).
 //!
 //! Status symbols complicate the framing: the transmitter inserts a dibit of its own after
 //! every 35 payload dibits, starting at bit 70 of the frame, and they have to come out before
-//! the NID is a codeword again.
+//! the voice-frame offsets are meaningful.
 
 use std::sync::LazyLock;
 
@@ -25,7 +24,7 @@ use sdrmm_wire::{
     P25Params,
 };
 
-use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params};
+use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params, vocoder::MbeDecoder};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const BAUD: f64 = 4_800.0;
@@ -45,6 +44,11 @@ const STATUS_STRIDE: usize = 72;
 /// The NID is 64 bits, and the two status bits sitting inside it make 66 on the wire.
 const NID_BITS: usize = 64;
 const NID_SYMBOLS: usize = (NID_BITS + 2) / 2;
+const MAX_FRAME_BITS: usize = 1_728;
+const MAX_FRAME_SYMBOLS: usize = MAX_FRAME_BITS / 2;
+
+/// Status-free dibit offsets of the nine 144-bit IMBE frames after the 64-bit NID.
+const IMBE_OFFSETS: [usize; 9] = [0, 72, 164, 256, 348, 440, 532, 624, 712];
 
 /// Data unit ids (TIA-102.BAAA §7.3).
 const DUID_HEADER: u8 = 0x0;
@@ -60,7 +64,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "P25 Phase 1".to_owned(),
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
     decoder_kind: Some("dv".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -134,16 +138,23 @@ struct Decoder {
     /// The data unit id last reported, so the six voice frames of a transmission produce one
     /// "call in progress" line rather than one every 180 ms.
     last_duid: Option<u8>,
+    /// Once the NID has named an LDU, its complete frame is collected before audio extraction.
+    pending_duid: Option<u8>,
+    vocoder: MbeDecoder,
+    logical: Vec<bool>,
 }
 
 impl Decoder {
     fn new() -> Self {
         Self {
-            window: SymbolWindow::new(NID_SYMBOLS),
+            window: SymbolWindow::new(MAX_FRAME_SYMBOLS),
             countdown: 0,
             hunting: true,
             bits: Vec::with_capacity(NID_BITS + 2),
             last_duid: None,
+            pending_duid: None,
+            vocoder: MbeDecoder::full_rate(),
+            logical: Vec::with_capacity(MAX_FRAME_BITS),
         }
     }
 
@@ -152,6 +163,8 @@ impl Decoder {
         self.countdown = 0;
         self.hunting = true;
         self.last_duid = None;
+        self.pending_duid = None;
+        self.vocoder.reset();
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
@@ -159,9 +172,25 @@ impl Decoder {
         if self.countdown > 0 {
             self.countdown -= 1;
             if self.countdown == 0 {
-                self.hunting = true;
-                if let Some(frame) = self.nid() {
-                    out.events.push(DecoderEvent::Dv(frame));
+                if let Some(duid) = self.pending_duid.take() {
+                    if is_voice(duid) {
+                        self.voice(duid, out);
+                    }
+                    self.hunting = true;
+                } else if let Some((duid, frame)) = self.nid() {
+                    if let Some(frame) = frame {
+                        out.events.push(DecoderEvent::Dv(frame));
+                    }
+                    let total_symbols = frame_bits(duid) / 2;
+                    let consumed = SYNC_BITS as usize / 2 + NID_SYMBOLS;
+                    self.pending_duid = Some(duid);
+                    self.countdown = total_symbols.saturating_sub(consumed);
+                    if self.countdown == 0 {
+                        self.pending_duid = None;
+                        self.hunting = true;
+                    }
+                } else {
+                    self.hunting = true;
                 }
             }
             return;
@@ -174,7 +203,7 @@ impl Decoder {
     }
 
     /// Decode the network identifier that follows the sync.
-    fn nid(&mut self) -> Option<DvFrame> {
+    fn nid(&mut self) -> Option<(u8, Option<DvFrame>)> {
         self.window.bits(0, NID_SYMBOLS, &mut self.bits);
         // The sync ended at frame bit 48, so the status dibit at frame bits 70 and 71 sits at
         // offset 22 of what follows.
@@ -200,7 +229,7 @@ impl Decoder {
         // Voice frames repeat; everything else is an event in its own right.
         if kind == DvFrameKind::Voice && self.last_duid.is_some_and(is_voice) {
             self.last_duid = Some(duid);
-            return None;
+            return Some((duid, None));
         }
         self.last_duid = Some(duid);
 
@@ -208,7 +237,42 @@ impl Decoder {
         frame.color_code = Some(nac);
         frame.errors_corrected = errors;
         frame.opcode = Some(duid_name(duid).to_owned());
-        Some(frame)
+        Some((duid, Some(frame)))
+    }
+
+    fn voice(&mut self, duid: u8, out: &mut ChannelOutputs) {
+        let total_symbols = frame_bits(duid) / 2;
+        self.window.bits(0, total_symbols, &mut self.bits);
+        self.logical.clear();
+        for (i, &bit) in self.bits.iter().enumerate() {
+            if i >= STATUS_START && (i - STATUS_START) % STATUS_STRIDE < 2 {
+                continue;
+            }
+            self.logical.push(bit);
+        }
+        // Sync (48) + NID (64) precede the LDU body after status removal.
+        const BODY_START: usize = SYNC_BITS as usize + NID_BITS;
+        for &offset in &IMBE_OFFSETS {
+            let start = BODY_START + offset * 2;
+            let Some(frame) = self.logical.get(start..start + 144) else {
+                return;
+            };
+            let mut dibits = [0u8; 72];
+            for (slot, pair) in dibits.iter_mut().zip(frame.as_chunks::<2>().0) {
+                *slot = u8::from(pair[0]) << 1 | u8::from(pair[1]);
+            }
+            self.vocoder.decode_full_dibits(&dibits, false, out);
+        }
+    }
+}
+
+fn frame_bits(duid: u8) -> usize {
+    match duid {
+        DUID_HEADER => 792,
+        DUID_TERMINATOR => 144,
+        DUID_TSDU => 720,
+        DUID_TERMINATOR_LC => 432,
+        _ => MAX_FRAME_BITS,
     }
 }
 
@@ -232,7 +296,14 @@ fn duid_name(duid: u8) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{dv::testutil::decode, testgen::dv::p25 as tx, testutil::settings};
+    use crate::{
+        dv::{
+            testutil::{assert_tone_audio, decode, decode_with_audio},
+            vocoder::testutil::full_rate_frames,
+        },
+        testgen::dv::p25 as tx,
+        testutil::settings,
+    };
 
     fn channel() -> P25Channel {
         P25Channel::new(
@@ -281,6 +352,16 @@ mod tests {
             .expect("trunking block");
         assert_eq!(control.color_code, Some(0x4D2));
         assert_eq!(control.opcode.as_deref(), Some("trunking block"));
+    }
+
+    #[test]
+    fn decodes_imbe_voice_to_audio() {
+        let encoded = full_rate_frames(18);
+        let voice: [[[bool; 144]; 9]; 2] =
+            std::array::from_fn(|ldu| std::array::from_fn(|frame| encoded[ldu * 9 + frame]));
+        let iq = tx::transmission_with_voice(0x293, &voice, INPUT_RATE_HZ);
+        let (_, audio) = decode_with_audio(&mut channel(), &iq);
+        assert_tone_audio(&audio, 18);
     }
 
     #[test]

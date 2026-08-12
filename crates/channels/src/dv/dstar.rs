@@ -10,7 +10,8 @@
 //!
 //! Slow data is scrambled with the fixed sequence 0x70 0x4F 0x93 and framed as a type nibble
 //! and a length, in pairs of frames (six bytes at a time). The reassembled header is checked
-//! against its own CRC-16 before any callsign reaches the log.
+//! against its own CRC-16 before any callsign reaches the log. The other 72 bits of every frame
+//! feed D-Star's first-generation AMBE 3,600 × 2,400 decoder and the shared 48 kHz audio path.
 
 use std::sync::LazyLock;
 
@@ -25,7 +26,7 @@ use sdrmm_wire::{
     DvFrameKind, DvMode,
 };
 
-use super::INPUT_RATE_HZ;
+use super::{INPUT_RATE_HZ, vocoder::DstarVocoder};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
 const BAUD: f64 = 4_800.0;
@@ -70,7 +71,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     name: "D-STAR".to_owned(),
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
     decoder_kind: Some("dv".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -173,6 +174,7 @@ struct Decoder {
     synced: bool,
     /// The 24 data bits of the frame being received.
     data: u32,
+    voice_bits: [bool; 72],
     /// Slow data of the current frame pair; a packet spans two frames.
     packet: Vec<u8>,
     /// Header bytes reassembled from the slow-data channel.
@@ -180,6 +182,7 @@ struct Decoder {
     text: [u8; 20],
     /// The call last reported, so a header repeated every second is logged once.
     reported: Option<String>,
+    vocoder: DstarVocoder,
 }
 
 impl Decoder {
@@ -190,10 +193,12 @@ impl Decoder {
             frame: 0,
             synced: false,
             data: 0,
+            voice_bits: [false; 72],
             packet: Vec::with_capacity(6),
             header: Vec::with_capacity(HEADER_BYTES),
             text: [b' '; 20],
             reported: None,
+            vocoder: DstarVocoder::new(),
         }
     }
 
@@ -205,6 +210,7 @@ impl Decoder {
         self.packet.clear();
         self.header.clear();
         self.reported = None;
+        self.vocoder.reset();
     }
 
     fn push(&mut self, bit: bool, out: &mut ChannelOutputs) {
@@ -222,6 +228,9 @@ impl Decoder {
             return;
         }
         self.bit += 1;
+        if self.bit <= FRAME_BITS - DATA_BITS {
+            self.voice_bits[self.bit - 1] = bit;
+        }
         if self.bit > FRAME_BITS - DATA_BITS {
             self.data = self.data << 1 | u32::from(bit);
         }
@@ -229,6 +238,7 @@ impl Decoder {
             return;
         }
         self.bit = 0;
+        self.vocoder.decode(&self.voice_bits, false, out);
         let frame = self.frame;
         self.frame += 1;
         if self.frame >= FRAMES_PER_SUPERFRAME {
@@ -320,7 +330,11 @@ impl Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{dv::testutil::decode, testgen::dv::dstar as tx, testutil::settings};
+    use crate::{
+        dv::testutil::{decode, decode_with_audio},
+        testgen::dv::dstar as tx,
+        testutil::settings,
+    };
 
     fn channel() -> DstarChannel {
         DstarChannel::new(
@@ -357,6 +371,19 @@ mod tests {
     fn a_repeated_header_is_reported_once() {
         let iq = tx::transmission(&tx::Call::default(), INPUT_RATE_HZ);
         assert_eq!(decode(&mut channel(), &iq).len(), 1);
+    }
+
+    #[test]
+    fn decodes_ambe_voice_to_audio() {
+        let iq = tx::transmission(&tx::Call::default(), INPUT_RATE_HZ);
+        let (_, audio) = decode_with_audio(&mut channel(), &iq);
+        assert!(
+            audio.len() >= 40 * 960,
+            "missing D-STAR audio: {}",
+            audio.len()
+        );
+        assert!(audio.iter().all(|sample| sample.is_finite()));
+        assert!(audio.iter().all(|sample| sample.abs() <= 1.0));
     }
 
     #[test]
