@@ -26,9 +26,16 @@
 //! post-FEC BER, frame error rate and undetected-error rate are separate numbers, never mixed;
 //! every run is seeded and reproducible.
 
+pub mod analog;
 pub mod ber;
 pub mod constellation;
 pub mod cpm;
+pub mod linear;
+pub mod multicarrier;
+pub mod ofdm;
+pub mod orthogonal;
+pub mod ppm;
 pub mod pulse;
 pub mod soft;
+pub mod spread;
 pub mod symbolcode;

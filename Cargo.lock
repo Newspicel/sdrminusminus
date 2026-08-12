@@ -3822,6 +3822,7 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "num-complex",
+ "rustfft",
  "sdrmm-dsp",
  "serde",
  "serde_json",
