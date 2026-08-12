@@ -21,6 +21,7 @@ pub mod gmsk;
 pub mod linear;
 pub mod mfsk;
 pub mod msk;
+pub mod ofdm;
 pub mod orthogonal;
 pub mod ppm;
 pub mod psk;
@@ -301,6 +302,22 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         name: "apsk",
         measurements: qam::APSK,
+    },
+    Entry {
+        name: "ofdm",
+        measurements: ofdm::MODULATIONS,
+    },
+    Entry {
+        name: "ofdm-genie",
+        measurements: ofdm::GENIE,
+    },
+    Entry {
+        name: "ofdm-estimation",
+        measurements: ofdm::ESTIMATION,
+    },
+    Entry {
+        name: "dmt",
+        measurements: ofdm::DMT,
     },
 ];
 

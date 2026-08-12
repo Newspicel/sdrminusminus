@@ -1,6 +1,6 @@
 # `sdrmm-modem` — Modulation Library Plan
 
-**Status:** in progress (phases 0–5 landed).
+**Status:** in progress (phases 0–6 landed).
 
 Phase 4 landed the linear engine and every linear row of §6 with its §5 bundle: OOK on both
 tiers, M-PAM and unipolar M-ASK, BPSK/QPSK/8-PSK, the DPSK family, OQPSK and π/2-BPSK,
@@ -63,7 +63,42 @@ matches theory — but the 58 data symbols of a particular message need FT8's CR
 LDPC(174, 91), which are channel coding (§1.1: beside the FEC in `sdrmm-dsp`, not here). No
 message-level vector is claimed, and the test says so where a reader will meet it.
 
-Next: phase 6.
+Phase 6 landed the OFDM framework and DMT. What it turned out to be about: the acceptance. An
+OFDM subcarrier under a flat channel *is* a bare carrier, so the entry is held to the linear
+engine's own closed forms shifted by the frame's overhead — 1.580 dB, computed from the geometry
+(52 occupied bins over 80 samples per symbol, four preamble symbols of training, 48 bins carrying
+payload) and identical for every modulation order because the bits per subcarrier cancel out of
+the ratio. Measured through a genie receiver the five committed rows sit at −0.06 / +0.03 / +0.08
+/ −0.07 / +0.02 dB (BPSK, QPSK, 16-QAM, 64-QAM, DMT), and everything the real chain costs on top
+is then a *number* rather than a tolerance: acquisition +0.72 dB at BPSK, +2.23 at QPSK, +2.48 at
+16-QAM, +2.67 at 64-QAM, almost all of it the channel estimate's own `σ²/2` per bin from two
+averaged training repeats.
+
+Three measured findings came with it. **The pilot fit had to become a tracker.** A line through
+four pilot phases extrapolated to the band edge amplifies its own noise — worth ~0.47σ² at
+subcarrier ±26, comparable to the noise it corrects — and a first draft that seeded the tracker's
+rate from the difference of two symbols sent the prediction running at 0.3 rad/symbol, after which
+the per-symbol unwrap locked onto the wrong branch and 8 % of frames came back inverted end to end
+at BER 0.5 with a *perfect* acquisition behind them. An α-β filter whose rate can only be built
+from repeated evidence fixed both. **The transform window belongs inside the prefix**, four
+samples of it: a window one sample early is a cyclic shift the estimate absorbs, one sample late
+is ISI nothing removes — and because a backoff is a known phase ramp, the channel interpolation is
+told about it rather than asked to follow it (a quarter cycle between two comb anchors is a chord
+29 % short of its arc). **The frequency-selective rows are fade-limited, not delay-limited**: a
+one-tap equaliser divides by the channel, so an uncoded chain loses a nulled subcarrier outright
+and the exponential-PDP row fails at 0.75 samples of RMS spread while a single specular echo is
+tolerated to 18. That is the coding-and-interleaving every OFDM system pairs this waveform with,
+and it is §1.1's channel coding rather than this crate's.
+
+Open from phase 6, scoped rather than dropped: **a denoised channel estimate**. The committed
+tier is plain LS, which is what §3.1 specifies, and its `σ²/2` per bin is the whole 1.76 dB the
+complex rows pay. Projecting the estimate onto the prefix-length delay subspace — the taps beyond
+it can only be noise, by the same argument that makes the one-tap equaliser correct — would cut
+that by the ratio of prefix to occupied bins with no distortion for any channel the prefix can
+carry. It is a third estimator tier with its own §5 bundle, not a fix, and it is not in phase 6's
+scope.
+
+Next: phase 7.
 **Audience:** implementer working in the `sdrmm` workspace
 
 ---
@@ -586,6 +621,15 @@ subcarrier map) serves as the reference configuration for the bundle, exercised 
 synthetic vectors only.
 *Accept:* synthetic OFDM bundle complete with limits tables (notably CFO,
 sample-clock ppm, and multipath rows) at the reference configuration.
+*Landed:* eleven committed curves — four orders through the real chain, the same four plus DMT
+through a genie receiver holding the closed-form acceptance (worst 0.08 dB), and the short-training
+comb tier — two limits tables (one per estimator tier), a perf baseline with zero-allocation gates
+on the symbol path, the soft path and acquisition, and level-1 E2E throughout. The measured
+headlines: acquisition costs +0.72 to +2.67 dB by order, the comb tier is 1.57 dB *ahead* under
+AWGN and resolves 5 samples of echo against the long training's 18, the CFO row lands at 623 kHz
+(the short training's own ±625 kHz wrap), the clock row at 3496 ppm (the prefix's), and the
+Hermitian mirror costs exactly the 3.01 dB the geometry predicts, measured at 3.03. No 802.11
+attachment, per §6.
 
 **Phase 7 — Spread, chirp, hopping.** DSSS with processing gain measured against
 10·log₁₀(chips/symbol); CCK codebooks; CSS across SF7–SF12; FHSS framework driving an

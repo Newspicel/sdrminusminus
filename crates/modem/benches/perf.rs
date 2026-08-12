@@ -226,6 +226,67 @@ fn ppm2_matched_8m(c: &mut Criterion) {
     group.finish();
 }
 
+/// The phase-6 OFDM entry at its reference configuration (64-point transform, 16-sample prefix,
+/// 48 + 4 subcarriers, QPSK at 20 MHz) — the committed numbers live in
+/// `baselines/ofdm/ofdm_perf.json`, written by the ignored test in `tests/ofdm_perf.rs` from the
+/// identical frame, so bench and gate measure the same work. Two groups because the cost splits:
+/// the per-symbol path against the whole frame, preamble search included.
+fn ofdm64_20m(c: &mut Criterion) {
+    use sdrmm_modem::{
+        ber::catalog::ofdm::{LEAD, SEARCH, SYMBOLS},
+        constellation::tables,
+        ofdm::{OfdmDemod, OfdmMod, OfdmParams},
+    };
+    let params = OfdmParams::wifi_like();
+    let table = match tables::qam_square(4) {
+        Ok(t) => t,
+        Err(why) => panic!("QPSK: {why}"),
+    };
+    let mut state = 0x0f_06u32;
+    let points: Vec<Complex<f32>> = (0..params.data_subcarriers() * SYMBOLS)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            table.points()[(state % 4) as usize]
+        })
+        .collect();
+    let mut wave = vec![Complex::new(0.0, 0.0); LEAD];
+    OfdmMod::new(params.clone()).frame(&points, &mut wave);
+
+    let mut demod = OfdmDemod::new(params.clone());
+    assert!(
+        demod.acquire(&wave, SEARCH).is_some(),
+        "the bench frame must acquire, or the symbol path measures a stale channel estimate"
+    );
+    let mut out: Vec<Complex<f32>> = Vec::with_capacity(points.len());
+
+    let mut group = c.benchmark_group("ofdm64_symbols_20m");
+    group.throughput(Throughput::Elements(
+        (SYMBOLS * params.symbol_samples()) as u64,
+    ));
+    group.bench_function("demodulate", |b| {
+        b.iter(|| {
+            out.clear();
+            demod.demodulate(black_box(&wave), SYMBOLS, &mut out);
+            black_box(out.len())
+        });
+    });
+    group.finish();
+
+    let mut group = c.benchmark_group("ofdm64_frame_20m");
+    group.throughput(Throughput::Elements(wave.len() as u64));
+    group.bench_function("acquire_and_demodulate", |b| {
+        b.iter(|| {
+            out.clear();
+            assert!(demod.acquire(black_box(&wave), SEARCH).is_some());
+            demod.demodulate(&wave, SYMBOLS, &mut out);
+            black_box(out.len())
+        });
+    });
+    group.finish();
+}
+
 /// 2-level bench symbols from the shared dibit generator, so every CPM bench draws from one
 /// deterministic source.
 fn test_bits(len: usize, seed: u32) -> Vec<u8> {
@@ -241,6 +302,7 @@ criterion_group!(
     msk_demod,
     afsk_filterbank_12k,
     mfsk4_filterbank_48k,
-    ppm2_matched_8m
+    ppm2_matched_8m,
+    ofdm64_20m
 );
 criterion_main!(benches);

@@ -1,0 +1,16 @@
+[
+  {
+    "bench": "ofdm64_symbols_20m",
+    "msamples_per_s": 221.66802809945318,
+    "realtime_factor": 11.083401404972658,
+    "config": "64-point/16-prefix, 48+4 subcarriers, 64 data symbols, QPSK, 20 MHz, per-symbol path (long-training estimate held)",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "ofdm64_frame_20m",
+    "msamples_per_s": 74.51963383650315,
+    "realtime_factor": 3.7259816918251576,
+    "config": "64-point/16-prefix, 48+4 subcarriers, 64 data symbols, QPSK, 20 MHz, whole frame including preamble search over 192 samples",
+    "host": "aarch64-macos"
+  }
+]

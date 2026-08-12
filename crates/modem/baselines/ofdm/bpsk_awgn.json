@@ -1,0 +1,35 @@
+{
+  "label": "bpsk-ofdm uncoded, CP-OFDM 64-point/16-prefix, 48+4 subcarriers at 20 MHz, 64 data symbols, preamble search -> coarse+fine CFO -> long-training LS estimate -> one-tap EQ -> pilot tracking, uncoded BER, seed 0xfd2",
+  "points": [
+    {
+      "ebn0_db": 7.0,
+      "errors": 2014,
+      "trials": 168960
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2003,
+      "trials": 485376
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2002,
+      "trials": 1797120
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 801,
+      "trials": 3001344
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 103,
+      "trials": 3001344
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 15,
+      "trials": 3001344
+    }
+  ]
+}

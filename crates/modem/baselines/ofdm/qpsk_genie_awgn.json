@@ -1,0 +1,35 @@
+{
+  "label": "qpsk-ofdm genie uncoded, CP-OFDM 64-point/16-prefix, 48+4 subcarriers at 20 MHz, 64 data symbols, genie origin, carrier, channel and phase -> one-tap EQ, uncoded BER, seed 0xfe4",
+  "points": [
+    {
+      "ebn0_db": 6.0,
+      "errors": 2027,
+      "trials": 221184
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2021,
+      "trials": 485376
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2008,
+      "trials": 1302528
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 1313,
+      "trials": 3004416
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 301,
+      "trials": 3004416
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 46,
+      "trials": 3004416
+    }
+  ]
+}

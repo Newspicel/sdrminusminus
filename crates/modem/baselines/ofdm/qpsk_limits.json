@@ -1,0 +1,63 @@
+{
+  "entry": "ofdm-qpsk-reference",
+  "seed": 4052,
+  "sensitivity_db_1e2": 8.318403059986299,
+  "sensitivity_db_1e3": 10.577616986870998,
+  "sensitivity_db_1e4": 12.115236643415942,
+  "rows": [
+    {
+      "axis": "static CFO",
+      "unit": "Hz",
+      "threshold": 623437.5,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "frequency drift",
+      "unit": "Hz/s",
+      "threshold": 296875000.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "sample clock",
+      "unit": "ppm",
+      "threshold": 3496.09375,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "static timing offset",
+      "unit": "samples",
+      "threshold": 32.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "two-ray delay",
+      "unit": "samples",
+      "threshold": 18.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "exponential PDP spread",
+      "unit": "samples",
+      "threshold": 0.75,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "IQ gain",
+      "unit": "dB",
+      "threshold": 6.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "IQ phase",
+      "unit": "deg",
+      "threshold": 24.609375,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "profile:static-indoor",
+      "unit": "dB",
+      "threshold": 1.6517065064125394,
+      "criterion": "Eb/N0 degradation at BER 1e-3"
+    }
+  ]
+}
