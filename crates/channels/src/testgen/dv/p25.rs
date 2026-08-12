@@ -2,7 +2,7 @@
 //! symbols a transmitter interleaves into the frame, and filler for the rest.
 
 use num_complex::Complex;
-use sdrmm_dsp::CyclicCode;
+use sdrmm_dsp::{CyclicCode, ParityCode, crc16_msb, rs64_encode};
 
 use super::{bits, c4fm, dibits, filler};
 
@@ -26,7 +26,7 @@ fn frame_bits(duid: u8) -> usize {
 /// A transmission: header, two voice frames, terminator.
 #[must_use]
 pub fn transmission(nac: u16, rate: f64) -> Vec<Complex<f32>> {
-    transmission_inner(nac, None, rate)
+    transmission_inner(nac, None, 0x80, rate)
 }
 
 /// A transmission whose two LDUs contain caller-supplied Annex-H IMBE frames.
@@ -37,12 +37,22 @@ pub(crate) fn transmission_with_voice(
     voice: &[[[bool; 144]; 9]; 2],
     rate: f64,
 ) -> Vec<Complex<f32>> {
-    transmission_inner(nac, Some(voice), rate)
+    transmission_inner(nac, Some(voice), 0x80, rate)
+}
+
+#[must_use]
+pub fn encrypted_transmission(
+    nac: u16,
+    voice: &[[[bool; 144]; 9]; 2],
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    transmission_inner(nac, Some(voice), 0x84, rate)
 }
 
 fn transmission_inner(
     nac: u16,
     voice: Option<&[[[bool; 144]; 9]; 2]>,
+    algorithm: u8,
     rate: f64,
 ) -> Vec<Complex<f32>> {
     let mut symbols = dibits(&filler(400, 31));
@@ -52,7 +62,13 @@ fn transmission_inner(
             2 => voice.map(|frames| &frames[1]),
             _ => None,
         };
-        symbols.extend(frame(nac, duid, voice));
+        if duid == 0x3 {
+            // Conventional transmitters may leave a short unkeyed/idle interval before the
+            // terminator; it also prevents the reference waveform's final LDU tail from being
+            // the only acquisition lead-in the terminator test sees.
+            symbols.extend(dibits(&filler(400, 89)));
+        }
+        symbols.extend(frame(nac, duid, voice, algorithm));
     }
     symbols.extend(dibits(&filler(200, 37)));
     c4fm(&symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
@@ -62,14 +78,14 @@ fn transmission_inner(
 #[must_use]
 pub fn trunking(nac: u16, rate: f64) -> Vec<Complex<f32>> {
     let mut symbols = dibits(&filler(400, 41));
-    symbols.extend(frame(nac, 0x7, None));
+    symbols.extend(frame(nac, 0x7, None, 0x80));
     symbols.extend(dibits(&filler(200, 43)));
     c4fm(&symbols, rate, BAUD, DEVIATION_HZ, RRC_ALPHA)
 }
 
 /// One frame: sync, network identifier, payload — with a status di-bit inserted after every 35
 /// payload di-bits, starting at bit 70.
-fn frame(nac: u16, duid: u8, voice: Option<&[[bool; 144]; 9]>) -> Vec<u8> {
+fn frame(nac: u16, duid: u8, voice: Option<&[[bool; 144]; 9]>, algorithm: u8) -> Vec<u8> {
     const IMBE_OFFSETS: [usize; 9] = [0, 72, 164, 256, 348, 440, 532, 624, 712];
     let total = frame_bits(duid);
     let status_count = total.saturating_sub(70).div_ceil(72);
@@ -89,6 +105,13 @@ fn frame(nac: u16, duid: u8, voice: Option<&[[bool; 144]; 9]>) -> Vec<u8> {
             body[start..start + 144].copy_from_slice(frame);
         }
     }
+    match duid {
+        0x0 => insert_hdu(&mut body, algorithm),
+        0x5 => insert_signalling(&mut body, &ldu1_symbols(algorithm != 0x80)),
+        0xA => insert_signalling(&mut body, &ldu2_symbols(algorithm)),
+        0x7 => insert_tsbk(&mut body),
+        _ => {}
+    }
 
     let mut out = Vec::with_capacity(total);
     let mut read = 0;
@@ -104,4 +127,130 @@ fn frame(nac: u16, duid: u8, voice: Option<&[[bool; 144]; 9]>) -> Vec<u8> {
     }
     assert_eq!(read, body.len());
     dibits(&out)
+}
+
+fn insert_hdu(frame: &mut [bool], algorithm: u8) {
+    let mut info = Vec::new();
+    info.extend(bits(0x0123_4567_89AB_CDEF, 64));
+    info.extend(bits(0x12, 8));
+    info.extend(bits(0, 8));
+    info.extend(bits(u64::from(algorithm), 8));
+    info.extend(bits(0x1234, 16));
+    info.extend(bits(0x1201, 16));
+    let data = six_bit_symbols(&info);
+    let codeword = rs64_encode(&data, 16);
+    let mut coded = Vec::with_capacity(648);
+    for symbol in codeword {
+        coded.extend(bits(CyclicCode::GOLAY_18_6.encode(u32::from(symbol)), 18));
+    }
+    frame[112..112 + coded.len()].copy_from_slice(&coded);
+}
+
+fn ldu1_symbols(encrypted: bool) -> Vec<u8> {
+    let mut lc = bits(0, 16);
+    lc.extend(bits(u64::from(encrypted) << 6, 8));
+    lc.extend(bits(0, 8));
+    lc.extend(bits(0x1201, 16));
+    lc.extend(bits(0xABCDEF, 24));
+    rs64_encode(&six_bit_symbols(&lc), 12)
+}
+
+fn ldu2_symbols(algorithm: u8) -> Vec<u8> {
+    let mut sync = bits(0x0123_4567_89AB_CDEF, 64);
+    sync.extend(bits(0x12, 8));
+    sync.extend(bits(u64::from(algorithm), 8));
+    sync.extend(bits(0x1234, 16));
+    rs64_encode(&six_bit_symbols(&sync), 8)
+}
+
+fn insert_signalling(frame: &mut [bool], symbols: &[u8]) {
+    const OFFSETS: [usize; 9] = [0, 72, 164, 256, 348, 440, 532, 624, 712];
+    let mut coded = Vec::with_capacity(240);
+    for &symbol in symbols {
+        let mut word = [false; 10];
+        for (index, bit) in word[..6].iter_mut().enumerate() {
+            *bit = symbol >> (5 - index) & 1 != 0;
+        }
+        ParityCode::HAMMING_10_6.encode(&mut word);
+        coded.extend(word);
+    }
+    for (chunk, voice_index) in coded.as_slice().as_chunks::<40>().0.iter().zip(1usize..=6) {
+        let start = 112 + (OFFSETS[voice_index] + 72) * 2;
+        frame[start..start + 40].copy_from_slice(chunk);
+    }
+}
+
+fn insert_tsbk(frame: &mut [bool]) {
+    let mut payload = bits(2, 2);
+    payload.extend(bits(0, 6));
+    payload.extend(bits(0, 8));
+    payload.extend(bits(0, 8));
+    payload.extend(bits(0x1234, 16));
+    payload.extend(bits(0x1201, 16));
+    payload.extend(bits(0xABCDEF, 24));
+    let bytes: Vec<u8> = payload
+        .as_slice()
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|byte| {
+            byte.iter()
+                .fold(0u8, |value, &bit| value << 1 | u8::from(bit))
+        })
+        .collect();
+    let crc = crc16_msb(0x1021, 0, &bytes) ^ 0xFFFF;
+    payload.extend(bits(u64::from(crc), 16));
+    let coded = data_interleave(&trellis_encode(&payload));
+    frame[112..308].copy_from_slice(&coded);
+}
+
+fn trellis_encode(payload: &[bool]) -> Vec<bool> {
+    const OUTPUT: [[[u8; 2]; 4]; 4] = [
+        [[0, 2], [3, 0], [0, 1], [3, 3]],
+        [[3, 2], [0, 0], [3, 1], [0, 3]],
+        [[2, 1], [1, 3], [2, 2], [1, 0]],
+        [[1, 1], [2, 3], [1, 2], [2, 0]],
+    ];
+    let mut state = 0usize;
+    let mut coded = Vec::with_capacity(196);
+    for input in payload
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u8::from(pair[0]) << 1 | u8::from(pair[1]))
+        .chain(std::iter::once(0))
+    {
+        for dibit in OUTPUT[state][usize::from(input)] {
+            coded.push(dibit & 2 != 0);
+            coded.push(dibit & 1 != 0);
+        }
+        state = usize::from(input);
+    }
+    coded
+}
+
+fn data_interleave(input: &[bool]) -> Vec<bool> {
+    assert_eq!(input.len(), 196);
+    let mut output = vec![false; 196];
+    let mut source = 0;
+    for row in 0..12 {
+        for base in [0, 52, 100, 148] {
+            output[base + row * 4..base + row * 4 + 4].copy_from_slice(&input[source..source + 4]);
+            source += 4;
+        }
+    }
+    output[48..52].copy_from_slice(&input[source..]);
+    output
+}
+
+fn six_bit_symbols(data: &[bool]) -> Vec<u8> {
+    data.as_chunks::<6>()
+        .0
+        .iter()
+        .map(|symbol| {
+            symbol
+                .iter()
+                .fold(0u8, |value, &bit| value << 1 | u8::from(bit))
+        })
+        .collect()
 }

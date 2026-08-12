@@ -218,6 +218,44 @@ describe("eventDetail", () => {
     expect(silent).not.toHaveProperty("Encrypted");
   });
 
+  it("exposes DMR and P25 metadata and keeps packet data readable", () => {
+    const detail = eventDetail({
+      kind: "dv",
+      data: {
+        mode: "dmr",
+        kind: "control",
+        errors_corrected: 2,
+        vendor: "hytera",
+        manufacturer_id: 8,
+        talker_alias: "Dispatcher",
+        lat: 52.52,
+        lon: 13.405,
+        position_error_m: 20,
+        channel: 407,
+        emergency: true,
+        algorithm_id: 5,
+        key_id: 42,
+        message_indicator: "001122334455667788",
+        slot_activity: [{ slot: 2, activity: "group voice", destination_hash: 0xab }],
+        data: "A1B2C3",
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Vendor: "Hytera (0x08)",
+      "Talker alias": "Dispatcher",
+      Position: "52.52000, 13.40500",
+      "Position error": "≤ 20 m",
+      Channel: "407",
+      Emergency: "yes",
+      "Slot activity": "TS2 group voice (hash 0xAB)",
+      Algorithm: "0x05",
+      "Key ID": "0x002A",
+      "Message indicator": "001122334455667788",
+      Repaired: "2 bits",
+    });
+    expect(detail.body).toBe("A1B2C3");
+  });
+
   it("reads an RDS picture as its fields, with the radiotext as the body", () => {
     const detail = eventDetail({
       kind: "rds",

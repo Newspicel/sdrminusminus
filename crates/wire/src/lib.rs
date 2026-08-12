@@ -33,8 +33,8 @@ pub use channel::{
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, DvFrame,
-    DvFrameKind, DvMode, MorseText, NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate,
-    RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus,
+    DvFrameKind, DvMode, DvSlotActivity, MorseText, NavtexMessage, PocsagMessage, PocsagPayload,
+    RdsUpdate, RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor,
 };
 pub use device::{
     Capabilities, DeviceInfo, DeviceSettings, Direction, Duplex, ExtraSetting, ExtraValue,

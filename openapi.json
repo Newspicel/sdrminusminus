@@ -4544,6 +4544,23 @@
           "errors_corrected"
         ],
         "properties": {
+          "algorithm_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "channel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Logical or absolute channel number named by trunking signalling.",
+            "minimum": 0
+          },
           "color_code": {
             "type": [
               "integer",
@@ -4552,6 +4569,13 @@
             "format": "int32",
             "description": "The mode's network discriminator, under whichever name it publishes: DMR colour code,\nNXDN/dPMR RAN or colour code, P25 NAC, YSF has none.",
             "minimum": 0
+          },
+          "data": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Decoded packet text, or hexadecimal when its application format is not understood."
           },
           "destination": {
             "type": [
@@ -4565,6 +4589,12 @@
           "destination_call": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "emergency": {
+            "type": [
+              "boolean",
               "null"
             ]
           },
@@ -4588,11 +4618,57 @@
             ],
             "description": "True for a talkgroup call, false for a call addressed to one radio."
           },
+          "key_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "kind": {
             "$ref": "#/components/schemas/DvFrameKind"
           },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "lon": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "manufacturer_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Raw DMR FID or P25 MFID. One manufacturer may own several feature sets.",
+            "minimum": 0
+          },
+          "message_indicator": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "P25 encryption message indicator as the 72-bit hexadecimal value on the wire."
+          },
           "mode": {
             "$ref": "#/components/schemas/DvMode"
+          },
+          "network_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           },
           "opcode": {
             "type": [
@@ -4600,6 +4676,31 @@
               "null"
             ],
             "description": "Name of the signalling opcode for a control frame — \"group voice channel grant\",\n\"preamble\", … — as its specification names it."
+          },
+          "position_error_m": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "rest_channel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Capacity Plus logical slot number carrying the rest channel.",
+            "minimum": 0
+          },
+          "site_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           },
           "slot": {
             "type": [
@@ -4609,6 +4710,12 @@
             "format": "int32",
             "description": "TDMA timeslot, 1 or 2 — DMR only; every other mode here is single-slot.",
             "minimum": 0
+          },
+          "slot_activity": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DvSlotActivity"
+            }
           },
           "source": {
             "type": [
@@ -4626,12 +4733,38 @@
             ],
             "description": "Source callsign — the modes that address by callsign rather than by number."
           },
+          "system_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "talker_alias": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "DMR talker alias assembled from its header and continuation LCs."
+          },
           "text": {
             "type": [
               "string",
               "null"
             ],
             "description": "Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta\nfield."
+          },
+          "vendor": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Vendor",
+                "description": "Vendor selected by a DMR feature-set ID or P25 manufacturer ID."
+              }
+            ]
           },
           "via": {
             "type": [
@@ -4665,6 +4798,32 @@
           "dpmr",
           "m17"
         ]
+      },
+      "DvSlotActivity": {
+        "type": "object",
+        "description": "Activity advertised for one DMR timeslot by a Short LC activity update.",
+        "required": [
+          "slot",
+          "activity"
+        ],
+        "properties": {
+          "activity": {
+            "type": "string"
+          },
+          "destination_hash": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "slot": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "ExportFormat": {
         "type": "string",
@@ -7158,6 +7317,24 @@
             ]
           }
         }
+      },
+      "Vendor": {
+        "type": "string",
+        "description": "Manufacturer feature set carried by DMR FID and P25 MFID fields.",
+        "enum": [
+          "standard",
+          "etsi",
+          "motorola",
+          "hytera",
+          "harris",
+          "tait",
+          "jvc_kenwood",
+          "emc",
+          "radio_activity",
+          "flyde_micro",
+          "prod_el",
+          "unknown"
+        ]
       },
       "WfmParams": {
         "type": "object",

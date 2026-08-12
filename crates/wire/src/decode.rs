@@ -398,6 +398,53 @@ pub enum DvFrameKind {
     Data,
 }
 
+/// Manufacturer feature set carried by DMR FID and P25 MFID fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Vendor {
+    Standard,
+    Etsi,
+    Motorola,
+    Hytera,
+    Harris,
+    Tait,
+    JvcKenwood,
+    Emc,
+    RadioActivity,
+    FlydeMicro,
+    ProdEl,
+    Unknown,
+}
+
+impl Vendor {
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Etsi => "ETSI",
+            Self::Motorola => "Motorola",
+            Self::Hytera => "Hytera",
+            Self::Harris => "Harris",
+            Self::Tait => "Tait",
+            Self::JvcKenwood => "JVCKENWOOD",
+            Self::Emc => "EMC",
+            Self::RadioActivity => "Radio Activity",
+            Self::FlydeMicro => "Flyde Micro",
+            Self::ProdEl => "PROD-EL",
+            Self::Unknown => "unknown vendor",
+        }
+    }
+}
+
+/// Activity advertised for one DMR timeslot by a Short LC activity update.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DvSlotActivity {
+    pub slot: u8,
+    pub activity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_hash: Option<u8>,
+}
+
 /// One decoded digital-voice frame — the metadata of a call. Audio travels through the channel's
 /// PCM output rather than inside this event.
 ///
@@ -417,6 +464,12 @@ pub struct DvFrame {
     /// NXDN/dPMR RAN or colour code, P25 NAC, YSF has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_code: Option<u16>,
+    /// Vendor selected by a DMR feature-set ID or P25 manufacturer ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vendor: Option<Vendor>,
+    /// Raw DMR FID or P25 MFID. One manufacturer may own several feature sets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manufacturer_id: Option<u8>,
     /// True for a talkgroup call, false for a call addressed to one radio.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_call: Option<bool>,
@@ -438,6 +491,41 @@ pub struct DvFrame {
     /// that it is in the clear; `None` means the frame did not say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encrypted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub algorithm_id: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_id: Option<u16>,
+    /// P25 encryption message indicator as the 72-bit hexadecimal value on the wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_indicator: Option<String>,
+    /// DMR talker alias assembled from its header and continuation LCs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub talker_alias: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lat: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lon: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position_error_m: Option<u32>,
+    /// Logical or absolute channel number named by trunking signalling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<u16>,
+    /// Capacity Plus logical slot number carrying the rest channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rest_channel: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_id: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site_id: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emergency: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slot_activity: Vec<DvSlotActivity>,
+    /// Decoded packet text, or hexadecimal when its application format is not understood.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
     /// Name of the signalling opcode for a control frame — "group voice channel grant",
     /// "preamble", … — as its specification names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -654,6 +742,12 @@ impl DecoderEvent {
                 if let Some(parties) = f.parties() {
                     parts.push(parties);
                 }
+                if let Some(alias) = &f.talker_alias {
+                    parts.push(alias.clone());
+                }
+                if let Some(vendor) = f.vendor {
+                    parts.push(vendor.label().to_owned());
+                }
                 if let Some(via) = &f.via {
                     parts.push(format!("via {via}"));
                 }
@@ -661,7 +755,12 @@ impl DecoderEvent {
                     parts.push(opcode.clone());
                 }
                 if f.encrypted == Some(true) {
-                    parts.push("encrypted".to_owned());
+                    parts.push(match (f.algorithm_id, f.key_id) {
+                        (Some(algorithm), Some(key)) => {
+                            format!("encrypted ALG {algorithm:02X} KID {key:04X}")
+                        }
+                        _ => "encrypted".to_owned(),
+                    });
                 }
                 if let Some(text) = &f.text {
                     parts.push(text.clone());
@@ -679,6 +778,7 @@ impl DecoderEvent {
             Self::Adsb(a) => (a.lat, a.lon),
             Self::Ais(m) => (m.lat, m.lon),
             Self::Aprs(p) => (p.lat, p.lon),
+            Self::Dv(f) => (f.lat, f.lon),
             _ => (None, None),
         };
         lat.zip(lon)

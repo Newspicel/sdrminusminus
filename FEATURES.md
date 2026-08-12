@@ -196,10 +196,16 @@ talkgroup or callsign, on which colour code or network, encrypted or not.
   every burst — and coasts dead time at a long average of its tracked rate, because a TDMA gap
   multiplies whatever rate it coasts at by the gap's length
 - **[shipped]** DMR — all eight sync patterns, Golay(20,8) slot type, BPTC(196,96) signalling:
-  voice LC header, terminator, CSBK and data header, each confirmed by the Reed-Solomon or CRC
-  mask that names its own frame type. Talkgroup, radio ID, colour code, group/private,
-  encryption flag. **Late entry**: the BPTC(128,77) embedded link control is reassembled from
-  bursts B–E of a voice superframe, so a call joined in progress names itself within 240 ms.
+  voice LC header, terminator, CSBK, PI and data headers, rate-½/rate-¾/rate-1 data visibility,
+  each confirmed by the Reed-Solomon or CRC mask that names its own frame type. Talkgroup,
+  radio ID, colour code, group/private, emergency and encryption ALG/KID/MI. FID+opcode/FLCO
+  dispatch prevents vendor opcode collisions from being interpreted as ETSI addresses; known
+  Motorola, Hytera, Tait, JVCKENWOOD, EMC, Radio Activity, Flyde Micro and PROD-EL
+  feature IDs are named while unknown proprietary payloads remain explicitly unparsed.
+  Standard GPS Info feeds the shared map coordinates, and talker-alias header plus three blocks
+  reassemble 7-bit, ISO-8, UTF-8 and UTF-16BE names. **Late entry**: the BPTC(128,77) embedded
+  link control is reassembled from bursts B–E of a voice superframe, so a call joined in
+  progress names itself within 240 ms.
   Verified end to end against the generated keyed waveform — header, late-entry superframe and
   terminator — and against a recorded off-air call (`fixtures/dmr_call_48k`): repeated headers
   and three superframes' late entry, all naming the same radio
@@ -209,6 +215,12 @@ talkgroup or callsign, on which colour code or network, encrypted or not.
   identified from the full LC service options and muted rather than decoded as noise. A
   generated 440 Hz AMBE transmission proves all 18 frames of a superframe end to end, and the
   committed off-air call now proves that its real payload produces bounded PCM
+- **[shipped]** DMR repeater slots and Short LC — Hamming(7,4) TACT is deinterleaved from CACH,
+  activating the slot filter for base-station signals. Two independent call, alias, privacy,
+  embedded-LC and vocoder states follow simultaneous slots without cross-latching. Four CACH
+  payloads rebuild the Hamming(17,12) product code and CRC-8 Short LC: activity/hash updates and
+  Tier III control/payload site parameters. Tier III CSBK ALOHA/AHOY and logical channel grants
+  expose their channel, slot, emergency, system and address parameters
 - **[shipped]** M17 — the one mode that names both parties in the clear: link setup frame through
   derandomiser, quadratic interleaver, P1 depuncturing, Viterbi and CRC-16, with base-40
   callsigns, encryption flag and end-of-transmission. Stream frames undo P2 puncturing and
@@ -220,10 +232,14 @@ talkgroup or callsign, on which colour code or network, encrypted or not.
   second. All three speech layouts produce audio: carrier-interleaved AMBE+2 in V/D1,
   repetition-protected natural 49-bit AMBE+2 in V/D2, and full-rate IMBE with its Voice-FR
   interleaver and scrambler
-- **[shipped]** P25 Phase 1 — frame sync, status-symbol stripping and the BCH(63,16,23) network
-  identifier: NAC and data unit id, so headers, calls, terminators and trunking blocks are
-  distinguished and a system is identified by its NAC. LDU1 and LDU2 are collected at their
-  exact 1728-bit wire length, status dibits removed, and all nine Annex-H IMBE frames decoded
+- **[shipped]** P25 Phase 1 — frame sync, status-symbol stripping and BCH(63,16,23) NID plus the
+  protected metadata behind it. HDU Golay(18,6)+RS(36,20,17) yields talkgroup and encryption
+  ALG/KID/MI at call start; LDU1 Hamming(10,6)+RS(24,12,13) yields MFID-gated group/private link
+  control, source, talkgroup, emergency and privacy; LDU2 RS(24,16,9) refreshes encryption sync.
+  Encrypted voice is muted. All nine Annex-H IMBE frames per LDU decode. Rate-½ trellis,
+  deinterleave and CRC-16 validate TSBKs and expose standard channel grants plus network/RFSS/
+  adjacent-site status; Motorola 0x90, Harris 0xA4 and unknown MFIDs remain vendor-gated. PDU
+  payloads are retained as data metadata rather than silently dropped
 - **[shipped]** dPMR — FS1/FS3/FS4 framing and the full header information field (descrambled,
   de-interleaved, CRC-8 checked): called and calling IDs, colour code, individual versus group
   call. Once that checked header establishes a voice mode, FS2 opens the complete 756-symbol
@@ -256,14 +272,12 @@ talkgroup or callsign, on which colour code or network, encrypted or not.
   second after its last sync so the next transmitter meets clean estimates. Together with the
   transition-gated clock this closed the late-entry gap: the generated keyed waveform now
   decodes header, embedded link control and terminator alike
-- **[planned]** P25 link control and trunking blocks (LDU1 link control, TSBK), NXDN SACCH/FACCH
-  addressing and YSF callsigns — the signalling layers below each mode's voice framing
+- **[planned]** NXDN SACCH/FACCH addressing and YSF callsigns — the signalling layers below
+  each mode's voice framing
 - **[planned]** FreeDV
 - **[planned]** Trunking following — P25 / DMR Tier III control channel decode with auto-steered
   voice channels. Needs the control-channel payloads above first
 - **[planned]** Hardware AMBE dongle/server support
-- **[planned]** DMR repeater slot numbering — the CACH that names the timeslot is not decoded, so
-  a slot is reported only where the sync pattern itself names it (direct mode)
 
 ## 10. Aviation & marine
 

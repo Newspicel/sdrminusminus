@@ -1673,18 +1673,28 @@ export interface components {
          *     talkgroup, a DMR voice header the reverse.
          */
         DvFrame: {
+            /** Format: int32 */
+            algorithm_id?: number | null;
+            /**
+             * Format: int32
+             * @description Logical or absolute channel number named by trunking signalling.
+             */
+            channel?: number | null;
             /**
              * Format: int32
              * @description The mode's network discriminator, under whichever name it publishes: DMR colour code,
              *     NXDN/dPMR RAN or colour code, P25 NAC, YSF has none.
              */
             color_code?: number | null;
+            /** @description Decoded packet text, or hexadecimal when its application format is not understood. */
+            data?: string | null;
             /**
              * Format: int32
              * @description Numeric destination: talkgroup for a group call, radio ID for a private one.
              */
             destination?: number | null;
             destination_call?: string | null;
+            emergency?: boolean | null;
             /**
              * @description Set when the frame says its payload is encrypted. `Some(false)` is a positive statement
              *     that it is in the clear; `None` means the frame did not say.
@@ -1698,18 +1708,43 @@ export interface components {
             errors_corrected: number;
             /** @description True for a talkgroup call, false for a call addressed to one radio. */
             group_call?: boolean | null;
+            /** Format: int32 */
+            key_id?: number | null;
             kind: components["schemas"]["DvFrameKind"];
+            /** Format: double */
+            lat?: number | null;
+            /** Format: double */
+            lon?: number | null;
+            /**
+             * Format: int32
+             * @description Raw DMR FID or P25 MFID. One manufacturer may own several feature sets.
+             */
+            manufacturer_id?: number | null;
+            /** @description P25 encryption message indicator as the 72-bit hexadecimal value on the wire. */
+            message_indicator?: string | null;
             mode: components["schemas"]["DvMode"];
+            /** Format: int32 */
+            network_id?: number | null;
             /**
              * @description Name of the signalling opcode for a control frame — "group voice channel grant",
              *     "preamble", … — as its specification names it.
              */
             opcode?: string | null;
+            /** Format: int32 */
+            position_error_m?: number | null;
+            /**
+             * Format: int32
+             * @description Capacity Plus logical slot number carrying the rest channel.
+             */
+            rest_channel?: number | null;
+            /** Format: int32 */
+            site_id?: number | null;
             /**
              * Format: int32
              * @description TDMA timeslot, 1 or 2 — DMR only; every other mode here is single-slot.
              */
             slot?: number | null;
+            slot_activity?: components["schemas"]["DvSlotActivity"][];
             /**
              * Format: int32
              * @description Numeric source address — DMR/NXDN/dPMR radio ID, P25 source unit.
@@ -1717,11 +1752,16 @@ export interface components {
             source?: number | null;
             /** @description Source callsign — the modes that address by callsign rather than by number. */
             source_call?: string | null;
+            /** Format: int32 */
+            system_id?: number | null;
+            /** @description DMR talker alias assembled from its header and continuation LCs. */
+            talker_alias?: string | null;
             /**
              * @description Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta
              *     field.
              */
             text?: string | null;
+            vendor?: null | components["schemas"]["Vendor"];
             /** @description The repeater or reflector the call is routed through: D-Star RPT1/RPT2. */
             via?: string | null;
         };
@@ -1739,6 +1779,14 @@ export interface components {
          * @enum {string}
          */
         DvMode: "dmr" | "dstar" | "ysf" | "nxdn" | "p25" | "dpmr" | "m17";
+        /** @description Activity advertised for one DMR timeslot by a Short LC activity update. */
+        DvSlotActivity: {
+            activity: string;
+            /** Format: int32 */
+            destination_hash?: number | null;
+            /** Format: int32 */
+            slot: number;
+        };
         /**
          * @description Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a
          *     path segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing
@@ -2931,6 +2979,11 @@ export interface components {
             revision: number;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
+        /**
+         * @description Manufacturer feature set carried by DMR FID and P25 MFID fields.
+         * @enum {string}
+         */
+        Vendor: "standard" | "etsi" | "motorola" | "hytera" | "harris" | "tait" | "jvc_kenwood" | "emc" | "radio_activity" | "flyde_micro" | "prod_el" | "unknown";
         WfmParams: {
             /**
              * Format: float

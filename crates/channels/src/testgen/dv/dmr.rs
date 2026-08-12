@@ -10,6 +10,8 @@ use super::{bits, dibits, filler};
 /// Direct-mode slot 1 sync patterns, which name their timeslot on the wire.
 const VOICE_SYNC: u64 = 0x5D57_7F77_57FF;
 const DATA_SYNC: u64 = 0xF7FD_D5DD_FD55;
+const BS_VOICE_SYNC: u64 = 0x755F_D7DF_75F7;
+const BS_DATA_SYNC: u64 = 0xDFF5_7D75_DF5D;
 
 const DT_VOICE_LC_HEADER: u8 = 0x1;
 const DT_TERMINATOR_WITH_LC: u8 = 0x2;
@@ -67,13 +69,130 @@ impl Call {
 /// slot with the rest of the 60 ms TDMA frame dead, as a direct-mode radio transmits.
 #[must_use]
 pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
-    let voice = std::array::from_fn(|_| {
+    let voice: [[bool; 216]; 6] = std::array::from_fn(|_| {
         let mut payload = [false; 216];
         payload[..108].copy_from_slice(&filler(108, u32::from(call.color_code) + 17));
         payload[108..].copy_from_slice(&filler(108, u32::from(call.color_code) + 23));
         payload
     });
     transmission_with_voice(call, &voice, rate)
+}
+
+/// A base-station transmission with a Golay/Hamming-protected CACH naming the repeater slot.
+#[must_use]
+pub fn repeater_transmission(call: &Call, slot: u8, rate: f64) -> Vec<Complex<f32>> {
+    repeater_calls(call, None, slot, rate)
+}
+
+/// Two simultaneous repeater calls, one state machine per timeslot.
+#[must_use]
+pub fn dual_slot_transmission(slot_one: &Call, slot_two: &Call, rate: f64) -> Vec<Complex<f32>> {
+    repeater_calls(slot_one, Some(slot_two), 1, rate)
+}
+
+fn repeater_calls(
+    first: &Call,
+    second: Option<&Call>,
+    first_slot: u8,
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    let first_bursts = call_bursts(first);
+    let second_bursts = second.map(call_bursts);
+    let mut symbols = Vec::new();
+    symbols.extend(dibits(&filler(800, 73)).into_iter().map(Some));
+    for (index, first_burst) in first_bursts.iter().enumerate() {
+        append_repeater_burst(&mut symbols, first_burst, first_slot);
+        if let Some(second_bursts) = &second_bursts {
+            append_repeater_burst(&mut symbols, &second_bursts[index], 2);
+        } else {
+            symbols.extend(
+                dibits(&filler(288, 91 + index as u32))
+                    .into_iter()
+                    .map(Some),
+            );
+        }
+    }
+    symbols.extend(dibits(&filler(400, 101)).into_iter().map(Some));
+    Keyed { symbols }.modulate(rate)
+}
+
+fn call_bursts(call: &Call) -> Vec<Vec<bool>> {
+    let voice: [[bool; 216]; 6] = std::array::from_fn(|_| {
+        let mut payload = [false; 216];
+        payload[..108].copy_from_slice(&filler(108, u32::from(call.color_code) + 17));
+        payload[108..].copy_from_slice(&filler(108, u32::from(call.color_code) + 23));
+        payload
+    });
+    let mut bursts = vec![data_burst(
+        call,
+        DT_VOICE_LC_HEADER,
+        &lc_with_parity(call, [0x96, 0x96, 0x96]),
+    )];
+    let embedded = Bptc128::encode(&embedded_block(call));
+    bursts.push(voice_burst(call, None, &voice[0]));
+    for (i, lcss) in [0b01u8, 0b11, 0b11, 0b10].into_iter().enumerate() {
+        bursts.push(voice_burst(
+            call,
+            Some((lcss, embedded[i * 32..(i + 1) * 32].to_vec())),
+            &voice[i + 1],
+        ));
+    }
+    bursts.push(voice_burst(call, Some((0, vec![false; 32])), &voice[5]));
+    bursts.push(data_burst(
+        call,
+        DT_TERMINATOR_WITH_LC,
+        &lc_with_parity(call, [0x99, 0x99, 0x99]),
+    ));
+    bursts
+}
+
+fn append_repeater_burst(symbols: &mut Vec<Option<u8>>, burst: &[bool], slot: u8) {
+    let mut burst = burst.to_vec();
+    let sync = if burst[108..156] == bits(VOICE_SYNC, 48) {
+        BS_VOICE_SYNC
+    } else if burst[108..156] == bits(DATA_SYNC, 48) {
+        BS_DATA_SYNC
+    } else {
+        0
+    };
+    if sync != 0 {
+        burst[108..156].copy_from_slice(&bits(sync, 48));
+    }
+    symbols.extend(dibits(&cach(slot)).into_iter().map(Some));
+    symbols.extend(dibits(&burst).into_iter().map(Some));
+}
+
+fn cach(slot: u8) -> Vec<bool> {
+    let mut tact = [true, slot == 2, false, false, false, false, false];
+    sdrmm_dsp::ParityCode::HAMMING_7_4.encode(&mut tact);
+    let payload = [false; 17];
+    [
+        tact[0],
+        payload[0],
+        payload[1],
+        payload[2],
+        tact[1],
+        payload[3],
+        payload[4],
+        payload[5],
+        tact[2],
+        payload[6],
+        payload[7],
+        payload[8],
+        tact[3],
+        payload[9],
+        tact[4],
+        payload[10],
+        payload[11],
+        payload[12],
+        tact[5],
+        payload[13],
+        payload[14],
+        payload[15],
+        tact[6],
+        payload[16],
+    ]
+    .to_vec()
 }
 
 /// The same independently-framed transmission with caller-provided, already encoded vocoder
@@ -120,10 +239,24 @@ pub fn csbk(
     source: u32,
     rate: f64,
 ) -> Vec<Complex<f32>> {
+    csbk_with_fid(color_code, 0, opcode, destination, source, rate)
+}
+
+/// A CSBK in a manufacturer feature set, used to prove that an opcode collision never enters
+/// the standardized ETSI field parser.
+#[must_use]
+pub(crate) fn csbk_with_fid(
+    color_code: u8,
+    fid: u8,
+    opcode: u8,
+    destination: u32,
+    source: u32,
+    rate: f64,
+) -> Vec<Complex<f32>> {
     let mut payload = bits(u64::from(opcode) & 0x3F, 8);
     // Feature set id, then the sixteen opcode-specific bits every CSBK carries ahead of its
     // two addresses.
-    payload.extend(bits(0, 8));
+    payload.extend(bits(u64::from(fid), 8));
     payload.extend(bits(0, 16));
     payload.extend(bits(u64::from(destination), 24));
     payload.extend(bits(u64::from(source), 24));

@@ -28,6 +28,12 @@ pub struct ParityCode {
 }
 
 impl ParityCode {
+    /// Hamming(7,4,3) protecting the DMR CACH TACT field.
+    pub const HAMMING_7_4: Self = Self {
+        k: 4,
+        parity: &[0b0111, 0b1110, 0b1011],
+    };
+
     /// Hamming(13,9,3) — the columns of a DMR BPTC(196,96) block (ETSI TS 102 361-1 B.3.11).
     pub const HAMMING_13_9: Self = Self {
         k: 9,
@@ -177,6 +183,14 @@ impl CyclicCode {
         correctable: 3,
     };
 
+    /// Golay(18,6,8) protecting each six-bit symbol in a P25 header data unit.
+    pub const GOLAY_18_6: Self = Self {
+        k: 6,
+        parity: 11,
+        generator: 0xC75,
+        correctable: 3,
+    };
+
     /// QR(16,7,6) — the DMR embedded signalling field in a voice burst (B.3.4). Corrects two.
     pub const QR_16_7: Self = Self {
         k: 7,
@@ -284,6 +298,7 @@ mod tests {
     #[test]
     fn the_hamming_family_has_its_published_distances() {
         assert_eq!(min_distance_parity(&ParityCode::HAMMING_13_9), 3);
+        assert_eq!(min_distance_parity(&ParityCode::HAMMING_7_4), 3);
         assert_eq!(min_distance_parity(&ParityCode::HAMMING_15_11), 3);
         assert_eq!(min_distance_parity(&ParityCode::HAMMING_16_11), 4);
         assert_eq!(min_distance_parity(&ParityCode::HAMMING_10_6), 3);
@@ -293,6 +308,7 @@ mod tests {
     #[test]
     fn parity_codes_repair_any_single_bit() {
         for code in [
+            ParityCode::HAMMING_7_4,
             ParityCode::HAMMING_13_9,
             ParityCode::HAMMING_15_11,
             ParityCode::HAMMING_16_11,
