@@ -455,12 +455,18 @@ export function decoderLogExportUrl(format: ExportFormat, filter: DecoderLogFilt
   );
 }
 
-/** Blank fields are absent fields: a cleared filter input must not become `q=` (which the
- * server would match on) nor a second query key for what is the same request. */
+/**
+ * Blank fields are absent fields: a cleared filter input must not become `q=` (which the server
+ * would match on) nor a second query key for what is the same request.
+ *
+ * `sources` is the exception, and it is the one that matters: empty means *no channels*, not
+ * *every channel*. Dropping it would widen the request instead of narrowing it — and the same
+ * filter backs the clear endpoint, so the widened one would empty the log.
+ */
 function normalizeFilter(filter: DecoderLogFilter): DecoderLogFilter {
   const normalized: DecoderLogFilter = {};
   for (const [key, value] of Object.entries(filter)) {
-    if (value != null && value !== "") {
+    if (value != null && (value !== "" || key === "sources")) {
       (normalized as Record<string, string | number>)[key] = value;
     }
   }

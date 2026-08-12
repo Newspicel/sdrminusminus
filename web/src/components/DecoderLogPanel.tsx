@@ -6,7 +6,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { clearDecoderLog, DECODER_LOG_KEY, decoderLogExportUrl, decoderLogQuery } from "../lib/api";
 import { useDecodedStore } from "../lib/decoded";
-import type { DeviceSet } from "../lib/types";
 import { BTN, FIELD } from "./controls";
 import {
   buildRows,
@@ -19,7 +18,8 @@ import {
   kindOptions,
   LIMIT_OPTIONS,
   type LogFilter,
-  mergeDeviceSets,
+  sourceSet,
+  sourceSets,
   toQuery,
 } from "./decoderLog";
 import { formatMhz } from "./format";
@@ -32,7 +32,12 @@ const HEAD = "px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-w
 
 const NO_FRAMES = {};
 
-export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly DeviceSet[] }) {
+/**
+ * `sources` is the wire scope: the `device_set:channel` list of the decoders feeding this log,
+ * which narrows both the stored page and the live tail. It is not a control the operator can
+ * clear — a log node shows what is wired into it, and the dropdowns below only narrow further.
+ */
+export function DecoderLogPanel({ sources }: { sources: string }) {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<LogFilter>(DEFAULT_LOG_FILTER);
   const [search, setSearch] = useState(DEFAULT_LOG_FILTER.q);
@@ -62,23 +67,21 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
     return () => window.clearTimeout(timer);
   }, [armed]);
 
-  const query = toQuery(filter);
+  const query = toQuery(filter, sources);
   const log = useQuery(decoderLogQuery(query));
   // Subscribing to the store only while live is on keeps the panel off the 10 Hz flush entirely
   // when it is showing stored rows.
   const frames = useDecodedStore((s) => (live ? s.frames : NO_FRAMES));
   const lost = useDecodedStore((s) => s.lost);
+  const wired = useMemo(() => sourceSet(sources), [sources]);
 
   const entries = useMemo(() => log.data?.entries ?? [], [log.data]);
-  // The device-set list only grows: derived from the filtered page it would drop every set but
-  // the one being filtered on, and there would be no way back to the others (`mergeDeviceSets`).
-  const [sets, setSets] = useState<readonly number[]>([]);
-  useEffect(() => {
-    setSets((current) => mergeDeviceSets(current, entries, deviceSets));
-  }, [entries, deviceSets]);
+  // Straight off the wires, not off the page: a set that is wired in but silent must stay in the
+  // list, and a set that is not wired in is a choice that could only ever show nothing.
+  const sets = useMemo(() => sourceSets(sources), [sources]);
   const rows = useMemo(
-    () => buildRows(entries, live ? collectLive(frames, filter) : []),
-    [entries, frames, filter, live],
+    () => buildRows(entries, live ? collectLive(frames, filter, wired) : []),
+    [entries, frames, filter, live, wired],
   );
 
   const clearMut = useMutation({
@@ -203,7 +206,9 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
           {rows.length} shown · {total} stored
         </span>
         {armed && (
-          <span className="text-danger">Clear removes every row matching this filter.</span>
+          <span className="text-danger">
+            Clear removes every stored row from the decoders wired in that matches this filter.
+          </span>
         )}
         {cleared !== null && <span>{cleared} rows cleared.</span>}
       </div>
@@ -258,7 +263,7 @@ export function DecoderLogPanel({ deviceSets = [] }: { deviceSets?: readonly Dev
               ? "Loading…"
               : isFiltered(filter)
                 ? "No rows match this filter."
-                : "No decodes logged yet."}
+                : "Nothing logged yet from the decoders wired in."}
           </div>
         )}
       </div>

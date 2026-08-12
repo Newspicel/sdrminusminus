@@ -96,6 +96,8 @@ pub enum PortType {
     Audio,
     /// Typed decoder frames ([`crate::DecodedRecord`]).
     Events,
+    /// Scanned pictures, one raster per field (`VIDEO_GRAY` on the wire, PLAN §13 ATV).
+    Video,
     /// Tuning ownership, not a stream: a scanner sweeps the radio it is wired into, and client
     /// retunes on that radio are refused while it does (PLAN §18). The wire *is* the ownership,
     /// which is what makes "which radio has this sweep taken over" a thing you can see.
@@ -118,6 +120,7 @@ impl PortType {
             Self::Iq => "iq",
             Self::Audio => "audio",
             Self::Events => "events",
+            Self::Video => "video",
             Self::Control => "control",
             Self::Tx => "tx",
         }
@@ -145,6 +148,8 @@ pub enum PortCondition {
     ChannelHasAudio,
     /// Only when the channel type emits decoder events.
     ChannelIsDecoder,
+    /// Only when the channel type scans out a picture.
+    ChannelHasVideo,
     /// Only on a radio that has a transmit side ([`Capabilities::duplex`]). Unlike the channel
     /// conditions this one is answered by the *binding* rather than by the stored node: which
     /// radio a device node names is stored, but what that radio can do is only known while it is
@@ -272,6 +277,9 @@ impl PortSpec {
             (PortCondition::ChannelIsDecoder, Some(PortBacking::Channel(channel))) => {
                 channel.decoder_kind.is_some()
             }
+            (PortCondition::ChannelHasVideo, Some(PortBacking::Channel(channel))) => {
+                channel.has_video
+            }
             (PortCondition::DeviceIsTxCapable, Some(PortBacking::Device(device))) => {
                 device.duplex.supports(Direction::Tx)
             }
@@ -378,8 +386,15 @@ pub enum NodeBody {
     Speaker,
     /// MapLibre, one layer per connected decoder.
     Map,
+    /// The live picture a decoder holds — an RDS station, a table of aircraft, a teleprinter
+    /// roll — one readout per connected decoder. This is the *state* a decoder accumulates, which
+    /// is the half of its output that a log row cannot carry; the frames themselves are read in
+    /// [`NodeBody::DecoderLog`], so nothing here repeats it.
+    Readout,
     /// The stored decoder log, filtered to the decoders wired into it.
     DecoderLog,
+    /// The raster a video channel scans out.
+    Video,
     /// SigMF recording of a device's IQ.
     Recorder,
     /// CSV/JSON export of the stored decoder log.
@@ -400,7 +415,9 @@ impl NodeBody {
             Self::Scope => "scope",
             Self::Speaker => "speaker",
             Self::Map => "map",
+            Self::Readout => "readout",
             Self::DecoderLog => "decoder_log",
+            Self::Video => "video",
             Self::Recorder => "recorder",
             Self::Export => "export",
             Self::Scanner => "scanner",
@@ -412,7 +429,9 @@ impl NodeBody {
         match self {
             Self::Device(_) => NodeCategory::Source,
             Self::Channel(_) => NodeCategory::Channel,
-            Self::Scope | Self::Map | Self::DecoderLog => NodeCategory::Display,
+            Self::Scope | Self::Map | Self::Readout | Self::DecoderLog | Self::Video => {
+                NodeCategory::Display
+            }
             Self::Scanner => NodeCategory::Feature,
             Self::Speaker | Self::Recorder | Self::Export => NodeCategory::Sink,
         }
@@ -459,9 +478,11 @@ impl NodeBody {
 /// The port table, keyed by node-kind slug so the catalog and a stored node answer from the same
 /// place.
 fn ports_for(kind: &str) -> Vec<PortSpec> {
-    use PortCondition::{Always, ChannelHasAudio, ChannelIsDecoder, DeviceIsTxCapable};
+    use PortCondition::{
+        Always, ChannelHasAudio, ChannelHasVideo, ChannelIsDecoder, DeviceIsTxCapable,
+    };
     use PortDirection::{In, Out};
-    use PortType::{Audio, Control, Events, Iq, Tx};
+    use PortType::{Audio, Control, Events, Iq, Tx, Video};
     match kind {
         // A radio's left side is what is done *to* it, and its right side is what comes off it.
         // Both inputs take one wire: one sweep owns the tuning, one baseband keys the transmitter.
@@ -483,11 +504,15 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new("iq", Iq, In, false, Always),
             PortSpec::new("audio", Audio, Out, true, ChannelHasAudio),
             PortSpec::new("events", Events, Out, true, ChannelIsDecoder),
+            PortSpec::new("video", Video, Out, true, ChannelHasVideo),
         ],
         "scope" | "recorder" => vec![PortSpec::new("iq", Iq, In, false, Always)],
         "scanner" => vec![PortSpec::new("control", Control, Out, false, Always)],
         "speaker" => vec![PortSpec::new("audio", Audio, In, true, Always)],
-        "map" | "decoder_log" | "export" => vec![PortSpec::new("events", Events, In, true, Always)],
+        "video" => vec![PortSpec::new("video", Video, In, true, Always)],
+        "map" | "readout" | "decoder_log" | "export" => {
+            vec![PortSpec::new("events", Events, In, true, Always)]
+        }
         _ => Vec::new(),
     }
 }
@@ -536,7 +561,9 @@ impl PatchCatalog {
                 entry(&NodeBody::Scope, "Scope"),
                 entry(&NodeBody::Speaker, "Speaker"),
                 entry(&NodeBody::Map, "Map"),
+                entry(&NodeBody::Readout, "Readout"),
                 entry(&NodeBody::DecoderLog, "Decoder log"),
+                entry(&NodeBody::Video, "Video"),
                 entry(&NodeBody::Recorder, "Recorder"),
                 entry(&NodeBody::Export, "Export"),
                 entry(&NodeBody::Scanner, "Scanner"),
@@ -1581,6 +1608,43 @@ mod tests {
             .map(|port| port.name)
             .collect();
         assert_eq!(names, vec!["iq", "audio"]);
+    }
+
+    /// The three things a channel's right side can carry are each conditional, and a face draws
+    /// only the ones its type actually produces: an NFM channel has no picture to send anywhere,
+    /// and a picture port on it is a socket the operator can be told to use and then refused.
+    #[test]
+    fn a_channels_outputs_follow_what_its_type_produces() {
+        let names = |descriptor: &ChannelDescriptor| {
+            NodeBody::Channel(ChannelNode {
+                channel_type: descriptor.type_id.clone(),
+            })
+            .ports_with(Some(PortBacking::Channel(descriptor)))
+            .into_iter()
+            .map(|port| port.name)
+            .collect::<Vec<_>>()
+        };
+        let atv = ChannelDescriptor {
+            type_id: "atv".to_owned(),
+            name: "ATV".to_owned(),
+            has_audio: false,
+            has_video: true,
+            ..ChannelDescriptor::default()
+        };
+        assert_eq!(names(&atv), vec!["iq", "video"]);
+        assert_eq!(names(&descriptors()[1]), vec!["iq", "events"]);
+
+        // And the type is what joins them: a picture cannot be poured into a readout.
+        let mut graph = workspace();
+        graph.nodes.push(node("vid", NodeBody::Video));
+        graph.edges.push(edge(("ch", "audio"), ("vid", "video")));
+        assert_eq!(
+            graph.validate(),
+            Err(PatchError::TypeMismatch {
+                from: PortType::Audio,
+                to: PortType::Video,
+            })
+        );
     }
 
     /// Edge cases §10.2: a radio reporting 0 rx streams still has the one IQ port every stored

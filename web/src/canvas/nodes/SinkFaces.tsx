@@ -1,11 +1,16 @@
 // The terminal faces: what a decoded or demodulated stream ends up in (CANVAS §1). Each one
-// fronts machinery that already exists — the audio engine, the map, the stored decoder log, its
-// export, and the device recorder — so a wire into one of these is a subscription, never a new
-// data path (CANVAS §2).
+// fronts machinery that already exists — the audio engine, the map, the decoder readouts, the
+// stored decoder log, its export, the video hub and the device recorder — so a wire into one of
+// these is a subscription, never a new data path (CANVAS §2).
+//
+// A channel node's face is settings only, so these are also where a channel's output is *seen*
+// at all: the wire is the filter, which is the whole reason each of them is a node and not a
+// menu item.
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { BTN, BTN_DANGER, CHIP, LABEL } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
+import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
 import { MapPanel } from "../../components/MapPanel";
 import {
   deriveRecordControl,
@@ -15,6 +20,7 @@ import {
 } from "../../components/recordings";
 import { ScannerPanel } from "../../components/ScannerPanel";
 import { Slider } from "../../components/Slider";
+import { VideoView } from "../../components/VideoView";
 import { decoderLogExportUrl, recordDeviceSet } from "../../lib/api";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { type MapKind, mapKindsOf, referencePositions } from "../../lib/map/layers";
@@ -38,18 +44,27 @@ function useInputs(node: string, port: string): Input[] {
   return inputsOf(workspace.graph, node, port, workspace.devices, workspace.channels);
 }
 
-/** What the decoders wired into a sink emit. The wire is the filter, which is the whole reason
- * the map and the export are nodes rather than menu items (CANVAS §1). */
-function useWiredKinds(inputs: readonly Input[]): string[] {
+/** The decoder each wired channel runs, paired with the channel it came from. The wire is the
+ * filter, which is the whole reason the readout, the map, the log and the export are nodes rather
+ * than menu items (CANVAS §1). */
+function useWiredDecoders(inputs: readonly Input[]): { input: Input; kind: string }[] {
   const workspace = useWorkspaceContext();
-  return [
-    ...new Set(
-      inputs.flatMap((input) => {
-        const type = input.channel.settings.params.type;
-        return workspace.context.channelTypes.find((t) => t.type_id === type)?.decoder_kind ?? [];
-      }),
-    ),
-  ];
+  return inputs.flatMap((input) => {
+    const type = input.channel.settings.params.type;
+    const kind = workspace.context.channelTypes.find((t) => t.type_id === type)?.decoder_kind;
+    return kind == null ? [] : [{ input, kind }];
+  });
+}
+
+/** Just the kinds, for the sinks that filter by decoder rather than by channel. */
+function useWiredKinds(inputs: readonly Input[]): string[] {
+  return [...new Set(useWiredDecoders(inputs).map((wired) => wired.kind))];
+}
+
+/** The channels wired into a sink, as the decoder log's `sources` filter spells them. Channel ids
+ * are allocated per device set, so the pair — never the channel alone — names one channel. */
+function logSources(inputs: readonly Input[]): string {
+  return inputs.map((input) => `${input.deviceSet}:${input.channel.id}`).join(",");
 }
 
 /** Client-side mixing (PLAN §9): the server ships one stream per channel and the browser adds
@@ -175,8 +190,90 @@ function Plot({
   );
 }
 
-export function DecoderLogFace({ node }: { node: PatchNode }) {
+/**
+ * One readout per connected decoder: the picture a decoder is *holding* — the station it has
+ * pieced together, the aircraft it is tracking, the text it has copied — rather than the frames
+ * it received, which are a log and belong in one.
+ *
+ * Several decoders wired in stack their readouts, the way the map stacks layers. Only the ones
+ * that hold something get a pane; a channel whose whole output is independent frames is named as
+ * being read elsewhere instead of given an empty box.
+ */
+export function ReadoutFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
+  const inputs = useInputs(node.id, "events");
+  const readable = useWiredDecoders(inputs).filter((wired) => hasDecoderView(wired.kind));
+  return (
+    <NodeShell
+      node={node}
+      title="Readout"
+      category="display"
+      subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
+      live={readable.length > 0}
+    >
+      <FaceBody>
+        {inputs.length === 0 ? (
+          <FaceEmpty>Wire a decoder's events out to watch what it is holding.</FaceEmpty>
+        ) : readable.length === 0 ? (
+          <FaceEmpty>
+            Nothing wired in holds a picture between frames — every one of these decodes to
+            messages, which a decoder-log node is where you read.
+          </FaceEmpty>
+        ) : (
+          readable.map(({ input, kind }) => (
+            <div key={input.node} className="border-b border-line last:border-b-0">
+              {readable.length > 1 && (
+                <span className="legend block px-3 pt-2">
+                  {workspace.graph.nodes.find((n) => n.id === input.node)?.label ??
+                    input.channel.settings.params.type.toUpperCase()}
+                </span>
+              )}
+              {/* Channel ids are allocated per device set, so two sets both have a channel 1;
+                  scoping on the id alone would pour one set's output into this pane. */}
+              <DecoderView
+                kind={kind}
+                scope={{ deviceSet: input.deviceSet, channel: input.channel.id }}
+              />
+            </div>
+          ))
+        )}
+      </FaceBody>
+    </NodeShell>
+  );
+}
+
+/** The raster a video channel scans out (PLAN §13). A subscription, not a filter: `VideoView`
+ * asks the hub for one channel's pictures, so a node wired to two channels draws two. */
+export function VideoFace({ node }: { node: PatchNode }) {
+  const inputs = useInputs(node.id, "video");
+  return (
+    <NodeShell
+      node={node}
+      title="Video"
+      category="display"
+      subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
+      live={inputs.length > 0}
+    >
+      <FaceBody>
+        {inputs.length === 0 ? (
+          <FaceEmpty>Wire a video channel's picture out to watch it.</FaceEmpty>
+        ) : (
+          inputs.map((input) => (
+            <VideoView
+              key={input.node}
+              scope={{ deviceSet: input.deviceSet, channel: input.channel.id }}
+            />
+          ))
+        )}
+      </FaceBody>
+    </NodeShell>
+  );
+}
+
+/** The stored log, narrowed to the channels wired in — the wire is the filter, which is the whole
+ * reason this is a node rather than a menu item. Two log nodes on different decoders are two
+ * different logs, and clearing one clears only its own rows. */
+export function DecoderLogFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
   return (
     <NodeShell
@@ -184,19 +281,24 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
       title="Decoder log"
       category="display"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
+      live={inputs.length > 0}
     >
       <FaceBody scroll={false}>
-        <DecoderLogPanel deviceSets={workspace.deviceSets} />
+        {inputs.length === 0 ? (
+          <FaceEmpty>Wire decoders in; their frames are what this log holds.</FaceEmpty>
+        ) : (
+          <DecoderLogPanel sources={logSources(inputs)} />
+        )}
       </FaceBody>
     </NodeShell>
   );
 }
 
-/** Fronts the decoder-log export API, filtered to the decoders wired into it — the wire is the
- * filter, which is the whole reason this is a node rather than a menu item. */
+/** Fronts the decoder-log export API over the same wired channels the log node reads. */
 export function ExportFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
   const kinds = useWiredKinds(inputs);
+  const sources = logSources(inputs);
   return (
     <NodeShell
       node={node}
@@ -216,19 +318,13 @@ export function ExportFace({ node }: { node: PatchNode }) {
                 <a
                   key={format}
                   className={BTN}
-                  href={decoderLogExportUrl(format, kinds.length === 1 ? { kind: kinds[0] } : {})}
+                  href={decoderLogExportUrl(format, { sources })}
                   download
                 >
                   {format.toUpperCase()}
                 </a>
               ))}
             </div>
-            {kinds.length > 1 && (
-              <p className="text-xs text-ink-dim">
-                Several decoders are wired in, and the export filter takes one kind — this exports
-                the whole log.
-              </p>
-            )}
           </div>
         )}
       </FaceBody>

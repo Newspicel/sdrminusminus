@@ -1,6 +1,10 @@
-// Pure view logic for the live decoder panes (PLAN §13). Everything a test can pin down —
-// row projection, ageing, sorting, the transcript trim rule, filters — lives here so the
-// components in `DecoderPanels.tsx` stay render-only.
+// Pure view logic for the live decoder readouts (PLAN §13). Everything a test can pin down —
+// row projection, ageing, sorting, the transcript trim rule — lives here so the components in
+// `DecoderPanels.tsx` stay render-only.
+//
+// Only the decoders whose output is *accumulated state* have a readout: a station picture, a
+// target table, a teleprinter roll, a tone. The ones whose output is a stream of independent
+// frames are read in the decoder log, so nothing here projects one (`DecoderPanels.VIEWS`).
 import type { StationOf } from "../lib/decoded";
 import type {
   AdsbMessage,
@@ -267,44 +271,6 @@ export function isAtBottom(m: ScrollMetrics, tolerancePx = 8): boolean {
   return m.scrollHeight - m.scrollTop - m.clientHeight <= tolerancePx;
 }
 
-// ── POCSAG ────────────────────────────────────────────────────────────────────────────────
-
-/** RICs are quoted as 7 digits, zero padded, so a column of them stays aligned. */
-export function formatRic(address: number): string {
-  return String(address).padStart(7, "0");
-}
-
-const FUNCTION_LABELS = ["A", "B", "C", "D"];
-
-/** Function bits 0–3 are what a pager labels A–D. */
-export function functionLabel(fn: number): string {
-  return FUNCTION_LABELS[fn] ?? String(fn);
-}
-
-export function matchesAddress(address: number, filter: string): boolean {
-  const digits = filter.replace(/\D/g, "");
-  return digits === "" || formatRic(address).includes(digits);
-}
-
-// ── APRS ──────────────────────────────────────────────────────────────────────────────────
-
-/** The Mic-E message and course/speed/altitude as one trailing line; empty when the packet
- * carried none of them. The message leads because it is what the operator chose to say —
- * "Emergency" is the one thing on this line that is not a measurement. */
-export function aprsMotion(packet: {
-  course_deg?: number | null;
-  speed_kt?: number | null;
-  altitude_ft?: number | null;
-  mic_e_message?: string | null;
-}): string {
-  return joinFields(
-    packet.mic_e_message ?? "",
-    formatBearing(packet.course_deg),
-    packet.speed_kt == null ? "" : formatSpeedKt(packet.speed_kt),
-    packet.altitude_ft == null ? "" : formatAltitudeFt(packet.altitude_ft),
-  );
-}
-
 // ── subaudible signalling ─────────────────────────────────────────────────────────────────
 
 /** What is under the carrier, named the way a radio names it: a CTCSS tone in Hz to one
@@ -336,95 +302,6 @@ function groupThousands(n: number): string {
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
-}
-
-// ── NAVTEX ────────────────────────────────────────────────────────────────────────────────
-
-/** The `B1B2B3B4` group as broadcast, or `null` when the header was missed — a receiver that
- * joined mid-broadcast still has the text, and hiding it behind a missing header would be worse
- * than showing a message with no serial. */
-export function navtexHeader(message: {
-  station?: string | null;
-  subject?: string | null;
-  serial?: number | null;
-}): string | null {
-  const { station, subject, serial } = message;
-  if (station == null || subject == null || serial == null) {
-    return null;
-  }
-  return `${station}${subject}${String(serial).padStart(2, "0")}`;
-}
-
-/** The provenance line under a broadcast: what the FEC repaired, and whether `NNNN` ever came. */
-export function navtexQuality(message: { errors_corrected: number; complete: boolean }): string {
-  const parts: string[] = [];
-  if (!message.complete) {
-    parts.push("truncated");
-  }
-  if (message.errors_corrected > 0) {
-    parts.push(`${message.errors_corrected} repaired`);
-  }
-  return parts.join(" · ");
-}
-
-// ── ACARS ─────────────────────────────────────────────────────────────────────────────────
-
-/** Who sent it: registration, and the flight number when the block carries one. */
-export function acarsHeadline(message: { registration: string; flight?: string | null }): string {
-  return joinFields(message.registration, message.flight?.trim() ?? "");
-}
-
-/** The block's routing fields as one compact tag — label, block id, direction, ack. */
-export function acarsTag(message: {
-  label: string;
-  block_id: string;
-  downlink: boolean;
-  ack?: string | null;
-  more: boolean;
-}): string {
-  return joinFields(
-    message.label,
-    message.downlink ? "DL" : "UL",
-    message.ack == null ? "NAK" : "",
-    message.more ? "more" : "",
-  );
-}
-
-// ── sub-GHz ───────────────────────────────────────────────────────────────────────────────
-
-/** What the burst turned out to be: the payload, or the size of the raw capture. */
-export function subghzPayload(frame: {
-  bits: number;
-  data: string;
-  timings_us?: number[];
-}): string {
-  return frame.bits === 0
-    ? `raw, ${(frame.timings_us ?? []).length} edges`
-    : `${frame.data} (${frame.bits} bit)`;
-}
-
-/** The device readings a 24-bit payload supports, when it supports them. Empty for anything the
- * classifier could not name — which is honest, not a gap. */
-export function subghzReadings(frame: {
-  address?: number | null;
-  button?: number | null;
-  tri_state?: string | null;
-}): string {
-  return joinFields(
-    frame.address == null
-      ? ""
-      : `addr ${frame.address.toString(16).toUpperCase().padStart(5, "0")}`,
-    frame.button == null ? "" : `btn ${frame.button.toString(16).toUpperCase()}`,
-    frame.tri_state == null ? "" : `PT ${frame.tri_state}`,
-  );
-}
-
-/** Base period and repeat count — the two numbers that say whether a decode should be trusted. */
-export function subghzTiming(frame: { short_us: number; repeats: number }): string {
-  return joinFields(
-    frame.short_us > 0 ? `${frame.short_us} µs` : "",
-    frame.repeats > 1 ? `×${frame.repeats}` : "",
-  );
 }
 
 // ── digital voice ─────────────────────────────────────────────────────────────────────────
@@ -483,20 +360,4 @@ export function dvParties(
     return `${to} ← ${from}`;
   }
   return to ?? from ?? "";
-}
-
-/** What the frame was: the words a scanner shows rather than the specification's field names. */
-export function dvKind(frame: Pick<DvFrame, "kind">): string {
-  switch (frame.kind) {
-    case "header":
-      return "call";
-    case "voice":
-      return "in progress";
-    case "terminator":
-      return "end";
-    case "control":
-      return "signalling";
-    case "data":
-      return "data";
-  }
 }

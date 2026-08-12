@@ -2,14 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { StationOf } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderEventOf, DecoderKind, RdsUpdate } from "../lib/types";
 import {
-  acarsHeadline,
-  acarsTag,
   ageClass,
   aircraftRow,
   appendTranscript,
-  aprsMotion,
   buildTranscript,
-  dvKind,
   dvMode,
   dvNetwork,
   dvParties,
@@ -19,15 +15,10 @@ import {
   formatBearing,
   formatClock,
   formatPosition,
-  formatRic,
   formatSpeedKt,
-  functionLabel,
   inScope,
   isAtBottom,
   latestWpm,
-  matchesAddress,
-  navtexHeader,
-  navtexQuality,
   ptyLabel,
   rdsPicture,
   rdsQuality,
@@ -35,9 +26,6 @@ import {
   shipRow,
   sortTargets,
   stationsInScope,
-  subghzPayload,
-  subghzReadings,
-  subghzTiming,
   TARGET_MAX_AGE_MS,
   TARGET_STALE_MS,
   toneLabel,
@@ -316,40 +304,6 @@ describe("transcripts", () => {
   });
 });
 
-describe("POCSAG", () => {
-  it("pads RICs and labels the function bits A–D", () => {
-    expect(formatRic(1234)).toBe("0001234");
-    expect(functionLabel(0)).toBe("A");
-    expect(functionLabel(3)).toBe("D");
-    expect(functionLabel(7)).toBe("7");
-  });
-
-  it("filters on the padded RIC and ignores non-digits", () => {
-    expect(matchesAddress(1234, "")).toBe(true);
-    expect(matchesAddress(1234, "  ")).toBe(true);
-    expect(matchesAddress(1234, "1234")).toBe(true);
-    expect(matchesAddress(1234, "0001234")).toBe(true);
-    expect(matchesAddress(1234, "1235")).toBe(false);
-  });
-});
-
-describe("aprsMotion", () => {
-  it("joins only the fields the packet carried", () => {
-    expect(aprsMotion({})).toBe("");
-    expect(aprsMotion({ speed_kt: 31.5 })).toBe("32 kt");
-    expect(aprsMotion({ course_deg: 90, speed_kt: 10, altitude_ft: 1_500 })).toBe(
-      "90° · 10 kt · 1,500 ft",
-    );
-  });
-
-  it("leads with the Mic-E message when the packet carried one", () => {
-    expect(aprsMotion({ mic_e_message: "En Route", speed_kt: 20, course_deg: 251 })).toBe(
-      "En Route · 251° · 20 kt",
-    );
-    expect(aprsMotion({ mic_e_message: "Emergency" })).toBe("Emergency");
-  });
-});
-
 describe("toneLabel", () => {
   it("names what is under the carrier the way a radio does", () => {
     expect(toneLabel({})).toBe("");
@@ -360,59 +314,6 @@ describe("toneLabel", () => {
     expect(toneLabel({ dcs_code: 754 })).toBe("DCS 754");
     // A channel set to one and hearing the other is exactly what Detect is for.
     expect(toneLabel({ ctcss_hz: 88.5, dcs_code: 23 })).toBe("CTCSS 88.5 Hz · DCS 023");
-  });
-});
-
-describe("NAVTEX", () => {
-  it("shows the B1B2B3B4 group only when the whole header arrived", () => {
-    expect(navtexHeader({ station: "D", subject: "A", serial: 7 })).toBe("DA07");
-    expect(navtexHeader({ station: "D", subject: "A", serial: 12 })).toBe("DA12");
-    expect(navtexHeader({ station: "D", subject: "A" })).toBeNull();
-    expect(navtexHeader({ station: null, subject: "A", serial: 7 })).toBeNull();
-  });
-
-  it("names only the things that went wrong", () => {
-    expect(navtexQuality({ errors_corrected: 0, complete: true })).toBe("");
-    expect(navtexQuality({ errors_corrected: 3, complete: true })).toBe("3 repaired");
-    expect(navtexQuality({ errors_corrected: 0, complete: false })).toBe("truncated");
-    expect(navtexQuality({ errors_corrected: 2, complete: false })).toBe("truncated · 2 repaired");
-  });
-});
-
-describe("ACARS", () => {
-  it("drops the flight number when the block has none", () => {
-    expect(acarsHeadline({ registration: "D-AIBC", flight: "LH0400" })).toBe("D-AIBC · LH0400");
-    expect(acarsHeadline({ registration: "D-AIBC" })).toBe("D-AIBC");
-    expect(acarsHeadline({ registration: "D-AIBC", flight: "   " })).toBe("D-AIBC");
-  });
-
-  it("tags direction, a NAK and a continued block", () => {
-    expect(acarsTag({ label: "H1", block_id: "3", downlink: true, ack: "C", more: false })).toBe(
-      "H1 · DL",
-    );
-    expect(acarsTag({ label: "5Z", block_id: "K", downlink: false, ack: null, more: true })).toBe(
-      "5Z · UL · NAK · more",
-    );
-  });
-});
-
-describe("sub-GHz", () => {
-  it("describes a raw capture by its size rather than an empty payload", () => {
-    expect(subghzPayload({ bits: 24, data: "0A1B23" })).toBe("0A1B23 (24 bit)");
-    expect(subghzPayload({ bits: 0, data: "", timings_us: [320, 960, 320] })).toBe("raw, 3 edges");
-    expect(subghzPayload({ bits: 0, data: "" })).toBe("raw, 0 edges");
-  });
-
-  it("offers only the readings the frame actually supports", () => {
-    expect(subghzReadings({})).toBe("");
-    expect(subghzReadings({ address: 0xa1b2, button: 3 })).toBe("addr 0A1B2 · btn 3");
-    expect(subghzReadings({ tri_state: "01F01F01F01F" })).toBe("PT 01F01F01F01F");
-  });
-
-  it("reports the base period and only a repeat count above one", () => {
-    expect(subghzTiming({ short_us: 320, repeats: 1 })).toBe("320 µs");
-    expect(subghzTiming({ short_us: 320, repeats: 6 })).toBe("320 µs · ×6");
-    expect(subghzTiming({ short_us: 0, repeats: 1 })).toBe("");
   });
 });
 
@@ -473,12 +374,6 @@ describe("digital voice", () => {
         destination_call: null,
       }),
     ).toBe("");
-  });
-
-  it("reads a frame kind as a scanner would say it", () => {
-    expect(dvKind({ kind: "header" })).toBe("call");
-    expect(dvKind({ kind: "terminator" })).toBe("end");
-    expect(dvKind({ kind: "control" })).toBe("signalling");
   });
 
   it("spells each mode as operators write it", () => {

@@ -1899,7 +1899,13 @@ export interface components {
             kind: "map";
         } | {
             /** @enum {string} */
+            kind: "readout";
+        } | {
+            /** @enum {string} */
             kind: "decoder_log";
+        } | {
+            /** @enum {string} */
+            kind: "video";
         } | {
             /** @enum {string} */
             kind: "recorder";
@@ -2108,7 +2114,7 @@ export interface components {
          *     names for it.
          * @enum {string}
          */
-        PortCondition: "always" | "channel_has_audio" | "channel_is_decoder" | "device_is_tx_capable";
+        PortCondition: "always" | "channel_has_audio" | "channel_is_decoder" | "channel_has_video" | "device_is_tx_capable";
         /**
          * @description Which side of a node a port sits on.
          * @enum {string}
@@ -2159,7 +2165,7 @@ export interface components {
          *     so a port for either would be a wire that dangles with nothing reserving it.
          * @enum {string}
          */
-        PortType: "iq" | "audio" | "events" | "control" | "tx";
+        PortType: "iq" | "audio" | "events" | "video" | "control" | "tx";
         /** @description Canvas position of a node, in React Flow's coordinate space. */
         Position: {
             /** Format: float */
@@ -3266,6 +3272,15 @@ export interface operations {
                 q?: string;
                 /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
+                /**
+                 * @description Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).
+                 *
+                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or
+                 *     export node shows the decoders wired into it, and "wired into it" is a *set of channels*,
+                 *     which neither `kind` nor `device_set` can name. Absent means every channel; an empty list
+                 *     means none, so a node with nothing wired in matches nothing rather than everything.
+                 */
+                sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
                 until?: string;
             };
@@ -3308,6 +3323,15 @@ export interface operations {
                 q?: string;
                 /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
+                /**
+                 * @description Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).
+                 *
+                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or
+                 *     export node shows the decoders wired into it, and "wired into it" is a *set of channels*,
+                 *     which neither `kind` nor `device_set` can name. Absent means every channel; an empty list
+                 *     means none, so a node with nothing wired in matches nothing rather than everything.
+                 */
+                sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
                 until?: string;
             };
@@ -3350,6 +3374,15 @@ export interface operations {
                 q?: string;
                 /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
+                /**
+                 * @description Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).
+                 *
+                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or
+                 *     export node shows the decoders wired into it, and "wired into it" is a *set of channels*,
+                 *     which neither `kind` nor `device_set` can name. Absent means every channel; an empty list
+                 *     means none, so a node with nothing wired in matches nothing rather than everything.
+                 */
+                sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
                 until?: string;
             };

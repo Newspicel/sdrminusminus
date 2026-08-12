@@ -290,6 +290,15 @@
             }
           },
           {
+            "name": "sources",
+            "in": "query",
+            "description": "Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).\n\nThis is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or\nexport node shows the decoders wired into it, and \"wired into it\" is a *set of channels*,\nwhich neither `kind` nor `device_set` can name. Absent means every channel; an empty list\nmeans none, so a node with nothing wired in matches nothing rather than everything.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "since",
             "in": "query",
             "description": "Only entries at or after this RFC3339 timestamp.",
@@ -372,6 +381,15 @@
               "type": "integer",
               "format": "int32",
               "minimum": 0
+            }
+          },
+          {
+            "name": "sources",
+            "in": "query",
+            "description": "Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).\n\nThis is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or\nexport node shows the decoders wired into it, and \"wired into it\" is a *set of channels*,\nwhich neither `kind` nor `device_set` can name. Absent means every channel; an empty list\nmeans none, so a node with nothing wired in matches nothing rather than everything.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -468,6 +486,15 @@
               "type": "integer",
               "format": "int32",
               "minimum": 0
+            }
+          },
+          {
+            "name": "sources",
+            "in": "query",
+            "description": "Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).\n\nThis is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or\nexport node shows the decoders wired into it, and \"wired into it\" is a *set of channels*,\nwhich neither `kind` nor `device_set` can name. Absent means every channel; an empty list\nmeans none, so a node with nothing wired in matches nothing rather than everything.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -4979,6 +5006,21 @@
           },
           {
             "type": "object",
+            "description": "The live picture a decoder holds — an RDS station, a table of aircraft, a teleprinter\nroll — one readout per connected decoder. This is the *state* a decoder accumulates, which\nis the half of its output that a log row cannot carry; the frames themselves are read in\n[`NodeBody::DecoderLog`], so nothing here repeats it.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "readout"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "The stored decoder log, filtered to the decoders wired into it.",
             "required": [
               "kind"
@@ -4988,6 +5030,21 @@
                 "type": "string",
                 "enum": [
                   "decoder_log"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The raster a video channel scans out.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "video"
                 ]
               }
             }
@@ -5417,6 +5474,7 @@
           "always",
           "channel_has_audio",
           "channel_is_decoder",
+          "channel_has_video",
           "device_is_tx_capable"
         ]
       },
@@ -5500,6 +5558,7 @@
           "iq",
           "audio",
           "events",
+          "video",
           "control",
           "tx"
         ]

@@ -30,10 +30,13 @@ struct Entry {
     sample_rate: f64,
     /// `(absolute frequency, params)` — absolute so the table reads like a band plan.
     channels: &'static [Channel],
-    /// What the template's channels feed (CANVAS §8 phase ④). A decoder's own output is its
-    /// node face, so an `events` wire is only drawn for the things that *aggregate* several
-    /// decoders — the map and the stored log.
+    /// What the template's channels feed (CANVAS §8 phase ④).
     shape: Shape,
+    /// Whether the template opens a readout for its channels' decoders. Set where the *live
+    /// picture* is the point of the template — RDS station text, a table of aircraft — and left
+    /// off where the decode is a stream of messages, which the log already shows. A channel that
+    /// does not decode must never have this: the `events` port would not exist to wire.
+    readout: bool,
     /// Whether `sample_rate` is the only rate that decodes, rather than a comfortable one.
     exact_rate: bool,
 }
@@ -57,7 +60,7 @@ const ROW: f32 = 240.0;
 /// Draw the template's workspace: one receiver, a scope, its channels, and the faces its shape
 /// implies. Positions are authored so a merged template reads as a column of channels hanging
 /// off one radio (`WorkspaceSnapshot::merge_patch` offsets the whole block downward).
-fn patch(shape: Shape, channels: &[Channel]) -> PatchGraph {
+fn patch(shape: Shape, readout: bool, channels: &[Channel]) -> PatchGraph {
     let node = |id: &str, body: NodeBody, x: f32, y: f32| PatchNode {
         id: id.to_string(),
         body,
@@ -106,6 +109,9 @@ fn patch(shape: Shape, channels: &[Channel]) -> PatchGraph {
             }
             Shape::Log => edges.push(wire((&id, "events"), ("log", "events"))),
         }
+        if readout {
+            edges.push(wire((&id, "events"), ("readout", "events")));
+        }
     }
 
     match shape {
@@ -115,6 +121,16 @@ fn patch(shape: Shape, channels: &[Channel]) -> PatchGraph {
             nodes.push(node("log", NodeBody::DecoderLog, COLUMN * 2.0, 380.0));
         }
         Shape::Log => nodes.push(node("log", NodeBody::DecoderLog, COLUMN * 2.0, 260.0)),
+    }
+    if readout {
+        // A column of its own where the shape already fills the second one, so an applied
+        // template opens as a readable row rather than a stack of overlapping faces.
+        let x = if shape == Shape::Listen {
+            COLUMN * 2.0
+        } else {
+            COLUMN * 3.0
+        };
+        nodes.push(node("readout", NodeBody::Readout, x, -40.0));
     }
     PatchGraph { nodes, edges }
 }
@@ -139,6 +155,7 @@ static TEMPLATES: &[Entry] = &[
             })
         })],
         shape: Shape::Listen,
+        readout: true,
         exact_rate: false,
     },
     Entry {
@@ -154,6 +171,7 @@ static TEMPLATES: &[Entry] = &[
         sample_rate: 2_400_000.0,
         channels: &[(118_100_000.0, || ChannelParams::Am(AmParams::default()))],
         shape: Shape::Listen,
+        readout: false,
         exact_rate: false,
     },
     Entry {
@@ -170,6 +188,7 @@ static TEMPLATES: &[Entry] = &[
             ChannelParams::Adsb(AdsbParams::default())
         })],
         shape: Shape::Map,
+        readout: true,
         // Not exact, despite reading like it: ADS-B takes the device's own samples over a
         // *range* (2–4 Msps, `ChannelDescriptor::native_rate_range`), and PLAN §18 was amended
         // so no channel type is exact-rate any more. Demanding 2.000 exactly would refuse every
@@ -194,6 +213,7 @@ static TEMPLATES: &[Entry] = &[
             }),
         ],
         shape: Shape::Map,
+        readout: true,
         exact_rate: false,
     },
     Entry {
@@ -207,6 +227,7 @@ static TEMPLATES: &[Entry] = &[
         sample_rate: 1_024_000.0,
         channels: &[(144_800_000.0, || ChannelParams::Aprs(AprsParams::default()))],
         shape: Shape::Map,
+        readout: false,
         exact_rate: false,
     },
     Entry {
@@ -223,6 +244,7 @@ static TEMPLATES: &[Entry] = &[
             ChannelParams::Pocsag(PocsagParams::default())
         })],
         shape: Shape::Log,
+        readout: false,
         exact_rate: false,
     },
     Entry {
@@ -236,6 +258,7 @@ static TEMPLATES: &[Entry] = &[
         sample_rate: 1_024_000.0,
         channels: &[(145_700_000.0, || ChannelParams::Nfm(NfmParams::default()))],
         shape: Shape::Listen,
+        readout: false,
         exact_rate: false,
     },
     Entry {
@@ -249,6 +272,7 @@ static TEMPLATES: &[Entry] = &[
         sample_rate: 1_024_000.0,
         channels: &[(156_800_000.0, || ChannelParams::Nfm(NfmParams::default()))],
         shape: Shape::Listen,
+        readout: false,
         exact_rate: false,
     },
 ];
@@ -283,7 +307,7 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                     channels,
                     min_freq_hz: min.min(entry.center_hz),
                     max_freq_hz: max.max(entry.center_hz),
-                    patch: Some(patch(entry.shape, entry.channels)),
+                    patch: Some(patch(entry.shape, entry.readout, entry.channels)),
                     // Every built-in template receives. The field exists so the day a transmit
                     // one does not, the picker refuses a receiver rather than offering it.
                     direction: sdrmm_wire::Direction::Rx,
@@ -382,6 +406,39 @@ mod tests {
             workspace
                 .validate()
                 .unwrap_or_else(|e| panic!("{} merged: {e}", template.id));
+        }
+    }
+
+    /// A channel node's face is settings only, so a template whose point is the live decode —
+    /// RDS station text, a table of aircraft — has to draw the readout that shows it, and wire
+    /// every one of its channels into it. `validate_against` already refuses the other authoring
+    /// mistake (a readout on a type with no `events` port); this catches the face that would ship
+    /// empty, and the decode that would ship with nowhere to be seen.
+    #[test]
+    fn a_readout_template_wires_every_channel_into_the_readout() {
+        for entry in TEMPLATES {
+            let patch = patch(entry.shape, entry.readout, entry.channels);
+            let drawn = patch
+                .nodes
+                .iter()
+                .any(|node| matches!(node.body, NodeBody::Readout));
+            assert_eq!(drawn, entry.readout, "{}", entry.id);
+
+            let wired = patch
+                .edges
+                .iter()
+                .filter(|edge| edge.to.node == "readout" && edge.to.port == "events")
+                .count();
+            assert_eq!(
+                wired,
+                if entry.readout {
+                    entry.channels.len()
+                } else {
+                    0
+                },
+                "{}",
+                entry.id
+            );
         }
     }
 

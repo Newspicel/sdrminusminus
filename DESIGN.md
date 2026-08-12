@@ -120,10 +120,11 @@ removed entirely the graph must still be unambiguous — that is the acceptance 
 | `iq` | wideband complex baseband at the device rate | `oklch(.72 .11 235)` | `oklch(.592 .11 235)` | filled circle | 7.7:1 | 3.5:1 |
 | `audio` | 48 kHz demodulated audio (Opus on the wire) | `oklch(.74 .12 158)` | `oklch(.583 .12 158)` | diamond (square rotated 45°) | 8.5:1 | 3.5:1 |
 | `events` | typed decoder frames (`DecodedRecord`) | `oklch(.78 .11 85)` | `oklch(.599 .11 85)` | square | 9.3:1 | 3.5:1 |
+| `video` | scanned pictures, one raster per field | `oklch(.76 .12 35)` | `oklch(.61 .12 35)` | triangle, standing on its base | 8.3:1 | 3.5:1 |
 | `control` | tuning ownership — a scanner driving a radio | `oklch(.76 .1 300)` | `oklch(.606 .1 300)` | arrowhead (triangle, pointing right) | 8.4:1 | 3.5:1 |
 | `tx` | baseband to be transmitted, **reserved** (`PLAN §12a`) | `oklch(.76 .12 345)` | `oklch(.613 .12 345)` | hollow circle | 8.2:1 | 3.5:1 |
 
-Four of the five are things that move today. `tx` is the one reservation, and it is drawn as what
+Five of the six are things that move today. `tx` is the one reservation, and it is drawn as what
 it is: `iq`'s own circle, going the other way, **left unfilled because nothing fills it** — no node
 kind emits that type, so the port refuses every wire and says so in its hover title. It earns a row
 here rather than waiting, because the device node's shape is what tells an operator a radio has a

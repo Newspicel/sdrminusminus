@@ -3,7 +3,7 @@
 // a plain string — previously read as success, crashing on `data.id` and reporting deletes
 // as applied.
 import { afterEach, describe, expect, it } from "vitest";
-import { recordingDownloadUrl, unwrap } from "./api";
+import { decoderLogExportUrl, recordingDownloadUrl, unwrap } from "./api";
 import { setToken } from "./auth";
 
 describe("unwrap", () => {
@@ -56,6 +56,29 @@ describe("recordingDownloadUrl", () => {
     );
     expect(recordingDownloadUrl(7, "wav")).toBe(
       "/api/recordings/7/download?format=wav&token=s3cret%2Ftoken",
+    );
+  });
+});
+
+describe("decoderLogExportUrl", () => {
+  afterEach(() => setToken(null));
+
+  it("drops a blank text filter but never a blank wire scope", () => {
+    expect(decoderLogExportUrl("csv", { q: "", kind: "adsb" })).toBe(
+      "/api/decoderlog/export/csv?kind=adsb",
+    );
+    // Empty means *no channels*. Dropped, it would mean every channel, and the same filter
+    // backs the clear endpoint — so this is the difference between exporting one node's rows
+    // and emptying the log.
+    expect(decoderLogExportUrl("csv", { sources: "" })).toBe("/api/decoderlog/export/csv?sources=");
+    expect(decoderLogExportUrl("json", { sources: "0:1,0:2" })).toBe(
+      "/api/decoderlog/export/json?sources=0%3A1%2C0%3A2",
+    );
+  });
+
+  it("drops the row limit the export endpoint ignores", () => {
+    expect(decoderLogExportUrl("csv", { limit: 500, sources: "0:1" })).toBe(
+      "/api/decoderlog/export/csv?sources=0%3A1",
     );
   });
 });

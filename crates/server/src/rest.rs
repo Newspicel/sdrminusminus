@@ -168,7 +168,9 @@ impl From<StoreError> for AppError {
             | StoreError::BookmarkNotFound(_)
             | StoreError::RecordingNotFound(_)
             | StoreError::WorkspaceNotFound(_) => StatusCode::NOT_FOUND,
-            StoreError::Timestamp(_) | StoreError::WorkspaceLayout(_) => StatusCode::BAD_REQUEST,
+            StoreError::Timestamp(_) | StoreError::Sources(_) | StoreError::WorkspaceLayout(_) => {
+                StatusCode::BAD_REQUEST
+            }
             // A name collision and a stale revision are both "someone else got there first";
             // the client resolves them by renaming or by reloading, never by retrying blind.
             StoreError::WorkspaceNameTaken(_) | StoreError::WorkspaceConflict { .. } => {

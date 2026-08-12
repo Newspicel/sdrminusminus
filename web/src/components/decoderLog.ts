@@ -10,7 +10,6 @@ import type {
   DecoderKind,
   DecoderLogEntry,
   DecoderLogFilter,
-  DeviceSet,
 } from "../lib/types";
 import { dvMode, dvNetwork, dvParties } from "./decoderViews";
 
@@ -68,8 +67,38 @@ export function kindLabel(kind: string): string {
   return KIND_LABELS[kind as DecoderKind] ?? kind.toUpperCase();
 }
 
-export function toQuery(filter: LogFilter): DecoderLogFilter {
-  const query: DecoderLogFilter = { limit: filter.limit };
+/**
+ * The channels a log node is wired to, as a lookup keyed the way the `sources` query spells them.
+ *
+ * An empty list is a node with nothing wired in and matches nothing — the same reading the server
+ * gives it, which is what keeps a wire-scoped Clear from emptying the whole log.
+ */
+export function sourceSet(sources: string): ReadonlySet<string> {
+  return new Set(sources === "" ? [] : sources.split(","));
+}
+
+function inSources(record: DecodedRecord, sources: ReadonlySet<string>): boolean {
+  return sources.has(`${record.device_set}:${record.channel}`);
+}
+
+/** The distinct device sets a wire scope spans, ascending — the only sets the "device set"
+ * dropdown can usefully offer, since no other set has a row that could pass the scope. */
+export function sourceSets(sources: string): number[] {
+  const ids = new Set<number>();
+  for (const source of sourceSet(sources)) {
+    const id = Number(source.split(":")[0]);
+    if (Number.isInteger(id)) {
+      ids.add(id);
+    }
+  }
+  // `toSorted` wants lib es2023 (tsconfig pins es2022); the spread already prevents the
+  // mutation the rule guards against.
+  // oxlint-disable-next-line unicorn/no-array-sort
+  return [...ids].sort((a, b) => a - b);
+}
+
+export function toQuery(filter: LogFilter, sources: string): DecoderLogFilter {
+  const query: DecoderLogFilter = { limit: filter.limit, sources };
   if (filter.kind !== "") {
     query.kind = filter.kind;
   }
@@ -90,8 +119,16 @@ export function isFiltered(filter: LogFilter): boolean {
 }
 
 /** The filter the server applies, re-applied to the live tail — otherwise "kind: ADS-B" would
- * still stream AIS rows in from the store. */
-export function matchesFilter(record: DecodedRecord, filter: LogFilter): boolean {
+ * still stream AIS rows in from the store, and a log node would tail every decoder in the
+ * workspace rather than the ones wired into it. */
+export function matchesFilter(
+  record: DecodedRecord,
+  filter: LogFilter,
+  sources: ReadonlySet<string>,
+): boolean {
+  if (!inSources(record, sources)) {
+    return false;
+  }
   if (filter.kind !== "" && record.event.kind !== filter.kind) {
     return false;
   }
@@ -115,12 +152,13 @@ export function matchesFilter(record: DecodedRecord, filter: LogFilter): boolean
 export function collectLive(
   frames: DecodedState["frames"],
   filter: LogFilter,
+  sources: ReadonlySet<string>,
   cap = LIVE_ROW_CAP,
 ): DecodedRecord[] {
   const records: DecodedRecord[] = [];
   for (const slice of Object.values(frames)) {
     for (const record of slice ?? []) {
-      if (matchesFilter(record, filter)) {
+      if (matchesFilter(record, filter, sources)) {
         records.push(record);
       }
     }
@@ -344,34 +382,6 @@ export function kindOptions(entries: readonly DecoderLogEntry[]): string[] {
   // mutation the rule guards against.
   // oxlint-disable-next-line unicorn/no-array-sort
   return [...DECODER_KINDS, ...[...extra].sort()];
-}
-
-/**
- * Live sets, plus every set seen in the log so far: a set closed since the frames were recorded
- * still has rows, and they must stay reachable.
- *
- * "So far", not "on this page", is the load-bearing part. Deriving the list from the *filtered*
- * page makes the filter one-way — pick set 2 and set 0 vanishes from the list with the rows it
- * named, so there is no way back to it. Returns `previous` unchanged when nothing is new, so the
- * caller can hold it in state without looping.
- */
-export function mergeDeviceSets(
-  previous: readonly number[],
-  entries: readonly DecoderLogEntry[],
-  sets: readonly DeviceSet[],
-): readonly number[] {
-  const ids = new Set<number>(previous);
-  const before = ids.size;
-  for (const set of sets) {
-    ids.add(set.id);
-  }
-  for (const entry of entries) {
-    ids.add(entry.device_set);
-  }
-  // `toSorted` wants lib es2023 (tsconfig pins es2022); the spread already prevents the
-  // mutation the rule guards against.
-  // oxlint-disable-next-line unicorn/no-array-sort
-  return ids.size === before ? previous : [...ids].sort((a, b) => a - b);
 }
 
 /** Gaps are never hidden (PLAN §5): `lost` is what this browser's WS connection missed,

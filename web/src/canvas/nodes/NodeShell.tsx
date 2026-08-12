@@ -66,6 +66,9 @@ const PORT_SHAPE: Record<PortType, string> = {
   iq: "rounded-full",
   audio: "rotate-45",
   events: "rounded-[1px]",
+  // A triangle standing on its base — a picture is scanned top to bottom, and the shape has to
+  // read apart from `control`'s arrowhead, which lies on its side and points.
+  video: "[clip-path:polygon(50%_0,100%_100%,0_100%)]",
   // An arrowhead, because control is the one wire that carries an instruction rather than a
   // stream: it points at the radio it drives.
   control: "[clip-path:polygon(0_0,100%_50%,0_100%)]",
@@ -80,6 +83,7 @@ const PORT_PAINT: Record<PortType, string> = {
   iq: "!border !border-line-strong bg-port-iq",
   audio: "!border !border-line-strong bg-port-audio",
   events: "!border !border-line-strong bg-port-events",
+  video: "!border !border-line-strong bg-port-video",
   control: "!border !border-line-strong bg-port-control",
   tx: "!border-2 !border-port-tx bg-transparent",
 };

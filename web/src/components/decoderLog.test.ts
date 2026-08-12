@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DecodedState } from "../lib/decoded";
-import type { DecodedRecord, DecoderEvent, DecoderLogEntry, DeviceSet } from "../lib/types";
+import type { DecodedRecord, DecoderEvent, DecoderLogEntry } from "../lib/types";
 import {
   buildRows,
   collectLive,
@@ -16,10 +16,14 @@ import {
   type LogFilter,
   liveRow,
   matchesFilter,
-  mergeDeviceSets,
+  sourceSet,
+  sourceSets,
   storedRow,
   toQuery,
 } from "./decoderLog";
+
+/** The wire scope the fixtures decode under: both channels every `record()` can name. */
+const WIRED = sourceSet("0:0,1:0");
 
 const adsb: DecoderEvent = {
   kind: "adsb",
@@ -85,17 +89,20 @@ describe("kind labels", () => {
 
 describe("toQuery", () => {
   it("drops empty selects so a cleared filter is one query key, not two", () => {
-    expect(toQuery(filter())).toEqual({ limit: 500 });
-    expect(toQuery(filter({ q: "   " }))).toEqual({ limit: 500 });
+    expect(toQuery(filter(), "0:1")).toEqual({ limit: 500, sources: "0:1" });
+    expect(toQuery(filter({ q: "   " }), "0:1")).toEqual({ limit: 500, sources: "0:1" });
   });
 
   it("carries every set field, with the device set as a number", () => {
-    expect(toQuery(filter({ kind: "ais", deviceSet: "2", q: " nord ", limit: 100 }))).toEqual({
-      kind: "ais",
-      device_set: 2,
-      q: "nord",
-      limit: 100,
-    });
+    expect(
+      toQuery(filter({ kind: "ais", deviceSet: "2", q: " nord ", limit: 100 }), "2:5"),
+    ).toEqual({ kind: "ais", device_set: 2, q: "nord", limit: 100, sources: "2:5" });
+  });
+
+  // A node with nothing wired in must ask for nothing, not for everything: the same query backs
+  // the Clear button.
+  it("sends an empty scope rather than omitting it", () => {
+    expect(toQuery(filter(), "")).toEqual({ limit: 500, sources: "" });
   });
 });
 
@@ -110,16 +117,27 @@ describe("isFiltered", () => {
 
 describe("matchesFilter", () => {
   it("applies the server's filter to the live tail", () => {
-    expect(matchesFilter(record(), filter({ kind: "ais" }))).toBe(false);
-    expect(matchesFilter(record(), filter({ kind: "adsb" }))).toBe(true);
-    expect(matchesFilter(record({ device_set: 1 }), filter({ deviceSet: "0" }))).toBe(false);
-    expect(matchesFilter(record({ device_set: 1 }), filter({ deviceSet: "1" }))).toBe(true);
+    expect(matchesFilter(record(), filter({ kind: "ais" }), WIRED)).toBe(false);
+    expect(matchesFilter(record(), filter({ kind: "adsb" }), WIRED)).toBe(true);
+    expect(matchesFilter(record({ device_set: 1 }), filter({ deviceSet: "0" }), WIRED)).toBe(false);
+    expect(matchesFilter(record({ device_set: 1 }), filter({ deviceSet: "1" }), WIRED)).toBe(true);
   });
 
   it("searches station and summary case-insensitively", () => {
-    expect(matchesFilter(record(), filter({ q: "DLH" }))).toBe(true);
-    expect(matchesFilter(record(), filter({ q: "3C6444" }))).toBe(true);
-    expect(matchesFilter(record(), filter({ q: "nordlicht" }))).toBe(false);
+    expect(matchesFilter(record(), filter({ q: "DLH" }), WIRED)).toBe(true);
+    expect(matchesFilter(record(), filter({ q: "3C6444" }), WIRED)).toBe(true);
+    expect(matchesFilter(record(), filter({ q: "nordlicht" }), WIRED)).toBe(false);
+  });
+
+  // The wire scope is the one filter the operator cannot clear, so it is checked before any of
+  // theirs: a log node must not tail a decoder it is not wired to.
+  it("drops a frame from a channel that is not wired in", () => {
+    const scope = sourceSet("0:0");
+    expect(matchesFilter(record(), filter(), scope)).toBe(true);
+    expect(matchesFilter(record({ channel: 1 }), filter(), scope)).toBe(false);
+    // Channel ids are per device set, so the same channel on another radio is another channel.
+    expect(matchesFilter(record({ device_set: 1 }), filter(), scope)).toBe(false);
+    expect(matchesFilter(record(), filter(), sourceSet(""))).toBe(false);
   });
 });
 
@@ -132,7 +150,7 @@ describe("collectLive", () => {
   } as DecodedState["frames"];
 
   it("merges every decoder newest first", () => {
-    expect(collectLive(frames, filter()).map((r) => r.at)).toEqual([
+    expect(collectLive(frames, filter(), WIRED).map((r) => r.at)).toEqual([
       "2026-08-09T12:00:03Z",
       "2026-08-09T12:00:02Z",
       "2026-08-09T12:00:01Z",
@@ -140,8 +158,8 @@ describe("collectLive", () => {
   });
 
   it("honours the filter and the cap", () => {
-    expect(collectLive(frames, filter({ kind: "ais" }))).toHaveLength(1);
-    expect(collectLive(frames, filter(), 2).map((r) => r.at)).toEqual([
+    expect(collectLive(frames, filter({ kind: "ais" }), WIRED)).toHaveLength(1);
+    expect(collectLive(frames, filter(), WIRED, 2).map((r) => r.at)).toEqual([
       "2026-08-09T12:00:03Z",
       "2026-08-09T12:00:02Z",
     ]);
@@ -152,7 +170,7 @@ describe("collectLive", () => {
       ...frames,
       adsb: [...(frames.adsb ?? []), record({ at: "not a date" })],
     } as DecodedState["frames"];
-    expect(collectLive(broken, filter()).at(-1)?.at).toBe("not a date");
+    expect(collectLive(broken, filter(), WIRED).at(-1)?.at).toBe("not a date");
   });
 });
 
@@ -284,14 +302,11 @@ describe("option lists", () => {
     expect(kindOptions([entry({ kind: "dmr" }), entry({ kind: "dmr" })]).at(-1)).toBe("dmr");
   });
 
-  it("unions live device sets with sets that only exist in the log, and never forgets one", () => {
-    const sets = [{ id: 3 } as DeviceSet];
-    const first = mergeDeviceSets([], [entry({ device_set: 7 }), entry({ device_set: 3 })], sets);
-    expect(first).toEqual([3, 7]);
-    // Filtering to set 3 returns a page with no set 7 in it — the option must survive, or there
-    // is no way back to it.
-    expect(mergeDeviceSets(first, [entry({ device_set: 3 })], sets)).toBe(first);
-    expect(mergeDeviceSets(first, [entry({ device_set: 1 })], sets)).toEqual([1, 3, 7]);
+  // Off the wires, not off the page: a wired set that has been silent all session must stay
+  // selectable, and a set nothing is wired to could only ever select an empty table.
+  it("offers the device sets the wires span, ascending and deduped", () => {
+    expect(sourceSets("3:0,7:1,3:2")).toEqual([3, 7]);
+    expect(sourceSets("")).toEqual([]);
   });
 });
 

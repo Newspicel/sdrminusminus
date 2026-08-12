@@ -457,6 +457,8 @@ impl SdrMcp {
         let filter = DecoderLogQuery {
             kind: req.kind,
             device_set: req.device_set,
+            // A wire-scoped filter has no meaning to a caller that is not looking at the canvas.
+            sources: None,
             since: req.since,
             until: req.until,
             q: req.q,

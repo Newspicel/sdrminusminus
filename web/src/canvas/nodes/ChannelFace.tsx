@@ -1,19 +1,14 @@
-// The channel node's face (CANVAS §1): where the channel sits in its radio's passband, the
-// settings its mode owns, and — when the type decodes — the live output that used to be a
-// separate decoder panel (CANVAS §8 phase ③). The face is the whole control surface; there is no
-// dialog behind it.
+// The channel node's face (CANVAS §1): where the channel sits in its radio's passband and the
+// settings its mode owns. The face is the whole control surface; there is no dialog behind it.
+//
+// Settings and nothing else. What the channel *produces* is read at the end of a wire — audio in
+// a speaker, decoded state in a readout, decoded frames in a log, a picture in a video node — so
+// the face says which of its outputs reach nowhere rather than quietly showing them here.
 import { ChannelControls } from "../../components/ChannelControls";
-import {
-  channelDecoderKind,
-  channelHasAudio,
-  channelHasVideo,
-  rateMismatch,
-} from "../../components/channelSettings";
+import { channelHasAudio, channelHasVideo, rateMismatch } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
-import { DecoderView } from "../../components/DecoderPanels";
 import { formatMhz, formatSignedKhz } from "../../components/format";
-import { VideoView } from "../../components/VideoView";
-import type { DeviceSet, PatchNode } from "../../lib/types";
+import type { ChannelDescriptor, DeviceSet, PatchGraph, PatchNode } from "../../lib/types";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { iqSourceOf, targetsOf } from "../binding";
 import { deviceSetOf, useWorkspaceContext } from "../context";
@@ -46,13 +41,10 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const offsetHz = channel?.settings.offset_hz ?? 0;
   const readout = centerHz === null ? formatSignedKhz(offsetHz) : formatMhz(centerHz + offsetHz);
   const wantedRate = rateMismatch(descriptor, set?.settings.sample_rate);
-  const decoderKind = channelDecoderKind(descriptor);
-  const hasVideo = channelHasVideo(descriptor);
-  // The face has no play button — audio belongs to the speaker the wire reaches — so a channel
-  // that demodulates sound into nothing has to say so somewhere, and this is where it is looked
-  // for.
-  const audioUnwired =
-    channelHasAudio(descriptor) && targetsOf(workspace.graph, node.id, "audio").length === 0;
+  // The face has no play button and no decoder pane — everything this channel produces is read at
+  // the end of a wire — so a channel that demodulates or decodes into nothing has to say so
+  // somewhere, and this is where it is looked for.
+  const unwired = unwiredOutputs(workspace.graph, node.id, descriptor);
 
   return (
     <NodeShell
@@ -82,27 +74,41 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               descriptor={descriptor}
               spanHz={set.settings.sample_rate ?? null}
             />
-            {audioUnwired && <p className="legend px-2 pb-2">audio out reaches no speaker</p>}
-            {/* Channel ids are allocated per device set, so two sets both have a channel 1;
-                scoping on the id alone would pour one set's output into this face. */}
-            {decoderKind !== null && (
-              <div className="border-t border-line">
-                <DecoderView
-                  kind={decoderKind}
-                  scope={{ deviceSet: set.id, channel: channel.id }}
-                />
-              </div>
-            )}
-            {hasVideo && (
-              <div className="border-t border-line">
-                <VideoView scope={{ deviceSet: set.id, channel: channel.id }} />
-              </div>
-            )}
+            {unwired.map((reason) => (
+              <p key={reason} className="legend px-2 pb-2">
+                {reason}
+              </p>
+            ))}
           </>
         )}
       </FaceBody>
     </NodeShell>
   );
+}
+
+/**
+ * The outputs this channel's type has that no face is reading, phrased as what is missing at the
+ * far end. A stream that arrives nowhere looks exactly like one that never started, and this is
+ * the only place the difference shows.
+ *
+ * The `events` port is deliberately absent: every NFM channel declares the `tone` decoder and
+ * almost none of them is set to look for one, so a line here would fire on the commonest channel
+ * in the app to report something that is usually not a mistake.
+ */
+function unwiredOutputs(
+  graph: PatchGraph,
+  node: string,
+  descriptor: ChannelDescriptor | undefined,
+): string[] {
+  const reaches = (port: string): boolean => targetsOf(graph, node, port).length > 0;
+  const missing: string[] = [];
+  if (channelHasAudio(descriptor) && !reaches("audio")) {
+    missing.push("audio out reaches no speaker");
+  }
+  if (channelHasVideo(descriptor) && !reaches("video")) {
+    missing.push("video out reaches no screen");
+  }
+  return missing;
 }
 
 /**

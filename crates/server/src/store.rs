@@ -35,6 +35,8 @@ pub enum StoreError {
     WorkspaceLayout(#[from] sdrmm_wire::WorkspaceError),
     #[error("not an RFC3339 timestamp: {0}")]
     Timestamp(String),
+    #[error("not a device_set:channel list: {0}")]
+    Sources(String),
     #[error("database: {0}")]
     Db(#[from] rusqlite::Error),
     #[error("stored snapshot corrupt: {0}")]
@@ -822,6 +824,9 @@ struct DecoderLogPredicate {
 
 impl DecoderLogPredicate {
     fn build(filter: &DecoderLogQuery) -> Result<Self, StoreError> {
+        // Every other term is a literal; this one is as wide as the channel list, so it is built
+        // here to outlive the borrows in `terms`.
+        let sources_term: String;
         let mut terms: Vec<&str> = Vec::new();
         let mut params = Vec::new();
         if let Some(kind) = &filter.kind {
@@ -831,6 +836,24 @@ impl DecoderLogPredicate {
         if let Some(device_set) = filter.device_set {
             terms.push("device_set = ?");
             params.push(Value::Integer(i64::from(device_set)));
+        }
+        let sources = filter
+            .channels()
+            .map_err(|bad| StoreError::Sources(bad.to_owned()))?;
+        if let Some(channels) = sources {
+            for (device_set, channel) in &channels {
+                params.push(Value::Integer(i64::from(*device_set)));
+                params.push(Value::Integer(i64::from(*channel)));
+            }
+            // No channels named matches no rows: an empty list is a node with nothing wired into
+            // it, and "show me the frames from nothing" is not "show me everything".
+            sources_term = if channels.is_empty() {
+                "0".to_owned()
+            } else {
+                let pairs = vec!["(device_set = ? AND channel = ?)"; channels.len()];
+                format!("({})", pairs.join(" OR "))
+            };
+            terms.push(&sources_term);
         }
         if let Some(since) = &filter.since {
             terms.push("at >= ?");
@@ -1262,6 +1285,62 @@ mod tests {
         );
         assert_eq!(contradictory.1, 0);
         assert!(contradictory.0.is_empty());
+    }
+
+    /// The filter a canvas node draws with its wires. Channel ids are allocated per device set,
+    /// so `0:1` and `1:1` are different channels and the pair — never the channel alone — is what
+    /// a term matches.
+    #[test]
+    fn decoder_log_sources_filter_names_channels_not_device_sets() {
+        let store = Store::open(None).expect("open");
+        let on = |device_set: u32, channel: u32, icao: &str| DecodedRecord {
+            channel,
+            ..record("2026-08-09T12:00:00Z", device_set, adsb(icao, "FLIGHT"))
+        };
+        store
+            .insert_decoder_events(&[on(0, 1, "AAAAAA"), on(0, 2, "BBBBBB"), on(1, 1, "CCCCCC")])
+            .expect("insert");
+        let stations = |sources: &str| {
+            query(
+                &store,
+                DecoderLogQuery {
+                    sources: Some(sources.to_owned()),
+                    ..DecoderLogQuery::default()
+                },
+            )
+            .0
+            .into_iter()
+            .filter_map(|entry| entry.station)
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(stations("0:1"), ["AAAAAA"]);
+        assert_eq!(stations("1:1"), ["CCCCCC"]);
+        assert_eq!(stations("0:2,1:1"), ["CCCCCC", "BBBBBB"]);
+
+        // A node with nothing wired into it matches nothing — and, crucially, its Clear button
+        // deletes nothing rather than the whole log.
+        assert!(stations("").is_empty());
+        let empty = DecoderLogQuery {
+            sources: Some(String::new()),
+            ..DecoderLogQuery::default()
+        };
+        assert_eq!(store.delete_decoder_log(&empty).expect("clear"), 0);
+        assert_eq!(query(&store, DecoderLogQuery::default()).1, 3);
+
+        // A list that will not parse is refused, never quietly dropped — dropping it would widen
+        // the query the caller asked to narrow.
+        let malformed = DecoderLogQuery {
+            sources: Some("0:1,nonsense".to_owned()),
+            ..DecoderLogQuery::default()
+        };
+        assert!(matches!(
+            store.query_decoder_log(&malformed),
+            Err(StoreError::Sources(_))
+        ));
+        assert!(matches!(
+            store.delete_decoder_log(&malformed),
+            Err(StoreError::Sources(_))
+        ));
     }
 
     #[test]

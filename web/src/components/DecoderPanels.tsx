@@ -1,36 +1,25 @@
-// Per-decoder live views (PLAN §13). All of them read the decoded store, never TanStack Query:
+// Per-decoder live readouts (PLAN §13). All of them read the decoded store, never TanStack Query:
 // decoder frames are a stream, not server state. The projection/format/sort logic lives in
 // `decoderViews.ts`; these components only render it.
 //
-// A view is the lower half of a channel node's face (CANVAS §8 phase ③), so each one is scoped
-// to a single channel and `DecoderView` picks the one that channel's `decoder_kind` calls for.
+// A readout is what a decoder *accumulates* — the station it has pieced together, the aircraft it
+// is tracking, the text it has copied. What it merely *received* is a log, and a log is read in a
+// decoder-log node, so the decoders whose whole output is a stream of independent frames have no
+// readout here at all (`VIEWS`).
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind } from "../lib/types";
-import { BTN, FIELD } from "./controls";
+import { BTN } from "./controls";
 import {
-  acarsHeadline,
-  acarsTag,
   ageClass,
   aircraftRow,
-  aprsMotion,
   buildTranscript,
   type DecoderScope,
-  dvKind,
-  dvMode,
-  dvNetwork,
-  dvParties,
   formatAge,
   formatAltFreqs,
   formatClock,
-  formatPosition,
-  formatRic,
-  functionLabel,
   isAtBottom,
   latestWpm,
-  matchesAddress,
-  navtexHeader,
-  navtexQuality,
   ptyLabel,
   rdsPicture,
   rdsQuality,
@@ -38,9 +27,6 @@ import {
   shipRow,
   sortTargets,
   stationsInScope,
-  subghzPayload,
-  subghzReadings,
-  subghzTiming,
   TARGET_MAX_AGE_MS,
   type TargetRow,
   type TargetSort,
@@ -355,237 +341,11 @@ export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?:
   );
 }
 
-export function PagerView({ scope = {} }: { scope?: DecoderScope }) {
-  const records = recordsInScope(useDecodedKind("pocsag"), scope);
-  const [filter, setFilter] = useState("");
-  const shown = records.filter((r) => matchesAddress(r.event.data.address, filter));
-
-  return (
-    <div className={PANE}>
-      <label className="flex items-center gap-2 text-sm text-ink-dim">
-        RIC
-        <input
-          type="text"
-          inputMode="numeric"
-          className={`${FIELD} w-28 tabular-nums`}
-          value={filter}
-          placeholder="all"
-          onChange={(e) => setFilter(e.target.value)}
-          aria-label="Filter by RIC address"
-        />
-        <span className="font-mono text-xs tabular-nums">
-          {shown.length}/{records.length}
-        </span>
-      </label>
-
-      {shown.length === 0 ? (
-        <span className={EMPTY}>No pager messages.</span>
-      ) : (
-        <div className="flex flex-col divide-y divide-line">
-          {shown.map((r, i) => (
-            <div key={`${r.at}-${r.event.data.address}-${i}`} className="flex gap-2 py-1">
-              <span className="font-mono text-xs tabular-nums text-ink-dim">
-                {formatClock(r.at)}
-              </span>
-              <span className="font-mono text-xs tabular-nums text-accent">
-                {formatRic(r.event.data.address)}
-              </span>
-              <span className="font-mono text-xs text-ink-dim">
-                {functionLabel(r.event.data.function)}
-              </span>
-              <span className="min-w-0 flex-1 break-words font-mono text-xs text-ink">
-                {r.event.data.text || (
-                  <span className="text-ink-dim">({r.event.data.payload})</span>
-                )}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function AprsView({ scope = {} }: { scope?: DecoderScope }) {
-  const records = recordsInScope(useDecodedKind("aprs"), scope);
-
-  if (records.length === 0) {
-    return (
-      <div className={PANE}>
-        <span className={EMPTY}>No APRS packets.</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className={PANE}>
-      <div className="flex flex-col divide-y divide-line">
-        {records.map((r, i) => {
-          const p = r.event.data;
-          const motion = aprsMotion(p);
-          const position = formatPosition(p.lat, p.lon);
-          return (
-            <div key={`${r.at}-${p.source}-${i}`} className="flex flex-col gap-0.5 py-1">
-              <div className="flex gap-2">
-                <span className="font-mono text-xs tabular-nums text-ink-dim">
-                  {formatClock(r.at)}
-                </span>
-                <span className="min-w-0 flex-1 break-all font-mono text-xs text-ink">
-                  {p.tnc2}
-                </span>
-              </div>
-              {(position !== "—" || motion !== "") && (
-                <div className="pl-14 font-mono text-[10px] tabular-nums text-ink-dim">
-                  {position !== "—" && <span>{position}</span>}
-                  {position !== "—" && motion !== "" && <span> · </span>}
-                  {motion !== "" && <span>{motion}</span>}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 /** Stable `ageOut` binding: the targets view drives the store's horizon so a target that stopped
  * transmitting eventually leaves the table instead of dimming forever. */
 function useDecodedStoreAgeOut(): (nowMs: number) => void {
   const ageOut = useDecodedStore((s) => s.ageOut);
   return useCallback((nowMs: number) => ageOut(TARGET_MAX_AGE_MS, nowMs), [ageOut]);
-}
-
-export function NavtexView({ scope = {} }: { scope?: DecoderScope }) {
-  const records = recordsInScope(useDecodedKind("navtex"), scope);
-
-  if (records.length === 0) {
-    return (
-      <div className={PANE}>
-        <span className={EMPTY}>No NAVTEX broadcasts — a station may be idle for minutes.</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className={PANE}>
-      <div className="flex flex-col divide-y divide-line">
-        {records.map((r, i) => {
-          const m = r.event.data;
-          const header = navtexHeader(m);
-          const quality = navtexQuality(m);
-          return (
-            <article key={`${r.at}-${header ?? ""}-${i}`} className="flex flex-col gap-1 py-2">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="font-mono text-xs tabular-nums text-ink-dim">
-                  {formatClock(r.at)}
-                </span>
-                <span className="font-mono text-xs tabular-nums text-accent">{header ?? "—"}</span>
-                {m.subject_name != null && (
-                  <span className="text-xs text-ink-dim">{m.subject_name}</span>
-                )}
-                {quality !== "" && (
-                  <span className="font-mono text-[10px] tabular-nums text-danger">{quality}</span>
-                )}
-              </div>
-              <pre className="whitespace-pre-wrap break-words font-mono text-xs text-ink">
-                {m.text}
-              </pre>
-            </article>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-export function AcarsView({ scope = {} }: { scope?: DecoderScope }) {
-  const records = recordsInScope(useDecodedKind("acars"), scope);
-
-  if (records.length === 0) {
-    return (
-      <div className={PANE}>
-        <span className={EMPTY}>No ACARS blocks.</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className={PANE}>
-      <div className="flex flex-col divide-y divide-line">
-        {records.map((r, i) => {
-          const m = r.event.data;
-          return (
-            <article
-              key={`${r.at}-${m.registration}-${m.seq_no ?? ""}-${i}`}
-              className="flex flex-col gap-0.5 py-1"
-            >
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="font-mono text-xs tabular-nums text-ink-dim">
-                  {formatClock(r.at)}
-                </span>
-                <span className="font-mono text-xs text-accent">{acarsHeadline(m)}</span>
-                <span className="font-mono text-[10px] tabular-nums text-ink-dim">
-                  {acarsTag(m)}
-                </span>
-              </div>
-              {m.text !== "" && (
-                <pre className="whitespace-pre-wrap break-all pl-14 font-mono text-xs text-ink">
-                  {m.text}
-                </pre>
-              )}
-            </article>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-export function SubghzView({ scope = {} }: { scope?: DecoderScope }) {
-  const records = recordsInScope(useDecodedKind("subghz"), scope);
-
-  if (records.length === 0) {
-    return (
-      <div className={PANE}>
-        <span className={EMPTY}>No sub-GHz bursts — press a remote.</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className={PANE}>
-      <div className="flex flex-col divide-y divide-line">
-        {records.map((r, i) => {
-          const f = r.event.data;
-          const readings = subghzReadings(f);
-          return (
-            <div key={`${r.at}-${f.data}-${i}`} className="flex flex-col gap-0.5 py-1">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="font-mono text-xs tabular-nums text-ink-dim">
-                  {formatClock(r.at)}
-                </span>
-                <span className="font-mono text-[10px] uppercase tracking-wider text-ink-dim">
-                  {f.modulation} · {f.encoding}
-                </span>
-                <span className="font-mono text-xs tabular-nums text-accent">
-                  {subghzPayload(f)}
-                </span>
-                <span className="font-mono text-[10px] tabular-nums text-ink-dim">
-                  {subghzTiming(f)}
-                </span>
-              </div>
-              {readings !== "" && (
-                <span className="pl-14 font-mono text-[10px] tabular-nums text-ink-dim">
-                  {readings}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 /** Subaudible signalling is a property of the channel right now, not a stream of messages, so
@@ -619,74 +379,28 @@ export function ToneView({ scope = {} }: { scope?: DecoderScope }) {
   );
 }
 
-/** Digital voice: one call per row, from whichever of the seven modes produced it. There is no
- * audio to offer — none of these modes ships a vocoder here — so the row *is* the decode: who
- * called whom, on which network, and what happened to the transmission. */
-export function DvView({ scope = {} }: { scope?: DecoderScope }) {
-  const records = recordsInScope(useDecodedKind("dv"), scope);
-
-  if (records.length === 0) {
-    return (
-      <div className={PANE}>
-        <span className={EMPTY}>No digital voice traffic.</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className={PANE}>
-      <div className="flex flex-col divide-y divide-line">
-        {records.map((r, i) => {
-          const f = r.event.data;
-          const network = dvNetwork(f);
-          const parties = dvParties(f);
-          const detail = [f.via == null ? null : `via ${f.via}`, f.opcode ?? null, f.text ?? null]
-            .filter((part) => part != null)
-            .join(" · ");
-          return (
-            <div key={`${r.at}-${i}`} className="flex flex-col gap-0.5 py-1">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="font-mono text-xs tabular-nums text-ink-dim">
-                  {formatClock(r.at)}
-                </span>
-                <span className="font-mono text-xs text-accent">{dvMode(f)}</span>
-                <span className="font-mono text-xs text-ink">{parties || dvKind(f)}</span>
-                {parties !== "" && (
-                  <span className="font-mono text-[10px] text-ink-dim">{dvKind(f)}</span>
-                )}
-                {network !== "" && (
-                  <span className="font-mono text-[10px] tabular-nums text-ink-dim">{network}</span>
-                )}
-                {f.encrypted === true && (
-                  <span className="font-mono text-[10px] text-warn">encrypted</span>
-                )}
-              </div>
-              {detail !== "" && (
-                <span className="pl-14 font-mono text-[10px] text-ink-dim">{detail}</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/** The view each decoder kind is read in. Keyed on the generated `DecoderKind`, so a decoder
- * added to `wire` fails to compile here until it has somewhere to be read. */
-const VIEWS: Record<DecoderKind, (scope: DecoderScope) => ReactNode> = {
+/**
+ * The readout each decoder kind is watched in, and `null` for the kinds that have none.
+ *
+ * Keyed on the generated `DecoderKind`, so a decoder added to `wire` fails to compile here until
+ * it has been placed — and `null` is a placement, not an omission: a POCSAG page, an APRS packet,
+ * a NAVTEX broadcast, an ACARS block, a sub-GHz burst and a digital-voice call are each complete
+ * on arrival and accumulate into nothing, so a live pane of them would be a second, worse copy of
+ * the decoder log. They are read there.
+ */
+const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = {
   rds: (scope) => <RdsView scope={scope} />,
   adsb: (scope) => <TargetsView kind="adsb" scope={scope} />,
   ais: (scope) => <TargetsView kind="ais" scope={scope} />,
-  aprs: (scope) => <AprsView scope={scope} />,
-  pocsag: (scope) => <PagerView scope={scope} />,
   rtty: (scope) => <TextView kind="rtty" scope={scope} />,
   morse: (scope) => <TextView kind="morse" scope={scope} />,
-  navtex: (scope) => <NavtexView scope={scope} />,
-  acars: (scope) => <AcarsView scope={scope} />,
-  subghz: (scope) => <SubghzView scope={scope} />,
   tone: (scope) => <ToneView scope={scope} />,
-  dv: (scope) => <DvView scope={scope} />,
+  aprs: null,
+  pocsag: null,
+  navtex: null,
+  acars: null,
+  subghz: null,
+  dv: null,
 };
 
 // `ChannelDescriptor.decoder_kind` is a bare string on the wire, so a server newer than this
@@ -695,8 +409,14 @@ function isDecoderKind(kind: string): kind is DecoderKind {
   return Object.hasOwn(VIEWS, kind);
 }
 
-/** What a decoder channel's face shows under its settings; nothing for a kind this client has
- * no view for. */
+/** Whether this decoder has a live readout at all — what a readout node asks before it offers a
+ * pane for a channel wired into it. */
+export function hasDecoderView(kind: string): boolean {
+  return isDecoderKind(kind) && VIEWS[kind] !== null;
+}
+
+/** The live readout for one decoder, scoped to one channel; nothing for a decoder that is read in
+ * the log instead, or one this client is too old to know. */
 export function DecoderView({ kind, scope }: { kind: string; scope: DecoderScope }) {
-  return isDecoderKind(kind) ? VIEWS[kind](scope) : null;
+  return isDecoderKind(kind) ? (VIEWS[kind]?.(scope) ?? null) : null;
 }

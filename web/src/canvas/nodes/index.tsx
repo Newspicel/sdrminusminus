@@ -13,9 +13,11 @@ import {
   DecoderLogFace,
   ExportFace,
   MapFace,
+  ReadoutFace,
   RecorderFace,
   ScannerFace,
   SpeakerFace,
+  VideoFace,
 } from "./SinkFaces";
 
 type Face = ComponentType<{ node: PatchNode }>;
@@ -49,7 +51,9 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   scope: mount(ScopeFace),
   speaker: mount(SpeakerFace),
   map: mount(MapFace),
+  readout: mount(ReadoutFace),
   decoder_log: mount(DecoderLogFace),
+  video: mount(VideoFace),
   recorder: mount(RecorderFace),
   export: mount(ExportFace),
   scanner: mount(ScannerFace),
@@ -63,7 +67,9 @@ export const FACES: Record<NodeKind, Face> = {
   scope: ScopeFace,
   speaker: SpeakerFace,
   map: MapFace,
+  readout: ReadoutFace,
   decoder_log: DecoderLogFace,
+  video: VideoFace,
   recorder: RecorderFace,
   export: ExportFace,
   scanner: ScannerFace,
