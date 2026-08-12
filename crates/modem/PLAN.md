@@ -1,9 +1,13 @@
 # `sdrmm-modem` — Modulation Library Plan
 
-**Status:** in progress (phases 0–3 landed; `Fsk4Demod` deleted. Deferred out of phase 3 with
-measured reasons and named follow-ons: the APRS/RTTY/NAVTEX *receivers* — a per-entry
-centre-tracking axis, asynchronous start-stop framing — and `subghz`'s clockless edge-timed
-tier. Next: phase 4.)
+**Status:** in progress (phases 0–3 landed; `Fsk4Demod` deleted. Phase 3's first follow-on
+merge, the **MLSE tier**, has landed on the GMSK rows with its §5 bundle — measured +8.15 dB at
+BT 0.3 and +1.92 dB at BT 0.5 over the discriminator tier, and measured *inapplicable* to the
+Nyquist and full-response entries, whose responses truncate to one tap. Still open from phase 3:
+the multi-h/SOQPSK row (SOQPSK additionally needs a ternary precoded alphabet, which `Mapping`
+deliberately forbids — see §6), the coherent tiers (they wait on phase 4's carrier recovery),
+and the deferred receivers — APRS/RTTY/NAVTEX, wanting a per-entry centre-tracking axis and
+asynchronous start-stop framing, plus `subghz`'s clockless edge-timed tier. Next: phase 4.)
 **Audience:** implementer working in the `sdrmm` workspace
 
 ---

@@ -1,0 +1,16 @@
+[
+  {
+    "bench": "gmsk_bt03_mlse",
+    "msamples_per_s": 37.95097048240662,
+    "realtime_factor": 790.6452183834712,
+    "config": "GMSK BT=0.3 h=0.5, 10 sps, pulse-matched rx, CpmDemod + MlseDetector (16 trellis states)",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "gmsk_bt05_mlse",
+    "msamples_per_s": 63.76203996072917,
+    "realtime_factor": 1328.375832515191,
+    "config": "GMSK BT=0.5 h=0.5, 10 sps, pulse-matched rx, CpmDemod + MlseDetector (4 trellis states)",
+    "host": "aarch64-macos"
+  }
+]

@@ -16,6 +16,16 @@
 //! | AIS    | parameterisation | the same Gaussian entry at BT 0.4, 9600 baud, 5 sps |
 //! | APRS   | real-valued audio input | [`CpmDemod::real`] with a [`RealDetector`] |
 //!
+//! **Two detection tiers.** [`CpmDemod`] is the discriminator tier: one soft symbol per symbol
+//! period, sliced where its pulse peaks. [`MlseDetector`] is the sequence-detection tier that
+//! sits on those same soft symbols and decides over the whole span an entry's pulse touches —
+//! the answer for *partial-response* entries, whose symbols overlap by construction. It is
+//! derived entirely from the entry's data (the frequency pulse through the receive filter), so
+//! an ISI-free entry's trellis collapses to one state and the tier reduces to the slicer,
+//! which is the honest statement that such an entry had nothing to gain. Measured where there
+//! is something to gain: GMSK BT = 0.3 improves 8.15 dB at BER 1e-3, BT = 0.5 by 1.92 dB
+//! (see [`mlse`](self::MlseDetector) and `CATALOG.md`).
+//!
 //! **Chain** (discriminator tier): `carrier gate → detector → matched receive filter →
 //! SymbolSync → M-level normalisation → soft symbols` — one `f32` per symbol period, gaps
 //! included, levels on the mapping table's own scale. Slicing ([`Mapping::slice`]), per-bit
@@ -62,10 +72,12 @@
 
 mod demod;
 mod levels;
+mod mlse;
 mod modulator;
 mod params;
 
 pub use demod::{CpmDemod, RealDetector, TIMING_BW_BURST, TIMING_BW_CONTINUOUS};
 pub use levels::KnownSymbols;
+pub use mlse::{MlseDetector, SymbolResponse};
 pub use modulator::CpmMod;
 pub use params::{CpmParams, Mapping};

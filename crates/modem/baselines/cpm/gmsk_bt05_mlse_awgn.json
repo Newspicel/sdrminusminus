@@ -1,0 +1,40 @@
+{
+  "label": "gmsk BT=0.5 h=0.5 uncoded, MLSE tier: CpmMod -> +/-6 kHz front lowpass -> CpmDemod (pulse-matched rx, timing bw 0.015) -> MlseDetector over the pulse's own symbol-spaced response, 48 kHz 4800 baud, data-like 96+24+24 symbol overhead in Eb, release, uncoded BER, seed 0x63a511e5",
+  "points": [
+    {
+      "ebn0_db": 9.0,
+      "errors": 2020,
+      "trials": 65536
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2007,
+      "trials": 198656
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2000,
+      "trials": 529408
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2002,
+      "trials": 1873920
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 884,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 118,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2,
+      "trials": 4000768
+    }
+  ]
+}

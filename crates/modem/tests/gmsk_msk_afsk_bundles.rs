@@ -50,14 +50,18 @@ use sdrmm_modem::{
     ber::{
         Curve,
         e2e::{Payloads, channel_at_margin, loopback},
-        impair::{BurstModel, Cfo, ChannelSpec, ClockError, Drift, TimingOffset},
+        impair::{Awgn, BurstModel, Cfo, ChannelSpec, ClockError, Drift, Impairment, TimingOffset},
         limits::{self, Criterion, LimitRow, LimitsTable},
         perf::{self, PerfBaseline},
         rng::Rng,
         sweep::{self, Link},
     },
-    cpm::{CpmDemod, CpmMod, CpmParams, KnownSymbols, Mapping, RealDetector, TIMING_BW_BURST},
+    cpm::{
+        CpmDemod, CpmMod, CpmParams, KnownSymbols, Mapping, MlseDetector, RealDetector,
+        TIMING_BW_BURST,
+    },
     pulse::{self, Norm},
+    soft::SoftBit,
 };
 
 fn baseline_path(name: &str) -> PathBuf {
@@ -369,6 +373,115 @@ fn gmsk_link(bt: f64) -> Link {
     )
 }
 
+// --- The GMSK sequence-detection tier (MODEM-PLAN §7 phase-3 follow-on) -----------------------
+
+/// The MLSE tier's receive filter is always the entry's own frequency pulse — the matched
+/// filter. That is the whole point of the tier: the discriminator row runs an *unmatched*
+/// BT = 0.5 Gaussian at BT = 0.3 purely to keep an eye open for a symbol-by-symbol slicer
+/// (`gmsk_rx`), paying noise bandwidth for it, and a detector that decides sequences has no
+/// reason to make that trade.
+fn gmsk_mlse_rx(bt: f64) -> Vec<f32> {
+    pulse::gaussian_freq(SPS, bt, gmsk_span(bt), Norm::Area)
+}
+
+/// Best sync position by Euclidean distance in the MLSE tier's *own* soft-bit domain.
+///
+/// Neither existing search serves this tier. The soft-symbol `find_uw` reads the closed eye the
+/// trellis exists to open — at BT = 0.3 through the matched filter those symbols carry barely
+/// more word-position information than noise. A hard Hamming match over the decided symbols
+/// reads the trellis output but throws away its confidence, and that is the mistake `find_uw`'s
+/// docs already record for the slicer tier: measured here on the committed grid, hard matching
+/// mis-anchored whole trials often enough to put a *rise* in the BT = 0.3 curve between 16 and
+/// 17 dB (5.8e-4 → 7.8e-4, each mis-anchored trial contributing ~512 errors at once). The
+/// detector's per-bit soft output is exactly the confidence the search was missing.
+fn find_uw_soft(bits: &[SoftBit], lo: usize, hi: usize, uw: &[u8]) -> Option<usize> {
+    let last = hi.min(bits.len().checked_sub(uw.len())?);
+    let misfit = |at: usize| -> f32 {
+        uw.iter()
+            .enumerate()
+            .map(|(i, &s)| {
+                let want = if s == 1 { 1.0 } else { -1.0 };
+                let got = bits[at + i].0;
+                (got - want) * (got - want)
+            })
+            .sum()
+    };
+    (lo..=last).min_by(|&a, &b| misfit(a).total_cmp(&misfit(b)))
+}
+
+/// The MLSE-tier framing: identical to [`framed_symbols`] in every length — so the Eb overhead
+/// accounting is unchanged and the tier comparison stays honest — but with a *data-like*
+/// pseudorandom preamble and tail in place of the alternating one.
+///
+/// The alternating pattern sits in a strongly partial-response pulse's spectral null, and at
+/// BT = 0.3 that is not a subtlety: the entry's own response is [0.014, 0.220, 0.532, 0.220,
+/// 0.014], which an alternating symbol stream sums to **0.119** — the acquisition sequence
+/// arrives 18 dB below the payload. Everything that has to converge before the payload then
+/// converges on the wrong scale: the demodulator's level tracker, the timing loop, and this
+/// tier's own gain tracker. Measured on the committed grid, the alternating preamble left the
+/// BT = 0.3 curve non-monotonic through 13–17 dB (3.6e-3 at 13 dB, *4.8e-3* at 14) with the
+/// error counts dominated by a few whole mis-anchored trials of ~512 errors each.
+///
+/// This is the same finding `mfsk_common`'s `preamble` records for the steady M-ary chains,
+/// arrived at independently: an acquisition sequence must look like the data the loops will
+/// have to hold. The discriminator rows' committed curves were measured with the alternating
+/// preamble and pay the same penalty at BT = 0.3 — visibly, their own curve is non-monotonic at
+/// 14→16 dB — and are deliberately left alone: a committed artifact is never regenerated in
+/// place (MODEM-PLAN §8), so the tier gate reads a *conservative* gain.
+fn mlse_framed_symbols(bits: &[bool], preamble: usize, tail: usize) -> Vec<u8> {
+    let mut state = 0x9e37_79b9u32;
+    let mut data_like = |n: usize| -> Vec<u8> {
+        (0..n)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                (state & 1) as u8
+            })
+            .collect()
+    };
+    let mut s = data_like(preamble);
+    s.extend_from_slice(&UW24);
+    s.extend(bits.iter().map(|&b| u8::from(b)));
+    s.extend(data_like(tail));
+    s
+}
+
+/// One steady GMSK link at the sequence-detection tier: the discriminator chain up to its soft
+/// symbols, then [`MlseDetector`] over the entry's own response instead of the slicer. The
+/// detector is built per trial, like every other piece of the receive chain here, so a trial
+/// reproduces from its own seed alone.
+fn gmsk_mlse_link(bt: f64) -> Link {
+    let params = gmsk_params(bt);
+    let rx = gmsk_mlse_rx(bt);
+    let mod_params = params.clone();
+    Link {
+        label: format!(
+            "gmsk BT={bt} h=0.5 uncoded, MLSE tier: CpmMod -> +/-6 kHz front lowpass -> \
+             CpmDemod (pulse-matched rx, timing bw 0.015) -> MlseDetector over the pulse's own \
+             symbol-spaced response, 48 kHz 4800 baud, data-like 96+24+24 symbol overhead in \
+             Eb, release"
+        ),
+        bits_per_trial: STEADY_BITS,
+        modulate: Box::new(move |bits| {
+            cpm_wave(&mod_params, &mlse_framed_symbols(bits, PREAMBLE, TAIL))
+        }),
+        demodulate: Box::new(move |wave| {
+            let soft = steady_soft(&params, &rx, wave);
+            let mut detector = MlseDetector::new(&params, &rx);
+            let (mut decided, mut bits) = (Vec::new(), Vec::new());
+            detector.process(&soft, &mut decided, &mut bits);
+            detector.flush(&mut decided, &mut bits);
+            let Some(at) = find_uw_soft(&bits, PREAMBLE, PREAMBLE + 48, &UW24) else {
+                return Vec::new();
+            };
+            (0..STEADY_BITS)
+                .map(|k| decided.get(at + UW24.len() + k) == Some(&1))
+                .collect()
+        }),
+    }
+}
+
 fn msk_link() -> Link {
     steady_link(
         "msk (1REC h=0.5) uncoded, CpmMod -> +/-6 kHz front lowpass -> CpmDemod \
@@ -512,7 +625,7 @@ impl GmskBurstRecipe {
             frame_samples - self.on_samples(),
             SPS as usize,
             self.level_step_db,
-            40.0,
+            26.0,
         ))
     }
 
@@ -600,8 +713,23 @@ const AFSK_GRID: [f64; 12] = [
     7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0,
 ];
 
+/// The MLSE tier's grids. Both sit lower than their discriminator counterparts — that gap *is*
+/// the tier's gain — and BT = 0.3's runs two points past its 1e-4 crossing because the entry's
+/// tail below that is shallow: partial response leaves a population of low-distance trellis
+/// error events, and the committed curve has to show where it flattens rather than stop at the
+/// last steep point (`probe_mlse_error_positions`).
+const GMSK03_MLSE_GRID: [f64; 11] = [
+    8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0,
+];
+/// BT = 0.5's grid starts at its shoulder rather than below it: measured at 6–8 dB the chain is
+/// past acquisition threshold and the points stop ordering (1.4e-1 at 8 dB against 1.1e-1 at
+/// 7), which is a statement about whether the receiver locks, not about the entry's BER.
+const GMSK05_MLSE_GRID: [f64; 7] = [9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
+
 const GMSK03_SEED: u64 = 0x63a3;
 const GMSK05_SEED: u64 = 0x63a5;
+const GMSK03_MLSE_SEED: u64 = 0x63a3_11e5;
+const GMSK05_MLSE_SEED: u64 = 0x63a5_11e5;
 const MSK_SEED: u64 = 0x635b;
 const AFSK_FB_SEED: u64 = 0xafb1;
 const AFSK_DISC_SEED: u64 = 0xafd1;
@@ -739,6 +867,16 @@ fn every_chain_round_trips_near_clean_at_high_ebn0() {
     for (link, template, name) in [
         (gmsk_link(0.3), ChannelSpec::default(), "gmsk bt=0.3"),
         (gmsk_link(0.5), ChannelSpec::default(), "gmsk bt=0.5"),
+        (
+            gmsk_mlse_link(0.3),
+            ChannelSpec::default(),
+            "gmsk bt=0.3 mlse",
+        ),
+        (
+            gmsk_mlse_link(0.5),
+            ChannelSpec::default(),
+            "gmsk bt=0.5 mlse",
+        ),
         (msk_link(), ChannelSpec::default(), "msk"),
         (afsk_filterbank_link(), ChannelSpec::default(), "afsk fb"),
         (
@@ -794,6 +932,22 @@ fn gmsk_curves_match_committed_baselines() {
 }
 
 #[test]
+fn gmsk_mlse_curves_match_committed_baselines() {
+    smoke_curve(
+        &gmsk_mlse_link(0.3),
+        &GMSK03_MLSE_GRID,
+        GMSK03_MLSE_SEED,
+        "gmsk_bt03_mlse_awgn.json",
+    );
+    smoke_curve(
+        &gmsk_mlse_link(0.5),
+        &GMSK05_MLSE_GRID,
+        GMSK05_MLSE_SEED,
+        "gmsk_bt05_mlse_awgn.json",
+    );
+}
+
+#[test]
 fn msk_curve_matches_committed_baseline() {
     smoke_curve(&msk_link(), &MSK_GRID, MSK_SEED, "msk_awgn.json");
 }
@@ -832,6 +986,38 @@ fn gmsk_bt05_sits_near_msk_at_1e3() {
         (0.0..1.6).contains(&penalty),
         "GMSK BT=0.5 is {penalty} dB from MSK at 1e-3 (committed: +1.34 dB)"
     );
+}
+
+/// The §5 item 2 rule for a second detection tier: it merges only against a *measured* gain
+/// over the tier that gated the entry. Both BTs are compared on their committed curves at BER
+/// 1e-3, each tier at its own best receive filter — the discriminator's measured compromise
+/// (an unmatched BT = 0.5 Gaussian at BT = 0.3), the trellis's matched filter — because the
+/// question a tier answers is "what is the best this entry can be detected", not "what happens
+/// through one fixed front end".
+///
+/// **Measured: BT = 0.3 gains 8.15 dB (20.95 → 12.80 dB at 1e-3), BT = 0.5 gains 1.92 dB.** The
+/// asymmetry is the whole argument for the tier: at BT = 0.5 the pulse spreads a symbol over 3
+/// taps and a slicer loses little, while at BT = 0.3 it spreads over 5 and the eye a slicer
+/// needs is simply not open — which is why GSM never detected BT = 0.3 symbol-by-symbol either.
+/// The gates sit a little under each measured number, so an improvement on either side cannot
+/// fail them and a regression in the tier cannot hide.
+#[test]
+fn the_mlse_tier_beats_the_discriminator_tier_it_merges_against() {
+    for (bt, mlse_curve, disc_curve, floor) in [
+        (0.3, "gmsk_bt03_mlse_awgn.json", "gmsk_bt03_awgn.json", 7.5),
+        (0.5, "gmsk_bt05_mlse_awgn.json", "gmsk_bt05_awgn.json", 1.6),
+    ] {
+        let mlse = sweep::load_json(&baseline_path(mlse_curve)).unwrap();
+        let disc = sweep::load_json(&baseline_path(disc_curve)).unwrap();
+        // Negative penalty = the trellis needs that many dB less than the slicer.
+        let gain = -sweep::penalty_db_vs_curve(&mlse, &disc, 1e-3);
+        println!("GMSK BT={bt}: MLSE gains {gain:+.3} dB over the discriminator at BER 1e-3");
+        assert!(
+            gain > floor,
+            "BT={bt}: the MLSE tier gains only {gain} dB over the discriminator tier; a tier \
+             that does not beat the one it merges against does not merge (§5 item 2)"
+        );
+    }
 }
 
 /// The two AFSK detector options against each other, on their committed curves: the tone
@@ -892,6 +1078,39 @@ fn gmsk_limits_rows_match_committed_table() {
     let mut measured = steady_axis_rows(&link, RATE, op_db, GMSK05_SEED ^ 0xbe5);
     measured.extend(gmsk_burst_axis_rows(op_db, GMSK05_SEED ^ 0xbe5));
     compare_rows(&measured, &committed, "gmsk");
+}
+
+/// The tier's own resistance table. A detection tier is not just a sensitivity number: a
+/// trellis carrying five symbols of memory has to hold that memory through the same CFO, drift
+/// and clock error the slicer survives, and a tier that bought 6 dB by becoming brittle would
+/// be a bad trade the sensitivity curve alone would never show. Measured at BT = 0.3, the
+/// configuration the tier exists for.
+#[test]
+fn gmsk_mlse_limits_rows_match_committed_table() {
+    let committed = limits::load_json(&baseline_path("gmsk_mlse_limits.json")).unwrap();
+    let curve = sweep::load_json(&baseline_path("gmsk_bt03_mlse_awgn.json")).unwrap();
+    let op_db = operating_point(&curve);
+    let link = gmsk_mlse_link(0.3);
+    let measured = steady_axis_rows(&link, RATE, op_db, GMSK03_MLSE_SEED ^ 0xbe5);
+    compare_rows(&measured, &committed, "gmsk mlse");
+}
+
+#[test]
+#[ignore = "full limits run; run in release to (re)generate the committed table"]
+fn measure_gmsk_mlse_limits_full() {
+    let link = gmsk_mlse_link(0.3);
+    let sensitivity = limits::measure_sensitivity(
+        &link,
+        &ChannelSpec::default(),
+        &GMSK03_MLSE_GRID,
+        GMSK03_MLSE_SEED,
+        FULL_ERRORS,
+        FULL_CAP,
+    );
+    let mut table = LimitsTable::new("gmsk-bt03-mlse", GMSK03_MLSE_SEED, &sensitivity);
+    let op_db = operating_point(&sensitivity.curve);
+    table.rows = steady_axis_rows(&link, RATE, op_db, GMSK03_MLSE_SEED ^ 0xbe5);
+    write_or_check_limits(&table, "gmsk_mlse_limits.json");
 }
 
 #[test]
@@ -975,6 +1194,33 @@ fn gmsk_loops_back_clean_at_margin() {
     e2e(gmsk_link(0.3), "gmsk_bt03_awgn.json", 0x0e2e_63a3);
 }
 
+/// The MLSE tier's own level-1 E2E. BT = 0.3 runs at a wider margin than the shared
+/// [`E2E_MARGIN_DB`]: the entry's tail below 1e-4 is shallow (its low-distance error events,
+/// see `probe_mlse_error_positions`), so +6 dB over a 1e-3 sensitivity does not put the
+/// residual far enough under the payload count for "no errors" to be a fair demand. The margin
+/// is the entry's property and stated as one, not a tolerance quietly widened.
+const MLSE_BT03_E2E_MARGIN_DB: f64 = 12.0;
+
+#[test]
+fn gmsk_mlse_loops_back_clean_at_margin() {
+    e2e(
+        gmsk_mlse_link(0.5),
+        "gmsk_bt05_mlse_awgn.json",
+        0x0e2e_63a5_11e5,
+    );
+    let mut link = gmsk_mlse_link(0.3);
+    let committed = sweep::load_json(&baseline_path("gmsk_bt03_mlse_awgn.json")).unwrap();
+    let sensitivity = limits::ebn0_at_ber(&committed, 1e-3).unwrap();
+    let payloads = Payloads::new(0x0e2e_63a3_11e5, E2E_PAYLOADS, link.bits_per_trial);
+    let mut channel = channel_at_margin(
+        &ChannelSpec::default(),
+        &link,
+        sensitivity,
+        MLSE_BT03_E2E_MARGIN_DB,
+    );
+    assert_eq!(loopback(&mut link, &mut channel, payloads), Ok(()));
+}
+
 #[test]
 fn msk_loops_back_clean_at_margin() {
     e2e(msk_link(), "msk_awgn.json", 0x0e2e_635b);
@@ -1027,6 +1273,50 @@ fn measured_gmsk_perf() -> Vec<PerfBaseline> {
         config: "GMSK BT=0.5 h=0.5, 10 sps, pulse-matched rx, timing bw 0.015".into(),
         host: perf::host_id(),
     }]
+}
+
+/// The MLSE tier's throughput, measured over the *whole* chain it adds to — `CpmDemod` plus the
+/// trellis — because that is what a channel running this tier pays, and a number for the
+/// detector alone would flatter it by hiding the front end it cannot run without. The
+/// real-time factor is against the same 48 kHz the discriminator rows divide by, so the two
+/// rows subtract directly into the tier's cost.
+fn measured_gmsk_mlse_perf() -> Vec<PerfBaseline> {
+    let mut out = Vec::new();
+    for bt in [0.3, 0.5] {
+        let params = gmsk_params(bt);
+        let rx = gmsk_mlse_rx(bt);
+        let iq = cpm_wave(&params, &bench_bits(2_400, 0x5eed));
+        let mut demod = CpmDemod::new(&params, &rx, TIMING_BW_BURST);
+        let mut detector = MlseDetector::new(&params, &rx);
+        let (mut soft, mut decided, mut bits) = (
+            Vec::with_capacity(iq.len()),
+            Vec::with_capacity(iq.len()),
+            Vec::with_capacity(iq.len()),
+        );
+        let mut run = |demod: &mut CpmDemod, detector: &mut MlseDetector| {
+            soft.clear();
+            decided.clear();
+            bits.clear();
+            demod.process(&iq, &mut soft);
+            detector.process(&soft, &mut decided, &mut bits);
+        };
+        run(&mut demod, &mut detector);
+        run(&mut demod, &mut detector);
+        let msps =
+            perf::measure_throughput(300, iq.len() as u64, || run(&mut demod, &mut detector));
+        out.push(PerfBaseline {
+            bench: format!("gmsk_bt{:02}_mlse", (bt * 10.0) as u32),
+            msamples_per_s: msps,
+            realtime_factor: msps * 1e6 / RATE,
+            config: format!(
+                "GMSK BT={bt} h=0.5, 10 sps, pulse-matched rx, CpmDemod + MlseDetector \
+                 ({} trellis states)",
+                MlseDetector::new(&params, &rx).states()
+            ),
+            host: perf::host_id(),
+        });
+    }
+    out
 }
 
 fn measured_msk_perf() -> Vec<PerfBaseline> {
@@ -1124,6 +1414,22 @@ fn compare_perf(name: &str, measured: &[PerfBaseline]) {
 #[ignore = "rewrites the committed baseline; run explicitly in release on the reference host"]
 fn write_gmsk_perf_baseline() {
     write_perf("gmsk_perf.json", &measured_gmsk_perf());
+}
+
+#[test]
+#[ignore = "rewrites the committed baseline; run explicitly in release on the reference host"]
+fn write_gmsk_mlse_perf_baseline() {
+    write_perf("gmsk_mlse_perf.json", &measured_gmsk_mlse_perf());
+}
+
+#[test]
+#[ignore = "nightly perf gate; run alone in release (wall-clock: parallel sweeps starve it)"]
+fn compare_gmsk_mlse_perf_baseline() {
+    if cfg!(debug_assertions) {
+        eprintln!("skipping the perf gate: throughput is only comparable in release");
+        return;
+    }
+    compare_perf("gmsk_mlse_perf.json", &measured_gmsk_mlse_perf());
 }
 
 #[test]
@@ -1228,6 +1534,25 @@ fn measure_gmsk_curves_full() {
         &GMSK05_GRID,
         GMSK05_SEED,
         "gmsk_bt05_awgn.json",
+    );
+}
+
+#[test]
+#[ignore = "full sweep; run in release to (re)generate the committed curves"]
+fn measure_gmsk_mlse_curves_full() {
+    remeasure_curve(
+        &gmsk_mlse_link(0.3),
+        &ChannelSpec::default(),
+        &GMSK03_MLSE_GRID,
+        GMSK03_MLSE_SEED,
+        "gmsk_bt03_mlse_awgn.json",
+    );
+    remeasure_curve(
+        &gmsk_mlse_link(0.5),
+        &ChannelSpec::default(),
+        &GMSK05_MLSE_GRID,
+        GMSK05_MLSE_SEED,
+        "gmsk_bt05_mlse_awgn.json",
     );
 }
 
@@ -1341,6 +1666,67 @@ fn measure_afsk_limits_full() {
 }
 
 // --- Exploration (never asserted; chooses the sweep grids) ------------------------------------
+
+/// Where the MLSE tier's residual high-SNR errors sit, kept because it is the measurement
+/// behind the committed BT = 0.3 curve's shallow tail. Errors arrive as *runs* of two to four
+/// consecutive symbols in the middle of a payload — the shape of a trellis error event, not of
+/// a boundary artifact — and they clear entirely by 40 dB, so they are the channel's own
+/// distance spectrum rather than an un-modelled residual (the 5-tap BT = 0.3 response conserves
+/// Σtaps = 0.9998, and an order-finer truncation selects the identical taps).
+#[test]
+#[ignore = "diagnostic behind the committed tail; prints error positions, asserts nothing"]
+fn probe_mlse_error_positions() {
+    for ebn0_db in [26.0, 40.0] {
+        let link = gmsk_mlse_link(0.3);
+        let mut rng = Rng::new(0x5eed);
+        let channel = ChannelSpec::default()
+            .awgn(Awgn::for_ebn0(ebn0_db, link.bits_per_trial as u64))
+            .build();
+        let mut positions: Vec<usize> = Vec::new();
+        for _ in 0..400 {
+            let payload: Vec<bool> = (0..link.bits_per_trial)
+                .map(|_| rng.uniform() > 0.5)
+                .collect();
+            let mut wave = (link.modulate)(&payload);
+            channel.apply(&mut wave, &mut rng);
+            let decoded = (link.demodulate)(&wave);
+            for (i, &sent) in payload.iter().enumerate() {
+                if decoded.get(i) != Some(&sent) {
+                    positions.push(i);
+                }
+            }
+        }
+        println!(
+            "{ebn0_db} dB: {} errors in 400 x {} bits; positions {positions:?}",
+            positions.len(),
+            link.bits_per_trial,
+        );
+    }
+}
+
+#[test]
+#[ignore = "prints coarse curves to choose the MLSE grids; asserts nothing"]
+fn probe_mlse_grids() {
+    for (link, name) in [
+        (gmsk_mlse_link(0.3), "gmsk bt=0.3 MLSE"),
+        (gmsk_mlse_link(0.5), "gmsk bt=0.5 MLSE"),
+        (gmsk_link(0.3), "gmsk bt=0.3 discriminator"),
+        (gmsk_link(0.5), "gmsk bt=0.5 discriminator"),
+    ] {
+        let grid: Vec<f64> = (4..=13).map(|d| f64::from(d) * 2.0).collect();
+        let curve = sweep::sweep_ber(&link, &ChannelSpec::default(), &grid, 0x9999, 100, 200_000);
+        println!("--- {name}");
+        for p in &curve.points {
+            println!(
+                "{:>5.1} dB  BER {:.3e}  ({}/{})",
+                p.ebn0_db,
+                p.rate(),
+                p.errors,
+                p.trials
+            );
+        }
+    }
+}
 
 #[test]
 #[ignore = "prints coarse curves to choose sweep grids; asserts nothing"]
