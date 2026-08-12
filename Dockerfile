@@ -41,11 +41,20 @@ COPY xtask xtask
 # Reduce the workspace to manifests plus empty targets. This tree is the cache key of the
 # dependency-compilation layer below, so it must not change when a source file changes.
 # crates/* are all libraries, apps/* and xtask are all binaries; if that ever stops holding,
-# cargo fails loudly with "no targets specified in the manifest".
+# cargo fails loudly with "no targets specified in the manifest". A declared [[bench]] must
+# also exist for its manifest to parse; the stubs assume the default benches/<name>.rs path,
+# so a bench that sets `path =` fails loudly here too.
 RUN find crates apps xtask -type f ! -name Cargo.toml -delete \
     && find crates apps xtask -mindepth 1 -type d -empty -delete \
     && for dir in crates/*/; do mkdir -p "$dir/src" && : > "$dir/src/lib.rs"; done \
-    && for dir in apps/*/ xtask/; do mkdir -p "$dir/src" && echo 'fn main() {}' > "$dir/src/main.rs"; done
+    && for dir in apps/*/ xtask/; do mkdir -p "$dir/src" && echo 'fn main() {}' > "$dir/src/main.rs"; done \
+    && for m in crates/*/Cargo.toml apps/*/Cargo.toml xtask/Cargo.toml; do \
+         grep -A2 '^\[\[bench\]\]' "$m" | sed -n 's/^name *= *"\([^"]*\)".*/\1/p' \
+         | while read -r b; do \
+             mkdir -p "$(dirname "$m")/benches" \
+             && echo 'fn main() {}' > "$(dirname "$m")/benches/$b.rs"; \
+           done; \
+       done
 
 
 # --- server binary -----------------------------------------------------------------------

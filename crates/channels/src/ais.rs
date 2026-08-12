@@ -804,15 +804,20 @@ mod tests {
         assert_eq!(only(msgs).ais_channel, 'B');
     }
 
-    /// The committed fixture (fixtures/ais_position_240k), rendered by the pre-migration
-    /// generator with its stepped burst envelope: decode-equivalence across the cpm
-    /// migration is proven against the committed artifact, not only against the migrated
+    /// The committed fixture (fixtures/ais_position_pre_cpm_240k), rendered by the
+    /// pre-migration generator with its stepped burst envelope: decode-equivalence across the
+    /// cpm migration is proven against the committed artifact, not only against the migrated
     /// generator. The capture is the raw burst at +25 kHz in a 240 kHz stream, so the test
     /// runs the engine's own front-end shape — mix to baseband, decimate to the channel
     /// rate, selection filter — with the listening lead-in any tuned receiver has.
+    ///
+    /// Its stem deliberately differs from the playable `ais_position_240k`: that one is
+    /// rewritten by `cargo xtask fixtures` from today's generator, so reading it here would
+    /// leave the migrated generator proving itself and this test asserting nothing.
     #[test]
     fn decodes_the_committed_fixture() {
-        const FIXTURE: &[u8] = include_bytes!("../../../fixtures/ais_position_240k.sigmf-data");
+        const FIXTURE: &[u8] =
+            include_bytes!("../../../fixtures/ais_position_pre_cpm_240k.sigmf-data");
         const FIXTURE_RATE: f64 = 240_000.0;
         let mut wide: Vec<Complex<f32>> = FIXTURE
             .as_chunks::<8>()

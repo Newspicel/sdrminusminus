@@ -215,6 +215,7 @@ fn check(root: &Path) -> Result<()> {
     // answer in seconds, clippy takes minutes from a cold cache, and CI pays for the whole job
     // either way. A misformatted pull request should not cost a full workspace build to say so.
     check_toolchain_pins(root)?;
+    check_baked_in_fixtures(root)?;
     catalog::check(root)?;
     run("cargo", &["fmt", "--all", "--", "--check"], root)?;
 
@@ -337,6 +338,60 @@ fn check_toolchain_pins(root: &Path) -> Result<()> {
 
     agree("pnpm", &pnpm)?;
     agree("the Node major", &node)
+}
+
+/// `fixtures/` is gitignored wholesale (generated pairs must never land in a commit), so an
+/// `include_bytes!` of one compiles on the machine that generated it and fails to compile
+/// anywhere else — including every CI job, which cannot regenerate what an older generator
+/// wrote. A fixture baked into a binary is therefore only legitimate if it is force-added, and
+/// this asserts exactly that before clippy spends minutes discovering it the hard way.
+fn check_baked_in_fixtures(root: &Path) -> Result<()> {
+    let mut sources = Vec::new();
+    for dir in ["crates", "apps", "xtask"] {
+        sources.extend(rust_sources(&root.join(dir))?);
+    }
+    for source in sources {
+        let text = std::fs::read_to_string(&source)
+            .with_context(|| format!("read {}", source.display()))?;
+        for stem in text
+            .split("include_bytes!(\"")
+            .skip(1)
+            .filter_map(|rest| rest.split_once('"').map(|(path, _)| path))
+            .filter_map(|path| path.rsplit_once("fixtures/").map(|(_, stem)| stem))
+        {
+            let rel = format!("fixtures/{stem}");
+            let tracked = Command::new("git")
+                .args(["ls-files", "--error-unmatch", "--", &rel])
+                .current_dir(root)
+                .output()
+                .context("git ls-files")?
+                .status
+                .success();
+            ensure!(
+                tracked,
+                "{} bakes in {rel}, which git does not track: the build only works where that \
+                 file was generated. Commit it with `git add -f {rel}` (and say why in \
+                 fixtures/README.md), or point the test at a fixture it generates itself.",
+                source.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn rust_sources(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
+        let path = entry
+            .with_context(|| format!("read {}", dir.display()))?
+            .path();
+        if path.is_dir() {
+            out.extend(rust_sources(&path)?);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+    Ok(out)
 }
 
 /// The text between the first `open` and the next `close` after it.
