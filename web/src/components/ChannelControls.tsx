@@ -10,7 +10,7 @@ import type { ChannelDescriptor, ChannelInfo, ChannelParams } from "../lib/types
 import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
 import { Checkbox } from "./Checkbox";
 import { type ChannelParamsOf, clampOffsetHz, offsetLimitHz } from "./channelSettings";
-import { BTN, LABEL, type Options } from "./controls";
+import { BTN, CHECK_LABEL, LABEL, type Options } from "./controls";
 import { formatKhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
@@ -179,20 +179,25 @@ export function ChannelControls({
 
       {/* Wrapping, not nowrap: a node face is as narrow as the operator drags it, and the
           threshold readout must stay beside its slider rather than be clipped. */}
-      <label className={`${LABEL} flex-wrap`}>
-        <Checkbox
-          checked={squelchDb !== null}
-          onChange={(on) => {
-            if (on) {
-              onEdit({ squelch_db: offSquelchDb });
-            } else {
-              setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
-              squelchSlider.cancel();
-              onEdit({ squelch_db: null });
-            }
-          }}
-        />
-        <span className="legend">Squelch</span>
+      <div className={`${LABEL} flex-wrap`}>
+        {/* The label is the box and its word, not the row: with the slider inside it too, a
+            click anywhere in the row — the threshold readout included — was forwarded to the
+            box and turned squelch off. */}
+        <label className={CHECK_LABEL}>
+          <Checkbox
+            checked={squelchDb !== null}
+            onChange={(on) => {
+              if (on) {
+                onEdit({ squelch_db: offSquelchDb });
+              } else {
+                setOffSquelchDb(squelchSlider.pending ?? squelchDb ?? DEFAULT_SQUELCH_DB);
+                squelchSlider.cancel();
+                onEdit({ squelch_db: null });
+              }
+            }}
+          />
+          <span className="legend">Squelch</span>
+        </label>
         {squelchDb !== null && (
           <>
             <Slider
@@ -209,7 +214,7 @@ export function ChannelControls({
             </span>
           </>
         )}
-      </label>
+      </div>
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <ModeControls params={settings.params} onParams={(params) => onEdit({ params })} />
@@ -736,7 +741,7 @@ function Toggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className={LABEL}>
+    <label className={CHECK_LABEL}>
       <Checkbox checked={checked} onChange={onChange} />
       {label}
     </label>

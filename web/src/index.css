@@ -190,6 +190,29 @@
   button {
     font: inherit;
   }
+
+  /* A pointer standing over something that acts has to say so. Browsers give `<button>` the
+     arrow, and `cursor` inherits, so inside a node the `cursor: default` React Flow's chrome
+     needs (below) was what every button, box and menu item ended up wearing. Stated once, by
+     role rather than by class, so a control built from a headless primitive is covered without
+     the call site remembering. Zero specificity: any control with a cursor of its own — the
+     dial's directional halves, the ruler's help — still wins, as does every Tailwind utility,
+     which sits in a later layer. */
+  :where(
+    button,
+    summary,
+    [role="button"],
+    [role="checkbox"],
+    [role="switch"],
+    [role="radio"],
+    [role="option"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="tab"]
+  ):not([disabled], [aria-disabled="true"], [data-disabled]) {
+    cursor: pointer;
+  }
 }
 
 @layer components {

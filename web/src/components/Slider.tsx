@@ -48,12 +48,15 @@ export function Slider({
     >
       {/* The control, not the track, carries the hit area: DESIGN.md §4's 40px coarse-pointer
           floor is bought with padding around a track that stays 6px. */}
-      <Primitive.Control className="flex h-7 w-full touch-none items-center pointer-coarse:h-10">
+      {/* The thumb is a `<div>`, so nothing gives it a cursor for free. `data-dragging` on the
+          control, not only the thumb: a sweep that outruns the pointer leaves it over bare
+          track, and the grip must not let go visually while the value is still moving. */}
+      <Primitive.Control className="flex h-7 w-full cursor-pointer touch-none items-center data-dragging:cursor-grabbing pointer-coarse:h-10">
         <Primitive.Track className="h-1.5 w-full rounded-full bg-panel-2">
           <Primitive.Indicator className="rounded-full bg-accent-dim" />
           <Primitive.Thumb
             aria-label={label}
-            className="size-3.5 rounded-full border border-line-strong bg-accent has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-offset-2"
+            className="size-3.5 cursor-grab rounded-full border border-line-strong bg-accent data-dragging:cursor-grabbing has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-offset-2"
           />
         </Primitive.Track>
       </Primitive.Control>

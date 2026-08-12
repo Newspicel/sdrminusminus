@@ -36,6 +36,13 @@ async function rowOffset(node: Locator, port: string): Promise<number> {
   return Math.abs(marker.y + marker.height / 2 - (label.y + label.height / 2));
 }
 
+/** The cursor a control actually paints. Computed, not the class list: the rule that gives a
+ * headless primitive its pointer lives in the stylesheet, and a node's own `cursor` inherits
+ * down over anything that fails to state one. */
+async function cursor(locator: Locator): Promise<string> {
+  return locator.evaluate((element) => getComputedStyle(element).cursor);
+}
+
 /** One face in the rack. The rack has no wires and no pane, so its faces are addressed by the
  * node they render rather than through React Flow. */
 function rackNode(page: Page, id: string): Locator {
@@ -157,6 +164,22 @@ test.describe("the workspace", () => {
     for (const port of ["iq", "audio"]) {
       expect(await rowOffset(channel, port)).toBeLessThan(1);
     }
+
+    // The squelch row: the box and its word are the label, the threshold beside them is not. A
+    // row that labelled the whole line forwarded a click on the readout to the box and turned
+    // the gate off. The cursors are the other half of the same claim — what acts says so, and
+    // says which way it acts (DESIGN.md §4, `index.css`).
+    const squelch = channel.getByRole("checkbox", { name: /squelch/i });
+    await squelch.click();
+    const threshold = channel.getByRole("slider", { name: /squelch threshold/i });
+    await expect(threshold).toBeAttached();
+    expect(await cursor(squelch)).toBe("pointer");
+    expect(await cursor(threshold.locator("xpath=.."))).toBe("grab");
+    await channel.getByText("-60", { exact: true }).click();
+    await expect(squelch).toBeChecked();
+    // Left as the leg found it: the legs below run on this workspace.
+    await squelch.click();
+    await expect(threshold).toHaveCount(0);
 
     // The scope is running before the view switch below, which is what gives that switch
     // something to preserve.

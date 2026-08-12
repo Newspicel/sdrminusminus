@@ -151,7 +151,7 @@ function BandSettings() {
           {locating ? "Locating…" : "Detect"}
         </button>
       </div>
-      <label className="flex items-center gap-2 text-xs text-ink-dim">
+      <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-dim">
         <Checkbox checked={ruler} onChange={setRuler} />
         Draw the ruler on every scope
       </label>
