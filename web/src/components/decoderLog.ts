@@ -61,6 +61,9 @@ export interface LogRow {
   deviceSet: number;
   channel: number;
   live: boolean;
+  /** The frame itself, for the detail the row expands to. Stored entries carry it back from the
+   * database, so a row read an hour later opens on the same fields a live one does. */
+  event: DecoderEvent;
 }
 
 export function kindLabel(kind: string): string {
@@ -68,11 +71,24 @@ export function kindLabel(kind: string): string {
 }
 
 /**
- * The channels a log node is wired to, as a lookup keyed the way the `sources` query spells them.
+ * The channels a decoder-log or export node is wired to, in both the names a stored row answers
+ * to: the patch node ids, which are durable across runs, and the engine coordinates those nodes
+ * hold right now, which are all a row written before the log recorded a node has.
  *
- * An empty list is a node with nothing wired in and matches nothing — the same reading the server
+ * Both empty is a node with nothing wired in, and matches nothing — the same reading the server
  * gives it, which is what keeps a wire-scoped Clear from emptying the whole log.
  */
+export interface WireScope {
+  /** Comma-separated `PatchNode.id`s. */
+  nodes: string;
+  /** Comma-separated `device_set:channel` pairs. */
+  sources: string;
+}
+
+export const NO_WIRES: WireScope = { nodes: "", sources: "" };
+
+/** The wired channels as a lookup, for filtering the live tail. Live frames carry no node — they
+ * are this run by definition — so the tail matches on the coordinates alone. */
 export function sourceSet(sources: string): ReadonlySet<string> {
   return new Set(sources === "" ? [] : sources.split(","));
 }
@@ -97,8 +113,12 @@ export function sourceSets(sources: string): number[] {
   return [...ids].sort((a, b) => a - b);
 }
 
-export function toQuery(filter: LogFilter, sources: string): DecoderLogFilter {
-  const query: DecoderLogFilter = { limit: filter.limit, sources };
+export function toQuery(filter: LogFilter, wires: WireScope): DecoderLogFilter {
+  const query: DecoderLogFilter = {
+    limit: filter.limit,
+    nodes: wires.nodes,
+    sources: wires.sources,
+  };
   if (filter.kind !== "") {
     query.kind = filter.kind;
   }
@@ -205,6 +225,7 @@ export function storedRow(entry: DecoderLogEntry): LogRow {
     deviceSet: entry.device_set,
     channel: entry.channel,
     live: false,
+    event: entry.event,
   };
 }
 
@@ -219,6 +240,7 @@ export function liveRow(record: DecodedRecord): LogRow {
     deviceSet: record.device_set,
     channel: record.channel,
     live: true,
+    event: record.event,
   };
   // A live frame has no id; its content is its identity, which is also what makes it a duplicate
   // of a stored row once the log has caught up.

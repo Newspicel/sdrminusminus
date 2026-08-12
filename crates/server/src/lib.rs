@@ -1609,11 +1609,14 @@ mod tests {
 
     fn seed_decoder_log(store: &Store) {
         store
-            .insert_decoder_events(&[
-                adsb_record("2026-08-09T12:00:00Z", 0, "3C6444", "DLH123"),
-                awkward_record("2026-08-09T12:00:01Z"),
-                adsb_record("2026-08-09T12:00:02Z", 0, "4CA2D4", "RYR9AB"),
-            ])
+            .insert_decoder_events(
+                &[
+                    adsb_record("2026-08-09T12:00:00Z", 0, "3C6444", "DLH123"),
+                    awkward_record("2026-08-09T12:00:01Z"),
+                    adsb_record("2026-08-09T12:00:02Z", 0, "4CA2D4", "RYR9AB"),
+                ],
+                &std::collections::HashMap::new(),
+            )
             .expect("insert");
     }
 

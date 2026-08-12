@@ -52,9 +52,10 @@ pub use rest::{
     ApiError, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse, ClientsResponse,
     CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
     CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DevicesResponse, ExportFormat, PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest,
-    PresetDevice, PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery,
-    RecordingFormat, RecordingInfo, RecordingsResponse, TemplateInfo, TemplatesResponse,
+    DevicesResponse, ExportFormat, LogScope, MAX_LOG_SOURCES, PRESET_SNAPSHOT_VERSION,
+    PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
+    RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse,
+    TemplateInfo, TemplatesResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,

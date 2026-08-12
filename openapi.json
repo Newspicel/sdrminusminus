@@ -290,9 +290,18 @@
             }
           },
           {
+            "name": "nodes",
+            "in": "query",
+            "description": "Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated\n(`channel:a1b2,channel:c3d4`).\n\nThis is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export\nnode shows the decoders wired into it, and \"wired into it\" is a *set of channels*, which\nneither `kind` nor `device_set` can name. The node id is the durable half of that — engine\nchannel ids are allocated per run and reused (CANVAS §3), so a scope built from them would\nhand a node another node's history after a restart.\n\nComposes with [`Self::sources`] as an OR, and the pair is one filter: absent means every\nchannel, and *both* empty means none, so a node with nothing wired in matches nothing\nrather than everything.\n\nA node id containing a comma cannot be named here. Nothing generates one — ids are\n`kind:uuid` from the client and slugs from the templates — and the fallback below still\nreaches such a node's rows for the run they were written in.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "sources",
             "in": "query",
-            "description": "Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).\n\nThis is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or\nexport node shows the decoders wired into it, and \"wired into it\" is a *set of channels*,\nwhich neither `kind` nor `device_set` can name. Absent means every channel; an empty list\nmeans none, so a node with nothing wired in matches nothing rather than everything.",
+            "description": "Fallback for rows that carry no node: `device_set:channel` pairs, comma separated\n(`0:1,0:2`), matched only against rows whose `node` is null.\n\nTwo kinds of row have none. Rows written before the log recorded one, and rows written in\nthe window between a channel starting to decode and the workspace binding catching up with\nit. Both are attributable only by the coordinates they *do* carry, and only for the run\nthat wrote them — which is exactly what this names, and why it is the fallback rather than\nthe filter.",
             "required": false,
             "schema": {
               "type": "string"
@@ -384,9 +393,18 @@
             }
           },
           {
+            "name": "nodes",
+            "in": "query",
+            "description": "Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated\n(`channel:a1b2,channel:c3d4`).\n\nThis is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export\nnode shows the decoders wired into it, and \"wired into it\" is a *set of channels*, which\nneither `kind` nor `device_set` can name. The node id is the durable half of that — engine\nchannel ids are allocated per run and reused (CANVAS §3), so a scope built from them would\nhand a node another node's history after a restart.\n\nComposes with [`Self::sources`] as an OR, and the pair is one filter: absent means every\nchannel, and *both* empty means none, so a node with nothing wired in matches nothing\nrather than everything.\n\nA node id containing a comma cannot be named here. Nothing generates one — ids are\n`kind:uuid` from the client and slugs from the templates — and the fallback below still\nreaches such a node's rows for the run they were written in.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "sources",
             "in": "query",
-            "description": "Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).\n\nThis is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or\nexport node shows the decoders wired into it, and \"wired into it\" is a *set of channels*,\nwhich neither `kind` nor `device_set` can name. Absent means every channel; an empty list\nmeans none, so a node with nothing wired in matches nothing rather than everything.",
+            "description": "Fallback for rows that carry no node: `device_set:channel` pairs, comma separated\n(`0:1,0:2`), matched only against rows whose `node` is null.\n\nTwo kinds of row have none. Rows written before the log recorded one, and rows written in\nthe window between a channel starting to decode and the workspace binding catching up with\nit. Both are attributable only by the coordinates they *do* carry, and only for the run\nthat wrote them — which is exactly what this names, and why it is the fallback rather than\nthe filter.",
             "required": false,
             "schema": {
               "type": "string"
@@ -489,9 +507,18 @@
             }
           },
           {
+            "name": "nodes",
+            "in": "query",
+            "description": "Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated\n(`channel:a1b2,channel:c3d4`).\n\nThis is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export\nnode shows the decoders wired into it, and \"wired into it\" is a *set of channels*, which\nneither `kind` nor `device_set` can name. The node id is the durable half of that — engine\nchannel ids are allocated per run and reused (CANVAS §3), so a scope built from them would\nhand a node another node's history after a restart.\n\nComposes with [`Self::sources`] as an OR, and the pair is one filter: absent means every\nchannel, and *both* empty means none, so a node with nothing wired in matches nothing\nrather than everything.\n\nA node id containing a comma cannot be named here. Nothing generates one — ids are\n`kind:uuid` from the client and slugs from the templates — and the fallback below still\nreaches such a node's rows for the run they were written in.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "sources",
             "in": "query",
-            "description": "Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).\n\nThis is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or\nexport node shows the decoders wired into it, and \"wired into it\" is a *set of channels*,\nwhich neither `kind` nor `device_set` can name. Absent means every channel; an empty list\nmeans none, so a node with nothing wired in matches nothing rather than everything.",
+            "description": "Fallback for rows that carry no node: `device_set:channel` pairs, comma separated\n(`0:1,0:2`), matched only against rows whose `node` is null.\n\nTwo kinds of row have none. Rows written before the log recorded one, and rows written in\nthe window between a channel starting to decode and the workspace binding catching up with\nit. Both are attributable only by the coordinates they *do* carry, and only for the run\nthat wrote them — which is exactly what this names, and why it is the fallback rather than\nthe filter.",
             "required": false,
             "schema": {
               "type": "string"
@@ -4039,6 +4066,13 @@
           "kind": {
             "type": "string",
             "description": "[`crate::DecoderEvent::kind`] of `event`."
+          },
+          "node": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "[`crate::PatchNode::id`] of the channel node this frame came from, resolved against the\nactive workspace when the row was written. This is the row's durable identity: `channel`\nabove is an engine id, allocated per run and reused (CANVAS §3), so it names this frame's\norigin only for as long as that run lasted.\n\nAbsent on rows written before the log recorded it, and on rows written while the channel\nwas not bound to any node — a channel created outside a workspace, or one the binding had\nnot caught up with yet."
           },
           "station": {
             "type": [

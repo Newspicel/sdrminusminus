@@ -7,9 +7,12 @@
 //! events. A counter is reported on every `GET /api/decoderlog` as `dropped`, so the loss
 //! stays visible for as long as the server runs.
 
-use std::sync::{
-    Arc, Weak,
-    atomic::{AtomicU64, Ordering},
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use sdrmm_engine::Engine;
@@ -64,6 +67,7 @@ fn spawn_writer_on(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut batch: Vec<DecodedRecord> = Vec::with_capacity(BATCH_MAX);
+        let mut nodes = NodeMap::default();
         let mut flush_tick = ticker(FLUSH_INTERVAL);
         let mut prune_tick = ticker(PRUNE_INTERVAL);
         loop {
@@ -72,7 +76,7 @@ fn spawn_writer_on(
                     Ok(record) => {
                         batch.push(record);
                         if batch.len() >= BATCH_MAX {
-                            flush(&store, &mut batch, &dropped).await;
+                            flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
                         }
                     }
                     Err(RecvError::Lagged(count)) => {
@@ -80,15 +84,94 @@ fn spawn_writer_on(
                         tracing::warn!(count, "decoder frames lost: log writer behind");
                     }
                     Err(RecvError::Closed) => {
-                        flush(&store, &mut batch, &dropped).await;
+                        flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
                         return;
                     }
                 },
-                _ = flush_tick.tick() => flush(&store, &mut batch, &dropped).await,
+                _ = flush_tick.tick() => {
+                    flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
+                }
                 _ = prune_tick.tick() => prune(&store, &engine, MAX_ROWS).await,
             }
         }
     })
+}
+
+/// Which patch node each live channel belongs to, so a stored row carries the durable half of
+/// its origin (`DecoderLogEntry::node`) and not only an engine id that is reused between runs.
+///
+/// Rebuilt from the active workspace's binding, which is the same rule apply and capture use
+/// (`crate::workspace::bind`) — there is no second notion of "which node is this channel"
+/// anywhere. Held across flushes because rebuilding reads the workspace row: a decoder at full
+/// rate flushes twice a second, and the answer changes only when a channel appears or disappears
+/// or the patch itself is edited, which is what the cache key watches.
+/// What a mapping was derived from: the engine's channel inventory, and the workspace (by id and
+/// revision) it was bound against. Nothing else can change an answer, and both are cheap to read.
+#[derive(PartialEq, Eq)]
+struct NodeMapKey {
+    channels: Vec<(u32, u32)>,
+    workspace: i64,
+    revision: u64,
+}
+
+#[derive(Default)]
+struct NodeMap {
+    key: Option<NodeMapKey>,
+    map: HashMap<(u32, u32), String>,
+}
+
+impl NodeMap {
+    /// The current mapping, rebuilding it only when what it is derived from has moved.
+    ///
+    /// Blocks (it reads the store), so this belongs on the blocking pool with the insert it
+    /// feeds. With no engine or no active workspace the map is empty, and every row of the batch
+    /// is stored without a node — honestly unattributable rather than attributed to a guess.
+    fn resolve(&mut self, engine: Option<&Engine>, store: &Store) -> &HashMap<(u32, u32), String> {
+        let Some(engine) = engine else {
+            self.key = None;
+            self.map.clear();
+            return &self.map;
+        };
+        let state = engine.snapshot();
+        let channels: Vec<(u32, u32)> = state
+            .device_sets
+            .iter()
+            .flat_map(|set| set.channels.iter().map(move |channel| (set.id, channel.id)))
+            .collect();
+        let active = match store.active_workspace() {
+            Ok(active) => active,
+            Err(err) => {
+                // The binding is unavailable, not wrong: keep whatever was last resolved rather
+                // than dropping the node off a batch because one read failed.
+                tracing::warn!(%err, "could not read the active workspace for the decoder log");
+                return &self.map;
+            }
+        };
+        let Some(active) = active else {
+            self.key = None;
+            self.map.clear();
+            return &self.map;
+        };
+        let key = NodeMapKey {
+            channels,
+            workspace: active.info.id,
+            revision: active.info.revision,
+        };
+        if self.key.as_ref() == Some(&key) {
+            return &self.map;
+        }
+        self.map = crate::workspace::bind(&active.snapshot.graph, &state)
+            .into_iter()
+            .flat_map(|binding| {
+                binding
+                    .channels
+                    .into_iter()
+                    .map(move |(node, channel)| ((binding.device_set, channel), node))
+            })
+            .collect();
+        self.key = Some(key);
+        &self.map
+    }
 }
 
 /// A timer whose missed ticks are dropped rather than replayed: a long insert must not be
@@ -101,14 +184,37 @@ fn ticker(period: Duration) -> tokio::time::Interval {
 
 /// Write the pending records in one transaction. A store failure is logged and the batch is
 /// carried into the next flush; nothing here may panic or exit the task.
-async fn flush(store: &Arc<Store>, batch: &mut Vec<DecodedRecord>, dropped: &AtomicU64) {
+async fn flush(
+    store: &Arc<Store>,
+    batch: &mut Vec<DecodedRecord>,
+    dropped: &AtomicU64,
+    engine: &Weak<Engine>,
+    nodes: &mut NodeMap,
+) {
     if batch.is_empty() {
         return;
     }
     let records = std::mem::take(batch);
     let owned = store.clone();
-    let written =
-        tokio::task::spawn_blocking(move || (owned.insert_decoder_events(&records), records)).await;
+    // Both halves run on the blocking pool: resolving reads the workspace row, and it must see
+    // the binding as of this batch rather than one flush later.
+    let engine = engine.upgrade();
+    let mut resolver = std::mem::take(nodes);
+    let written = tokio::task::spawn_blocking(move || {
+        let result = {
+            let resolved = resolver.resolve(engine.as_deref(), &owned);
+            owned.insert_decoder_events(&records, resolved)
+        };
+        (result, records, resolver)
+    })
+    .await;
+    let written = match written {
+        Ok((result, records, resolver)) => {
+            *nodes = resolver;
+            Ok((result, records))
+        }
+        Err(err) => Err(err),
+    };
     match written {
         Ok((Ok(_), _)) => {}
         Ok((Err(err), mut records)) => {
@@ -145,7 +251,11 @@ async fn prune(store: &Arc<Store>, engine: &Weak<Engine>, max_rows: u64) {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{AdsbMessage, DecoderEvent, DecoderLogQuery, ServerEvent};
+    use sdrmm_wire::{
+        AdsbMessage, ChannelNode, ChannelParams, ChannelSettings, DecoderEvent, DecoderLogQuery,
+        DeviceRef, NodeBody, PatchEdge, PatchNode, PortRef, Position, ServerEvent,
+        WorkspaceSnapshot,
+    };
     use tokio::sync::broadcast;
 
     use super::*;
@@ -211,6 +321,116 @@ mod tests {
         writer.await.expect("writer exits cleanly");
     }
 
+    /// The row's durable origin. An engine channel id names this frame's decoder only for as
+    /// long as this run lasts, so the writer resolves it against the active workspace's binding
+    /// and stores the patch node beside it — and stores nothing where it cannot, rather than
+    /// attributing a frame to a decoder that never heard it.
+    #[tokio::test]
+    async fn a_written_row_carries_the_patch_node_behind_its_channel() {
+        let mut registry = sdrmm_device::DeviceRegistry::new();
+        registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
+        let engine = Engine::with_registry(registry, None);
+        let set = engine
+            .create_device_set("virtual:siggen")
+            .expect("open the virtual radio");
+        let channel = engine
+            .add_channel(
+                set,
+                0,
+                ChannelSettings {
+                    offset_hz: 0.0,
+                    squelch_db: None,
+                    params: ChannelParams::default_for("adsb").expect("adsb is a channel type"),
+                },
+            )
+            .expect("add channel");
+
+        let store = Arc::new(Store::open(None).expect("store"));
+        let mut snapshot = WorkspaceSnapshot::starter();
+        snapshot.graph.nodes.push(PatchNode {
+            id: "channel:adsb".to_owned(),
+            body: NodeBody::Channel(ChannelNode {
+                channel_type: "adsb".to_owned(),
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        });
+        snapshot.graph.edges.push(PatchEdge {
+            from: PortRef {
+                node: "device".to_owned(),
+                port: "iq".to_owned(),
+            },
+            to: PortRef {
+                node: "channel:adsb".to_owned(),
+                port: "iq".to_owned(),
+            },
+        });
+        let NodeBody::Device(device) = &mut snapshot
+            .graph
+            .nodes
+            .iter_mut()
+            .find(|node| node.id == "device")
+            .expect("the starter draws a radio")
+            .body
+        else {
+            panic!("the starter's radio is a device node");
+        };
+        device.device = Some(DeviceRef {
+            backend: "virtual".to_owned(),
+            serial: None,
+            key: Some("siggen".to_owned()),
+        });
+        let id = store.create_workspace("bench", &snapshot).expect("create");
+        store.activate_workspace(id).expect("activate");
+
+        let mut nodes = NodeMap::default();
+        let mut batch = vec![DecodedRecord {
+            device_set: set,
+            channel,
+            ..record("3C6444")
+        }];
+        flush(
+            &store,
+            &mut batch,
+            &AtomicU64::new(0),
+            &Arc::downgrade(&engine),
+            &mut nodes,
+        )
+        .await;
+
+        let entries = store
+            .query_decoder_log(&DecoderLogQuery::default())
+            .expect("query")
+            .0;
+        assert_eq!(entries[0].node.as_deref(), Some("channel:adsb"));
+
+        // A channel no node claims is stored unattributed, and the scope's fallback is what
+        // reaches it — never a node id the binding did not actually produce.
+        let mut orphan = vec![DecodedRecord {
+            device_set: set,
+            channel: channel + 99,
+            ..record("4CA2D4")
+        }];
+        flush(
+            &store,
+            &mut orphan,
+            &AtomicU64::new(0),
+            &Arc::downgrade(&engine),
+            &mut nodes,
+        )
+        .await;
+        let entries = store
+            .query_decoder_log(&DecoderLogQuery::default())
+            .expect("query")
+            .0;
+        let orphaned = entries
+            .iter()
+            .find(|entry| entry.station.as_deref() == Some("4CA2D4"))
+            .expect("the orphan was written");
+        assert_eq!(orphaned.node, None);
+    }
+
     /// A batch larger than the channel capacity must be counted as lost, never dropped
     /// silently (PLAN §5).
     #[tokio::test]
@@ -241,7 +461,9 @@ mod tests {
 
         let store = Arc::new(Store::open(None).expect("store"));
         let records: Vec<DecodedRecord> = (0..3).map(|i| record(&format!("00000{i}"))).collect();
-        store.insert_decoder_events(&records).expect("insert");
+        store
+            .insert_decoder_events(&records, &HashMap::new())
+            .expect("insert");
 
         let weak = Arc::downgrade(&engine);
         prune(&store, &weak, 3).await;

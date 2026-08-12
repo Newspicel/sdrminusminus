@@ -69,10 +69,12 @@ describe("decoderLogExportUrl", () => {
     );
     // Empty means *no channels*. Dropped, it would mean every channel, and the same filter
     // backs the clear endpoint — so this is the difference between exporting one node's rows
-    // and emptying the log.
-    expect(decoderLogExportUrl("csv", { sources: "" })).toBe("/api/decoderlog/export/csv?sources=");
-    expect(decoderLogExportUrl("json", { sources: "0:1,0:2" })).toBe(
-      "/api/decoderlog/export/json?sources=0%3A1%2C0%3A2",
+    // and emptying the log. Both halves of the scope, since either alone is still a scope.
+    expect(decoderLogExportUrl("csv", { nodes: "", sources: "" })).toBe(
+      "/api/decoderlog/export/csv?nodes=&sources=",
+    );
+    expect(decoderLogExportUrl("json", { nodes: "channel:a1", sources: "0:1,0:2" })).toBe(
+      "/api/decoderlog/export/json?nodes=channel%3Aa1&sources=0%3A1%2C0%3A2",
     );
   });
 

@@ -6,15 +6,16 @@
 //! the store via `spawn_blocking` only.
 
 use std::{
+    collections::HashMap,
     path::Path,
     sync::{Mutex, MutexGuard},
 };
 
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 use sdrmm_wire::{
-    Bookmark, CreateBookmarkRequest, DecodedRecord, DecoderLogEntry, DecoderLogQuery, PresetInfo,
-    PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceError,
-    WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    Bookmark, CreateBookmarkRequest, DecodedRecord, DecoderLogEntry, DecoderLogQuery, LogScope,
+    PresetInfo, PresetSnapshot, RecordingInfo, UpdateWorkspaceRequest, WorkspaceDetail,
+    WorkspaceError, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -159,6 +160,17 @@ const MIGRATIONS: &[&str] = &[
     DELETE FROM presets;
     ALTER TABLE presets DROP COLUMN device_id;
     ALTER TABLE presets ADD COLUMN devices INTEGER NOT NULL DEFAULT 0;
+    ",
+    "
+    -- The durable half of a row's origin. `channel` is an engine id, allocated per run and
+    -- reused (CANVAS §3), so a decoder-log node scoped by it would be handed another node's
+    -- history after a restart. The patch node id is stable for the node's life, which is what
+    -- the scope needs — and null on every row written before this column, which is why the
+    -- query keeps the (device_set, channel) pair as the fallback for exactly those rows.
+    ALTER TABLE decoder_log ADD COLUMN node TEXT;
+    -- Paired with the sort key like `kind`, and for the same reason: a wire-scoped page is the
+    -- common read now, and it must not be a full scan.
+    CREATE INDEX decoder_log_node_at ON decoder_log (node, at DESC, id DESC);
     ",
 ];
 
@@ -374,7 +386,16 @@ impl Store {
 
     /// Persist a batch of decoder frames in one transaction. Decoders emit hundreds of frames
     /// a second (ADS-B), and a commit per row would make SQLite the bottleneck.
-    pub fn insert_decoder_events(&self, records: &[DecodedRecord]) -> Result<usize, StoreError> {
+    ///
+    /// `nodes` resolves a frame's `(device set, channel)` to the patch node that channel belongs
+    /// to, which is the row's durable origin (`DecoderLogEntry::node`). A channel it does not
+    /// know is stored without one rather than guessed at — the query has a fallback for exactly
+    /// those rows, and a wrong node would attribute a frame to a decoder that never heard it.
+    pub fn insert_decoder_events(
+        &self,
+        records: &[DecodedRecord],
+        nodes: &HashMap<(u32, u32), String>,
+    ) -> Result<usize, StoreError> {
         if records.is_empty() {
             return Ok(0);
         }
@@ -382,14 +403,15 @@ impl Store {
         let tx = conn.transaction()?;
         {
             let mut stmt = tx.prepare_cached(
-                "INSERT INTO decoder_log (at, device_set, channel, kind, freq_hz, station, \
-                 summary, event) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO decoder_log (at, device_set, channel, node, kind, freq_hz, station, \
+                 summary, event) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             )?;
             for record in records {
                 stmt.execute(params![
                     normalize_timestamp(&record.at)?,
                     record.device_set,
                     record.channel,
+                    nodes.get(&(record.device_set, record.channel)),
                     record.event.kind(),
                     record.freq_hz,
                     record.event.station(),
@@ -764,6 +786,7 @@ struct DecoderLogRow {
     at: String,
     device_set: u32,
     channel: u32,
+    node: Option<String>,
     kind: String,
     freq_hz: f64,
     station: Option<String>,
@@ -777,7 +800,7 @@ fn select_decoder_log(
     limit: u32,
 ) -> Result<Vec<DecoderLogEntry>, StoreError> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT id, at, device_set, channel, kind, freq_hz, station, summary, event \
+        "SELECT id, at, device_set, channel, node, kind, freq_hz, station, summary, event \
          FROM decoder_log{} ORDER BY at DESC, id DESC LIMIT ?",
         predicate.clause
     ))?;
@@ -789,11 +812,12 @@ fn select_decoder_log(
             at: row.get(1)?,
             device_set: row.get(2)?,
             channel: row.get(3)?,
-            kind: row.get(4)?,
-            freq_hz: row.get(5)?,
-            station: row.get(6)?,
-            summary: row.get(7)?,
-            event: row.get(8)?,
+            node: row.get(4)?,
+            kind: row.get(5)?,
+            freq_hz: row.get(6)?,
+            station: row.get(7)?,
+            summary: row.get(8)?,
+            event: row.get(9)?,
         })
     })?;
     let mut entries = Vec::new();
@@ -804,6 +828,7 @@ fn select_decoder_log(
             at: row.at,
             device_set: row.device_set,
             channel: row.channel,
+            node: row.node,
             kind: row.kind,
             freq_hz: row.freq_hz,
             station: row.station,
@@ -837,22 +862,11 @@ impl DecoderLogPredicate {
             terms.push("device_set = ?");
             params.push(Value::Integer(i64::from(device_set)));
         }
-        let sources = filter
-            .channels()
+        let scope = filter
+            .scope()
             .map_err(|bad| StoreError::Sources(bad.to_owned()))?;
-        if let Some(channels) = sources {
-            for (device_set, channel) in &channels {
-                params.push(Value::Integer(i64::from(*device_set)));
-                params.push(Value::Integer(i64::from(*channel)));
-            }
-            // No channels named matches no rows: an empty list is a node with nothing wired into
-            // it, and "show me the frames from nothing" is not "show me everything".
-            sources_term = if channels.is_empty() {
-                "0".to_owned()
-            } else {
-                let pairs = vec!["(device_set = ? AND channel = ?)"; channels.len()];
-                format!("({})", pairs.join(" OR "))
-            };
+        if let Some(scope) = scope {
+            sources_term = scope_clause(&scope, &mut params);
             terms.push(&sources_term);
         }
         if let Some(since) = &filter.since {
@@ -878,6 +892,38 @@ impl DecoderLogPredicate {
         };
         Ok(Self { clause, params })
     }
+}
+
+/// The `WHERE` fragment for a wire scope, binding its values into `params`.
+///
+/// The two halves are an OR, and the null guard on the second is what keeps them from crossing:
+/// a row that *has* a node is attributable, so it must be matched by node alone. Without the
+/// guard, a node whose engine channel id was previously held by a different node would inherit
+/// that node's rows — the exact confusion the node column exists to end.
+///
+/// An empty scope is a node with nothing wired into it, and matches no row. "Show me the frames
+/// from nothing" is not "show me everything", and the same clause backs the clear endpoint.
+fn scope_clause(scope: &LogScope, params: &mut Vec<Value>) -> String {
+    if scope.is_empty() {
+        return "0".to_owned();
+    }
+    let mut halves: Vec<String> = Vec::new();
+    if !scope.nodes.is_empty() {
+        for node in &scope.nodes {
+            params.push(Value::Text(node.clone()));
+        }
+        let slots = vec!["?"; scope.nodes.len()].join(", ");
+        halves.push(format!("node IN ({slots})"));
+    }
+    if !scope.channels.is_empty() {
+        for (device_set, channel) in &scope.channels {
+            params.push(Value::Integer(i64::from(*device_set)));
+            params.push(Value::Integer(i64::from(*channel)));
+        }
+        let pairs = vec!["(device_set = ? AND channel = ?)"; scope.channels.len()];
+        halves.push(format!("(node IS NULL AND ({}))", pairs.join(" OR ")));
+    }
+    format!("({})", halves.join(" OR "))
 }
 
 /// Neutralize the wildcards in a user-supplied substring so `q = "50%"` searches for a percent
@@ -1141,15 +1187,18 @@ mod tests {
     /// Three decoders across two device sets, oldest first.
     fn seed(store: &Store) {
         store
-            .insert_decoder_events(&[
-                record("2026-08-09T12:00:00Z", 0, adsb("3C6444", "DLH123")),
-                record(
-                    "2026-08-09T12:00:01Z",
-                    1,
-                    aprs("DL1ABC-9", "DL1ABC-9>APRS:hi"),
-                ),
-                record("2026-08-09T12:00:02Z", 0, adsb("4CA2D4", "RYR9AB")),
-            ])
+            .insert_decoder_events(
+                &[
+                    record("2026-08-09T12:00:00Z", 0, adsb("3C6444", "DLH123")),
+                    record(
+                        "2026-08-09T12:00:01Z",
+                        1,
+                        aprs("DL1ABC-9", "DL1ABC-9>APRS:hi"),
+                    ),
+                    record("2026-08-09T12:00:02Z", 0, adsb("4CA2D4", "RYR9AB")),
+                ],
+                &HashMap::new(),
+            )
             .expect("insert");
     }
 
@@ -1160,7 +1209,12 @@ mod tests {
     #[test]
     fn decoder_log_insert_and_query_newest_first() {
         let store = Store::open(None).expect("open");
-        assert_eq!(store.insert_decoder_events(&[]).expect("empty"), 0);
+        assert_eq!(
+            store
+                .insert_decoder_events(&[], &HashMap::new())
+                .expect("empty"),
+            0
+        );
         seed(&store);
 
         let (entries, total) = query(&store, DecoderLogQuery::default());
@@ -1298,7 +1352,10 @@ mod tests {
             ..record("2026-08-09T12:00:00Z", device_set, adsb(icao, "FLIGHT"))
         };
         store
-            .insert_decoder_events(&[on(0, 1, "AAAAAA"), on(0, 2, "BBBBBB"), on(1, 1, "CCCCCC")])
+            .insert_decoder_events(
+                &[on(0, 1, "AAAAAA"), on(0, 2, "BBBBBB"), on(1, 1, "CCCCCC")],
+                &HashMap::new(),
+            )
             .expect("insert");
         let stations = |sources: &str| {
             query(
@@ -1341,6 +1398,65 @@ mod tests {
             store.delete_decoder_log(&malformed),
             Err(StoreError::Sources(_))
         ));
+    }
+
+    /// The whole point of the node column: an engine channel id is reused between runs, so a
+    /// scope built on one hands a node whatever else has held that id. The node id is stable for
+    /// the node's life, and it wins wherever a row carries one.
+    #[test]
+    fn decoder_log_scope_prefers_the_node_over_the_reused_channel_id() {
+        let store = Store::open(None).expect("open");
+        let on = |channel: u32, icao: &str| DecodedRecord {
+            channel,
+            ..record("2026-08-09T12:00:00Z", 0, adsb(icao, "FLIGHT"))
+        };
+        // Two nodes that held channel 1 in different runs, plus a row from before the column
+        // existed — the three cases the scope has to keep apart.
+        store
+            .insert_decoder_events(
+                &[on(1, "AAAAAA")],
+                &HashMap::from([((0, 1), "channel:old".to_owned())]),
+            )
+            .expect("insert");
+        store
+            .insert_decoder_events(
+                &[on(1, "BBBBBB")],
+                &HashMap::from([((0, 1), "channel:new".to_owned())]),
+            )
+            .expect("insert");
+        store
+            .insert_decoder_events(&[on(1, "LEGACY")], &HashMap::new())
+            .expect("insert");
+
+        let stations = |nodes: &str, sources: &str| {
+            query(
+                &store,
+                DecoderLogQuery {
+                    nodes: Some(nodes.to_owned()),
+                    sources: Some(sources.to_owned()),
+                    ..DecoderLogQuery::default()
+                },
+            )
+            .0
+            .into_iter()
+            .filter_map(|entry| entry.station)
+            .collect::<Vec<_>>()
+        };
+
+        // The node the log is wired to gets its own rows and the unattributable one — never the
+        // rows the *other* node wrote while holding the same channel id.
+        assert_eq!(stations("channel:new", "0:1"), ["LEGACY", "BBBBBB"]);
+        assert_eq!(stations("channel:old", "0:1"), ["LEGACY", "AAAAAA"]);
+        // Without the fallback the legacy row is unreachable, which is what makes it a fallback
+        // and not the filter.
+        assert_eq!(stations("channel:new", ""), ["BBBBBB"]);
+        // And the fallback alone reaches only the rows that have no better identity.
+        assert_eq!(stations("", "0:1"), ["LEGACY"]);
+        assert!(stations("", "").is_empty());
+
+        let entries = query(&store, DecoderLogQuery::default()).0;
+        assert_eq!(entries[0].node, None, "the legacy row carries no node");
+        assert_eq!(entries[2].node.as_deref(), Some("channel:old"));
     }
 
     #[test]
@@ -1421,7 +1537,12 @@ mod tests {
                 )
             })
             .collect();
-        assert_eq!(store.insert_decoder_events(&records).expect("insert"), 10);
+        assert_eq!(
+            store
+                .insert_decoder_events(&records, &HashMap::new())
+                .expect("insert"),
+            10
+        );
 
         assert_eq!(store.prune_decoder_log(10).expect("prune"), 0);
         assert_eq!(store.prune_decoder_log(4).expect("prune"), 6);
@@ -1475,6 +1596,54 @@ mod tests {
         // Seeding is an empty-table rule, not a first-open rule: reopening must not add a
         // second "Workspace" (and the UNIQUE name would fail loudly if it tried).
         drop(store);
+    }
+
+    /// Upgrading an existing log must keep every row it already has. The node column arrives
+    /// null on all of them, which is not a gap to be filled in — nothing recorded which node
+    /// those frames came from, and inventing one would attribute them to whichever decoder
+    /// happens to hold that channel id now. They stay reachable through the fallback instead.
+    #[test]
+    fn adding_the_node_column_keeps_the_rows_already_logged() {
+        let file = tempfile::NamedTempFile::new().expect("temp db");
+        {
+            let conn = Connection::open(file.path()).expect("open");
+            // Every migration but the last: a database as the release before this one left it.
+            for (i, migration) in MIGRATIONS.iter().take(MIGRATIONS.len() - 1).enumerate() {
+                conn.execute_batch(&format!(
+                    "BEGIN;\n{migration}\nPRAGMA user_version = {};\nCOMMIT;",
+                    i + 1
+                ))
+                .expect("migrate");
+            }
+            conn.execute(
+                "INSERT INTO decoder_log (at, device_set, channel, kind, freq_hz, station, \
+                 summary, event) VALUES ('2026-08-09T12:00:00.000000000Z', 0, 1, 'adsb', \
+                 1090000000.0, 'LEGACY', 'LEGACY', '{\"kind\":\"adsb\",\"data\":{\"icao\":\
+                 \"LEGACY\",\"df\":17,\"raw\":\"8d\"}}')",
+                [],
+            )
+            .expect("a row from before the column");
+        }
+
+        let store = Store::open(Some(file.path())).expect("reopen");
+        let (entries, total) = query(&store, DecoderLogQuery::default());
+        assert_eq!(total, 1, "the upgrade kept the row");
+        assert_eq!(entries[0].node, None);
+
+        // Only the fallback reaches it, and it does.
+        let scoped = |nodes: &str, sources: &str| {
+            query(
+                &store,
+                DecoderLogQuery {
+                    nodes: Some(nodes.to_owned()),
+                    sources: Some(sources.to_owned()),
+                    ..DecoderLogQuery::default()
+                },
+            )
+            .1
+        };
+        assert_eq!(scoped("channel:whatever", "0:1"), 1);
+        assert_eq!(scoped("channel:whatever", ""), 0);
     }
 
     /// The M7 migration drops M6's workspaces rather than converting a dock tree the patch model

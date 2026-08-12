@@ -1462,6 +1462,17 @@ export interface components {
             id: number;
             /** @description [`crate::DecoderEvent::kind`] of `event`. */
             kind: string;
+            /**
+             * @description [`crate::PatchNode::id`] of the channel node this frame came from, resolved against the
+             *     active workspace when the row was written. This is the row's durable identity: `channel`
+             *     above is an engine id, allocated per run and reused (CANVAS §3), so it names this frame's
+             *     origin only for as long as that run lasted.
+             *
+             *     Absent on rows written before the log recorded it, and on rows written while the channel
+             *     was not bound to any node — a channel created outside a workspace, or one the binding had
+             *     not caught up with yet.
+             */
+            node?: string | null;
             /** @description Emitter identity within the decoder (ICAO, MMSI, callsign, pager address). */
             station?: string | null;
             summary: string;
@@ -3268,17 +3279,38 @@ export interface operations {
                 kind?: string;
                 /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
                 limit?: number;
+                /**
+                 * @description Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated
+                 *     (`channel:a1b2,channel:c3d4`).
+                 *
+                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export
+                 *     node shows the decoders wired into it, and "wired into it" is a *set of channels*, which
+                 *     neither `kind` nor `device_set` can name. The node id is the durable half of that — engine
+                 *     channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
+                 *     hand a node another node's history after a restart.
+                 *
+                 *     Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
+                 *     channel, and *both* empty means none, so a node with nothing wired in matches nothing
+                 *     rather than everything.
+                 *
+                 *     A node id containing a comma cannot be named here. Nothing generates one — ids are
+                 *     `kind:uuid` from the client and slugs from the templates — and the fallback below still
+                 *     reaches such a node's rows for the run they were written in.
+                 */
+                nodes?: string;
                 /** @description Substring match against `station` and `summary`, case-insensitive. */
                 q?: string;
                 /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
                 /**
-                 * @description Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).
+                 * @description Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
+                 *     (`0:1,0:2`), matched only against rows whose `node` is null.
                  *
-                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or
-                 *     export node shows the decoders wired into it, and "wired into it" is a *set of channels*,
-                 *     which neither `kind` nor `device_set` can name. Absent means every channel; an empty list
-                 *     means none, so a node with nothing wired in matches nothing rather than everything.
+                 *     Two kinds of row have none. Rows written before the log recorded one, and rows written in
+                 *     the window between a channel starting to decode and the workspace binding catching up with
+                 *     it. Both are attributable only by the coordinates they *do* carry, and only for the run
+                 *     that wrote them — which is exactly what this names, and why it is the fallback rather than
+                 *     the filter.
                  */
                 sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
@@ -3319,17 +3351,38 @@ export interface operations {
                 kind?: string;
                 /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
                 limit?: number;
+                /**
+                 * @description Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated
+                 *     (`channel:a1b2,channel:c3d4`).
+                 *
+                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export
+                 *     node shows the decoders wired into it, and "wired into it" is a *set of channels*, which
+                 *     neither `kind` nor `device_set` can name. The node id is the durable half of that — engine
+                 *     channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
+                 *     hand a node another node's history after a restart.
+                 *
+                 *     Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
+                 *     channel, and *both* empty means none, so a node with nothing wired in matches nothing
+                 *     rather than everything.
+                 *
+                 *     A node id containing a comma cannot be named here. Nothing generates one — ids are
+                 *     `kind:uuid` from the client and slugs from the templates — and the fallback below still
+                 *     reaches such a node's rows for the run they were written in.
+                 */
+                nodes?: string;
                 /** @description Substring match against `station` and `summary`, case-insensitive. */
                 q?: string;
                 /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
                 /**
-                 * @description Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).
+                 * @description Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
+                 *     (`0:1,0:2`), matched only against rows whose `node` is null.
                  *
-                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or
-                 *     export node shows the decoders wired into it, and "wired into it" is a *set of channels*,
-                 *     which neither `kind` nor `device_set` can name. Absent means every channel; an empty list
-                 *     means none, so a node with nothing wired in matches nothing rather than everything.
+                 *     Two kinds of row have none. Rows written before the log recorded one, and rows written in
+                 *     the window between a channel starting to decode and the workspace binding catching up with
+                 *     it. Both are attributable only by the coordinates they *do* carry, and only for the run
+                 *     that wrote them — which is exactly what this names, and why it is the fallback rather than
+                 *     the filter.
                  */
                 sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
@@ -3370,17 +3423,38 @@ export interface operations {
                 kind?: string;
                 /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
                 limit?: number;
+                /**
+                 * @description Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated
+                 *     (`channel:a1b2,channel:c3d4`).
+                 *
+                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export
+                 *     node shows the decoders wired into it, and "wired into it" is a *set of channels*, which
+                 *     neither `kind` nor `device_set` can name. The node id is the durable half of that — engine
+                 *     channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
+                 *     hand a node another node's history after a restart.
+                 *
+                 *     Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
+                 *     channel, and *both* empty means none, so a node with nothing wired in matches nothing
+                 *     rather than everything.
+                 *
+                 *     A node id containing a comma cannot be named here. Nothing generates one — ids are
+                 *     `kind:uuid` from the client and slugs from the templates — and the fallback below still
+                 *     reaches such a node's rows for the run they were written in.
+                 */
+                nodes?: string;
                 /** @description Substring match against `station` and `summary`, case-insensitive. */
                 q?: string;
                 /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
                 /**
-                 * @description Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).
+                 * @description Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
+                 *     (`0:1,0:2`), matched only against rows whose `node` is null.
                  *
-                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or
-                 *     export node shows the decoders wired into it, and "wired into it" is a *set of channels*,
-                 *     which neither `kind` nor `device_set` can name. Absent means every channel; an empty list
-                 *     means none, so a node with nothing wired in matches nothing rather than everything.
+                 *     Two kinds of row have none. Rows written before the log recorded one, and rows written in
+                 *     the window between a channel starting to decode and the workspace binding catching up with
+                 *     it. Both are attributable only by the coordinates they *do* carry, and only for the run
+                 *     that wrote them — which is exactly what this names, and why it is the fallback rather than
+                 *     the filter.
                  */
                 sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */

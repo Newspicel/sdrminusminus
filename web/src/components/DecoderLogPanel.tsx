@@ -3,10 +3,11 @@
 // filter refetches through the key and a `decoder_log` StateChanged invalidates every filter at
 // once. The live toggle prepends the WS store's tail on top of that page without refetching.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { clearDecoderLog, DECODER_LOG_KEY, decoderLogExportUrl, decoderLogQuery } from "../lib/api";
 import { useDecodedStore } from "../lib/decoded";
 import { BTN, FIELD } from "./controls";
+import { eventDetail } from "./decoderDetail";
 import {
   buildRows,
   collectLive,
@@ -18,9 +19,11 @@ import {
   kindOptions,
   LIMIT_OPTIONS,
   type LogFilter,
+  type LogRow,
   sourceSet,
   sourceSets,
   toQuery,
+  type WireScope,
 } from "./decoderLog";
 import { formatMhz } from "./format";
 import { Select } from "./Select";
@@ -33,11 +36,12 @@ const HEAD = "px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-w
 const NO_FRAMES = {};
 
 /**
- * `sources` is the wire scope: the `device_set:channel` list of the decoders feeding this log,
- * which narrows both the stored page and the live tail. It is not a control the operator can
- * clear — a log node shows what is wired into it, and the dropdowns below only narrow further.
+ * `wires` is the scope: the decoders feeding this log, by patch node and by the coordinates those
+ * nodes hold right now. It narrows both the stored page and the live tail, and it is not a
+ * control the operator can clear — a log node shows what is wired into it, and the dropdowns
+ * below only narrow further.
  */
-export function DecoderLogPanel({ sources }: { sources: string }) {
+export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<LogFilter>(DEFAULT_LOG_FILTER);
   const [search, setSearch] = useState(DEFAULT_LOG_FILTER.q);
@@ -45,6 +49,9 @@ export function DecoderLogPanel({ sources }: { sources: string }) {
   const [armed, setArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cleared, setCleared] = useState<number | null>(null);
+  // One row open at a time, keyed by `LogRow.key`: a page of expanded frames is a page nobody
+  // can scan, and the key survives the live tail reordering around it.
+  const [opened, setOpened] = useState<string | null>(null);
 
   // Typing must not key a new query per keystroke; the committed `filter.q` is what the query
   // key (and every export link) sees.
@@ -67,18 +74,18 @@ export function DecoderLogPanel({ sources }: { sources: string }) {
     return () => window.clearTimeout(timer);
   }, [armed]);
 
-  const query = toQuery(filter, sources);
+  const query = toQuery(filter, wires);
   const log = useQuery(decoderLogQuery(query));
   // Subscribing to the store only while live is on keeps the panel off the 10 Hz flush entirely
   // when it is showing stored rows.
   const frames = useDecodedStore((s) => (live ? s.frames : NO_FRAMES));
   const lost = useDecodedStore((s) => s.lost);
-  const wired = useMemo(() => sourceSet(sources), [sources]);
+  const wired = useMemo(() => sourceSet(wires.sources), [wires.sources]);
 
   const entries = useMemo(() => log.data?.entries ?? [], [log.data]);
   // Straight off the wires, not off the page: a set that is wired in but silent must stay in the
   // list, and a set that is not wired in is a choice that could only ever show nothing.
-  const sets = useMemo(() => sourceSets(sources), [sources]);
+  const sets = useMemo(() => sourceSets(wires.sources), [wires.sources]);
   const rows = useMemo(
     () => buildRows(entries, live ? collectLive(frames, filter, wired) : []),
     [entries, frames, filter, live, wired],
@@ -228,31 +235,47 @@ export function DecoderLogPanel({ sources }: { sources: string }) {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr
-                key={row.key}
-                className={`border-b border-line/50 ${row.live ? "bg-accent/5" : ""}`}
-              >
-                <td
-                  className={`${CELL} whitespace-nowrap tabular-nums text-ink-dim`}
-                  title={row.at}
+              <Fragment key={row.key}>
+                {/* The whole row is the control: a summary is truncated by design, and the frame
+                    behind it is what the reader is after. */}
+                <tr
+                  className={`cursor-pointer border-b border-line/50 hover:bg-panel-2 ${
+                    row.live ? "bg-accent/5" : ""
+                  }`}
+                  aria-expanded={opened === row.key}
+                  onClick={() => setOpened(opened === row.key ? null : row.key)}
                 >
-                  <span
-                    className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle ${
-                      row.live ? "bg-accent" : "bg-transparent"
-                    }`}
-                    aria-label={row.live ? "live" : undefined}
-                  />
-                  {formatLogTime(row.at)}
-                </td>
-                <td className={`${CELL} whitespace-nowrap text-ink-dim`}>{kindLabel(row.kind)}</td>
-                <td className={`${CELL} whitespace-nowrap text-right tabular-nums text-ink`}>
-                  {formatMhz(row.freqHz)}
-                </td>
-                <td className={`${CELL} whitespace-nowrap text-ink`}>{row.station ?? "—"}</td>
-                <td className={`${CELL} max-w-0 truncate text-ink`} title={row.summary}>
-                  {row.summary}
-                </td>
-              </tr>
+                  <td
+                    className={`${CELL} whitespace-nowrap tabular-nums text-ink-dim`}
+                    title={row.at}
+                  >
+                    <span
+                      className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle ${
+                        row.live ? "bg-accent" : "bg-transparent"
+                      }`}
+                      aria-label={row.live ? "live" : undefined}
+                    />
+                    {formatLogTime(row.at)}
+                  </td>
+                  <td className={`${CELL} whitespace-nowrap text-ink-dim`}>
+                    {kindLabel(row.kind)}
+                  </td>
+                  <td className={`${CELL} whitespace-nowrap text-right tabular-nums text-ink`}>
+                    {formatMhz(row.freqHz)}
+                  </td>
+                  <td className={`${CELL} whitespace-nowrap text-ink`}>{row.station ?? "—"}</td>
+                  <td className={`${CELL} max-w-0 truncate text-ink`} title={row.summary}>
+                    {row.summary}
+                  </td>
+                </tr>
+                {opened === row.key && (
+                  <tr className="border-b border-line/50 bg-panel-2">
+                    <td colSpan={5} className="px-3 py-2">
+                      <RowDetail row={row} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -267,6 +290,39 @@ export function DecoderLogPanel({ sources }: { sources: string }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Everything the frame carried, under the one line the table had room for.
+ *
+ * This is where a NAVTEX broadcast, an ACARS body and a sub-GHz pulse train are read. The summary
+ * column flattens each of them to a line, and before the log became the one place frames are read
+ * they had per-channel panes of their own — which were a second copy of this table.
+ */
+function RowDetail({ row }: { row: LogRow }) {
+  const detail = eventDetail(row.event);
+  return (
+    <div className="flex flex-col gap-2">
+      {detail.fields.length > 0 && (
+        <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5">
+          {detail.fields.map(([label, value]) => (
+            <Fragment key={label}>
+              <dt className="text-ink-dim">{label}</dt>
+              <dd className="min-w-0 break-all text-ink">{value}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      )}
+      {detail.body !== null && (
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-panel px-2 py-1.5 text-ink">
+          {detail.body}
+        </pre>
+      )}
+      {detail.fields.length === 0 && detail.body === null && (
+        <span className="text-ink-dim">This frame carried nothing beyond its summary.</span>
+      )}
     </div>
   );
 }

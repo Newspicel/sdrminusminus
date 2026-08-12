@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { BTN, BTN_DANGER, CHIP, LABEL } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
+import type { WireScope } from "../../components/decoderLog";
 import { MapPanel } from "../../components/MapPanel";
 import {
   deriveRecordControl,
@@ -61,10 +62,19 @@ function useWiredKinds(inputs: readonly Input[]): string[] {
   return [...new Set(useWiredDecoders(inputs).map((wired) => wired.kind))];
 }
 
-/** The channels wired into a sink, as the decoder log's `sources` filter spells them. Channel ids
- * are allocated per device set, so the pair — never the channel alone — names one channel. */
-function logSources(inputs: readonly Input[]): string {
-  return inputs.map((input) => `${input.deviceSet}:${input.channel.id}`).join(",");
+/**
+ * The channels wired into a sink, as the decoder log's scope spells them.
+ *
+ * Both halves, because a stored row can answer to either. The patch node id is the durable one —
+ * engine channel ids are allocated per run and reused (CANVAS §3), so a scope built on them alone
+ * would hand this node another node's history after a restart. The coordinates are the fallback,
+ * and reach only the rows that carry no node.
+ */
+function wireScope(inputs: readonly Input[]): WireScope {
+  return {
+    nodes: inputs.map((input) => input.node).join(","),
+    sources: inputs.map((input) => `${input.deviceSet}:${input.channel.id}`).join(","),
+  };
 }
 
 /** Client-side mixing (PLAN §9): the server ships one stream per channel and the browser adds
@@ -287,7 +297,7 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
         {inputs.length === 0 ? (
           <FaceEmpty>Wire decoders in; their frames are what this log holds.</FaceEmpty>
         ) : (
-          <DecoderLogPanel sources={logSources(inputs)} />
+          <DecoderLogPanel wires={wireScope(inputs)} />
         )}
       </FaceBody>
     </NodeShell>
@@ -298,7 +308,7 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
 export function ExportFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
   const kinds = useWiredKinds(inputs);
-  const sources = logSources(inputs);
+  const wires = wireScope(inputs);
   return (
     <NodeShell
       node={node}
@@ -315,12 +325,7 @@ export function ExportFace({ node }: { node: PatchNode }) {
             <span className={LABEL}>Stored rows</span>
             <div className="flex gap-2">
               {(["csv", "json"] as const).map((format) => (
-                <a
-                  key={format}
-                  className={BTN}
-                  href={decoderLogExportUrl(format, { sources })}
-                  download
-                >
+                <a key={format} className={BTN} href={decoderLogExportUrl(format, wires)} download>
                   {format.toUpperCase()}
                 </a>
               ))}

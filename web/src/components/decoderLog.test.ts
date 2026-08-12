@@ -16,6 +16,7 @@ import {
   type LogFilter,
   liveRow,
   matchesFilter,
+  NO_WIRES,
   sourceSet,
   sourceSets,
   storedRow,
@@ -88,21 +89,24 @@ describe("kind labels", () => {
 });
 
 describe("toQuery", () => {
+  const wires = { nodes: "channel:a1", sources: "0:1" };
+
   it("drops empty selects so a cleared filter is one query key, not two", () => {
-    expect(toQuery(filter(), "0:1")).toEqual({ limit: 500, sources: "0:1" });
-    expect(toQuery(filter({ q: "   " }), "0:1")).toEqual({ limit: 500, sources: "0:1" });
+    expect(toQuery(filter(), wires)).toEqual({ limit: 500, ...wires });
+    expect(toQuery(filter({ q: "   " }), wires)).toEqual({ limit: 500, ...wires });
   });
 
   it("carries every set field, with the device set as a number", () => {
     expect(
-      toQuery(filter({ kind: "ais", deviceSet: "2", q: " nord ", limit: 100 }), "2:5"),
-    ).toEqual({ kind: "ais", device_set: 2, q: "nord", limit: 100, sources: "2:5" });
+      toQuery(filter({ kind: "ais", deviceSet: "2", q: " nord ", limit: 100 }), wires),
+    ).toEqual({ kind: "ais", device_set: 2, q: "nord", limit: 100, ...wires });
   });
 
-  // A node with nothing wired in must ask for nothing, not for everything: the same query backs
-  // the Clear button.
+  // Both halves travel, always: the node ids are what match a row written in any run, and the
+  // coordinates reach the rows that predate them. A node with nothing wired in must ask for
+  // nothing rather than for everything — the same query backs the Clear button.
   it("sends an empty scope rather than omitting it", () => {
-    expect(toQuery(filter(), "")).toEqual({ limit: 500, sources: "" });
+    expect(toQuery(filter(), NO_WIRES)).toEqual({ limit: 500, nodes: "", sources: "" });
   });
 });
 

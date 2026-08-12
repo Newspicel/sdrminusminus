@@ -222,6 +222,16 @@ pub struct DecoderLogEntry {
     pub at: String,
     pub device_set: u32,
     pub channel: u32,
+    /// [`crate::PatchNode::id`] of the channel node this frame came from, resolved against the
+    /// active workspace when the row was written. This is the row's durable identity: `channel`
+    /// above is an engine id, allocated per run and reused (CANVAS §3), so it names this frame's
+    /// origin only for as long as that run lasted.
+    ///
+    /// Absent on rows written before the log recorded it, and on rows written while the channel
+    /// was not bound to any node — a channel created outside a workspace, or one the binding had
+    /// not caught up with yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
     /// [`crate::DecoderEvent::kind`] of `event`.
     pub kind: String,
     pub freq_hz: f64,
@@ -267,12 +277,32 @@ pub struct DecoderLogQuery {
     /// Restrict to one device set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_set: Option<u32>,
-    /// Restrict to named channels — `device_set:channel` pairs, comma separated (`0:1,0:2`).
+    /// Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated
+    /// (`channel:a1b2,channel:c3d4`).
     ///
-    /// This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or
-    /// export node shows the decoders wired into it, and "wired into it" is a *set of channels*,
-    /// which neither `kind` nor `device_set` can name. Absent means every channel; an empty list
-    /// means none, so a node with nothing wired in matches nothing rather than everything.
+    /// This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export
+    /// node shows the decoders wired into it, and "wired into it" is a *set of channels*, which
+    /// neither `kind` nor `device_set` can name. The node id is the durable half of that — engine
+    /// channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
+    /// hand a node another node's history after a restart.
+    ///
+    /// Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
+    /// channel, and *both* empty means none, so a node with nothing wired in matches nothing
+    /// rather than everything.
+    ///
+    /// A node id containing a comma cannot be named here. Nothing generates one — ids are
+    /// `kind:uuid` from the client and slugs from the templates — and the fallback below still
+    /// reaches such a node's rows for the run they were written in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nodes: Option<String>,
+    /// Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
+    /// (`0:1,0:2`), matched only against rows whose `node` is null.
+    ///
+    /// Two kinds of row have none. Rows written before the log recorded one, and rows written in
+    /// the window between a channel starting to decode and the workspace binding catching up with
+    /// it. Both are attributable only by the coordinates they *do* carry, and only for the run
+    /// that wrote them — which is exactly what this names, and why it is the fallback rather than
+    /// the filter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sources: Option<String>,
     /// Only entries at or after this RFC3339 timestamp.
@@ -289,45 +319,80 @@ pub struct DecoderLogQuery {
     pub limit: Option<u32>,
 }
 
-/// How many channels one [`DecoderLogQuery::sources`] list may name. The graph itself is bounded
-/// at [`crate::patch::MAX_EDGES`] wires, so no node the canvas can draw exceeds this; the cap is
-/// what stops a hand-written URL from turning into a thousand-term `WHERE`.
+/// How many channels one wire scope may name, on either side. The graph itself is bounded at
+/// [`crate::patch::MAX_EDGES`] wires, so no node the canvas can draw exceeds this; the cap is what
+/// stops a hand-written URL from turning into a thousand-term `WHERE`.
 pub const MAX_LOG_SOURCES: usize = crate::patch::MAX_EDGES;
 
+/// The channels a decoder-log or export node is wired to, by both names a stored row can answer
+/// to. A row is in scope when its `node` is one of [`Self::nodes`], or it has no node and its
+/// coordinates are one of [`Self::channels`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LogScope {
+    /// Patch node ids — durable across runs, and how all but the oldest rows are matched.
+    pub nodes: Vec<String>,
+    /// `(device set, channel)` pairs, for the rows that carry no node.
+    pub channels: Vec<(u32, u32)>,
+}
+
+impl LogScope {
+    /// Whether this scope can match anything at all. An empty scope is a node with nothing wired
+    /// into it, which matches no row rather than every row.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty() && self.channels.is_empty()
+    }
+}
+
 impl DecoderLogQuery {
-    /// The `(device set, channel)` pairs [`Self::sources`] names, or `None` when the filter is
-    /// absent.
+    /// The wire scope this query carries, or `None` when it names neither half — an unscoped
+    /// query over the whole log, which is what a caller that is not looking at the canvas sends.
     ///
-    /// `Err` carries the fragment that would not read. A malformed list is a rejected request
-    /// and never an ignored one: dropping it would *widen* the query, and a node would quietly
-    /// show frames it is not wired to.
+    /// `Err` carries the fragment that would not read. A malformed list is a rejected request and
+    /// never an ignored one: dropping it would *widen* the query, and a node would quietly show
+    /// frames it is not wired to — or, on the clear endpoint, delete them.
     ///
     /// # Errors
-    /// The list names more than [`MAX_LOG_SOURCES`] channels, or a fragment is not
-    /// `device_set:channel` with both sides a `u32`.
-    pub fn channels(&self) -> Result<Option<Vec<(u32, u32)>>, &str> {
-        let Some(sources) = self.sources.as_deref() else {
+    /// Either list names more than [`MAX_LOG_SOURCES`] channels, a node id is empty or longer
+    /// than [`crate::patch::MAX_NODE_ID_LEN`], or a source is not `device_set:channel` with both
+    /// sides a `u32`.
+    pub fn scope(&self) -> Result<Option<LogScope>, &str> {
+        if self.nodes.is_none() && self.sources.is_none() {
             return Ok(None);
-        };
-        if sources.is_empty() {
-            return Ok(Some(Vec::new()));
         }
-        let fragments: Vec<&str> = sources.split(',').collect();
-        if fragments.len() > MAX_LOG_SOURCES {
-            return Err(sources);
-        }
-        fragments
-            .into_iter()
-            .map(|fragment| {
-                let (set, channel) = fragment.split_once(':').ok_or(fragment)?;
+        Ok(Some(LogScope {
+            nodes: parse_list(self.nodes.as_deref(), |id| {
+                if id.is_empty() || id.len() > crate::patch::MAX_NODE_ID_LEN {
+                    Err(id)
+                } else {
+                    Ok(id.to_owned())
+                }
+            })?,
+            channels: parse_list(self.sources.as_deref(), |source| {
+                let (set, channel) = source.split_once(':').ok_or(source)?;
                 Ok((
-                    set.parse().map_err(|_| fragment)?,
-                    channel.parse().map_err(|_| fragment)?,
+                    set.parse().map_err(|_| source)?,
+                    channel.parse().map_err(|_| source)?,
                 ))
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(Some)
+            })?,
+        }))
     }
+}
+
+/// A comma-separated list, read through `item`. Absent and empty both mean no entries — the
+/// difference between them is [`DecoderLogQuery::scope`]'s to make, over both lists at once.
+fn parse_list<T>(
+    list: Option<&str>,
+    item: impl Fn(&str) -> Result<T, &str>,
+) -> Result<Vec<T>, &str> {
+    let Some(list) = list.filter(|list| !list.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    let fragments: Vec<&str> = list.split(',').collect();
+    if fragments.len() > MAX_LOG_SOURCES {
+        return Err(list);
+    }
+    fragments.into_iter().map(item).collect()
 }
 
 /// `DELETE /api/decoderlog` — how many rows the filtered clear removed.
@@ -491,31 +556,75 @@ mod tests {
     use super::*;
     use crate::device::{Capabilities, DeviceProfile, Duplex, Range, StreamScope};
 
-    /// The three readings that must stay apart: no filter is every channel, an empty filter is
-    /// no channel, and a malformed one is a refusal. Collapsing any pair widens a query that was
-    /// asked to narrow — which for the clear endpoint is the difference between emptying one
-    /// node's rows and emptying the log.
-    #[test]
-    fn a_sources_list_reads_as_channels_and_refuses_anything_else() {
-        let sources = |sources: Option<&str>| DecoderLogQuery {
+    fn scoped(nodes: Option<&str>, sources: Option<&str>) -> DecoderLogQuery {
+        DecoderLogQuery {
+            nodes: nodes.map(str::to_owned),
             sources: sources.map(str::to_owned),
             ..DecoderLogQuery::default()
-        };
-        assert_eq!(sources(None).channels(), Ok(None));
-        assert_eq!(sources(Some("")).channels(), Ok(Some(Vec::new())));
+        }
+    }
+
+    /// The three readings that must stay apart: naming neither list is every channel, naming an
+    /// empty one is no channel, and a malformed one is a refusal. Collapsing any pair widens a
+    /// query that was asked to narrow — which for the clear endpoint is the difference between
+    /// emptying one node's rows and emptying the log.
+    #[test]
+    fn a_wire_scope_reads_both_lists_and_refuses_anything_else() {
+        assert_eq!(scoped(None, None).scope(), Ok(None));
         assert_eq!(
-            sources(Some("0:1,2:13")).channels(),
-            Ok(Some(vec![(0, 1), (2, 13)]))
+            scoped(Some(""), Some("")).scope(),
+            Ok(Some(LogScope::default()))
+        );
+        assert!(
+            scoped(Some(""), Some(""))
+                .scope()
+                .unwrap()
+                .unwrap()
+                .is_empty()
+        );
+
+        assert_eq!(
+            scoped(Some("channel:a1,ch0"), Some("0:1,2:13")).scope(),
+            Ok(Some(LogScope {
+                nodes: vec!["channel:a1".to_owned(), "ch0".to_owned()],
+                channels: vec![(0, 1), (2, 13)],
+            }))
+        );
+        // Either half alone is a scope; the other simply matches nothing.
+        assert_eq!(
+            scoped(Some("ch0"), None).scope(),
+            Ok(Some(LogScope {
+                nodes: vec!["ch0".to_owned()],
+                channels: Vec::new(),
+            }))
         );
 
         for bad in ["0", "0:", ":1", "0:1,", "a:1", "0:-1", "0:1:2"] {
-            assert!(sources(Some(bad)).channels().is_err(), "{bad}");
+            assert!(scoped(None, Some(bad)).scope().is_err(), "{bad}");
         }
-        let outsize = (0..=MAX_LOG_SOURCES)
-            .map(|n| format!("0:{n}"))
-            .collect::<Vec<_>>()
-            .join(",");
-        assert!(sources(Some(&outsize)).channels().is_err());
+        assert!(scoped(Some("a,,b"), None).scope().is_err());
+        assert!(
+            scoped(Some(&"n".repeat(crate::patch::MAX_NODE_ID_LEN + 1)), None)
+                .scope()
+                .is_err()
+        );
+
+        let outsize = |item: fn(usize) -> String| {
+            (0..=MAX_LOG_SOURCES)
+                .map(item)
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        assert!(
+            scoped(None, Some(&outsize(|n| format!("0:{n}"))))
+                .scope()
+                .is_err()
+        );
+        assert!(
+            scoped(Some(&outsize(|n| format!("ch{n}"))), None)
+                .scope()
+                .is_err()
+        );
     }
 
     fn profile(freq: Vec<Range>, rates: Vec<f64>, duplex: Duplex) -> DeviceProfile {
