@@ -1,0 +1,45 @@
+{
+  "label": "2-PPM, 1000000 slots/s at 8000000 Hz (8 samples/slot) -> matched filter + argmax, feedforward sub-slot timing and searched word alignment, 2+24 symbol overhead in Eb, release, uncoded BER, seed 0xbb2",
+  "points": [
+    {
+      "ebn0_db": 7.0,
+      "errors": 2084,
+      "trials": 49152
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2018,
+      "trials": 92160
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 2023,
+      "trials": 196608
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2002,
+      "trials": 555008
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2001,
+      "trials": 1982464
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 578,
+      "trials": 3000320
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 74,
+      "trials": 3000320
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 7,
+      "trials": 3000320
+    }
+  ]
+}

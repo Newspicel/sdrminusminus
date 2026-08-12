@@ -1,0 +1,45 @@
+{
+  "label": "2-PPM, 1000000 slots/s at 8000000 Hz (8 samples/slot) -> envelope + argmax, feedforward sub-slot timing and searched word alignment, 2+24 symbol overhead in Eb, release, uncoded BER, seed 0xbbe",
+  "points": [
+    {
+      "ebn0_db": 9.0,
+      "errors": 2018,
+      "trials": 22528
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 2004,
+      "trials": 40960
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 2035,
+      "trials": 90112
+    },
+    {
+      "ebn0_db": 12.0,
+      "errors": 2007,
+      "trials": 266240
+    },
+    {
+      "ebn0_db": 13.0,
+      "errors": 2003,
+      "trials": 929792
+    },
+    {
+      "ebn0_db": 14.0,
+      "errors": 865,
+      "trials": 3000320
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 70,
+      "trials": 3000320
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 5,
+      "trials": 3000320
+    }
+  ]
+}

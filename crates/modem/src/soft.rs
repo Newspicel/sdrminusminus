@@ -89,6 +89,30 @@ impl Llr {
     }
 }
 
+/// The hard decision of a *bank* of detection statistics — the argmax an orthogonal receiver
+/// makes where a linear one slices. One definition, because both engines that make it (the
+/// M-FSK filterbank's tone energies, M-PPM's slot statistics) must agree on the one thing an
+/// argmax leaves open:
+///
+/// **Ties resolve to the later index.** They carry no information — a dead window reads all
+/// zeros, and equal statistics are equal evidence — so what matters is that the rule is fixed
+/// and stated rather than emergent. `channels::adsb` has always had it: "a 1 is energy in the
+/// *first* half of the bit", so two equal halves are not a 1.
+///
+/// # Panics
+/// If `statistics` is empty — an argmax over nothing is not 0, it is a caller bug.
+#[must_use]
+pub fn argmax(statistics: &[f32]) -> u8 {
+    assert!(!statistics.is_empty(), "no statistics, no decision");
+    let mut best = 0usize;
+    for (k, &s) in statistics.iter().enumerate() {
+        if s >= statistics[best] {
+            best = k;
+        }
+    }
+    best as u8
+}
+
 /// Numerically free — an LLR is a perfectly good confidence. Lost: the calibration claim.
 /// The `SoftBit` no longer promises its magnitude is in nats, and there is deliberately no
 /// conversion back.

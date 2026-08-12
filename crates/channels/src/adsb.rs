@@ -1,6 +1,9 @@
 //! ADS-B / Mode S decoder (PLAN §13 P2): 1090 MHz PPM at 1 Mbit/s, preamble correlation
 //! and the Mode S CRC-24. A bit is two half-chips of 0.5 µs and a 1 is energy in the first of
-//! them, so the whole decoder is a comparison between two windows.
+//! them, so the whole decoder is a comparison between two windows — 2-PPM, and since phase 5 it
+//! is the library's [`PpmDemod`] that makes that comparison (MODEM-PLAN §7 phase 5). What stays
+//! here is everything that is Mode S rather than modulation: the preamble's four-pulse
+//! signature, the CRC-24 and its overlays, the downlink formats, CPR.
 //!
 //! **It runs at the device's own rate** (`native_rate_max_hz`), which is the one thing this
 //! decoder cannot compromise on: at 2 Msps a 0.5 µs pulse *is a single sample*, so any rate
@@ -13,8 +16,9 @@
 //! It also meets the radio at its **phase**: the scan aligns to whole samples, but a
 //! transmitter's bit clock owes the receiver's sample grid nothing, so every candidate is
 //! sliced against a few sub-sample phase tables and the CRC picks the one that was right
-//! (see [`Timing`]). dump1090 hard-codes the same two ideas for 2.4 Msps; this is the
-//! any-rate form of them.
+//! ([`PpmDemod::phases`]). dump1090 hard-codes the same two ideas for 2.4 Msps; the any-rate
+//! form of them is `modem::ppm`'s [`SlotGrid`](sdrmm_modem::ppm::SlotGrid), which this decoder
+//! is where it came from.
 //!
 //! Which downlink formats are accepted is a question about *proof of identity*, not about
 //! parsing. DF17/18 extended squitters carry the address in the clear under a bare parity, so
@@ -32,6 +36,10 @@ use std::sync::LazyLock;
 
 use num_complex::Complex;
 use sdrmm_dsp::{bits_be, mode_s_fix_single_bit, mode_s_overlay};
+use sdrmm_modem::{
+    ppm::{PpmDemod, SlotDetector, magnitudes},
+    soft::argmax,
+};
 use sdrmm_wire::{
     AdsbMessage, AdsbParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
 };
@@ -59,8 +67,6 @@ const PREAMBLE_PULSES: [usize; 4] = [0, 2, 7, 9];
 const PREAMBLE_FAR_GAPS: [usize; 7] = [4, 5, 11, 12, 13, 14, 15];
 const SHORT_BYTES: usize = 7;
 const LONG_BYTES: usize = 14;
-/// Half-chips in a long frame: the preamble plus two per bit.
-const LONG_FRAME_CHIPS: usize = PREAMBLE_CHIPS + LONG_BYTES * 8 * 2;
 /// Largest ratio tolerated between the strongest and weakest preamble pulse. A real preamble
 /// is four equal pulses; one noise spike plus three background samples is not one.
 const PULSE_SPREAD: f32 = 4.0;
@@ -69,91 +75,27 @@ const PULSE_SPREAD: f32 = 4.0;
 /// tries whole-sample alignments, so the tables cover the fraction in between; eight bounds
 /// the residual mismatch to a sixteenth of a sample. Four was measured to be not enough — at
 /// an eighth of a sample some bit patterns' first-versus-second margins invert and whole
-/// frames vanish. Phase 0 keeps the decoder's original grid, so on a grid-aligned signal
-/// nothing changes but the extra first-comparison rejects per sample.
+/// frames vanish.
 const PHASE_TABLES: usize = 8;
 
-/// A chip is at most 2.05 samples wide (4 Msps ceiling), so it overlaps at most three.
-const CHIP_TAPS: usize = 3;
-
-/// Where each half-chip of a long frame falls, as per-sample overlap weights, for one assumed
-/// sub-sample phase.
+/// One receiver per assumed sub-sample phase: `modem::ppm`'s 2-PPM envelope tier over the
+/// half-chip grid of a long frame, preamble chips included so this decoder's chip numbering and
+/// the grid's slot numbering are the same numbering.
 ///
-/// Computed per chip and not stepped by a constant: at 2.048 Msps a half-chip is 1.024 samples,
-/// so a fixed stride would drift a whole sample by the end of a 120 µs frame and slice the last
-/// bits against the wrong halves.
-///
-/// Two things here were measured to be non-negotiable, and both come from the same field
-/// failure — off-grid frames at 2.048 Msps decoded 0–6% while every test stayed green, because
-/// the tests' generator shared the decoder's grid:
-///
-/// - **One phase table is not enough.** A transmitter's bit clock owes the receiver's sample
-///   grid nothing, and at a non-integer samples-per-chip the leftover fraction shifts *within*
-///   the frame (`frac(j × per_chip)` cycles with `j`), so whatever single phase is assumed,
-///   some chip's energy lands in the neighbouring window — one flipped PPM bit and the CRC
-///   drops the frame. Every table gets its chance and the CRC arbitrates.
-/// - **Energy, not a peak.** A band-limited 0.5 µs pulse arrives with roughly a sample of rise
-///   time, so at ~1 sample per chip its energy straddles two samples and a single-sample peak
-///   cannot tell which chip owned it. The fractional-overlap sum can: with the right table
-///   ~three quarters of the pulse lands in its own chip and an eighth leaks to each neighbour.
-///   dump1090's 2.4 Msps demodulator hard-codes exactly this weighting, one rate at a time.
-struct Timing {
-    /// Per half-chip (`LONG_FRAME_CHIPS + 1` entries; the last is the consume boundary):
-    /// index of its first sample in the frame window and the overlap of each touched sample.
-    chips: Vec<(usize, [f32; CHIP_TAPS])>,
-    /// Samples a full long frame spans at this phase — the window the scan slices.
-    span: usize,
-}
-
-impl Timing {
-    fn tables(input_rate: f64) -> Vec<Self> {
-        (0..PHASE_TABLES)
-            .map(|k| Self::new(input_rate, k as f64 / PHASE_TABLES as f64))
-            .collect()
-    }
-
-    fn new(input_rate: f64, phase: f64) -> Self {
-        let per_chip = input_rate * CHIP_S;
-        let chips = (0..=LONG_FRAME_CHIPS)
-            .map(|j| {
-                let from = j as f64 * per_chip + phase;
-                let to = from + per_chip;
-                let start = from.floor() as usize;
-                let mut weights = [0.0f32; CHIP_TAPS];
-                for (i, w) in weights.iter_mut().enumerate() {
-                    let k = (start + i) as f64;
-                    *w = (to.min(k + 1.0) - from.max(k)).max(0.0) as f32;
-                }
-                (start, weights)
-            })
-            .collect();
-        Self {
-            chips,
-            span: (LONG_FRAME_CHIPS as f64 * per_chip + phase).ceil() as usize,
-        }
-    }
-
-    /// First sample of half-chip `chip` — the consume boundary once a frame is accepted.
-    fn start(&self, chip: usize) -> usize {
-        self.chips.get(chip).map_or(0, |&(start, _)| start)
-    }
-
-    fn frame_samples(&self) -> usize {
-        self.span
-    }
-
-    /// Overlap-weighted magnitude of half-chip `chip` in a window starting at a frame's
-    /// first sample.
-    fn energy(&self, window: &[f32], chip: usize) -> f32 {
-        let Some(&(start, weights)) = self.chips.get(chip) else {
-            return 0.0;
-        };
-        weights
-            .iter()
-            .enumerate()
-            .map(|(i, &w)| w * window.get(start + i).copied().unwrap_or(0.0))
-            .sum()
-    }
+/// The two properties the grid carries were measured *here*, in the field failure where
+/// off-grid frames at 2.048 Msps decoded 0–6% while every test stayed green (the tests'
+/// generator shared the decoder's grid): boundaries computed per chip rather than stepped, and
+/// energy taken as a fractional-overlap sum rather than a sample peak. They live in
+/// `modem::ppm` now, with this decoder as their first consumer.
+fn phase_tables(input_rate: f64) -> Vec<PpmDemod> {
+    PpmDemod::phases(
+        2,
+        input_rate * CHIP_S,
+        PREAMBLE_CHIPS,
+        LONG_BYTES * 8,
+        PHASE_TABLES,
+        SlotDetector::Envelope,
+    )
 }
 
 /// Bit offsets into a long frame (DO-260B §2.2.3): DF(5) CA(3) AA(24) ME(56) PI(24).
@@ -252,8 +194,8 @@ pub struct AdsbChannel {
     crc_fix: bool,
     reference: Option<(f64, f64)>,
     /// Half-chip boundary tables at this radio's rate, one per assumed sub-sample phase —
-    /// the decoder runs at whatever the device gives it (see [`Timing`]).
-    timings: Vec<Timing>,
+    /// the decoder runs at whatever the device gives it (see [`phase_tables`]).
+    receivers: Vec<PpmDemod>,
     /// The longest frame any table spans: the scan bound and the block-boundary carry.
     frame_span: usize,
     /// How far apart two CPR frames may be and still solve globally, in samples at this rate.
@@ -316,8 +258,8 @@ pub(crate) fn channel_filter() -> ChannelFilter {
 /// Preamble correlation over one 16-sample window. The accept threshold is derived from the
 /// pulses themselves — receive levels differ by tens of dB between an overhead aircraft and
 /// one at the horizon, so no fixed level can gate this.
-fn preamble_ok(timing: &Timing, window: &[f32]) -> bool {
-    let chip = |index: usize| timing.energy(window, index);
+fn preamble_ok(receiver: &PpmDemod, window: &[f32]) -> bool {
+    let chip = |index: usize| receiver.grid().energy(window, index);
     // Cheapest discriminator first: noise fails one of these early most of the time, which is
     // what keeps the per-sample cost near the magnitude computation itself. The gaps at 1 and
     // 8 sit *between* two pulses and collect band-limited tails from both sides, so each is
@@ -347,16 +289,16 @@ fn preamble_ok(timing: &Timing, window: &[f32]) -> bool {
     weakest > threshold && far_gaps.iter().all(|&g| g < threshold)
 }
 
-/// PPM slicing: a 1 is energy in the first half of the bit, a 0 in the second. `window` starts
-/// at the frame's first sample, so the body's half-chips are numbered from the preamble's end.
-fn slice_bits(timing: &Timing, window: &[f32], frame: &mut [u8; LONG_BYTES]) {
+/// PPM slicing: a 1 is energy in the first half of the bit, a 0 in the second — the library's
+/// 2-PPM argmax, with slot 0 meaning a 1. `window` starts at the frame's first sample, so the
+/// body's half-chips are numbered from the preamble's end.
+fn slice_bits(receiver: &PpmDemod, window: &[f32], frame: &mut [u8; LONG_BYTES]) {
+    let mut slots = [0.0f32; 2];
     for (index, byte) in frame.iter_mut().enumerate() {
         let mut value = 0u8;
         for bit in 0..8 {
-            let chip = PREAMBLE_CHIPS + (index * 8 + bit) * 2;
-            let first = timing.energy(window, chip);
-            let second = timing.energy(window, chip + 1);
-            value = value << 1 | u8::from(first > second);
+            receiver.envelope_at(window, PREAMBLE_CHIPS + (index * 8 + bit) * 2, &mut slots);
+            value = value << 1 | u8::from(argmax(&slots) == 0);
         }
         *byte = value;
     }
@@ -876,15 +818,15 @@ impl AdsbChannel {
     fn try_frame(&mut self, at: usize, out: &mut ChannelOutputs) -> Option<usize> {
         let stamp = self.stream_pos + at as u64;
         let mut hit = None;
-        for timing in &self.timings {
-            let Some(window) = self.mag.get(at..at + timing.frame_samples()) else {
+        for receiver in &self.receivers {
+            let Some(window) = self.mag.get(at..at + receiver.grid().span()) else {
                 continue;
             };
-            if !preamble_ok(timing, window) {
+            if !preamble_ok(receiver, window) {
                 continue;
             }
             let mut frame = [0u8; LONG_BYTES];
-            slice_bits(timing, window, &mut frame);
+            slice_bits(receiver, window, &mut frame);
 
             let df = frame.first().map_or(0, |&b| b >> 3);
             let len = if df >= 16 { LONG_BYTES } else { SHORT_BYTES };
@@ -900,7 +842,7 @@ impl AdsbChannel {
                 df,
                 icao,
                 proved,
-                timing.start(PREAMBLE_CHIPS + len * 8 * 2),
+                receiver.grid().start(PREAMBLE_CHIPS + len * 8 * 2),
             ));
             break;
         }
@@ -921,12 +863,12 @@ impl ChannelRx for AdsbChannel {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = params(&settings)?;
         check_params(p)?;
-        let timings = Timing::tables(ctx.input_rate);
-        let frame_span = timings.iter().map(Timing::frame_samples).max().unwrap_or(0);
+        let receivers = phase_tables(ctx.input_rate);
+        let frame_span = receivers.iter().map(|r| r.grid().span()).max().unwrap_or(0);
         Ok(Self {
             crc_fix: p.crc_fix,
             reference: p.ref_lat.zip(p.ref_lon),
-            timings,
+            receivers,
             frame_span,
             cpr_pair_max_age: (CPR_PAIR_MAX_AGE_S * ctx.input_rate) as u64,
             roll_call_max_age: (ROLL_CALL_MAX_AGE_S * ctx.input_rate) as u64,
@@ -945,11 +887,9 @@ impl ChannelRx for AdsbChannel {
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        // Steady-state cost per input sample: one magnitude (two multiplies, an add and a
-        // square root — `norm()` would call `hypot`, an order of magnitude slower for
-        // overflow safety this signal cannot need) plus the four-comparison preamble reject.
-        self.mag
-            .extend(iq.iter().map(|s| s.re.mul_add(s.re, s.im * s.im).sqrt()));
+        // Steady-state cost per input sample: one magnitude plus the four-comparison preamble
+        // reject.
+        magnitudes(iq, &mut self.mag);
 
         let frame_span = self.frame_span;
         let mut at = 0;
@@ -1130,6 +1070,54 @@ mod tests {
             let msg = only(feed(&mut chan, &iq, &[4_096]));
             assert_eq!(msg.callsign.as_deref(), Some("DLH123"), "phase {phase}");
         }
+    }
+
+    /// The `adsb_squitters_2m` transmission — the exact frames `cargo xtask fixtures` renders —
+    /// decoded frame for frame, **hex for hex**. Every other test here asserts decoded *fields*;
+    /// this one asserts the bytes, which is what the phase-5 migration onto `modem::ppm` was
+    /// held to: the slot arithmetic moved into the library and not one of these bytes changed.
+    /// (Byte-identity against the pre-migration decoder was verified the only way it can be —
+    /// by running both over the same input — and this is what keeps it from drifting since.)
+    ///
+    /// The waveform is generated rather than read from the fixture file: that file is not in
+    /// git (`cargo xtask check` refuses a test that bakes in an untracked artifact), and the
+    /// generator is the same one that writes it. So this is a level-2 E2E with a byte-level
+    /// assertion, not the level-3 recorded-fixture test the plan wants for this attachment —
+    /// which still waits on an off-air 1090 MHz capture.
+    #[test]
+    fn the_fixture_transmission_decodes_byte_for_byte() {
+        let icao = 0x3C_6444;
+        let frames = [
+            squitter(icao, me_identification("DLH123")),
+            squitter(icao, me_airborne_position(38_000, 52.2572, 3.9190, false)),
+            squitter(icao, me_airborne_position(38_000, 52.2657, 3.9184, true)),
+            squitter(icao, me_velocity(450.0, 275.0, -1_024)),
+        ];
+        let iq = transmission(&frames, 500.0, 0.8, INPUT_RATE_HZ);
+        let messages = feed(&mut channel(AdsbParams::default()), &iq, &[4_096]);
+        let raw: Vec<&str> = messages.iter().map(|m| m.raw.as_str()).collect();
+        assert_eq!(
+            raw,
+            [
+                "8D3C64442010C231CB38203155E6",
+                "8D3C644458C382D690C8A7F274ED",
+                "8D3C644458C3864358C30DAE94F6",
+                "8D3C64449905C10508440002592D",
+            ]
+        );
+        assert!(messages.iter().all(|m| m.df == 17 && m.icao == "3C6444"));
+        assert_eq!(messages[0].callsign.as_deref(), Some("DLH123"));
+        assert_eq!(messages[1].altitude_ft, Some(38_000));
+        // The even/odd pair solves globally at the later frame's position.
+        let solved = &messages[2];
+        assert!((solved.lat.unwrap() - 52.2657).abs() < 1e-3, "{solved:?}");
+        assert!((solved.lon.unwrap() - 3.9184).abs() < 1e-3, "{solved:?}");
+        let velocity = &messages[3];
+        assert!(
+            (velocity.ground_speed_kt.unwrap() - 450.0).abs() < 1.0,
+            "{velocity:?}"
+        );
+        assert_eq!(velocity.vertical_rate_fpm, Some(-1_024));
     }
 
     /// The range is the contract, and a rate outside it is refused rather than decoded badly.

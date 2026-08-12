@@ -183,6 +183,49 @@ fn afsk_filterbank_12k(c: &mut Criterion) {
     group.finish();
 }
 
+/// The phase-5 orthogonal M-FSK entry at its reference configuration (48 kHz, 4800 baud, M = 4,
+/// spacing one cycle per symbol) — the committed number lives in
+/// `baselines/orthogonal/mfsk_perf.json`, written by the ignored test in
+/// `tests/orthogonal_ppm_perf.rs` from the identical waveform, so bench and gate measure the
+/// same work (likewise the PPM bench below).
+fn mfsk4_filterbank_48k(c: &mut Criterion) {
+    use sdrmm_modem::{ber::catalog::orthogonal, orthogonal::MfskDemod};
+    let symbols = orthogonal::filler(4, 1_200);
+    let iq = orthogonal::modulate(4, &symbols);
+    let demod = MfskDemod::new(orthogonal::params(4));
+    let mut out: Vec<u8> = Vec::with_capacity(symbols.len());
+    let mut group = c.benchmark_group("mfsk4_filterbank_48k");
+    group.throughput(Throughput::Elements(iq.len() as u64));
+    group.bench_function("demodulate", |b| {
+        b.iter(|| {
+            out.clear();
+            demod.demodulate(black_box(&iq), 0, symbols.len(), &mut out);
+            black_box(out.len())
+        });
+    });
+    group.finish();
+}
+
+/// The phase-5 M-PPM entry's tier-1 detector at 1 Mslot/s on 8 Msps — the Mode S alphabet at the
+/// catalog's reference oversampling.
+fn ppm2_matched_8m(c: &mut Criterion) {
+    use sdrmm_modem::{ber::catalog::ppm, ppm::SlotDetector};
+    let symbols = ppm::filler(2, 2_048);
+    let iq = ppm::modulate(2, &symbols);
+    let demod = ppm::demod(2, symbols.len(), SlotDetector::MatchedFilter);
+    let mut out: Vec<u8> = Vec::with_capacity(symbols.len());
+    let mut group = c.benchmark_group("ppm2_matched_8m");
+    group.throughput(Throughput::Elements(iq.len() as u64));
+    group.bench_function("demodulate", |b| {
+        b.iter(|| {
+            out.clear();
+            demod.demodulate(black_box(&iq), 0, symbols.len(), &mut out);
+            black_box(out.len())
+        });
+    });
+    group.finish();
+}
+
 /// 2-level bench symbols from the shared dibit generator, so every CPM bench draws from one
 /// deterministic source.
 fn test_bits(len: usize, seed: u32) -> Vec<u8> {
@@ -196,6 +239,8 @@ criterion_group!(
     cpm_demod_m4_48k,
     gmsk_bt05_demod,
     msk_demod,
-    afsk_filterbank_12k
+    afsk_filterbank_12k,
+    mfsk4_filterbank_48k,
+    ppm2_matched_8m
 );
 criterion_main!(benches);

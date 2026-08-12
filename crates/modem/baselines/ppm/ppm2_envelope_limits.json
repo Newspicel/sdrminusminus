@@ -1,0 +1,39 @@
+{
+  "entry": "ppm2-envelope-reference",
+  "seed": 3006,
+  "sensitivity_db_1e2": 11.74244712567721,
+  "sensitivity_db_1e3": 13.381586165564707,
+  "sensitivity_db_1e4": 14.42113831081169,
+  "rows": [
+    {
+      "axis": "static CFO",
+      "unit": "Hz",
+      "threshold": 1000000.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "frequency drift",
+      "unit": "Hz/s",
+      "threshold": 1000000000.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "sample clock",
+      "unit": "ppm",
+      "threshold": 97.65625,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "static timing offset",
+      "unit": "samples",
+      "threshold": 32.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "profile:static-indoor",
+      "unit": "dB",
+      "threshold": 0.07189759792665029,
+      "criterion": "Eb/N0 degradation at BER 1e-3"
+    }
+  ]
+}

@@ -21,6 +21,8 @@ pub mod gmsk;
 pub mod linear;
 pub mod mfsk;
 pub mod msk;
+pub mod orthogonal;
+pub mod ppm;
 pub mod psk;
 pub mod qam;
 
@@ -271,6 +273,14 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         name: "pi4-dqpsk",
         measurements: psk::PI4,
+    },
+    Entry {
+        name: "mfsk-orthogonal",
+        measurements: orthogonal::MEASUREMENTS,
+    },
+    Entry {
+        name: "ppm",
+        measurements: ppm::MEASUREMENTS,
     },
     Entry {
         name: "qam",

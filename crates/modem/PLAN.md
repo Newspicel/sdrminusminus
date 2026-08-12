@@ -1,6 +1,6 @@
 # `sdrmm-modem` — Modulation Library Plan
 
-**Status:** in progress (phases 0–4 landed).
+**Status:** in progress (phases 0–5 landed).
 
 Phase 4 landed the linear engine and every linear row of §6 with its §5 bundle: OOK on both
 tiers, M-PAM and unipolar M-ASK, BPSK/QPSK/8-PSK, the DPSK family, OQPSK and π/2-BPSK,
@@ -36,7 +36,34 @@ Open from phase 4, both scoped and reasoned rather than dropped:
   The clockless edge-timed tier they actually want is already the phase-3 follow-on §7 lists for
   `subghz`; both modules now record the reasoning where a reader will meet it.
 
-Next: phase 5.
+Phase 5 landed both orthogonal-signalling entries and the ADS-B migration. What it turned out to
+be about, beyond the two engines: the noncoherent orthogonal closed form is *one* reference and
+both entries answer to it — M tones in one interval and M intervals at one tone are the same
+signalling set — so the M-FSK filterbank and the M-PPM matched filter sit on it at +0.15/+0.22/
++0.17 dB and +0.10/+0.10 dB, and their committed sensitivities agree across two engines, two
+sample rates and two framings to 0.06 dB at M = 2 and 0.01 dB at M = 4. Three measured findings
+came with it: the filterbank is 1.17 dB (M = 2) and 5.27 dB (M = 4) ahead of the CPM engine's
+discriminator tier at the same geometry, bought with bandwidth; PPM's envelope tier — the one
+Mode S needs — costs 2.38 dB and buys immunity to the carrier axes outright (its CFO and drift
+rows are bracket-bound where the matched tier's CFO is 494 kHz); and a per-symbol-peak timing
+metric was measured *preferring a one-sample error*, because a whole-slot shift moves a pulse
+into the neighbouring symbol's window, so the estimate is an energy-concentration sum over slots
+instead.
+
+ADS-B migrated onto `ppm/` byte-identically — same decoded frames on the committed capture, same
+generator output at every rate and phase — and gained the level-3 recorded-fixture test it never
+had. The engine kept what the field taught it: boundaries computed per slot rather than stepped,
+energy as a fractional-overlap sum rather than a sample peak, and one grid per assumed sub-sample
+phase.
+
+Open from phase 5, scoped rather than dropped: **FT8's source encoding**. The golden-vector test
+holds the entry to the published WSJT-X *waveform* — Costas array, Gray map, 6.25 Hz spacing,
+50 Hz / 12.64 s geometry, and the −21 dB threshold turned into a raw symbol-error rate that
+matches theory — but the 58 data symbols of a particular message need FT8's CRC-14 and
+LDPC(174, 91), which are channel coding (§1.1: beside the FEC in `sdrmm-dsp`, not here). No
+message-level vector is claimed, and the test says so where a reader will meet it.
+
+Next: phase 6.
 **Audience:** implementer working in the `sdrmm` workspace
 
 ---
@@ -544,6 +571,12 @@ migrates onto `ppm/`.
 *Accept:* noncoherent M-FSK matches theory; ADS-B regression byte-identical; FT8 tone
 demodulation validated against published WSJT test vectors as the orthogonal entry's
 golden-vector test.
+*Landed:* both entries bundled — M ∈ {2,4,8} M-FSK and M ∈ {2,4} PPM on the exact noncoherent
+orthogonal oracle (worst +0.22 dB), the PPM envelope tier committed at 2.38 dB behind the
+matched one, three limits tables, two perf baselines, level-1 E2E throughout. ADS-B is
+byte-identical on the committed capture and at every rate and phase its generator renders, and
+now carries a level-3 fixture test. The FT8 vector covers the published waveform; its LDPC
+source encoding is out of scope and stated as such (status above).
 
 **Phase 6 — OFDM framework.** Built and validated synthetically end-to-end:
 per-subcarrier BPSK→64-QAM loopback under AWGN + CFO + named multipath profiles;

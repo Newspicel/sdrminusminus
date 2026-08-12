@@ -10,6 +10,7 @@ use std::f64::consts::{PI, TAU};
 
 use num_complex::Complex;
 use sdrmm_dsp::{mode_s_append_overlaid_parity, mode_s_append_parity};
+use sdrmm_modem::ppm::SlotWaveform;
 
 /// 6-bit identification charset (DO-260B §2.2.3.2.5.2).
 const IDENT_CHARSET: &[u8; 64] =
@@ -347,11 +348,6 @@ fn half_chips(frame: &[u8]) -> Vec<bool> {
     chips
 }
 
-/// The fine grid the waveform is rendered on before it is brought down to the requested
-/// rate: sub-sample structure to a sixteenth of a sample, which is what lets `phase` mean
-/// something and edge samples read the partial amplitude a real receiver hands a decoder.
-const OVERSAMPLE: usize = 16;
-
 /// PPM-modulate `frames` into complex baseband IQ at `rate`, at amplitude `level`, with
 /// `gap_us` of silence before each frame and after the last. Every frame lands phase-0: its
 /// chip timeline starts exactly on its first sample.
@@ -367,11 +363,13 @@ pub fn transmission(frames: &[Vec<u8>], gap_us: f64, level: f32, rate: f64) -> V
 /// and such a test proves only that the two share their arithmetic. This one did, and the
 /// green suite hid a decoder that decoded nothing off the grid.
 ///
-/// The waveform is rendered at [`OVERSAMPLE`]× and integrated over each output sample period,
-/// the way a receiver's own decimation chain delivers it: a pulse edge inside a sample reads
-/// as partial amplitude, not as the hard cliff no band-limited front end can produce. At an
-/// integer samples-per-chip and phase 0 the chip edges coincide with the sample apertures and
-/// the output is exactly the ideal rectangular waveform.
+/// Rendering is `modem::ppm`'s [`SlotWaveform`] — the library's keyed-slot transmitter, which
+/// integrates a sub-sample-resolved waveform over each output sample period the way a
+/// receiver's own decimation chain delivers it: a pulse edge inside a sample reads as partial
+/// amplitude, not as the hard cliff no band-limited front end can produce. At an integer
+/// samples-per-chip and phase 0 the chip edges coincide with the sample apertures and the
+/// output is exactly the ideal rectangular waveform. What stays here is the Mode S *timeline*
+/// ([`half_chips`]): which slots radiate is protocol, how they are rendered is modulation.
 #[must_use]
 pub fn transmission_at_phase(
     frames: &[Vec<u8>],
@@ -384,27 +382,14 @@ pub fn transmission_at_phase(
     // Gaps and frame extents are whole output samples, so every frame starts on the output
     // grid and `phase` alone says where its chips sit within a sample.
     let gap = (gap_us * samples_per_us).round().max(0.0) as usize;
-    let hi_per_us = samples_per_us * OVERSAMPLE as f64;
-    let hi_phase = phase * OVERSAMPLE as f64;
-    let silence = std::iter::repeat_n(Complex::new(0.0, 0.0), gap * OVERSAMPLE);
-    let mut hi: Vec<Complex<f32>> = Vec::new();
+    let waveform = SlotWaveform::new(samples_per_us * 0.5, phase, level);
+    let mut iq: Vec<Complex<f32>> = Vec::new();
     for frame in frames {
-        hi.extend(silence.clone());
-        let chips = half_chips(frame);
-        let len = (chips.len() as f64 * 0.5 * samples_per_us + phase).round() as usize;
-        hi.extend((0..len * OVERSAMPLE).map(|k| {
-            let half_chip = (k as f64 - hi_phase) * 2.0 / hi_per_us;
-            if half_chip >= 0.0 && chips.get(half_chip as usize).copied().unwrap_or(false) {
-                Complex::new(level, 0.0)
-            } else {
-                Complex::new(0.0, 0.0)
-            }
-        }));
+        iq.extend(std::iter::repeat_n(Complex::new(0.0, 0.0), gap));
+        waveform.render(&half_chips(frame), &mut iq);
     }
-    hi.extend(silence);
-    hi.chunks(OVERSAMPLE)
-        .map(|aperture| aperture.iter().sum::<Complex<f32>>() / aperture.len() as f32)
-        .collect()
+    iq.extend(std::iter::repeat_n(Complex::new(0.0, 0.0), gap));
+    iq
 }
 
 #[cfg(test)]
