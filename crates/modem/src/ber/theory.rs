@@ -420,6 +420,96 @@ pub fn mfsk_noncoherent_ber(m: u32, ebn0_db: f64) -> f64 {
     mfsk_noncoherent_ser(m, ebn0_db) * m_f / (2.0 * (m_f - 1.0))
 }
 
+// --- Table-driven nearest-neighbour bound -----------------------------------------------------
+
+/// The high-SNR error rate of an *arbitrary* constellation, computed from the table itself
+/// (MODEM-PLAN §3.3: constellations are data — so is their reference curve).
+///
+/// The closed forms above exist because PAM, PSK and square QAM have regular geometries whose
+/// error probability integrates in closed form. Cross-QAM, star-QAM, non-uniform QAM and APSK
+/// do not — but every one of them obeys the same nearest-neighbour asymptote, and that is the
+/// acceptance reference §4.1 asks for wherever a curve has no exact oracle:
+///
+/// ```text
+/// SER ≈ N̄ · Q(d_min / (2σ)),   σ² = N0/2,  Es = 1  ⇒  SER ≈ N̄ · Q(d_min·√(k·γ_b/2))
+/// ```
+///
+/// with `d_min` the table's minimum distance and `N̄` the mean number of points at that
+/// distance. This is the union bound truncated to the closest shell: it *over*counts (every
+/// pair beyond the shell is dropped, but the shell's own overlaps are double-counted) by a
+/// factor that vanishes as SNR grows, so it is an upper bound in the tail and an approximation
+/// at the shoulder. Tolerances against it are therefore stated at high SNR, and every entry
+/// using it also commits its measured curve.
+///
+/// The BER form divides by the labelling's own measured cost rather than assuming Gray: a
+/// nearest-neighbour symbol error costs [`Self::bits_per_error`] bits on average, which for the
+/// closed-form families is exactly 1 and for the descent-labelled ones is what the descent
+/// reached.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NearestNeighbour {
+    /// Minimum distance of the unit-mean-energy table.
+    pub d_min: f64,
+    /// Mean number of points at `d_min` from a point.
+    pub neighbours: f64,
+    /// Mean Hamming distance across the minimum-distance pairs.
+    pub bits_per_error: f64,
+    /// log2 of the table size.
+    pub bits_per_symbol: f64,
+}
+
+/// Relative slack defining "at the minimum distance", matching the constellation module's own:
+/// several orders above trigonometric rounding, several below the gap to the next shell in
+/// every catalog table.
+const SHELL_SLACK: f64 = 1.002;
+
+impl NearestNeighbour {
+    /// Reads the three geometric numbers off a table. O(M²) — a setup-time measurement, not a
+    /// per-point one; hold the result and call [`Self::ser`] on the grid.
+    #[must_use]
+    pub fn of(c: &crate::constellation::Constellation) -> Self {
+        let p = c.points();
+        let n = p.len();
+        let d2 = |a: usize, b: usize| f64::from((p[a] - p[b]).norm_sqr());
+        let mut min = f64::INFINITY;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                min = min.min(d2(i, j));
+            }
+        }
+        let limit = min * SHELL_SLACK;
+        let (mut pairs, mut bits) = (0u64, 0u64);
+        for i in 0..n {
+            for j in (i + 1)..n {
+                if d2(i, j) <= limit {
+                    pairs += 1;
+                    bits += u64::from((c.labels()[i] ^ c.labels()[j]).count_ones());
+                }
+            }
+        }
+        Self {
+            d_min: min.sqrt(),
+            // Each pair is one neighbour for each of its two endpoints.
+            neighbours: 2.0 * pairs as f64 / n as f64,
+            bits_per_error: bits as f64 / pairs as f64,
+            bits_per_symbol: f64::from(c.bits_per_symbol() as u32),
+        }
+    }
+
+    /// Symbol error rate at Eb/N0 in dB, per the module's per-information-bit accounting.
+    #[must_use]
+    pub fn ser(self, ebn0_db: f64) -> f64 {
+        let gs = self.bits_per_symbol * ebn0_lin(ebn0_db);
+        (self.neighbours * q(self.d_min * (0.5 * gs).sqrt())).min(1.0)
+    }
+
+    /// Bit error rate: symbol errors times the labelling's measured bits per error, spread over
+    /// the symbol's bits.
+    #[must_use]
+    pub fn ber(self, ebn0_db: f64) -> f64 {
+        (self.ser(ebn0_db) * self.bits_per_error / self.bits_per_symbol).min(1.0)
+    }
+}
+
 // --- Double-double arithmetic ----------------------------------------------------------------
 //
 // An unevaluated sum hi + lo of two f64 (Dekker/Knuth error-free transformations, as in the
@@ -565,6 +655,57 @@ mod tests {
             rel < tol,
             "{what}: got {actual:e}, want {expected:e}, rel err {rel:e}"
         );
+    }
+
+    /// The table-driven bound must reproduce the closed forms it generalises, in the tail where
+    /// the nearest-neighbour asymptote is the whole story. 4-PAM and 16-QAM are the two shapes
+    /// the catalog's exotic tables are read against, and both are exact enough by 15 dB that a
+    /// 2% agreement is a real check on `d_min`, `N̄` and the Eb accounting all three.
+    #[test]
+    fn nearest_neighbour_bound_reproduces_the_closed_forms() {
+        use crate::constellation::tables;
+        let pam4 = NearestNeighbour::of(&tables::pam(4).unwrap());
+        // ±1/±3 at mean Es 1: spacing 2/√5, four points, the two inner ones with two neighbours.
+        assert!((pam4.d_min - 2.0 / 5f64.sqrt()).abs() < 1e-6, "{pam4:?}");
+        assert!((pam4.neighbours - 1.5).abs() < 1e-12);
+        assert!((pam4.bits_per_error - 1.0).abs() < 1e-12);
+        for db in [12.0, 15.0, 18.0] {
+            assert_rel(pam4.ser(db), mpam_ser(4, db), 0.02, "4-PAM SER");
+            assert_rel(pam4.ber(db), mpam_ber(4, db), 0.02, "4-PAM BER");
+        }
+        let qam16 = NearestNeighbour::of(&tables::qam_square(16).unwrap());
+        assert!((qam16.neighbours - 3.0).abs() < 1e-12, "{qam16:?}");
+        for db in [14.0, 17.0, 20.0] {
+            assert_rel(qam16.ser(db), mqam_ser(16, db), 0.02, "16-QAM SER");
+            assert_rel(qam16.ber(db), mqam_ber(16, db), 0.02, "16-QAM BER");
+        }
+        // BPSK is the degenerate case the whole harness is calibrated on: one neighbour at
+        // distance 2, so the bound is the exact curve.
+        let bpsk = NearestNeighbour::of(&tables::pam(2).unwrap());
+        for db in [0.0, 5.0, 10.0] {
+            assert_rel(bpsk.ser(db), bpsk_ber(db), 1e-9, "BPSK");
+        }
+    }
+
+    /// The exotic tables have no closed form; what can still be checked is that their geometry
+    /// reads back sanely and that the bound orders them the way their densities demand.
+    #[test]
+    fn exotic_tables_read_back_a_usable_bound() {
+        use crate::constellation::tables;
+        let cross32 = NearestNeighbour::of(&tables::qam_cross(32).unwrap());
+        let qam32_ish = NearestNeighbour::of(&tables::qam_square(64).unwrap());
+        assert!(cross32.bits_per_error > 1.0, "{cross32:?}");
+        // Five bits per symbol packed into a cross beats six into a square at equal Es.
+        assert!(cross32.d_min > qam32_ish.d_min);
+        assert!(cross32.ser(20.0) < qam32_ish.ser(20.0));
+        let apsk16 = NearestNeighbour::of(&tables::apsk16_dvbs2(3.15).unwrap());
+        let qam16 = NearestNeighbour::of(&tables::qam_square(16).unwrap());
+        // DVB-S2 16-APSK gives away Euclidean distance to stay circular; on a linear channel
+        // that is a measurable loss against 16-QAM, and the bound must say so.
+        assert!(apsk16.d_min < qam16.d_min, "{apsk16:?} vs {qam16:?}");
+        for nn in [cross32, apsk16] {
+            assert!(nn.ser(25.0) < 1e-6 && nn.ser(0.0) <= 1.0);
+        }
     }
 
     /// Every reference value in this module was computed independently with mpmath at 40

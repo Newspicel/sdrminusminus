@@ -1,10 +1,9 @@
 //! Constellations as tables (MODEM-PLAN §3.3): a point set is *data* — complex points plus
 //! per-point bit labels — never match arms. Every linear and orthogonal entry demaps through
-//! the one generic demapper in [`demap`], and the exotic tables of phase 4 (cross-QAM,
+//! the one generic demapper in [`demap`], and the exotic tables in [`tables`] (cross-QAM,
 //! star-QAM, non-uniform QAM, APSK) exist precisely to prove nothing special-cases "the"
-//! constellation. This module therefore contains no specific standard's table outside its
-//! tests; the PSK/QAM/APSK/PAM generators arrive in phase 4 as functions *returning*
-//! [`Constellation`], not as new types.
+//! constellation. This module therefore contains no specific standard's table: the
+//! PAM/PSK/QAM/APSK generators are *functions returning* [`Constellation`], not new types.
 //!
 //! Construction normalises the table to mean symbol energy Es = 1 (the crate-root pulse
 //! convention's counterpart: with unit-energy pulses and Es = 1, an Eb/N0 in `ber` means the
@@ -12,6 +11,7 @@
 //! for PAM, ring radii for APSK — and the stored table is the scaled one.
 
 pub mod demap;
+pub mod tables;
 
 use std::fmt;
 
@@ -31,6 +31,10 @@ pub enum ConstellationError {
     BadLabel(u32),
     /// A table of all-zero points has no energy to normalise to.
     ZeroPower,
+    /// A [`tables`] generator was asked for an order its family does not define — square QAM
+    /// at an odd number of bits, cross-QAM outside {32, 128}, a star with a non-power-of-two
+    /// ring count. Carries the family name because the order alone rarely says what was wrong.
+    UnsupportedOrder { family: &'static str, m: u32 },
 }
 
 impl fmt::Display for ConstellationError {
@@ -44,6 +48,9 @@ impl fmt::Display for ConstellationError {
             }
             Self::BadLabel(l) => write!(f, "label {l:#b} repeats or does not fit the bit width"),
             Self::ZeroPower => write!(f, "all-zero constellation cannot be normalised"),
+            Self::UnsupportedOrder { family, m } => {
+                write!(f, "{family} is not defined at order {m}")
+            }
         }
     }
 }
