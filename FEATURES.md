@@ -1,11 +1,3 @@
-# sdr-- — Feature List
-
-Everything sdr-- does, will do, or has deliberately decided not to do — collapsed into one
-list. Three states only: **[shipped]** works today, **[planned]** is intended, **[skipped]**
-is a deliberate no. Within each section, shipped comes first.
-
----
-
 ## 1. Platform & deployment
 
 - **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
@@ -137,6 +129,8 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** Radio astronomy; star tracker; sky map
 - **[planned]** Signal-ID assistant — match a spectrum/audio snapshot against a signal catalog, later an ML classifier
 - **[planned]** GNSS educational decode
+- **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
+- **[planned]** Seeing stuff like 4fsk directly without being behind a decoder. 
 
 ## 17. Audio processing
 
