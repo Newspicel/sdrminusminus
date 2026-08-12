@@ -185,6 +185,22 @@ describe("buildRows", () => {
     expect(rows[0]?.summary).toBe("3c6444 · DLH123 · 35000 ft");
   });
 
+  // Newest first across both sources, not two blocks: the writer flushes twice a second, so a
+  // stored row can be newer than a frame still only in the tail, and the table must not put the
+  // older one on top because of where it came from.
+  it("orders the tail and the stored page as one table", () => {
+    const rows = buildRows(
+      [entry({ id: 2, at: "2026-08-09T12:00:04Z" }), entry({ at: "2026-08-09T12:00:00Z" })],
+      [record({ at: "2026-08-09T12:00:05Z" }), record({ at: "2026-08-09T12:00:02Z" })],
+    );
+    expect(rows.map((r) => r.at)).toEqual([
+      "2026-08-09T12:00:05Z",
+      "2026-08-09T12:00:04Z",
+      "2026-08-09T12:00:02Z",
+      "2026-08-09T12:00:00Z",
+    ]);
+  });
+
   it("drops a live frame the stored page already carries", () => {
     const stored = entry({ at: "2026-08-09T12:00:01Z", summary: "3c6444 · DLH123 · 35000 ft" });
     expect(buildRows([stored], [record()])).toHaveLength(1);

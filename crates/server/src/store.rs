@@ -8,7 +8,7 @@
 use std::{
     collections::HashMap,
     path::Path,
-    sync::{Mutex, MutexGuard},
+    sync::{LazyLock, Mutex, MutexGuard},
 };
 
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
@@ -172,6 +172,15 @@ const MIGRATIONS: &[&str] = &[
     -- common read now, and it must not be a full scan.
     CREATE INDEX decoder_log_node_at ON decoder_log (node, at DESC, id DESC);
     ",
+    "
+    -- Which workspace's binding produced `node`. A node id is an identity only inside one
+    -- workspace: templates author theirs as slugs (`ch0`, `log`) and `merge_patch` makes them
+    -- unique only within the workspace it merges into, so two workspaces built from templates
+    -- hold the same ids — and a log node scoped on the id alone is handed the other workspace's
+    -- history. Null on rows written before this column, which the scope reads as unattributable
+    -- rather than as a match for every workspace.
+    ALTER TABLE decoder_log ADD COLUMN workspace INTEGER;
+    ",
 ];
 
 /// Index fields for one finalized recording, derived from its SigMF pair during
@@ -187,8 +196,38 @@ pub struct RecordingRow {
     pub bytes: u64,
 }
 
+/// Where a batch of decoder rows came from, beyond the coordinates the frames carry themselves.
+///
+/// The two travel together because neither means anything alone: a node id names a decoder only
+/// inside the workspace whose binding produced it, and a workspace without a binding attributes
+/// nothing. With no active workspace both are empty and every row is stored unattributed.
+pub struct LogOrigin<'a> {
+    pub workspace: Option<i64>,
+    /// `(device set, channel)` → the patch node that channel belongs to.
+    pub nodes: &'a HashMap<(u32, u32), String>,
+}
+
+impl LogOrigin<'static> {
+    /// The origin of a batch nothing can attribute — no active workspace, hence no binding. Its
+    /// rows are stored on the coordinates they carry themselves, which is also the shape of every
+    /// row written before the log recorded a node.
+    #[must_use]
+    pub fn unattributed() -> Self {
+        static NONE: LazyLock<HashMap<(u32, u32), String>> = LazyLock::new(HashMap::new);
+        Self {
+            workspace: None,
+            nodes: &NONE,
+        }
+    }
+}
+
 pub struct Store {
     conn: Mutex<Connection>,
+    /// When this process opened the store. A row older than this cannot have come from a channel
+    /// that is running now, which is what bounds the wire scope's fallback half: engine channel
+    /// ids are allocated per run and reused (CANVAS §3), so `0:1` names a different decoder in
+    /// every run that used it.
+    run_start: String,
 }
 
 impl Store {
@@ -201,6 +240,7 @@ impl Store {
         migrate(&conn)?;
         let store = Self {
             conn: Mutex::new(conn),
+            run_start: now_rfc3339(),
         };
         store.seed_workspaces()?;
         Ok(store)
@@ -387,14 +427,15 @@ impl Store {
     /// Persist a batch of decoder frames in one transaction. Decoders emit hundreds of frames
     /// a second (ADS-B), and a commit per row would make SQLite the bottleneck.
     ///
-    /// `nodes` resolves a frame's `(device set, channel)` to the patch node that channel belongs
-    /// to, which is the row's durable origin (`DecoderLogEntry::node`). A channel it does not
-    /// know is stored without one rather than guessed at — the query has a fallback for exactly
-    /// those rows, and a wrong node would attribute a frame to a decoder that never heard it.
+    /// `origin` resolves a frame's `(device set, channel)` to the patch node that channel belongs
+    /// to, which — with the workspace that node lives in — is the row's durable origin
+    /// (`DecoderLogEntry::node`). A channel it does not know is stored without one rather than
+    /// guessed at: the query has a fallback for exactly those rows, and a wrong node would
+    /// attribute a frame to a decoder that never heard it.
     pub fn insert_decoder_events(
         &self,
         records: &[DecodedRecord],
-        nodes: &HashMap<(u32, u32), String>,
+        origin: &LogOrigin<'_>,
     ) -> Result<usize, StoreError> {
         if records.is_empty() {
             return Ok(0);
@@ -403,15 +444,17 @@ impl Store {
         let tx = conn.transaction()?;
         {
             let mut stmt = tx.prepare_cached(
-                "INSERT INTO decoder_log (at, device_set, channel, node, kind, freq_hz, station, \
-                 summary, event) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO decoder_log (at, device_set, channel, workspace, node, kind, \
+                 freq_hz, station, summary, event) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )?;
             for record in records {
                 stmt.execute(params![
                     normalize_timestamp(&record.at)?,
                     record.device_set,
                     record.channel,
-                    nodes.get(&(record.device_set, record.channel)),
+                    origin.workspace,
+                    origin.nodes.get(&(record.device_set, record.channel)),
                     record.event.kind(),
                     record.freq_hz,
                     record.event.station(),
@@ -424,6 +467,21 @@ impl Store {
         Ok(records.len())
     }
 
+    /// The `WHERE` clause behind every decoder-log read, clear and export.
+    ///
+    /// The wire scope in `filter` names patch nodes, and a node id is an identity only within one
+    /// workspace — so the scope is read against the active one, which is the workspace every
+    /// canvas drawing that scope is looking at. Resolving it here rather than taking it from the
+    /// query keeps a caller from asking for another workspace's rows under its own node ids.
+    fn decoder_log_predicate(
+        &self,
+        filter: &DecoderLogQuery,
+    ) -> Result<DecoderLogPredicate, StoreError> {
+        // Read before the callers take the connection: this locks, and the lock is not reentrant.
+        let workspace = self.active_workspace_id()?;
+        DecoderLogPredicate::build(filter, workspace, &self.run_start)
+    }
+
     /// One page of the decoder log, newest first, plus how many rows the filter matches in
     /// total (ignoring the page size) so the client can show "showing 200 of 12,431".
     pub fn query_decoder_log(
@@ -434,7 +492,7 @@ impl Store {
             .limit
             .unwrap_or(DECODER_LOG_LIMIT_DEFAULT)
             .min(DECODER_LOG_LIMIT_MAX);
-        let predicate = DecoderLogPredicate::build(filter)?;
+        let predicate = self.decoder_log_predicate(filter)?;
         let conn = self.lock();
         let total: i64 = conn.query_row(
             &format!("SELECT COUNT(*) FROM decoder_log{}", predicate.clause),
@@ -451,14 +509,14 @@ impl Store {
         &self,
         filter: &DecoderLogQuery,
     ) -> Result<Vec<DecoderLogEntry>, StoreError> {
-        let predicate = DecoderLogPredicate::build(filter)?;
+        let predicate = self.decoder_log_predicate(filter)?;
         let conn = self.lock();
         select_decoder_log(&conn, &predicate, DECODER_LOG_EXPORT_MAX)
     }
 
     /// Clear the entries matching `filter` (an empty filter clears the log).
     pub fn delete_decoder_log(&self, filter: &DecoderLogQuery) -> Result<u64, StoreError> {
-        let predicate = DecoderLogPredicate::build(filter)?;
+        let predicate = self.decoder_log_predicate(filter)?;
         let deleted = self.lock().execute(
             &format!("DELETE FROM decoder_log{}", predicate.clause),
             params_from_iter(&predicate.params),
@@ -848,7 +906,11 @@ struct DecoderLogPredicate {
 }
 
 impl DecoderLogPredicate {
-    fn build(filter: &DecoderLogQuery) -> Result<Self, StoreError> {
+    fn build(
+        filter: &DecoderLogQuery,
+        workspace: Option<i64>,
+        run_start: &str,
+    ) -> Result<Self, StoreError> {
         // Every other term is a literal; this one is as wide as the channel list, so it is built
         // here to outlive the borrows in `terms`.
         let sources_term: String;
@@ -866,7 +928,7 @@ impl DecoderLogPredicate {
             .scope()
             .map_err(|bad| StoreError::Sources(bad.to_owned()))?;
         if let Some(scope) = scope {
-            sources_term = scope_clause(&scope, &mut params);
+            sources_term = scope_clause(&scope, workspace, run_start, &mut params);
             terms.push(&sources_term);
         }
         if let Some(since) = &filter.since {
@@ -896,32 +958,54 @@ impl DecoderLogPredicate {
 
 /// The `WHERE` fragment for a wire scope, binding its values into `params`.
 ///
-/// The two halves are an OR, and the null guard on the second is what keeps them from crossing:
-/// a row that *has* a node is attributable, so it must be matched by node alone. Without the
-/// guard, a node whose engine channel id was previously held by a different node would inherit
-/// that node's rows — the exact confusion the node column exists to end.
+/// The two halves are an OR, and each carries the guard that makes its half an identity rather
+/// than a name something else also answers to:
+///
+/// * A node id is unique only within its workspace — templates author theirs as slugs and
+///   `merge_patch` deduplicates only inside the workspace it merges into — so the node half is
+///   read against the workspace that produced it. With no active workspace nothing can be
+///   attributed by node at all, and the half is dropped.
+/// * The coordinate half exists for rows that carry no node (written before the log recorded one,
+///   or in the window before the binding caught up with a new channel), and `(device_set,
+///   channel)` names a decoder only for the run that allocated it. Bounding it to this run is
+///   what keeps a channel from inheriting the frames of whoever held its id last time.
+///
+/// The null guard on the second half is what keeps the two from crossing: a row that *has* a node
+/// is attributable, so it must be matched by node alone.
 ///
 /// An empty scope is a node with nothing wired into it, and matches no row. "Show me the frames
 /// from nothing" is not "show me everything", and the same clause backs the clear endpoint.
-fn scope_clause(scope: &LogScope, params: &mut Vec<Value>) -> String {
-    if scope.is_empty() {
-        return "0".to_owned();
-    }
+fn scope_clause(
+    scope: &LogScope,
+    workspace: Option<i64>,
+    run_start: &str,
+    params: &mut Vec<Value>,
+) -> String {
     let mut halves: Vec<String> = Vec::new();
-    if !scope.nodes.is_empty() {
+    if !scope.nodes.is_empty()
+        && let Some(workspace) = workspace
+    {
+        params.push(Value::Integer(workspace));
         for node in &scope.nodes {
             params.push(Value::Text(node.clone()));
         }
         let slots = vec!["?"; scope.nodes.len()].join(", ");
-        halves.push(format!("node IN ({slots})"));
+        halves.push(format!("(workspace = ? AND node IN ({slots}))"));
     }
     if !scope.channels.is_empty() {
+        params.push(Value::Text(run_start.to_owned()));
         for (device_set, channel) in &scope.channels {
             params.push(Value::Integer(i64::from(*device_set)));
             params.push(Value::Integer(i64::from(*channel)));
         }
         let pairs = vec!["(device_set = ? AND channel = ?)"; scope.channels.len()];
-        halves.push(format!("(node IS NULL AND ({}))", pairs.join(" OR ")));
+        halves.push(format!(
+            "(node IS NULL AND at >= ? AND ({}))",
+            pairs.join(" OR ")
+        ));
+    }
+    if halves.is_empty() {
+        return "0".to_owned();
     }
     format!("({})", halves.join(" OR "))
 }
@@ -1184,6 +1268,21 @@ mod tests {
         }
     }
 
+    fn bound(workspace: i64, nodes: &HashMap<(u32, u32), String>) -> LogOrigin<'_> {
+        LogOrigin {
+            workspace: Some(workspace),
+            nodes,
+        }
+    }
+
+    /// The workspace `Store::open` seeded and activated — the one a scoped query is read against.
+    fn active(store: &Store) -> i64 {
+        store
+            .active_workspace_id()
+            .expect("read the active workspace")
+            .expect("open seeds and activates one")
+    }
+
     /// Three decoders across two device sets, oldest first.
     fn seed(store: &Store) {
         store
@@ -1197,7 +1296,7 @@ mod tests {
                     ),
                     record("2026-08-09T12:00:02Z", 0, adsb("4CA2D4", "RYR9AB")),
                 ],
-                &HashMap::new(),
+                &LogOrigin::unattributed(),
             )
             .expect("insert");
     }
@@ -1211,7 +1310,7 @@ mod tests {
         let store = Store::open(None).expect("open");
         assert_eq!(
             store
-                .insert_decoder_events(&[], &HashMap::new())
+                .insert_decoder_events(&[], &LogOrigin::unattributed())
                 .expect("empty"),
             0
         );
@@ -1343,18 +1442,19 @@ mod tests {
 
     /// The filter a canvas node draws with its wires. Channel ids are allocated per device set,
     /// so `0:1` and `1:1` are different channels and the pair — never the channel alone — is what
-    /// a term matches.
+    /// a term matches. Written in this run, because that is the only run these coordinates name.
     #[test]
     fn decoder_log_sources_filter_names_channels_not_device_sets() {
         let store = Store::open(None).expect("open");
+        let now = now_rfc3339();
         let on = |device_set: u32, channel: u32, icao: &str| DecodedRecord {
             channel,
-            ..record("2026-08-09T12:00:00Z", device_set, adsb(icao, "FLIGHT"))
+            ..record(&now, device_set, adsb(icao, "FLIGHT"))
         };
         store
             .insert_decoder_events(
                 &[on(0, 1, "AAAAAA"), on(0, 2, "BBBBBB"), on(1, 1, "CCCCCC")],
-                &HashMap::new(),
+                &LogOrigin::unattributed(),
             )
             .expect("insert");
         let stations = |sources: &str| {
@@ -1406,26 +1506,34 @@ mod tests {
     #[test]
     fn decoder_log_scope_prefers_the_node_over_the_reused_channel_id() {
         let store = Store::open(None).expect("open");
+        let workspace = active(&store);
+        let now = now_rfc3339();
         let on = |channel: u32, icao: &str| DecodedRecord {
             channel,
-            ..record("2026-08-09T12:00:00Z", 0, adsb(icao, "FLIGHT"))
+            ..record(&now, 0, adsb(icao, "FLIGHT"))
         };
         // Two nodes that held channel 1 in different runs, plus a row from before the column
         // existed — the three cases the scope has to keep apart.
         store
             .insert_decoder_events(
                 &[on(1, "AAAAAA")],
-                &HashMap::from([((0, 1), "channel:old".to_owned())]),
+                &bound(
+                    workspace,
+                    &HashMap::from([((0, 1), "channel:old".to_owned())]),
+                ),
             )
             .expect("insert");
         store
             .insert_decoder_events(
                 &[on(1, "BBBBBB")],
-                &HashMap::from([((0, 1), "channel:new".to_owned())]),
+                &bound(
+                    workspace,
+                    &HashMap::from([((0, 1), "channel:new".to_owned())]),
+                ),
             )
             .expect("insert");
         store
-            .insert_decoder_events(&[on(1, "LEGACY")], &HashMap::new())
+            .insert_decoder_events(&[on(1, "LEGACY")], &LogOrigin::unattributed())
             .expect("insert");
 
         let stations = |nodes: &str, sources: &str| {
@@ -1447,7 +1555,7 @@ mod tests {
         // rows the *other* node wrote while holding the same channel id.
         assert_eq!(stations("channel:new", "0:1"), ["LEGACY", "BBBBBB"]);
         assert_eq!(stations("channel:old", "0:1"), ["LEGACY", "AAAAAA"]);
-        // Without the fallback the legacy row is unreachable, which is what makes it a fallback
+        // Without the fallback the nodeless row is unreachable, which is what makes it a fallback
         // and not the filter.
         assert_eq!(stations("channel:new", ""), ["BBBBBB"]);
         // And the fallback alone reaches only the rows that have no better identity.
@@ -1457,6 +1565,88 @@ mod tests {
         let entries = query(&store, DecoderLogQuery::default()).0;
         assert_eq!(entries[0].node, None, "the legacy row carries no node");
         assert_eq!(entries[2].node.as_deref(), Some("channel:old"));
+    }
+
+    /// The fallback half names coordinates, and coordinates are only an identity for the run that
+    /// allocated them: channel `0:1` is a different decoder in every run that had one. A nodeless
+    /// row from an earlier run is therefore out of every scope — it is history the log keeps, not
+    /// something the decoder wired in now ever heard.
+    #[test]
+    fn decoder_log_scope_fallback_stops_at_the_start_of_this_run() {
+        let store = Store::open(None).expect("open");
+        let on = |at: &str, icao: &str| DecodedRecord {
+            channel: 1,
+            ..record(at, 0, adsb(icao, "FLIGHT"))
+        };
+        store
+            .insert_decoder_events(
+                &[
+                    on("2026-08-09T12:00:00Z", "LASTRUN"),
+                    on(&now_rfc3339(), "THISRUN"),
+                ],
+                &LogOrigin::unattributed(),
+            )
+            .expect("insert");
+
+        let scoped = query(
+            &store,
+            DecoderLogQuery {
+                sources: Some("0:1".to_owned()),
+                ..DecoderLogQuery::default()
+            },
+        );
+        assert_eq!(
+            scoped
+                .0
+                .into_iter()
+                .filter_map(|entry| entry.station)
+                .collect::<Vec<_>>(),
+            ["THISRUN"]
+        );
+        // Both rows are still in the log; it is the wire scope that cannot reach the older one.
+        assert_eq!(query(&store, DecoderLogQuery::default()).1, 2);
+    }
+
+    /// A node id is an identity only inside its workspace. Templates author theirs as slugs
+    /// (`ch0`, `log`), so two workspaces built from templates hold the same ids — and without the
+    /// workspace guard a log node would be handed the other workspace's history, which is the
+    /// leak the column exists to close.
+    #[test]
+    fn decoder_log_scope_does_not_cross_workspaces_sharing_a_node_id() {
+        let store = Store::open(None).expect("open");
+        let first = active(&store);
+        let second = store
+            .create_workspace("second", &WorkspaceSnapshot::starter())
+            .expect("create");
+        let now = now_rfc3339();
+        let nodes = HashMap::from([((0, 1), "ch0".to_owned())]);
+        let on = |icao: &str| DecodedRecord {
+            channel: 1,
+            ..record(&now, 0, adsb(icao, "FLIGHT"))
+        };
+        store
+            .insert_decoder_events(&[on("FIRSTWS")], &bound(first, &nodes))
+            .expect("insert");
+        store
+            .insert_decoder_events(&[on("SECONDWS")], &bound(second, &nodes))
+            .expect("insert");
+
+        let stations = || {
+            query(
+                &store,
+                DecoderLogQuery {
+                    nodes: Some("ch0".to_owned()),
+                    ..DecoderLogQuery::default()
+                },
+            )
+            .0
+            .into_iter()
+            .filter_map(|entry| entry.station)
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(stations(), ["FIRSTWS"]);
+        store.activate_workspace(second).expect("activate");
+        assert_eq!(stations(), ["SECONDWS"]);
     }
 
     #[test]
@@ -1539,7 +1729,7 @@ mod tests {
             .collect();
         assert_eq!(
             store
-                .insert_decoder_events(&records, &HashMap::new())
+                .insert_decoder_events(&records, &LogOrigin::unattributed())
                 .expect("insert"),
             10
         );
@@ -1598,17 +1788,26 @@ mod tests {
         drop(store);
     }
 
-    /// Upgrading an existing log must keep every row it already has. The node column arrives
-    /// null on all of them, which is not a gap to be filled in — nothing recorded which node
-    /// those frames came from, and inventing one would attribute them to whichever decoder
-    /// happens to hold that channel id now. They stay reachable through the fallback instead.
+    /// Upgrading an existing log must keep every row it already has. The origin columns arrive
+    /// null on all of them, which is not a gap to be filled in — nothing recorded which node or
+    /// workspace those frames came from, and inventing one would attribute them to whichever
+    /// decoder happens to hold that channel id now.
+    ///
+    /// So they stay in the log, queryable and exportable, and out of every wire scope: a row that
+    /// names neither and predates this run is history, not something a decoder wired in now was
+    /// ever heard by.
     #[test]
-    fn adding_the_node_column_keeps_the_rows_already_logged() {
+    fn adding_the_origin_columns_keeps_the_rows_already_logged() {
         let file = tempfile::NamedTempFile::new().expect("temp db");
         {
             let conn = Connection::open(file.path()).expect("open");
-            // Every migration but the last: a database as the release before this one left it.
-            for (i, migration) in MIGRATIONS.iter().take(MIGRATIONS.len() - 1).enumerate() {
+            // A database as the release that first shipped a decoder log left it — found by the
+            // migration rather than counted from the end, so a later one cannot silently move it.
+            let created = MIGRATIONS
+                .iter()
+                .position(|migration| migration.contains("CREATE TABLE decoder_log"))
+                .expect("the log has a migration");
+            for (i, migration) in MIGRATIONS.iter().take(created + 1).enumerate() {
                 conn.execute_batch(&format!(
                     "BEGIN;\n{migration}\nPRAGMA user_version = {};\nCOMMIT;",
                     i + 1
@@ -1622,15 +1821,24 @@ mod tests {
                  \"LEGACY\",\"df\":17,\"raw\":\"8d\"}}')",
                 [],
             )
-            .expect("a row from before the column");
+            .expect("a row from before the columns");
         }
 
         let store = Store::open(Some(file.path())).expect("reopen");
         let (entries, total) = query(&store, DecoderLogQuery::default());
         assert_eq!(total, 1, "the upgrade kept the row");
         assert_eq!(entries[0].node, None);
+        assert_eq!(
+            store
+                .export_decoder_log(&DecoderLogQuery::default())
+                .expect("export")
+                .len(),
+            1,
+            "and the export still reaches it"
+        );
 
-        // Only the fallback reaches it, and it does.
+        // No scope does, by either half: it names no node, and its coordinates name a channel of
+        // a run that ended before this one began.
         let scoped = |nodes: &str, sources: &str| {
             query(
                 &store,
@@ -1642,7 +1850,7 @@ mod tests {
             )
             .1
         };
-        assert_eq!(scoped("channel:whatever", "0:1"), 1);
+        assert_eq!(scoped("channel:whatever", "0:1"), 0);
         assert_eq!(scoped("channel:whatever", ""), 0);
     }
 

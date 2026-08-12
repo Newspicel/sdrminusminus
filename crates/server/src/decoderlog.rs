@@ -23,7 +23,7 @@ use tokio::{
     time::{Duration, MissedTickBehavior, interval},
 };
 
-use crate::store::Store;
+use crate::store::{LogOrigin, Store};
 
 /// Rows the log is capped at, enforced by [`prune`]. At roughly 300 B a row (the JSON event
 /// dominates) that is a few hundred megabytes — an unattended receiver must not be able to
@@ -117,6 +117,9 @@ struct NodeMapKey {
 #[derive(Default)]
 struct NodeMap {
     key: Option<NodeMapKey>,
+    /// The workspace `map` was bound against — stored beside every row, because a node id only
+    /// names a decoder within the workspace that holds it.
+    workspace: Option<i64>,
     map: HashMap<(u32, u32), String>,
 }
 
@@ -124,13 +127,12 @@ impl NodeMap {
     /// The current mapping, rebuilding it only when what it is derived from has moved.
     ///
     /// Blocks (it reads the store), so this belongs on the blocking pool with the insert it
-    /// feeds. With no engine or no active workspace the map is empty, and every row of the batch
-    /// is stored without a node — honestly unattributable rather than attributed to a guess.
-    fn resolve(&mut self, engine: Option<&Engine>, store: &Store) -> &HashMap<(u32, u32), String> {
+    /// feeds. With no engine or no active workspace the origin is empty, and every row of the
+    /// batch is stored unattributed — honestly so, rather than attributed to a guess.
+    fn resolve(&mut self, engine: Option<&Engine>, store: &Store) -> LogOrigin<'_> {
         let Some(engine) = engine else {
-            self.key = None;
-            self.map.clear();
-            return &self.map;
+            self.forget();
+            return self.origin();
         };
         let state = engine.snapshot();
         let channels: Vec<(u32, u32)> = state
@@ -144,13 +146,12 @@ impl NodeMap {
                 // The binding is unavailable, not wrong: keep whatever was last resolved rather
                 // than dropping the node off a batch because one read failed.
                 tracing::warn!(%err, "could not read the active workspace for the decoder log");
-                return &self.map;
+                return self.origin();
             }
         };
         let Some(active) = active else {
-            self.key = None;
-            self.map.clear();
-            return &self.map;
+            self.forget();
+            return self.origin();
         };
         let key = NodeMapKey {
             channels,
@@ -158,7 +159,7 @@ impl NodeMap {
             revision: active.info.revision,
         };
         if self.key.as_ref() == Some(&key) {
-            return &self.map;
+            return self.origin();
         }
         self.map = crate::workspace::bind(&active.snapshot.graph, &state)
             .into_iter()
@@ -169,8 +170,24 @@ impl NodeMap {
                     .map(move |(node, channel)| ((binding.device_set, channel), node))
             })
             .collect();
+        self.workspace = Some(active.info.id);
         self.key = Some(key);
-        &self.map
+        self.origin()
+    }
+
+    fn origin(&self) -> LogOrigin<'_> {
+        LogOrigin {
+            workspace: self.workspace,
+            nodes: &self.map,
+        }
+    }
+
+    /// Nothing can be attributed: the workspace goes with the map, or a later batch would be
+    /// stamped with a workspace whose binding no longer backs it.
+    fn forget(&mut self) {
+        self.key = None;
+        self.workspace = None;
+        self.map.clear();
     }
 }
 
@@ -202,8 +219,8 @@ async fn flush(
     let mut resolver = std::mem::take(nodes);
     let written = tokio::task::spawn_blocking(move || {
         let result = {
-            let resolved = resolver.resolve(engine.as_deref(), &owned);
-            owned.insert_decoder_events(&records, resolved)
+            let origin = resolver.resolve(engine.as_deref(), &owned);
+            owned.insert_decoder_events(&records, &origin)
         };
         (result, records, resolver)
     })
@@ -462,7 +479,7 @@ mod tests {
         let store = Arc::new(Store::open(None).expect("store"));
         let records: Vec<DecodedRecord> = (0..3).map(|i| record(&format!("00000{i}"))).collect();
         store
-            .insert_decoder_events(&records, &HashMap::new())
+            .insert_decoder_events(&records, &LogOrigin::unattributed())
             .expect("insert");
 
         let weak = Arc::downgrade(&engine);

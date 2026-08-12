@@ -189,11 +189,15 @@ export function collectLive(
 }
 
 /**
- * Live rows on top of the stored page, newest first within each group.
+ * The tail and the stored page as one table, newest first.
  *
- * A live frame is also persisted server-side, so a refetch triggered while the tail is on
- * returns rows the tail already shows; those duplicates are dropped in favour of the stored row,
- * which carries the real id.
+ * Sorted across both rather than stacked as two blocks: the writer flushes twice a second, so a
+ * row crosses from the tail to the page while the operator is reading it, and a merge that only
+ * ordered within each half would let that crossing reorder the table around it.
+ *
+ * A live frame is also persisted server-side, so a refetch returns rows the tail already shows;
+ * those duplicates are dropped in favour of the stored row, which carries the real id. The sort
+ * is stable, so rows sharing a timestamp keep the server's `(at, id)` order.
  */
 export function buildRows(
   entries: readonly DecoderLogEntry[],
@@ -211,6 +215,8 @@ export function buildRows(
     }
   }
   rows.push(...stored);
+  // oxlint-disable-next-line unicorn/no-array-sort
+  rows.sort((a, b) => timeMs(b.at) - timeMs(a.at));
   return rows;
 }
 

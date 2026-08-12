@@ -1,7 +1,9 @@
 // Decoder log browser (PLAN §11: decoder logs are queryable and exportable, not scroll-back-
 // only). The stored page is server state — one TanStack Query keyed by the filter, so changing a
 // filter refetches through the key and a `decoder_log` StateChanged invalidates every filter at
-// once. The live toggle prepends the WS store's tail on top of that page without refetching.
+// once. The WS store's tail is merged into that page, so a frame is on screen the moment it is
+// decoded rather than at the writer's next flush; the log is a live readout, never a page the
+// operator has to ask to be current.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { clearDecoderLog, DECODER_LOG_KEY, decoderLogExportUrl, decoderLogQuery } from "../lib/api";
@@ -45,7 +47,6 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<LogFilter>(DEFAULT_LOG_FILTER);
   const [search, setSearch] = useState(DEFAULT_LOG_FILTER.q);
-  const [live, setLive] = useState(false);
   const [armed, setArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cleared, setCleared] = useState<number | null>(null);
@@ -76,9 +77,9 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
 
   const query = toQuery(filter, wires);
   const log = useQuery(decoderLogQuery(query));
-  // Subscribing to the store only while live is on keeps the panel off the 10 Hz flush entirely
-  // when it is showing stored rows.
-  const frames = useDecodedStore((s) => (live ? s.frames : NO_FRAMES));
+  // Nothing is wired in, so nothing can arrive: staying off the store's 10 Hz flush costs an
+  // empty node no re-renders at all.
+  const frames = useDecodedStore((s) => (wires.sources === "" ? NO_FRAMES : s.frames));
   const lost = useDecodedStore((s) => s.lost);
   const wired = useMemo(() => sourceSet(wires.sources), [wires.sources]);
 
@@ -87,8 +88,8 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   // list, and a set that is not wired in is a choice that could only ever show nothing.
   const sets = useMemo(() => sourceSets(wires.sources), [wires.sources]);
   const rows = useMemo(
-    () => buildRows(entries, live ? collectLive(frames, filter, wired) : []),
-    [entries, frames, filter, live, wired],
+    () => buildRows(entries, collectLive(frames, filter, wired)),
+    [entries, frames, filter, wired],
   );
 
   const clearMut = useMutation({
@@ -109,7 +110,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
     setFilter((f) => ({ ...f, ...next }));
   };
 
-  const dropped = droppedNotice(live ? lost : 0, log.data?.dropped ?? 0);
+  const dropped = droppedNotice(lost, log.data?.dropped ?? 0);
   const total = log.data?.total ?? 0;
 
   return (
@@ -149,15 +150,6 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
           options={LIMIT_OPTIONS.map((n) => ({ value: n, label: `${n} rows` }))}
           onChange={(limit) => patch({ limit })}
         />
-
-        <button
-          type="button"
-          className={`${BTN} ${live ? "border-accent text-accent" : ""}`}
-          aria-pressed={live}
-          onClick={() => setLive(!live)}
-        >
-          Live
-        </button>
 
         <a className={BTN} href={decoderLogExportUrl("csv", query)} download>
           CSV
@@ -238,10 +230,11 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
               <Fragment key={row.key}>
                 {/* The whole row is the control: a summary is truncated by design, and the frame
                     behind it is what the reader is after. */}
+                {/* No live/stored distinction is drawn: every row arrives through the tail and
+                    turns into its stored twin within a flush, so marking the difference would be
+                    half a second of tint on every row in the table. */}
                 <tr
-                  className={`cursor-pointer border-b border-line/50 hover:bg-panel-2 ${
-                    row.live ? "bg-accent/5" : ""
-                  }`}
+                  className="cursor-pointer border-b border-line/50 hover:bg-panel-2"
                   aria-expanded={opened === row.key}
                   onClick={() => setOpened(opened === row.key ? null : row.key)}
                 >
@@ -249,12 +242,6 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
                     className={`${CELL} whitespace-nowrap tabular-nums text-ink-dim`}
                     title={row.at}
                   >
-                    <span
-                      className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle ${
-                        row.live ? "bg-accent" : "bg-transparent"
-                      }`}
-                      aria-label={row.live ? "live" : undefined}
-                    />
                     {formatLogTime(row.at)}
                   </td>
                   <td className={`${CELL} whitespace-nowrap text-ink-dim`}>

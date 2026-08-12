@@ -3288,6 +3288,12 @@ export interface operations {
                  *     channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
                  *     hand a node another node's history after a restart.
                  *
+                 *     Read against the *active* workspace, which is the one whose canvas drew the scope. A node
+                 *     id is unique only within a workspace — templates author theirs as slugs and
+                 *     [`crate::WorkspaceSnapshot::merge_patch`] deduplicates only inside the workspace it merges
+                 *     into — so ids alone would let two workspaces built from the same template read each
+                 *     other's history. Rows written before the server recorded the workspace answer to no id.
+                 *
                  *     Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
                  *     channel, and *both* empty means none, so a node with nothing wired in matches nothing
                  *     rather than everything.
@@ -3303,13 +3309,15 @@ export interface operations {
                 since?: string;
                 /**
                  * @description Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
-                 *     (`0:1,0:2`), matched only against rows whose `node` is null.
+                 *     (`0:1,0:2`), matched only against rows whose `node` is null *and* that this server run
+                 *     wrote.
                  *
                  *     Two kinds of row have none. Rows written before the log recorded one, and rows written in
                  *     the window between a channel starting to decode and the workspace binding catching up with
                  *     it. Both are attributable only by the coordinates they *do* carry, and only for the run
-                 *     that wrote them — which is exactly what this names, and why it is the fallback rather than
-                 *     the filter.
+                 *     that wrote them — engine channel ids are allocated per run and reused (CANVAS §3), so `0:1`
+                 *     names a different decoder in every run that had one. Hence the run bound, and hence this
+                 *     being the fallback rather than the filter.
                  */
                 sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
@@ -3360,6 +3368,12 @@ export interface operations {
                  *     channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
                  *     hand a node another node's history after a restart.
                  *
+                 *     Read against the *active* workspace, which is the one whose canvas drew the scope. A node
+                 *     id is unique only within a workspace — templates author theirs as slugs and
+                 *     [`crate::WorkspaceSnapshot::merge_patch`] deduplicates only inside the workspace it merges
+                 *     into — so ids alone would let two workspaces built from the same template read each
+                 *     other's history. Rows written before the server recorded the workspace answer to no id.
+                 *
                  *     Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
                  *     channel, and *both* empty means none, so a node with nothing wired in matches nothing
                  *     rather than everything.
@@ -3375,13 +3389,15 @@ export interface operations {
                 since?: string;
                 /**
                  * @description Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
-                 *     (`0:1,0:2`), matched only against rows whose `node` is null.
+                 *     (`0:1,0:2`), matched only against rows whose `node` is null *and* that this server run
+                 *     wrote.
                  *
                  *     Two kinds of row have none. Rows written before the log recorded one, and rows written in
                  *     the window between a channel starting to decode and the workspace binding catching up with
                  *     it. Both are attributable only by the coordinates they *do* carry, and only for the run
-                 *     that wrote them — which is exactly what this names, and why it is the fallback rather than
-                 *     the filter.
+                 *     that wrote them — engine channel ids are allocated per run and reused (CANVAS §3), so `0:1`
+                 *     names a different decoder in every run that had one. Hence the run bound, and hence this
+                 *     being the fallback rather than the filter.
                  */
                 sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
@@ -3432,6 +3448,12 @@ export interface operations {
                  *     channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
                  *     hand a node another node's history after a restart.
                  *
+                 *     Read against the *active* workspace, which is the one whose canvas drew the scope. A node
+                 *     id is unique only within a workspace — templates author theirs as slugs and
+                 *     [`crate::WorkspaceSnapshot::merge_patch`] deduplicates only inside the workspace it merges
+                 *     into — so ids alone would let two workspaces built from the same template read each
+                 *     other's history. Rows written before the server recorded the workspace answer to no id.
+                 *
                  *     Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
                  *     channel, and *both* empty means none, so a node with nothing wired in matches nothing
                  *     rather than everything.
@@ -3447,13 +3469,15 @@ export interface operations {
                 since?: string;
                 /**
                  * @description Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
-                 *     (`0:1,0:2`), matched only against rows whose `node` is null.
+                 *     (`0:1,0:2`), matched only against rows whose `node` is null *and* that this server run
+                 *     wrote.
                  *
                  *     Two kinds of row have none. Rows written before the log recorded one, and rows written in
                  *     the window between a channel starting to decode and the workspace binding catching up with
                  *     it. Both are attributable only by the coordinates they *do* carry, and only for the run
-                 *     that wrote them — which is exactly what this names, and why it is the fallback rather than
-                 *     the filter.
+                 *     that wrote them — engine channel ids are allocated per run and reused (CANVAS §3), so `0:1`
+                 *     names a different decoder in every run that had one. Hence the run bound, and hence this
+                 *     being the fallback rather than the filter.
                  */
                 sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */

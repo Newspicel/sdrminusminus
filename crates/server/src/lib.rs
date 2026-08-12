@@ -1615,7 +1615,7 @@ mod tests {
                     awkward_record("2026-08-09T12:00:01Z"),
                     adsb_record("2026-08-09T12:00:02Z", 0, "4CA2D4", "RYR9AB"),
                 ],
-                &std::collections::HashMap::new(),
+                &crate::store::LogOrigin::unattributed(),
             )
             .expect("insert");
     }
