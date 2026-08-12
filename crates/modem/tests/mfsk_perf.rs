@@ -9,14 +9,14 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-mod mfsk_common;
-
-use mfsk_common::{RATE, mfsk4_burst, modulate};
 use num_complex::Complex;
 use sdrmm_modem::{
-    ber::perf::{
-        PerfBaseline, REGRESSION_FRACTION, compare_perf, host_id, load_baselines,
-        measure_throughput, save_baselines, test_dibits,
+    ber::{
+        catalog::mfsk::{PERF, RATE, mfsk4_burst, modulate},
+        perf::{
+            PerfBaseline, REGRESSION_FRACTION, compare_perf, host_id, load_baselines,
+            measure_throughput, save_baselines, test_dibits,
+        },
     },
     cpm::CpmDemod,
 };
@@ -54,7 +54,7 @@ fn measured_baselines() -> Vec<PerfBaseline> {
 }
 
 fn committed_path() -> std::path::PathBuf {
-    mfsk_common::baseline_path("mfsk_perf.json")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{PERF}.json"))
 }
 
 /// Rewrites the committed baseline. Run deliberately, on the reference machine:

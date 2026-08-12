@@ -1,47 +1,37 @@
-//! `cargo xtask ber <entry>` — run one measurement-harness entry and write its curve to disk
+//! `cargo xtask ber <entry>` — run one measurement-harness entry and write its curves to disk
 //! (MODEM-PLAN §3.1: "`cargo xtask ber <entry>` → CSV/JSON").
 //!
-//! The command is the local face of the harness's CI contract: the same sweep the crate's own
-//! gate tests run, but with the curve landed as files — JSON as the committed-artifact format,
+//! The command is the local face of the harness's CI contract: the same sweeps the crate's own
+//! gate tests run, but with the curves landed as files — JSON as the committed-artifact format,
 //! CSV for plotting — so a curve can be reviewed, diffed, or fed to external tooling without
-//! rerunning anything. PASS/FAIL is judged the way the gates judge it: worst horizontal
-//! penalty against the entry's oracle, held to the phase-0 tolerance of 0.2 dB, and a FAIL is
-//! a nonzero exit so CI and scripts read it without parsing text. The files are written even
-//! on FAIL — a failing curve is exactly the one worth looking at.
+//! rerunning anything. Nothing here defines a chain, a grid, a seed or a budget: those live
+//! with the entry in `sdrmm_modem::ber::catalog`, so a curve this command writes is the same
+//! measurement the crate gates on and not a second one wearing its name. Adding an entry is a
+//! line in that registry; this file does not change.
 //!
-//! Two tiers per entry, mirroring the crate's smoke/full test split (MODEM-PLAN §4.4 CI
-//! policy): the default is the fast smoke subset, `--full` the nightly grid. The full tier
-//! reuses the gate tests' seeds and error budgets on purpose, so a curve this command writes
-//! is bit-identical to what the in-crate gate measured and comparable against the committed
-//! baseline without a seed footnote.
+//! Two tiers per entry, mirroring the crate's smoke/full split (MODEM-PLAN §4.4 CI policy): the
+//! default is the smoke prefix of each committed grid, `--full` the whole grid. Both run at the
+//! committed seed and budgets, so every point is a *reproduction* of its committed point rather
+//! than an independent measurement of the same quantity — which is what lets a drift be read as
+//! a regression.
+//!
+//! PASS/FAIL is judged the way the gates judge it, and a FAIL is a nonzero exit so CI and
+//! scripts read it without parsing text. The files are written even on FAIL — a failing curve
+//! is exactly the one worth looking at.
 
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use sdrmm_modem::ber::{
     Curve,
+    catalog::{self, Entry, Measurement},
     impair::ChannelSpec,
-    reference,
-    sweep::{save_csv, save_json, sweep_ber, worst_penalty_db},
-    theory,
+    sweep::{save_csv, save_json, sweep_ber},
 };
 
-/// The phase-0 calibration tolerance (MODEM-PLAN §7 phase 0): a measured curve within this of
-/// its closed-form oracle. Entries whose reference is commit-and-guard rather than a closed
-/// form will carry their own gate when they land.
-const TOLERANCE_DB: f64 = 0.2;
-
-/// An entry's runner: sweep, write files into the given directory, print the verdict, and
-/// return `Err` on FAIL. `full` selects the nightly grid over the smoke subset.
-type Runner = fn(dir: &Path, full: bool) -> Result<()>;
-
-/// The registry `cargo xtask ber` dispatches on. Later phases add an entry by pushing one
-/// line here and writing its runner below — nothing else in the command changes.
-const ENTRIES: &[(&str, Runner)] = &[("bpsk-ideal", bpsk_ideal)];
-
 pub fn run(root: &Path, entry: &str, out: Option<&Path>, full: bool) -> Result<()> {
-    let Some((_, runner)) = ENTRIES.iter().find(|(name, _)| *name == entry) else {
-        let known: Vec<&str> = ENTRIES.iter().map(|(name, _)| *name).collect();
+    let Some(entry) = catalog::find(entry) else {
+        let known: Vec<&str> = catalog::ENTRIES.iter().map(|e| e.name).collect();
         bail!(
             "unknown ber entry `{entry}`; known entries: {}",
             known.join(", ")
@@ -50,38 +40,107 @@ pub fn run(root: &Path, entry: &str, out: Option<&Path>, full: bool) -> Result<(
     let dir = out.map_or_else(|| root.join("target/ber"), Path::to_path_buf);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("create output directory {}", dir.display()))?;
-    runner(&dir, full)
+    measure(root, entry, &dir, full)
 }
 
-/// The harness's own calibration standard (MODEM-PLAN §4.1): `reference::ideal_bpsk` against
-/// the exact ½·erfc(√γ) form. The error budgets are the gate tests' own, far above the
-/// 100-error floor, because at the shallow low-SNR log-slope a 100-error point's horizontal
-/// confidence interval is wider than the 0.2 dB being judged (see the budget discussion on the
-/// reference tests).
-fn bpsk_ideal(dir: &Path, full: bool) -> Result<()> {
-    let grid: Vec<f64> = if full {
-        (0..=10).map(f64::from).collect()
-    } else {
-        (0..=6).step_by(2).map(f64::from).collect()
-    };
-    let (seed, min_errors, max_trial_bits) = if full {
-        (0x5eed, 10_000, 50_000_000)
-    } else {
-        (0x0b9, 5_000, 4_000_000)
-    };
-    let link = reference::ideal_bpsk();
-    let curve = sweep_ber(
-        &link,
-        &ChannelSpec::default(),
-        &grid,
-        seed,
-        min_errors,
-        max_trial_bits,
+/// Every measurement of the entry, each judged on its own line, with the entry's verdict the
+/// worst of them. All of them run even after one fails: the point of landing files is to look
+/// at the whole entry, and stopping at the first bad curve would hide the rest.
+fn measure(root: &Path, entry: &Entry, dir: &Path, full: bool) -> Result<()> {
+    let mut failures = Vec::new();
+    for m in entry.measurements {
+        let curve = sweep(m, full);
+        print_points(&curve);
+        write_curve(&curve, dir, &m.stem.replace('/', "_"))?;
+        if let Err(fault) = judge(root, m, &curve) {
+            println!("FAIL: {}", fault);
+            failures.push(fault);
+        } else {
+            println!("PASS: {}", m.stem);
+        }
+        println!();
+    }
+    if failures.is_empty() {
+        println!(
+            "PASS: {} ({} measured)",
+            entry.name,
+            entry.measurements.len()
+        );
+        return Ok(());
+    }
+    bail!(
+        "FAIL: {} — {} of {} measurements off their reference:\n  {}",
+        entry.name,
+        failures.len(),
+        entry.measurements.len(),
+        failures.join("\n  ")
     );
-    print_points(&curve);
-    write_curve(&curve, dir, "bpsk_ideal")?;
-    let worst = worst_penalty_db(&curve, theory::bpsk_ber, grid[0], grid[grid.len() - 1]);
-    verdict("bpsk-ideal", "exact ½·erfc(√γ)", worst)
+}
+
+fn sweep(m: &Measurement, full: bool) -> Curve {
+    let tier = m.tier(full);
+    sweep_ber(
+        &(m.link)(),
+        &ChannelSpec::default(),
+        tier.grid,
+        tier.seed,
+        tier.min_errors,
+        tier.max_trial_bits,
+    )
+}
+
+/// The two §4.1 judgements the crate's own gates apply, in the order a reader wants them:
+/// drift from the committed artifact (every entry has one — it is the regression gate), then
+/// the entry's closed-form reference where one exists. A commit-and-guard entry has only the
+/// first, and says so rather than printing a reference it does not have.
+fn judge(root: &Path, m: &Measurement, curve: &Curve) -> std::result::Result<(), String> {
+    let mut faults = Vec::new();
+
+    let path = root.join(m.artifact());
+    match sdrmm_modem::ber::sweep::load_json(&path) {
+        Ok(committed) => match m.drift_db(curve, &committed) {
+            Some(drift) => {
+                println!(
+                    "{}: drift vs committed {drift:+.4} dB (tolerance {} dB)",
+                    m.stem,
+                    catalog::DRIFT_TOLERANCE_DB
+                );
+                if drift.abs() >= catalog::DRIFT_TOLERANCE_DB {
+                    faults.push(format!("{} drifted {drift:+.4} dB", m.stem));
+                }
+            }
+            None => faults.push(format!("{}: the sweep produced no usable point", m.stem)),
+        },
+        // Not a fault: this is how a new entry's first curve is created. It is loud, though —
+        // an unjudged curve is a measurement nobody has checked yet.
+        Err(_) => println!(
+            "{}: no committed artifact at {} — nothing to guard against",
+            m.stem,
+            m.artifact()
+        ),
+    }
+
+    match m.reference_gap(curve) {
+        Some((reference, gap, tolerance)) => {
+            println!(
+                "{}: {gap:+.4} dB vs {reference} (tolerance {tolerance} dB)",
+                m.stem
+            );
+            if gap.abs() >= tolerance {
+                faults.push(format!("{} is {gap:+.4} dB from {reference}", m.stem));
+            }
+        }
+        None => println!(
+            "{}: commit-and-guard — no closed form; the committed curve is the reference",
+            m.stem
+        ),
+    }
+
+    if faults.is_empty() {
+        Ok(())
+    } else {
+        Err(faults.join("; "))
+    }
 }
 
 fn print_points(curve: &Curve) {
@@ -107,18 +166,6 @@ fn write_curve(curve: &Curve, dir: &Path, stem: &str) -> Result<()> {
     Ok(())
 }
 
-/// One PASS/FAIL line against [`TOLERANCE_DB`], with FAIL as a nonzero exit. The penalty is
-/// signed on purpose — a curve *beating* theory past counting noise is a harness bug, so the
-/// gate reads magnitude and the sign stays visible for the reader.
-fn verdict(entry: &str, oracle: &str, worst_db: f64) -> Result<()> {
-    println!("worst penalty vs {oracle}: {worst_db:+.4} dB (tolerance {TOLERANCE_DB} dB)");
-    if worst_db.abs() < TOLERANCE_DB {
-        println!("PASS: {entry}");
-        return Ok(());
-    }
-    bail!("FAIL: {entry} is {worst_db:+.4} dB from its oracle (tolerance {TOLERANCE_DB} dB)");
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,19 +177,42 @@ mod tests {
         let err = run(Path::new("."), "no-such-entry", None, false)
             .expect_err("an unknown entry must not run");
         let msg = err.to_string();
-        for (name, _) in ENTRIES {
-            assert!(msg.contains(name), "{msg:?} does not name {name}");
+        for entry in catalog::ENTRIES {
+            assert!(
+                msg.contains(entry.name),
+                "{msg:?} does not name {}",
+                entry.name
+            );
         }
     }
 
-    /// The command path end-to-end at the smoke tier: bpsk-ideal passes its own gate and both
-    /// file formats land where `--out` pointed. The sweep itself is tested in `sdrmm-modem`;
-    /// this covers the wiring above it.
+    /// Two measurements of one entry must not collide in the output directory. Stems are
+    /// registry paths (`cpm/gmsk_bt03_awgn`); this command flattens them into file names, and
+    /// a flattening that lost a distinction would silently overwrite one curve with another.
+    #[test]
+    fn flattened_stems_stay_unique_within_an_entry() {
+        for entry in catalog::ENTRIES {
+            let mut names: Vec<String> = entry
+                .measurements
+                .iter()
+                .map(|m| m.stem.replace('/', "_"))
+                .collect();
+            let count = names.len();
+            names.sort();
+            names.dedup();
+            assert_eq!(names.len(), count, "{} writes colliding files", entry.name);
+        }
+    }
+
+    /// The command path end-to-end at the smoke tier: the calibration entry passes its own
+    /// gate and both file formats land where `--out` pointed. The sweeps themselves are tested
+    /// in `sdrmm-modem`; this covers the wiring above them.
     #[test]
     fn bpsk_ideal_smoke_passes_and_writes_both_files() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
         let dir = std::env::temp_dir().join(format!("sdrmm-xtask-ber-{}", std::process::id()));
-        run(Path::new("."), "bpsk-ideal", Some(&dir), false).unwrap();
-        for name in ["bpsk_ideal.json", "bpsk_ideal.csv"] {
+        run(&root, "bpsk-ideal", Some(&dir), false).unwrap();
+        for name in ["bpsk_ideal_awgn.json", "bpsk_ideal_awgn.csv"] {
             assert!(dir.join(name).is_file(), "{name} missing");
         }
         std::fs::remove_dir_all(&dir).unwrap();

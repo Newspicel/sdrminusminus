@@ -1,0 +1,70 @@
+{
+  "label": "gmsk BT=0.3 h=0.5 uncoded, CpmMod -> +/-6 kHz front lowpass -> CpmDemod (gaussian-BT0.5 rx, timing bw 0.015), 48 kHz 4800 baud, data-like 96+24+24 symbol overhead in Eb, release, uncoded BER, seed 0x63a3",
+  "points": [
+    {
+      "ebn0_db": 14.0,
+      "errors": 2002,
+      "trials": 61440
+    },
+    {
+      "ebn0_db": 15.0,
+      "errors": 2015,
+      "trials": 69632
+    },
+    {
+      "ebn0_db": 16.0,
+      "errors": 2013,
+      "trials": 129024
+    },
+    {
+      "ebn0_db": 17.0,
+      "errors": 2012,
+      "trials": 207872
+    },
+    {
+      "ebn0_db": 18.0,
+      "errors": 2002,
+      "trials": 317440
+    },
+    {
+      "ebn0_db": 19.0,
+      "errors": 2001,
+      "trials": 528384
+    },
+    {
+      "ebn0_db": 20.0,
+      "errors": 2001,
+      "trials": 973824
+    },
+    {
+      "ebn0_db": 21.0,
+      "errors": 2001,
+      "trials": 2074624
+    },
+    {
+      "ebn0_db": 22.0,
+      "errors": 1734,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 23.0,
+      "errors": 698,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 24.0,
+      "errors": 251,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 25.0,
+      "errors": 89,
+      "trials": 4000768
+    },
+    {
+      "ebn0_db": 26.0,
+      "errors": 33,
+      "trials": 4000768
+    }
+  ]
+}

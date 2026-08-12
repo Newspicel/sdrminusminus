@@ -1,11 +1,11 @@
 //! §5 measurement bundle for the M-ary CPFSK catalog entry (MODEM-PLAN §7 phase 3 accept):
 //! committed BER curves for M ∈ {2, 4, 8}, the §4.3 limits table at the M = 4 reference
 //! configuration, and the level-1 E2E loopbacks. The chains under measurement live in
-//! `mfsk_common`; the committed artifacts live in `baselines/cpm/` and regress here:
+//! `ber::catalog::mfsk`; the committed artifacts live in `baselines/cpm/` and regress here:
 //!
 //! - `mfsk2_cpfsk_awgn.json` — 2FSK h = ½ through discriminator + slicer. Reference policy:
 //!   noncoherent orthogonal 2-FSK theory **plus the documented offset** measured below
-//!   ([`MFSK2_THEORY_OFFSET_DB`]) — the honest closed-form mapping for this tier, since the
+//!   ([`M2_THEORY_OFFSET_DB`]) — the honest closed-form mapping for this tier, since the
 //!   discriminator is neither the coherent nor exactly the noncoherent detector, and the
 //!   chain carries its stated framing overhead in Eb.
 //! - `mfsk4_cpfsk_awgn.json` — the DMR-like reference configuration, commit-and-guard (no
@@ -23,14 +23,19 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-mod mfsk_common;
+use std::path::PathBuf;
 
-use mfsk_common::{
-    BURST_FRAMES, BurstRecipe, baseline_path, mfsk2_link, mfsk2_link_sized, mfsk4_link,
-    mfsk4_link_sized, mfsk8_link, mfsk8_link_sized,
-};
 use sdrmm_modem::ber::{
     Curve,
+    catalog::{
+        FULL_ERRORS,
+        mfsk::{
+            BURST_FRAMES, BurstRecipe, FULL_CAP, M2_AWGN, M2_GRID, M2_OFFSET_TOL_DB, M2_SEED,
+            M2_THEORY_OFFSET_DB, M4_AWGN, M4_GRID, M4_LIMITS, M4_SEED, M8_AWGN, M8_GRID, M8_SEED,
+            RATE, mfsk2_link, mfsk2_link_sized, mfsk4_link, mfsk4_link_sized, mfsk8_link,
+            mfsk8_link_sized,
+        },
+    },
     e2e::{Payloads, channel_at_margin, loopback},
     impair::{Cfo, ChannelSpec, ClockError, Drift, TimingOffset},
     limits::{self, CompositeProfile, Criterion, LimitRow, LimitsTable},
@@ -38,42 +43,14 @@ use sdrmm_modem::ber::{
     theory,
 };
 
-const RATE: f64 = mfsk_common::RATE;
+/// The committed artifacts, resolved from this crate's manifest — the registry states them
+/// workspace-relative, which is what `cargo xtask ber` and the docs-row rule read.
+fn baseline_path(stem: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{stem}.json"))
+}
 
-// --- Committed sweep parameters --------------------------------------------------------------
-//
-// Grids cover each waterfall from its shoulder to past the 1e-4 crossing; chosen off the
-// ignored `probe_grids` run and then fixed — a committed point regenerates from (seed, index).
-
-const M2_GRID: [f64; 9] = [7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
-const M4_GRID: [f64; 15] = [
-    6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0,
-];
-const M8_GRID: [f64; 11] = [
-    10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0,
-];
-
-const M2_SEED: u64 = 0x2f5c;
-const M4_SEED: u64 = 0x4f5c;
-const M8_SEED: u64 = 0x8f5c;
-
-/// Error budget of the committed curves: 2000 errors holds every point's horizontal counting
-/// noise well inside the 0.5 dB smoke gate even on the shallow shoulder; the cap bounds the
-/// steep high-SNR points instead.
-const FULL_ERRORS: u64 = 2_000;
-const FULL_CAP: u64 = 6_000_000;
-
-/// The measured discriminator-vs-theory gap for the M = 2 entry (the catalog row's "theory +
-/// documented offset" reference): dB the measured curve needs beyond noncoherent orthogonal
-/// 2-FSK theory at BER 1e-3. Includes the chain's stated overhead (~1.0 dB of preamble +
-/// sync energy charged to Eb per the label) — the offset documents the *chain*, not the bare
-/// detector. Measured by `measure_mfsk2_full`; the full gate holds it within
-/// [`MFSK2_OFFSET_TOL_DB`].
-const MFSK2_THEORY_OFFSET_DB: f64 = 1.29;
-const MFSK2_OFFSET_TOL_DB: f64 = 0.4;
-
-fn load_curve(name: &str) -> Curve {
-    sweep::load_json(&baseline_path(name)).unwrap()
+fn load_curve(stem: &str) -> Curve {
+    sweep::load_json(&baseline_path(stem)).unwrap()
 }
 
 // --- Always-run harness gates ----------------------------------------------------------------
@@ -117,17 +94,17 @@ fn assert_curve_prefix(link: &Link, grid: &[f64], seed: u64, name: &str) {
 
 #[test]
 fn mfsk2_curve_matches_committed_baseline() {
-    assert_curve_prefix(&mfsk2_link(), &M2_GRID, M2_SEED, "mfsk2_cpfsk_awgn.json");
+    assert_curve_prefix(&mfsk2_link(), M2_GRID, M2_SEED, M2_AWGN);
 }
 
 #[test]
 fn mfsk4_curve_matches_committed_baseline() {
-    assert_curve_prefix(&mfsk4_link(), &M4_GRID, M4_SEED, "mfsk4_cpfsk_awgn.json");
+    assert_curve_prefix(&mfsk4_link(), M4_GRID, M4_SEED, M4_AWGN);
 }
 
 #[test]
 fn mfsk8_curve_matches_committed_baseline() {
-    assert_curve_prefix(&mfsk8_link(), &M8_GRID, M8_SEED, "mfsk8_cpfsk_awgn.json");
+    assert_curve_prefix(&mfsk8_link(), M8_GRID, M8_SEED, M8_AWGN);
 }
 
 /// The M = 2 reference gate, smoke tier: the committed curve itself must sit at theory + the
@@ -135,11 +112,11 @@ fn mfsk8_curve_matches_committed_baseline() {
 /// re-asserts the same bound on fresh measurement.
 #[test]
 fn mfsk2_committed_curve_sits_at_theory_plus_documented_offset() {
-    let committed = load_curve("mfsk2_cpfsk_awgn.json");
+    let committed = load_curve(M2_AWGN);
     let offset = sweep::penalty_db(&committed, |db| theory::mfsk_noncoherent_ber(2, db), 1e-3);
     assert!(
-        (offset - MFSK2_THEORY_OFFSET_DB).abs() < MFSK2_OFFSET_TOL_DB,
-        "measured offset {offset} dB vs documented {MFSK2_THEORY_OFFSET_DB} dB"
+        (offset - M2_THEORY_OFFSET_DB).abs() < M2_OFFSET_TOL_DB,
+        "measured offset {offset} dB vs documented {M2_THEORY_OFFSET_DB} dB"
     );
 }
 
@@ -165,31 +142,21 @@ fn loopback_at_margin(mut link: Link, curve_name: &str, margin_db: f64, seed: u6
 /// ~12.4 dB sensitivity leaves ~zero expected errors across the 2048 trial bits.
 #[test]
 fn mfsk2_loops_back_clean_at_6db_margin() {
-    loopback_at_margin(
-        mfsk2_link_sized(1_024),
-        "mfsk2_cpfsk_awgn.json",
-        6.0,
-        0x2e2e,
-    );
+    loopback_at_margin(mfsk2_link_sized(1_024), M2_AWGN, 6.0, 0x2e2e);
 }
 
 /// +10 dB over the 13.7 dB sensitivity operates near the ~1e-5 clean residual: ~0.06
 /// expected errors over 2 × 2048 bits.
 #[test]
 fn mfsk4_loops_back_clean_at_10db_margin() {
-    loopback_at_margin(
-        mfsk4_link_sized(1_024),
-        "mfsk4_cpfsk_awgn.json",
-        10.0,
-        0x4e2e,
-    );
+    loopback_at_margin(mfsk4_link_sized(1_024), M4_AWGN, 10.0, 0x4e2e);
 }
 
 /// +10 dB over the 18.1 dB sensitivity; the 8-level residual is ~1e-4, so the budget is 2
 /// payloads of 2 hook-framed blocks (2 × 672 bits): ~0.13 expected errors.
 #[test]
 fn mfsk8_loops_back_clean_at_10db_margin() {
-    loopback_at_margin(mfsk8_link_sized(2), "mfsk8_cpfsk_awgn.json", 10.0, 0x8e2e);
+    loopback_at_margin(mfsk8_link_sized(2), M8_AWGN, 10.0, 0x8e2e);
 }
 
 // --- Limits table (§4.3, M = 4 reference configuration) --------------------------------------
@@ -324,7 +291,7 @@ fn measure_rows(link: &Link, op_db: f64) -> Vec<LimitRow> {
 /// pays for no sensitivity resweep; the curve smoke test guards that number.
 #[test]
 fn mfsk4_limits_rows_match_committed_table() {
-    let committed = limits::load_json(&baseline_path("mfsk4_limits.json")).unwrap();
+    let committed = limits::load_json(&baseline_path(M4_LIMITS)).unwrap();
     let op_db = committed.operating_point_db().unwrap();
     let link = mfsk4_link();
     let measured = measure_rows(&link, op_db);
@@ -411,25 +378,25 @@ fn remeasure_curve(link: &Link, grid: &[f64], seed: u64, name: &str) -> Curve {
 #[test]
 #[ignore = "full sweep; run in release to (re)generate the committed curve"]
 fn measure_mfsk2_full() {
-    let curve = remeasure_curve(&mfsk2_link(), &M2_GRID, M2_SEED, "mfsk2_cpfsk_awgn.json");
+    let curve = remeasure_curve(&mfsk2_link(), M2_GRID, M2_SEED, M2_AWGN);
     let offset = sweep::penalty_db(&curve, |db| theory::mfsk_noncoherent_ber(2, db), 1e-3);
     println!("offset vs noncoherent 2-FSK theory at 1e-3: {offset:+.3} dB");
     assert!(
-        (offset - MFSK2_THEORY_OFFSET_DB).abs() < MFSK2_OFFSET_TOL_DB,
-        "measured offset {offset} dB vs documented {MFSK2_THEORY_OFFSET_DB} dB"
+        (offset - M2_THEORY_OFFSET_DB).abs() < M2_OFFSET_TOL_DB,
+        "measured offset {offset} dB vs documented {M2_THEORY_OFFSET_DB} dB"
     );
 }
 
 #[test]
 #[ignore = "full sweep; run in release to (re)generate the committed curve"]
 fn measure_mfsk4_full() {
-    remeasure_curve(&mfsk4_link(), &M4_GRID, M4_SEED, "mfsk4_cpfsk_awgn.json");
+    remeasure_curve(&mfsk4_link(), M4_GRID, M4_SEED, M4_AWGN);
 }
 
 #[test]
 #[ignore = "full sweep; run in release to (re)generate the committed curve"]
 fn measure_mfsk8_full() {
-    remeasure_curve(&mfsk8_link(), &M8_GRID, M8_SEED, "mfsk8_cpfsk_awgn.json");
+    remeasure_curve(&mfsk8_link(), M8_GRID, M8_SEED, M8_AWGN);
 }
 
 /// The full §4.3 table. The sensitivity sweep is parameter-identical to the committed M = 4
@@ -442,7 +409,7 @@ fn measure_mfsk4_limits_full() {
     let sensitivity = limits::measure_sensitivity(
         &link,
         &ChannelSpec::default(),
-        &M4_GRID,
+        M4_GRID,
         M4_SEED,
         FULL_ERRORS,
         FULL_CAP,
@@ -459,7 +426,7 @@ fn measure_mfsk4_limits_full() {
     for row in &table.rows {
         println!("{:<24} {:>12.4} {}", row.axis, row.threshold, row.unit);
     }
-    let path = baseline_path("mfsk4_limits.json");
+    let path = baseline_path(M4_LIMITS);
     if path.exists() {
         let committed = limits::load_json(&path).unwrap();
         if let Err(faults) = limits::compare_tables(&table, &committed, 0.2) {

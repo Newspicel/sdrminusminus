@@ -1,6 +1,7 @@
-//! The M-ary CPFSK catalog entry's measured chains (MODEM-PLAN §5, §7 phase 3) — shared
-//! between the curve/limits/E2E tests (`mfsk_cpfsk.rs`) and the perf baseline
-//! (`mfsk_perf.rs`) so every committed artifact of the entry is taken on the *same* chain.
+//! The M-ary CPFSK catalog entry (MODEM-PLAN §6 CPM row 1): M ∈ {2, 4, 8} measured chains,
+//! shared by every consumer of the entry — the curve/limits/E2E tests, the perf baseline, and
+//! `cargo xtask ber mfsk` — so every committed artifact of the entry is taken on the *same*
+//! chain.
 //!
 //! One reference geometry for all three alphabets: 48 kHz, 4800 baud, 10 samples/symbol —
 //! the DMR-shaped numbers, so the M = 4 configuration doubles as the migration lane's
@@ -24,14 +25,11 @@
 //! and the M = 8 chain carries its level scale on the §3.4 known-symbol hook, the measured
 //! boundary of blind normalisation at 8 levels (see `cpm::demod`'s `PEAK_SYMBOLS` docs).
 
-// Each integration-test binary compiles its own copy and uses a subset.
-#![allow(dead_code)]
-
-use std::path::PathBuf;
-
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
-use sdrmm_modem::{
+
+use super::Measurement;
+use crate::{
     ber::{
         impair::{BurstModel, ChannelSpec},
         rng::Rng,
@@ -266,10 +264,6 @@ pub fn modulate(entry: &Entry, symbols: &[u8]) -> Vec<Complex<f32>> {
     modulator.modulate(symbols, &mut out);
     modulator.flush(&mut out);
     out
-}
-
-pub fn baseline_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/cpm/{name}"))
 }
 
 // --- Steady (continuous) links ---------------------------------------------------------------
@@ -560,3 +554,65 @@ impl BurstRecipe {
         bits
     }
 }
+
+// --- Committed sweep parameters ----------------------------------------------------------------
+//
+// Grids cover each waterfall from its shoulder to past the 1e-4 crossing; chosen off the
+// ignored `probe_grids` run and then fixed — a committed point regenerates from (seed, index).
+
+pub const M2_GRID: &[f64] = &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
+pub const M4_GRID: &[f64] = &[
+    6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0,
+];
+pub const M8_GRID: &[f64] = &[
+    10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0,
+];
+
+pub const M2_SEED: u64 = 0x2f5c;
+pub const M4_SEED: u64 = 0x4f5c;
+pub const M8_SEED: u64 = 0x8f5c;
+
+/// Trial-bit cap per point. Higher than the steady-frame entries' ([`framing::FULL_CAP`]) for
+/// a mechanical reason, not a statistical one: a trial here is 6144 payload symbols behind a
+/// 1500-symbol acquisition preamble, so the cap has to clear several whole trials at the steep
+/// high-SNR points or a point would be one trial's realisation.
+///
+/// [`framing::FULL_CAP`]: super::framing::FULL_CAP
+pub const FULL_CAP: u64 = 6_000_000;
+
+/// The measured discriminator-vs-theory gap for the M = 2 entry: dB the measured curve needs
+/// beyond noncoherent orthogonal 2-FSK theory at BER 1e-3. It includes the chain's stated
+/// overhead (~1.0 dB of preamble + sync energy charged to Eb per the label) — the offset
+/// documents the *chain*, not the bare detector, which is what makes it an honest closed-form
+/// reference for a tier that is neither the coherent nor exactly the noncoherent detector.
+pub const M2_THEORY_OFFSET_DB: f64 = 1.29;
+pub const M2_OFFSET_TOL_DB: f64 = 0.4;
+
+pub const M2_AWGN: &str = "cpm/mfsk2_cpfsk_awgn";
+pub const M4_AWGN: &str = "cpm/mfsk4_cpfsk_awgn";
+pub const M8_AWGN: &str = "cpm/mfsk8_cpfsk_awgn";
+pub const M4_LIMITS: &str = "cpm/mfsk4_limits";
+
+pub const MEASUREMENTS: &[Measurement] = &[
+    Measurement {
+        reference: super::Reference::OffsetOracle {
+            name: "noncoherent orthogonal 2-FSK",
+            ber: m2_theory_ber,
+            at_ber: 1e-3,
+            offset_db: M2_THEORY_OFFSET_DB,
+            tolerance_db: M2_OFFSET_TOL_DB,
+        },
+        ..Measurement::committed(M2_AWGN, mfsk2_link, M2_GRID, M2_SEED, FULL_CAP)
+    },
+    Measurement::committed(M4_AWGN, mfsk4_link, M4_GRID, M4_SEED, FULL_CAP),
+    Measurement::committed(M8_AWGN, mfsk8_link, M8_GRID, M8_SEED, FULL_CAP),
+];
+
+/// The M = 2 row's closed form, as a plain `fn` so the registry stays a constant.
+fn m2_theory_ber(ebn0_db: f64) -> f64 {
+    crate::ber::theory::mfsk_noncoherent_ber(2, ebn0_db)
+}
+
+/// The entry's §4.2 performance baseline, shared with the DMR attachment (the M = 4
+/// configuration is that migration's engine-side reference).
+pub const PERF: &str = "cpm/mfsk_perf";
