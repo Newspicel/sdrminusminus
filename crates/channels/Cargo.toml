@@ -24,6 +24,7 @@ sdrmm-dsp.workspace = true
 sdrmm-modem.workspace = true
 num-complex.workspace = true
 thiserror.workspace = true
+blip25-vocoder.workspace = true
 
 [dev-dependencies]
 rustfft.workspace = true
@@ -34,3 +35,6 @@ serde_json.workspace = true
 # Dev-dependency on ourselves so integration tests see `testgen` (gated on `test-signals`,
 # which `#[cfg(test)]` alone does not enable for tests/ targets).
 sdrmm-channels = { workspace = true, features = ["test-signals"] }
+# Generate known voice frames for the DMR receive-side end-to-end test. Production keeps only
+# the dependency's decode feature enabled.
+blip25-vocoder = { workspace = true, features = ["encode"] }

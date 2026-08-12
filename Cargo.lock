@@ -318,6 +318,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "blip25-vocoder"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f9aee7245798876b2d5abe6e641acbc2fc9fee3facab0972b29894e973f2382"
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3902,6 +3908,7 @@ dependencies = [
 name = "sdrmm-channels"
 version = "0.0.0"
 dependencies = [
+ "blip25-vocoder",
  "num-complex",
  "rustfft",
  "sdrmm-channels",

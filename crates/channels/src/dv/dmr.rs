@@ -9,10 +9,11 @@
 //!   and data type — and 196 bits of BPTC(196,96) product code around it, which unpacks into a
 //!   voice LC header, a terminator, a CSBK or a data header. The link control's Reed-Solomon
 //!   (12,9) parity is masked per frame type, so verifying it also *confirms* the frame type.
-//! * **Voice bursts** carry a QR(16,7,6) embedded signalling field instead of a sync, and
-//!   bursts B to E of a superframe carry one quarter each of a BPTC(128,77) embedded link
-//!   control. That is the late-entry path: a receiver that joins a call in progress learns who
-//!   is talking within 240 ms rather than waiting for the next transmission.
+//! * **Voice bursts** carry three conventional AMBE+2 3,600 x 2,450 frames. Their DMR
+//!   interleave is removed, their two Golay codewords are corrected, and the 8 kHz vocoder PCM
+//!   is resampled onto the application's 48 kHz audio plane. Bursts B to E also carry one
+//!   quarter each of a BPTC(128,77) embedded link control. That is the late-entry path: a
+//!   receiver that joins a call in progress learns who is talking within 240 ms.
 //!
 //! Only burst A of a voice superframe has a sync to find, so B to F are located by counting:
 //! the superframe is six bursts one 60 ms TDMA frame apart, in the slot the sync arrived on.
@@ -23,8 +24,12 @@
 
 use std::sync::LazyLock;
 
+use blip25_vocoder::{
+    halfrate::frame::decode_code_vectors,
+    vocoder::{FrameStatus, Rate, Vocoder},
+};
 use num_complex::Complex;
-use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, crc16_msb, rs129_parity};
+use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, FracResampler, crc16_msb, rs129_parity};
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DmrParams, DvFrame,
@@ -32,7 +37,10 @@ use sdrmm_wire::{
 };
 
 use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params, pack_bytes};
-use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
+use crate::{
+    AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
+    check_input_rate, clamp_full_scale,
+};
 
 const BAUD: f64 = 4_800.0;
 /// Outer-symbol deviation of a 12.5 kHz C4FM transmitter (ETSI TS 102 361-1 §4.2.2).
@@ -48,7 +56,7 @@ const HALF_PAYLOAD_BITS: usize = 108;
 const TRAILING_SYMBOLS: usize = HALF_PAYLOAD_BITS / 2;
 
 /// Symbols in one 30 ms TDMA slot. The 132-symbol burst occupies 27.5 ms of it; the remaining
-/// 2.5 ms is the CACH a repeater sends and the guard time a radio keys down for
+/// 2.5 ms is the CACH a repeater sends or the guard time during which a radio is keyed off
 /// (ETSI TS 102 361-1 §4.2.2), so a slot is *longer* than the burst it carries.
 const SLOT_SYMBOLS: usize = 144;
 
@@ -70,18 +78,22 @@ const DT_DATA_HEADER: u8 = 0x6;
 /// CRC masks that make a frame type part of its own integrity check (§B.3.11).
 const VOICE_LC_HEADER_MASK: [u8; 3] = [0x96, 0x96, 0x96];
 const TERMINATOR_LC_MASK: [u8; 3] = [0x99, 0x99, 0x99];
+const PI_HEADER_MASK: u16 = 0x6969;
 const CSBK_MASK: u16 = 0xA5A5;
 const DATA_HEADER_MASK: u16 = 0xCCCC;
 
 /// Full link control: 72 bits of addressing plus 24 of Reed-Solomon parity.
 const LC_BITS: usize = 72;
+const VOCODER_FRAME_BITS: usize = 72;
+const VOCODER_FRAMES_PER_BURST: usize = 3;
+const VOCODER_RATE_HZ: f64 = 8_000.0;
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "dmr".to_owned(),
     name: "DMR".to_owned(),
     bandwidth_hz: BANDWIDTH_HZ,
     input_rate_hz: INPUT_RATE_HZ,
-    has_audio: false,
+    has_audio: true,
     decoder_kind: Some("dv".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -225,6 +237,10 @@ struct Decoder {
     embedded: Vec<bool>,
     /// Bit errors repaired in the frames that built the embedded link control.
     embedded_errors: u32,
+    /// Privacy comes from the LC service options or a standalone PI header, never from the
+    /// embedded field's PI bit (which §9.3.2 defines as pre-emption/reverse-channel routing).
+    encrypted: Option<bool>,
+    voice: VoiceDecoder,
 }
 
 impl Decoder {
@@ -239,6 +255,8 @@ impl Decoder {
             bytes: Vec::with_capacity(BURST_BITS / 8),
             embedded: Vec::with_capacity(Bptc128::CODED_BITS),
             embedded_errors: 0,
+            encrypted: None,
+            voice: VoiceDecoder::new(),
         }
     }
 
@@ -249,6 +267,8 @@ impl Decoder {
         self.followers = 0;
         self.embedded.clear();
         self.embedded_errors = 0;
+        self.encrypted = None;
+        self.voice.reset();
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
@@ -292,6 +312,8 @@ impl Decoder {
         if voice {
             // Burst A of a voice superframe: no signalling of its own, but it anchors the
             // five that follow, which carry the embedded link control.
+            self.window.bits(0, BURST_SYMBOLS, &mut self.bits);
+            self.voice_payload(slot, out);
             self.followers = 5;
             self.schedule_follower(slot);
             return;
@@ -301,6 +323,21 @@ impl Decoder {
         let Some(frame) = self.data_burst(slot) else {
             return;
         };
+        match frame.kind {
+            DvFrameKind::Header => {
+                if let Some(encrypted) = frame.encrypted {
+                    self.encrypted = Some(encrypted);
+                }
+                // A header starts a new codec stream. Repeated headers may reset this more
+                // than once, but no voice frame has arrived between them.
+                self.voice.reset();
+            }
+            DvFrameKind::Terminator => {
+                self.encrypted = None;
+                self.voice.reset();
+            }
+            _ => {}
+        }
         self.emit(frame, out);
     }
 
@@ -317,9 +354,30 @@ impl Decoder {
     fn voice_burst(&mut self, slot: Option<u8>, out: &mut ChannelOutputs) {
         self.window.bits(0, BURST_SYMBOLS, &mut self.bits);
         if let Some(frame) = self.embedded_signalling(slot) {
+            if let Some(encrypted) = frame.encrypted {
+                self.encrypted = Some(encrypted);
+            }
             self.emit(frame, out);
         }
+        self.voice_payload(slot, out);
         self.schedule_follower(slot);
+    }
+
+    /// Decode the 216-bit vocoder socket (§6.1), preserving the three contiguous 72-bit
+    /// frame order while skipping the burst's centre sync/embedded field.
+    fn voice_payload(&mut self, slot: Option<u8>, out: &mut ChannelOutputs) {
+        if slot.is_some_and(|slot| !self.params.slots.accepts(slot)) {
+            return;
+        }
+        let mut payload = [false; VOCODER_FRAME_BITS * VOCODER_FRAMES_PER_BURST];
+        payload[..HALF_PAYLOAD_BITS].copy_from_slice(&self.bits[..HALF_PAYLOAD_BITS]);
+        payload[HALF_PAYLOAD_BITS..].copy_from_slice(&self.bits[156..]);
+        for frame in payload.as_chunks::<VOCODER_FRAME_BITS>().0 {
+            // A late-entry receiver does not know privacy until embedded LC completes in
+            // burst E. Mute that short unknown prefix rather than vocoding ciphertext as
+            // noise; a conventional header establishes Some(false) before burst A.
+            self.voice.decode(frame, self.encrypted != Some(false), out);
+        }
     }
 
     fn emit(&self, frame: DvFrame, out: &mut ChannelOutputs) {
@@ -362,10 +420,11 @@ impl Decoder {
                 frame.kind = DvFrameKind::Data;
                 frame
             }
-            // A privacy indicator header says the payload that follows is encrypted, and
-            // nothing else this decoder can read — its own fields are encrypted too.
+            // A privacy indicator header says the payload that follows is encrypted. Its
+            // undisclosed fields are opaque, but §B.3.11 still requires its masked CRC.
             DT_PI_HEADER => {
-                let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Header);
+                let mut frame = self.checked_block(&payload, PI_HEADER_MASK)?;
+                frame.kind = DvFrameKind::Header;
                 frame.encrypted = Some(true);
                 frame
             }
@@ -408,14 +467,32 @@ impl Decoder {
         let mut frame = self.checked_block(payload, CSBK_MASK)?;
         let opcode = bits_to_u32(payload, 2, 6) as u8;
         frame.opcode = Some(csbk_opcode_name(opcode).to_owned());
-        // Preamble, and the call setup/teardown opcodes, all carry destination then source in
-        // the last 48 bits of the block. The ones that do not are named but not read.
+        // These PDUs place target then source in their final 48 bits. Other opcode layouts
+        // are named but not guessed at: for example ALOHA has only one address there.
         if matches!(
             opcode,
-            0x03 | 0x04 | 0x05 | 0x26 | 0x27 | 0x28 | 0x38 | 0x3D
+            0b000100
+                | 0b000101
+                | 0b101110
+                | 0b101111
+                | 0b110000
+                | 0b110001
+                | 0b110010
+                | 0b110101
+                | 0b111000
+                | 0b111101
         ) {
             frame.destination = Some(bits_to_u32(payload, 32, 24));
             frame.source = Some(bits_to_u32(payload, 56, 24));
+        } else if opcode == 0b100110 {
+            // NACK reverses that order: source then target (§7.1.2.4).
+            frame.source = Some(bits_to_u32(payload, 32, 24));
+            frame.destination = Some(bits_to_u32(payload, 56, 24));
+        }
+        match opcode {
+            0b110001 | 0b110010 => frame.group_call = Some(true),
+            0b000100 | 0b000101 | 0b110000 | 0b110101 => frame.group_call = Some(false),
+            _ => {}
         }
         Some(frame)
     }
@@ -427,7 +504,6 @@ impl Decoder {
             | u64::from(bits_to_u32(&self.bits, 148, 8));
         let (info, errors) = CyclicCode::QR_16_7.decode(emb)?;
         let colour = (info >> 3) as u16 & 0x0F;
-        let encrypted = info >> 2 & 1 == 1;
         let lcss = info & 0b11;
 
         // 00 is a single-fragment reverse-channel word this decoder has no use for; the other
@@ -474,7 +550,6 @@ impl Decoder {
         frame.kind = DvFrameKind::Voice;
         frame.slot = slot;
         frame.color_code = Some(colour);
-        frame.encrypted = Some(encrypted);
         frame.errors_corrected = self.embedded_errors + bptc_errors;
         Some(frame)
     }
@@ -501,22 +576,136 @@ fn decode_lc(lc: &[bool]) -> DvFrame {
 
 fn csbk_opcode_name(opcode: u8) -> &'static str {
     match opcode {
-        0x00 => "BS outbound activation",
-        0x03 => "unit-to-unit voice service request",
-        0x04 => "unit-to-unit voice service answer",
-        0x05 => "channel timing",
-        0x06 => "negative acknowledge response",
-        0x07 => "call alert",
-        0x08 => "call alert acknowledge",
-        0x24 => "ALOHA",
-        0x26 => "unit registration request",
-        0x27 => "unit registration response",
-        0x28 => "group voice channel grant",
-        0x2A => "private voice channel grant",
-        0x30 => "protect",
-        0x38 => "preamble",
-        0x3D => "talkgroup voice channel grant",
+        // TS 102 361-2 V2.5.1 Annex B.2. The published values are binary, not hex.
+        0b000100 => "unit-to-unit voice service request",
+        0b000101 => "unit-to-unit voice service answer response",
+        0b000111 => "channel timing",
+        0b100110 => "negative acknowledge response",
+        0b111000 => "BS outbound activation",
+        0b111101 => "preamble",
+        // TS 102 361-4 V1.12.1 Annex B.1.
+        0b011001 => "ALOHA",
+        0b011100 => "AHOY",
+        0b101110 => "clear",
+        0b101111 => "protect",
+        0b110000 => "private voice channel grant",
+        0b110001 => "talkgroup voice channel grant",
+        0b110010 => "broadcast talkgroup voice channel grant",
+        0b110101 => "duplex private voice channel grant",
         _ => "CSBK",
+    }
+}
+
+/// DMR's AMBE+2 interleave lands the two transmitted bits of each dibit in separate codec code
+/// vectors. Rows are c0..c3 and columns are their LSB-based bit indices (24, 23, 11 and 14 bits).
+/// This mapping belongs to the conventional vocoder fitted to the standard's codec-agnostic
+/// 216-bit socket; it is intentionally separate from the ETSI burst interleave. The schedule
+/// is independently published as the ISC-licensed DSD `dmr_const.h` rW/rX/rY/rZ tables.
+const AMBE_DMR_INTERLEAVE: [[(u8, u8); 2]; 36] = [
+    [(0, 23), (0, 5)],
+    [(1, 10), (2, 3)],
+    [(0, 22), (0, 4)],
+    [(1, 9), (2, 2)],
+    [(0, 21), (0, 3)],
+    [(1, 8), (2, 1)],
+    [(0, 20), (0, 2)],
+    [(1, 7), (2, 0)],
+    [(0, 19), (0, 1)],
+    [(1, 6), (3, 13)],
+    [(0, 18), (0, 0)],
+    [(1, 5), (3, 12)],
+    [(0, 17), (1, 22)],
+    [(1, 4), (3, 11)],
+    [(0, 16), (1, 21)],
+    [(1, 3), (3, 10)],
+    [(0, 15), (1, 20)],
+    [(1, 2), (3, 9)],
+    [(0, 14), (1, 19)],
+    [(1, 1), (3, 8)],
+    [(0, 13), (1, 18)],
+    [(1, 0), (3, 7)],
+    [(0, 12), (1, 17)],
+    [(2, 10), (3, 6)],
+    [(0, 11), (1, 16)],
+    [(2, 9), (3, 5)],
+    [(0, 10), (1, 15)],
+    [(2, 8), (3, 4)],
+    [(0, 9), (1, 14)],
+    [(2, 7), (3, 3)],
+    [(0, 8), (1, 13)],
+    [(2, 6), (3, 2)],
+    [(0, 7), (1, 12)],
+    [(2, 5), (3, 1)],
+    [(0, 6), (1, 11)],
+    [(2, 4), (3, 0)],
+];
+
+fn ambe_code_vectors(frame: &[bool; VOCODER_FRAME_BITS]) -> [u32; 4] {
+    let mut code = [0u32; 4];
+    for (dibit, places) in frame.as_chunks::<2>().0.iter().zip(AMBE_DMR_INTERLEAVE) {
+        for (&bit, (row, column)) in dibit.iter().zip(places) {
+            code[usize::from(row)] |= u32::from(bit) << column;
+        }
+    }
+    code
+}
+
+struct VoiceDecoder {
+    vocoder: Vocoder,
+    resampler: FracResampler,
+    pcm_8k: Vec<Complex<f32>>,
+    pcm_48k: Vec<Complex<f32>>,
+}
+
+impl VoiceDecoder {
+    fn new() -> Self {
+        Self {
+            vocoder: Vocoder::new(Rate::HalfRate3600x2450),
+            resampler: FracResampler::new(f64::from(AUDIO_RATE) / VOCODER_RATE_HZ),
+            pcm_8k: Vec::with_capacity(160),
+            pcm_48k: Vec::with_capacity(960),
+        }
+    }
+
+    fn reset(&mut self) {
+        self.vocoder.reset();
+        self.resampler = FracResampler::new(f64::from(AUDIO_RATE) / VOCODER_RATE_HZ);
+        self.pcm_8k.clear();
+        self.pcm_48k.clear();
+    }
+
+    fn decode(
+        &mut self,
+        bits: &[bool; VOCODER_FRAME_BITS],
+        encrypted: bool,
+        out: &mut ChannelOutputs,
+    ) {
+        if encrypted {
+            out.audio_pcm.extend(std::iter::repeat_n(0.0, 960));
+            out.audio_rate = AUDIO_RATE;
+            return;
+        }
+        let frame = decode_code_vectors(ambe_code_vectors(bits));
+        let status = if frame.errors[0] == u8::MAX {
+            FrameStatus::LOST
+        } else {
+            FrameStatus::new(u32::from(frame.error_total()), false)
+        };
+        let Ok(pcm) = self.vocoder.decode_info(&frame.info, status) else {
+            return;
+        };
+        self.pcm_8k.clear();
+        self.pcm_8k.extend(
+            pcm.into_iter()
+                .map(|sample| Complex::new(f32::from(sample) / 32_768.0, 0.0)),
+        );
+        self.resampler.process(&self.pcm_8k, &mut self.pcm_48k);
+        out.audio_pcm
+            .extend(self.pcm_48k.iter().map(|sample| sample.re));
+        clamp_full_scale(&mut out.audio_pcm);
+        if !self.pcm_48k.is_empty() {
+            out.audio_rate = AUDIO_RATE;
+        }
     }
 }
 
@@ -529,6 +718,7 @@ fn dmr_crc16(data: &[u8]) -> u16 {
 
 #[cfg(test)]
 mod tests {
+    use blip25_vocoder::halfrate::frame::encode_code_vectors;
     use sdrmm_wire::DmrSlots;
 
     use super::*;
@@ -544,7 +734,64 @@ mod tests {
         .expect("dmr channel")
     }
 
-    /// A direct-mode call's repeated header, one voice superframe, and its terminator, keyed
+    fn dmr_interleave(code: &[u32; 4]) -> [bool; VOCODER_FRAME_BITS] {
+        let mut out = [false; VOCODER_FRAME_BITS];
+        for (dibit, places) in out
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .zip(AMBE_DMR_INTERLEAVE)
+        {
+            for (bit, (row, column)) in dibit.iter_mut().zip(places) {
+                *bit = code[usize::from(row)] >> column & 1 == 1;
+            }
+        }
+        out
+    }
+
+    fn encoded_tone_sockets() -> [[bool; 216]; 6] {
+        let mut encoder = Vocoder::new(Rate::HalfRate3600x2450);
+        let mut sockets = [[false; 216]; 6];
+        for frame_no in 0..18 {
+            let pcm: [i16; 160] = std::array::from_fn(|i| {
+                let sample = frame_no * 160 + i;
+                (12_000.0 * (std::f64::consts::TAU * 440.0 * sample as f64 / 8_000.0).sin()) as i16
+            });
+            let info: [u16; 4] = encoder
+                .encode_info(&pcm)
+                .expect("encode AMBE tone")
+                .try_into()
+                .expect("half-rate info vectors");
+            let air = dmr_interleave(&encode_code_vectors(&info));
+            let burst = frame_no / 3;
+            let at = frame_no % 3 * VOCODER_FRAME_BITS;
+            sockets[burst][at..at + VOCODER_FRAME_BITS].copy_from_slice(&air);
+        }
+        sockets
+    }
+
+    fn decode_audio(iq: &[Complex<f32>]) -> (Vec<DvFrame>, Vec<f32>) {
+        let mut chan = channel(DmrSlots::Both);
+        let mut out = ChannelOutputs::default();
+        let mut frames = Vec::new();
+        let mut audio = Vec::new();
+        let quiet = crate::testutil::complex_noise(0x1157, 0.01, 4 * INPUT_RATE_HZ as usize / 10);
+        chan.process(&quiet, &mut out);
+        for block in iq.chunks(997) {
+            out.reset();
+            chan.process(block, &mut out);
+            audio.extend_from_slice(&out.audio_pcm);
+            for event in out.events.drain(..) {
+                let DecoderEvent::Dv(frame) = event else {
+                    panic!("unexpected event")
+                };
+                frames.push(frame);
+            }
+        }
+        (frames, audio)
+    }
+
+    /// A direct-mode call's header, one voice superframe, and its terminator, keyed
     /// the way a TDMA radio keys: 132 symbols on the air in every 288, the rest dead.
     ///
     /// The embedded link control is asserted too — the late-entry path, four consecutive
@@ -568,14 +815,13 @@ mod tests {
         assert_eq!(header.destination, Some(call.destination));
         assert_eq!(header.source, Some(call.source));
 
-        // Every header a radio sends carries the same link control, so a decoder that framed
-        // them all found them all. The bound is what the residual above costs: a handful of
-        // bits the product code absorbs, not the tens a mis-framed burst would need.
+        // The bound is what the acquisition residual costs: a handful of bits the product code
+        // absorbs, not the tens a mis-framed burst would need.
         let headers: Vec<&DvFrame> = frames
             .iter()
             .filter(|f| f.kind == DvFrameKind::Header)
             .collect();
-        assert_eq!(headers.len(), 3, "not every repeated header decoded");
+        assert_eq!(headers.len(), 1, "voice LC header decoded more than once");
         for header in headers {
             assert!(
                 header.errors_corrected <= 4,
@@ -599,6 +845,51 @@ mod tests {
         assert_eq!(terminator.destination, Some(call.destination));
         assert_eq!(terminator.source, Some(call.source));
         assert_eq!(terminator.color_code, Some(u16::from(call.color_code)));
+    }
+
+    /// Three 20 ms AMBE+2 frames in each of six voice bursts make one continuous 360 ms audio
+    /// superframe on the application's 48 kHz plane.
+    #[test]
+    fn decodes_voice_to_audio() {
+        let call = tx::Call::default();
+        let iq = tx::transmission_with_voice(&call, &encoded_tone_sockets(), INPUT_RATE_HZ);
+        let (_, audio) = decode_audio(&iq);
+        assert!(
+            (audio.len() as isize - (18 * 160 * 6) as isize).abs() <= 1,
+            "not every vocoder frame decoded: {} samples",
+            audio.len()
+        );
+        assert!(audio.iter().all(|sample| sample.is_finite()));
+        assert!(audio.iter().all(|sample| sample.abs() <= 1.0));
+        let settled = &audio[3 * 960..];
+        let rms = crate::testutil::rms(settled);
+        let (frequency, _) = crate::testutil::dominant_tone(settled, f64::from(AUDIO_RATE));
+        assert!(rms > 0.01, "decoded tone is silent: rms {rms}");
+        assert!(
+            (frequency - 440.0).abs() < 40.0,
+            "decoded tone shifted to {frequency} Hz"
+        );
+    }
+
+    /// Privacy is the second service-options bit in the full LC. The embedded PI bit is a
+    /// reverse-channel routing indicator and must not overwrite it; encrypted payload is muted.
+    #[test]
+    fn encrypted_calls_are_reported_and_muted() {
+        let call = tx::Call {
+            encrypted: true,
+            ..tx::Call::default()
+        };
+        let iq = tx::transmission(&call, INPUT_RATE_HZ);
+        let (frames, audio) = decode_audio(&iq);
+        assert!(
+            frames
+                .iter()
+                .filter(|frame| matches!(frame.kind, DvFrameKind::Header | DvFrameKind::Voice))
+                .all(|frame| frame.encrypted == Some(true)),
+            "privacy was lost in late-entry signalling: {frames:?}"
+        );
+        assert!(!audio.is_empty());
+        assert!(audio.iter().all(|&sample| sample == 0.0));
     }
 
     /// Off the air, which is the only place the front end meets a real TDMA transmitter: a
@@ -630,10 +921,12 @@ mod tests {
         let mut out = ChannelOutputs::default();
         let mut filtered = Vec::new();
         let mut frames = Vec::new();
+        let mut audio = Vec::new();
         for block in iq.chunks(997) {
             filter.process(block, &mut filtered);
             out.reset();
             chan.process(&filtered, &mut out);
+            audio.extend_from_slice(&out.audio_pcm);
             for event in out.events.drain(..) {
                 let DecoderEvent::Dv(frame) = event else {
                     panic!("unexpected event")
@@ -664,6 +957,19 @@ mod tests {
             assert_eq!(frame.source, Some(12_345_678));
             assert_eq!(frame.destination, Some(12_345_678));
         }
+        assert!(
+            audio.len() >= 18 * 160 * 6,
+            "no complete off-air audio superframe"
+        );
+        assert!(audio.iter().all(|sample| sample.is_finite()));
+        let rms = crate::testutil::rms(&audio);
+        let peak = audio
+            .iter()
+            .fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+        assert!(
+            rms > 0.001 && peak > 0.01,
+            "off-air voice produced no signal: rms {rms}, peak {peak}, frames {frames:?}"
+        );
     }
 
     #[test]
@@ -685,7 +991,7 @@ mod tests {
 
     #[test]
     fn decodes_a_csbk() {
-        let iq = tx::csbk(3, 0x38, 505, 2_621_001, INPUT_RATE_HZ);
+        let iq = tx::csbk(3, 0b111101, 505, 2_621_001, INPUT_RATE_HZ);
         let frames = decode(&mut channel(DmrSlots::Both), &iq);
         let csbk = frames
             .iter()
@@ -695,6 +1001,24 @@ mod tests {
         assert_eq!(csbk.opcode.as_deref(), Some("preamble"));
         assert_eq!(csbk.destination, Some(505));
         assert_eq!(csbk.source, Some(2_621_001));
+    }
+
+    #[test]
+    fn csbk_opcodes_are_the_specs_six_bit_binary_values() {
+        for (opcode, name) in [
+            (0b000100, "unit-to-unit voice service request"),
+            (0b000101, "unit-to-unit voice service answer response"),
+            (0b000111, "channel timing"),
+            (0b100110, "negative acknowledge response"),
+            (0b111000, "BS outbound activation"),
+            (0b111101, "preamble"),
+            (0b011001, "ALOHA"),
+            (0b101111, "protect"),
+            (0b110000, "private voice channel grant"),
+            (0b110001, "talkgroup voice channel grant"),
+        ] {
+            assert_eq!(csbk_opcode_name(opcode), name, "opcode {opcode:06b}");
+        }
     }
 
     /// The slot filter drops what the operator asked not to see, and the generator transmits

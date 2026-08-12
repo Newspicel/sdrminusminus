@@ -20,7 +20,7 @@ const DEVIATION_HZ: f64 = 1_944.0;
 const RRC_ALPHA: f64 = 0.2;
 
 /// Symbols in a 30 ms timeslot, of which the 264-bit burst is 132 (27.5 ms). A direct-mode
-/// radio keys down for the remaining 2.5 ms of guard time and for the whole of the other
+/// radio keys off for the remaining 2.5 ms of guard time and for the whole of the other
 /// slot — so it transmits 132 symbols in every 288, and this generator has to key off for the
 /// other 156 or it would not be exercising a TDMA receiver at all.
 const SLOT_SYMBOLS: usize = 144;
@@ -30,6 +30,7 @@ const BURST_SYMBOLS: usize = 132;
 pub struct Call {
     pub color_code: u8,
     pub group: bool,
+    pub encrypted: bool,
     pub destination: u32,
     pub source: u32,
 }
@@ -39,6 +40,7 @@ impl Default for Call {
         Self {
             color_code: 1,
             group: true,
+            encrypted: false,
             destination: 505,
             source: 2_621_001,
         }
@@ -51,41 +53,55 @@ impl Call {
     pub fn link_control(&self) -> Vec<bool> {
         let flco = u64::from(!self.group) * 3;
         let mut lc = bits(flco, 8);
-        // Feature set id 0 (ETSI standard) and no service options.
+        // Feature set id 0 (ETSI standard), then service options whose second bit is privacy.
         lc.extend(bits(0, 8));
-        lc.extend(bits(0, 8));
+        lc.extend(bits(u64::from(self.encrypted) << 6, 8));
         lc.extend(bits(u64::from(self.destination), 24));
         lc.extend(bits(u64::from(self.source), 24));
         lc
     }
 }
 
-/// The voice LC header a radio repeats at the head of a call, a voice superframe whose embedded
+/// The voice LC header a radio sends at the head of a call, a voice superframe whose embedded
 /// link control repeats the same addressing, and a terminator — each keyed for its own 30 ms
 /// slot with the rest of the 60 ms TDMA frame dead, as a direct-mode radio transmits.
 #[must_use]
 pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
+    let voice = std::array::from_fn(|_| {
+        let mut payload = [false; 216];
+        payload[..108].copy_from_slice(&filler(108, u32::from(call.color_code) + 17));
+        payload[108..].copy_from_slice(&filler(108, u32::from(call.color_code) + 23));
+        payload
+    });
+    transmission_with_voice(call, &voice, rate)
+}
+
+/// The same independently-framed transmission with caller-provided, already encoded vocoder
+/// sockets. This seam lets receive tests generate AMBE frames without putting a production
+/// encoder in the channel.
+#[must_use]
+pub(crate) fn transmission_with_voice(
+    call: &Call,
+    voice: &[[bool; 216]; 6],
+    rate: f64,
+) -> Vec<Complex<f32>> {
     let mut tx = Keyed::default();
-    // Three headers, as radios send: a receiver has only the keyed part of each frame to learn
-    // its clock, centre and level from, and the protocol allows for the first burst arriving
-    // before it has.
-    for _ in 0..3 {
-        tx.burst(&data_burst(
-            call,
-            DT_VOICE_LC_HEADER,
-            &lc_with_parity(call, [0x96, 0x96, 0x96]),
-        ));
-    }
+    // Conventional voice initiation is one LC header followed by voice burst A (§5.1.2.2).
+    tx.burst(&data_burst(
+        call,
+        DT_VOICE_LC_HEADER,
+        &lc_with_parity(call, [0x96, 0x96, 0x96]),
+    ));
 
     let embedded = Bptc128::encode(&embedded_block(call));
     // Burst A carries the sync; B to E one quarter each of the embedded link control; F the
     // null fragment that closes the superframe.
-    tx.burst(&voice_burst(call, None));
+    tx.burst(&voice_burst(call, None, &voice[0]));
     for (i, lcss) in [0b01u8, 0b11, 0b11, 0b10].into_iter().enumerate() {
         let fragment: Vec<bool> = embedded[i * 32..(i + 1) * 32].to_vec();
-        tx.burst(&voice_burst(call, Some((lcss, fragment))));
+        tx.burst(&voice_burst(call, Some((lcss, fragment)), &voice[i + 1]));
     }
-    tx.burst(&voice_burst(call, Some((0b00, vec![false; 32]))));
+    tx.burst(&voice_burst(call, Some((0b00, vec![false; 32])), &voice[5]));
 
     tx.burst(&data_burst(
         call,
@@ -128,7 +144,7 @@ pub fn csbk(
 }
 
 /// The symbol stream a direct-mode radio puts on the air: its own burst, then the guard time
-/// and the other radio's slot, which it spends keyed down.
+/// and the other radio's slot, which it spends keyed off.
 #[derive(Default)]
 struct Keyed {
     symbols: Vec<Option<u8>>,
@@ -224,8 +240,8 @@ fn data_burst(call: &Call, data_type: u8, payload: &[bool]) -> Vec<bool> {
 
 /// A 264-bit voice burst: filler where the vocoder frames go, and either the sync (burst A) or
 /// an embedded signalling field with one quarter of the link control (bursts B to F).
-fn voice_burst(call: &Call, embedded: Option<(u8, Vec<bool>)>) -> Vec<bool> {
-    let mut burst = filler(108, u32::from(call.color_code) + 17);
+fn voice_burst(call: &Call, embedded: Option<(u8, Vec<bool>)>, vocoder: &[bool; 216]) -> Vec<bool> {
+    let mut burst = vocoder[..108].to_vec();
     match embedded {
         None => burst.extend(bits(VOICE_SYNC, 48)),
         Some((lcss, fragment)) => {
@@ -236,7 +252,7 @@ fn voice_burst(call: &Call, embedded: Option<(u8, Vec<bool>)>) -> Vec<bool> {
             burst.extend(bits(emb & 0xFF, 8));
         }
     }
-    burst.extend(filler(108, u32::from(call.color_code) + 23));
+    burst.extend(&vocoder[108..]);
     burst
 }
 

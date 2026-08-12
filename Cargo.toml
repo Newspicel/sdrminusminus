@@ -109,6 +109,9 @@ rtrb = "0.3"
 
 # Audio (libopus via vendored build, PLAN §9)
 opus = "0.3"
+# DMR's standardized vocoder socket is codec-agnostic, but interoperable Tier II/III radios
+# conventionally carry three AMBE+2 3,600 x 2,450 frames in it.
+blip25-vocoder = { version = "1.0", default-features = false, features = ["decode"] }
 
 # Persistence
 rusqlite = { version = "0.40", features = ["bundled"] }

@@ -1,12 +1,10 @@
 //! Digital-voice decoders (PLAN §13 wave 3): DMR, D-Star, System Fusion, NXDN, P25 Phase 1,
 //! dPMR and M17.
 //!
-//! **These decode the call, not the voice.** Every mode but M17 carries an AMBE-family vocoder
-//! (AMBE+2, IMBE, AMBE2+ under its various names) and this build ships no vocoder, so no
-//! digital-voice channel produces audio — `has_audio` is false for all seven. What they do
-//! produce is the signalling around the payload: who transmitted, to which talkgroup or
-//! callsign, on which colour code or network, through which repeater, encrypted or not. That is
-//! what a scanner log is made of, and it is decodable without a vocoder.
+//! DMR decodes its conventional AMBE+2 vocoder socket to audio. The other six modes currently
+//! decode the call but not the voice: their IMBE/AMBE/Codec2 payloads are left where they are,
+//! while the signalling around them still reports who transmitted, to which talkgroup or
+//! callsign, on which colour code or network, encrypted or not.
 //!
 //! Six of the seven share a front end — the four-level CPFSK entry of the modulation library
 //! ([`sdrmm_modem::cpm`]), at 4800 or 2400 symbols per second — and differ only in the values
@@ -279,7 +277,6 @@ pub(crate) mod testutil {
             let end = (pos + len).min(iq.len());
             out.reset();
             chan.process(&iq[pos..end], &mut out);
-            assert!(out.audio_pcm.is_empty(), "a vocoder-less mode made audio");
             for event in out.events.drain(..) {
                 match event {
                     DecoderEvent::Dv(frame) => frames.push(frame),
