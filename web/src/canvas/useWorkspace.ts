@@ -107,6 +107,23 @@ export function useWorkspace(): WorkspaceStore {
   // concurrently would send the same revision twice, and the server — correctly — refuses the
   // second as stale, which would silently drop whichever change lost the race.
   const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const refreshOwed = useRef(false);
+  const finishQueue = useCallback(
+    (task: Promise<unknown>) => {
+      queue.current = task;
+      // Only the actual tail pays for the authoritative refetch. `apply` uses this same finalizer,
+      // so a save followed by its apply cannot strand the refresh merely because the apply is last.
+      void task
+        .then(() => {
+          if (queue.current === task && refreshOwed.current) {
+            refreshOwed.current = false;
+            return queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
+          }
+        })
+        .catch(() => undefined);
+    },
+    [queryClient],
+  );
 
   const save = useCallback(
     (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => {
@@ -138,7 +155,7 @@ export function useWorkspace(): WorkspaceStore {
       // Capture this edit's composed snapshot now. Only the revision is read when its turn comes:
       // the cache may legitimately refetch before then, but that must not change what this write
       // means.
-      queue.current = queue.current
+      const task = queue.current
         .catch(() => undefined)
         .then(async () => {
           try {
@@ -150,19 +167,20 @@ export function useWorkspace(): WorkspaceStore {
                 snapshot,
               });
             }
+          } catch {
+            // `update.error` owns the visible failure; the queue must still clean up and refetch.
           } finally {
-            // One authoritative refetch after this workspace's last queued write is enough.
-            // Earlier generations leave its newer draft in place; other workspaces are separate.
-            if (drafts.current.finish(id, write.generation)) {
-              await queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
-            }
+            // Earlier generations leave this workspace's newer draft in place. The global queue
+            // tail below turns the last completed generation into one authoritative refetch.
+            const finished = drafts.current.finish(id, write.generation);
+            refreshOwed.current = refreshOwed.current || finished;
           }
         })
-        // The failure is already on screen through `update.error`; this only keeps the last one
-        // in a chain from surfacing as an unhandled rejection.
+        // Defensive for cache/draft errors outside the mutation itself.
         .catch(() => undefined);
+      finishQueue(task);
     },
-    [queryClient, update],
+    [finishQueue, queryClient, update],
   );
 
   // Apply goes through the same queue as a write, and that ordering is load-bearing: the gesture
@@ -174,11 +192,12 @@ export function useWorkspace(): WorkspaceStore {
     if (id === null) {
       return;
     }
-    queue.current = queue.current
+    const task = queue.current
       .catch(() => undefined)
       .then(() => applyAsync(id))
       .catch(() => undefined);
-  }, [applyAsync]);
+    finishQueue(task);
+  }, [applyAsync, finishQueue]);
 
   // Applying is idempotent, so it runs once per workspace that becomes active: opening the app on
   // a workspace whose radios are attached should give you the workspace, not an empty canvas waiting
