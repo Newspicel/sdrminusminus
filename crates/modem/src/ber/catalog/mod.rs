@@ -15,6 +15,7 @@
 //! own gates apply, restated in one place instead of two.
 
 pub mod afsk;
+pub mod analog;
 pub mod ask;
 pub mod framing;
 pub mod gmsk;

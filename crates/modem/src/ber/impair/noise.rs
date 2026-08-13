@@ -23,9 +23,40 @@ pub fn sigma_for_ebn0(signal_energy: f64, info_bits: u64, ebn0_db: f64) -> f64 {
     (n0 / 2.0).sqrt()
 }
 
+/// Per-component noise sigma for a stated *channel* SNR — the accounting an analog entry uses
+/// (MODEM-PLAN §5 item 4), where there are no bits and Eb/N0 therefore says nothing.
+///
+/// The reference every closed form in [`theory`](crate::ber::theory) is stated against is
+/// `SNR_c = P_R / (N0·W)`: received power over the noise in one *message* bandwidth. Complex
+/// white noise of per-component variance σ² carries power `2σ²` spread over the whole sampled
+/// band — one cycle per sample wide — so `N0 = 2σ²` per cycle/sample, the noise inside a
+/// message bandwidth of `W` cycles/sample is `2σ²·W`, and `σ² = P_R / (2·SNR_c·W)`.
+///
+/// No sample rate appears, exactly as in [`sigma_for_ebn0`]: `bandwidth` is in cycles per
+/// sample and an entry's physical reading follows from its own rate.
+///
+/// # Panics
+/// If `bandwidth` is not a positive finite number. A release build has to refuse it too: the
+/// sigma it would otherwise produce is infinite or NaN, and every sample drawn from it is a
+/// measurement silently destroyed rather than a failure reported (§8).
+#[must_use]
+pub fn sigma_for_channel_snr(mean_power: f64, bandwidth: f64, snr_db: f64) -> f64 {
+    assert!(
+        bandwidth.is_finite() && bandwidth > 0.0,
+        "a channel SNR is stated in a message bandwidth; {bandwidth} is not one"
+    );
+    (mean_power / (2.0 * 10f64.powf(snr_db / 10.0) * bandwidth)).sqrt()
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Level {
     Sigma(f64),
+    /// Sigma is derived from the waveform's own measured *power* at apply time against a
+    /// message bandwidth — the analog axis, see [`sigma_for_channel_snr`].
+    ChannelSnr {
+        snr_db: f64,
+        bandwidth: f64,
+    },
     /// Sigma is derived from the waveform's own measured energy at apply time — after every
     /// other impairment in a composed channel has already shaped it — so the stated Eb/N0
     /// holds for the waveform the demodulator actually receives.
@@ -59,6 +90,15 @@ impl Awgn {
             level: Level::EbN0 { ebn0_db, info_bits },
         }
     }
+
+    /// Noise for a stated channel SNR against the waveform's measured power — the constructor
+    /// the analog sweep uses, so a SINAD curve's x-axis is true by construction.
+    #[must_use]
+    pub fn for_channel_snr(snr_db: f64, bandwidth: f64) -> Self {
+        Self {
+            level: Level::ChannelSnr { snr_db, bandwidth },
+        }
+    }
 }
 
 impl Impairment for Awgn {
@@ -67,6 +107,9 @@ impl Impairment for Awgn {
             Level::Sigma(s) => s,
             Level::EbN0 { ebn0_db, info_bits } => {
                 sigma_for_ebn0(signal_energy(x), info_bits, ebn0_db)
+            }
+            Level::ChannelSnr { snr_db, bandwidth } => {
+                sigma_for_channel_snr(super::mean_power(x), bandwidth, snr_db)
             }
         };
         for s in x.iter_mut() {
@@ -81,7 +124,7 @@ impl Impairment for Awgn {
 mod tests {
     use num_complex::Complex;
 
-    use super::{Awgn, sigma_for_ebn0};
+    use super::{Awgn, sigma_for_channel_snr, sigma_for_ebn0};
     use crate::ber::{impair::Impairment, rng::Rng};
 
     /// Applied == measured: the noise added to a silent waveform has the constructed
@@ -114,6 +157,29 @@ mod tests {
         // +3.0103 dB (a factor of exactly 2) halves N0.
         let sigma3 = sigma_for_ebn0(1000.0, 1000, 10.0 * 2f64.log10());
         assert!((sigma3 * sigma3 - 0.25).abs() < 1e-12);
+    }
+
+    /// The channel-SNR arithmetic on exactly-known numbers, and then measured back off the
+    /// waveform: a unit-power carrier at 0 dB in a quarter-band message bandwidth wants
+    /// `σ² = 1/(2·¼) = 2`, and the noise added to it reads that variance back.
+    #[test]
+    fn channel_snr_derivation_and_applied_level() {
+        assert!((sigma_for_channel_snr(1.0, 0.25, 0.0).powi(2) - 2.0).abs() < 1e-12);
+        // +10 dB is a factor of ten less noise.
+        assert!((sigma_for_channel_snr(1.0, 0.25, 10.0).powi(2) - 0.2).abs() < 1e-12);
+        let mut x = vec![Complex::new(1.0f32, 0.0); 300_000];
+        Awgn::for_channel_snr(6.0, 0.1).apply(&mut x, &mut Rng::new(0xa17));
+        // The signal is real, so Q carries noise alone and reads σ² directly.
+        let measured = x
+            .iter()
+            .map(|s| f64::from(s.im) * f64::from(s.im))
+            .sum::<f64>()
+            / x.len() as f64;
+        let applied = sigma_for_channel_snr(1.0, 0.1, 6.0).powi(2);
+        assert!(
+            (measured / applied - 1.0).abs() < 0.02,
+            "applied σ²={applied}, measured {measured}"
+        );
     }
 
     /// `for_ebn0` must measure the waveform it is applied to: two waveforms with a 6 dB

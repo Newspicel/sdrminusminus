@@ -1,5 +1,9 @@
 //! SSB: 48 kHz IQ → one-sided complex band filter → real part → optional AGC.
 //!
+//! The filter and the product detector are `sdrmm_modem::analog::SsbDemod`'s filtering tier;
+//! [`sideband_filter`] stays here because the host runtime needs the same band as its own
+//! channel filter, and both are now one description of one band.
+//!
 //! [`SsbTx`] is the exciter that pairs with it, and deliberately by the other method: the
 //! receiver filters one side of the spectrum and takes the real part, the transmitter builds
 //! the analytic signal with a Hilbert transformer. Neither can hide the other's error.
@@ -11,6 +15,9 @@ use std::{
 
 use num_complex::Complex;
 use sdrmm_dsp::{Agc, FirC, RealDecimator, design_bandpass, design_lowpass};
+use sdrmm_modem::analog::{
+    Sideband as EngineSideband, SsbDemod, SsbDetector, SsbMethod, SsbParams as SsbWaveform,
+};
 use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, Sideband, SsbParams};
 
 use crate::{
@@ -35,9 +42,8 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct SsbChannel {
-    filter: FirC,
+    demod: SsbDemod,
     agc: Option<Agc>,
-    filt_buf: Vec<Complex<f32>>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&SsbParams, ChannelError> {
@@ -50,7 +56,9 @@ fn params(settings: &ChannelSettings) -> Result<&SsbParams, ChannelError> {
     }
 }
 
-pub(crate) fn sideband_filter(p: &SsbParams) -> Result<FirC, ChannelError> {
+/// The library waveform this channel is an attachment to: the band `[PASSBAND_LOW_HZ,
+/// bandwidth]` on the chosen side of the carrier, at the exciter method `SsbTx` uses.
+pub(crate) fn waveform(p: &SsbParams) -> Result<SsbWaveform, ChannelError> {
     let rate = DESCRIPTOR.input_rate_hz;
     if !(p.bandwidth_hz.is_finite()
         && p.bandwidth_hz > PASSBAND_LOW_HZ
@@ -62,14 +70,30 @@ pub(crate) fn sideband_filter(p: &SsbParams) -> Result<FirC, ChannelError> {
             p.bandwidth_hz
         )));
     }
-    let half_width = (p.bandwidth_hz - PASSBAND_LOW_HZ) / 2.0;
-    let center = (p.bandwidth_hz + PASSBAND_LOW_HZ) / 2.0;
-    let prototype = design_lowpass(FILTER_TAPS, half_width / rate);
-    let center_norm = match p.sideband {
-        Sideband::Usb => center,
-        Sideband::Lsb => -center,
-    } / rate;
-    Ok(FirC::from_lowpass(&prototype, center_norm))
+    Ok(SsbWaveform {
+        sideband: match p.sideband {
+            Sideband::Usb => EngineSideband::Upper,
+            Sideband::Lsb => EngineSideband::Lower,
+        },
+        method: SsbMethod::Hilbert,
+        low_cut: PASSBAND_LOW_HZ / rate,
+        bandwidth: p.bandwidth_hz / rate,
+        band_taps: FILTER_TAPS,
+        audio_taps: FILTER_TAPS,
+    })
+}
+
+/// The host runtime's channel filter is the same band the receiver selects with, so both come
+/// from the one description above rather than from two copies of the same arithmetic.
+pub(crate) fn sideband_filter(p: &SsbParams) -> Result<FirC, ChannelError> {
+    let band = waveform(p)?.band();
+    let half_width = (band.high - band.low) / 2.0;
+    let prototype = design_lowpass(band.taps, half_width);
+    Ok(FirC::from_lowpass(&prototype, (band.high + band.low) / 2.0))
+}
+
+fn demodulator(p: &SsbParams) -> Result<SsbDemod, ChannelError> {
+    Ok(SsbDemod::new(&waveform(p)?, SsbDetector::Filter, false))
 }
 
 impl SsbChannel {
@@ -92,30 +116,25 @@ impl ChannelRx for SsbChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = params(&settings)?;
-        let filter = sideband_filter(p)?;
-        let mut chan = Self {
-            filter,
-            agc: None,
-            filt_buf: Vec::new(),
-        };
+        let demod = demodulator(p)?;
+        let mut chan = Self { demod, agc: None };
         chan.set_agc(p.agc);
         Ok(chan)
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
-        self.filter = sideband_filter(p)?;
+        self.demod = demodulator(p)?;
         self.set_agc(p.agc);
         Ok(())
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        self.filter.process(iq, &mut self.filt_buf);
-        out.audio_pcm.clear();
-        // The received baseband is already one-sided at full amplitude (a unit RF tone
-        // arrives as a unit complex exponential), so Re() alone is the product-detector
-        // output — any extra gain would put strong stations past full scale.
-        out.audio_pcm.extend(self.filt_buf.iter().map(|x| x.re));
+        // The received baseband is already one-sided at full amplitude (a unit RF tone arrives
+        // as a unit complex exponential), so the detector's Re() alone is the product-detector
+        // output — any extra gain would put strong stations past full scale. No post-detection
+        // audio filter: the sideband filter *is* the band limit.
+        self.demod.process(iq, &mut out.audio_pcm);
         if let Some(agc) = self.agc.as_mut() {
             agc.process(&mut out.audio_pcm);
         }

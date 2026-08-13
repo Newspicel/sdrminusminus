@@ -100,7 +100,7 @@ pub fn sweep_ber(
 /// Golden-ratio stride keeps the map `index → seed` injective, and [`Rng::new`]'s SplitMix64
 /// expansion makes any two distinct u64 seeds unrelated streams — so points are independent,
 /// and reproducing point `i` alone needs only `(seed, i)`.
-fn point_seed(seed: u64, index: usize) -> u64 {
+pub(crate) fn point_seed(seed: u64, index: usize) -> u64 {
     seed.wrapping_add((index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15))
 }
 

@@ -37,7 +37,7 @@ pub use channel::{Channel, ChannelSpec};
 pub use frontend::{Clipping, DcOffset, IqImbalance, Quantiser};
 pub use interference::Interferer;
 pub use multipath::{Multipath, MultipathProfile};
-pub use noise::{Awgn, sigma_for_ebn0};
+pub use noise::{Awgn, sigma_for_channel_snr, sigma_for_ebn0};
 use num_complex::Complex;
 pub use timing::{ClockError, JitterKind, TimingJitter, TimingOffset};
 

@@ -1,12 +1,18 @@
 //! AM envelope detector: 48 kHz IQ → magnitude → DC block → lowpass → optional AGC.
 //!
+//! The chain above the AGC is `sdrmm_modem::analog::AmDemod`'s envelope tier with its
+//! predetection filter switched off — the host runtime already applies [`channel_filter`], and a
+//! second copy of it would be paid for twice. What stays here is the channel's own: the
+//! bandwidth policy, the AGC, and the settings plumbing.
+//!
 //! [`AmTx`] is the modulator that pairs with it: the same audio bandwidth, keyed onto an
 //! envelope the detector above reads straight back off.
 
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{Agc, DcBlocker, Decimator, RealDecimator, design_lowpass};
+use sdrmm_dsp::{Agc, Decimator, RealDecimator, design_lowpass};
+use sdrmm_modem::analog::{AmDemod, AmDetector, AmMode, AmParams as AmWaveform, AmRx};
 use sdrmm_wire::{AmParams, ChannelDescriptor, ChannelParams, ChannelSettings};
 
 use crate::{
@@ -29,10 +35,8 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct AmChannel {
-    dc: DcBlocker,
-    audio_lp: RealDecimator,
+    demod: AmDemod,
     agc: Option<Agc>,
-    mag_buf: Vec<f32>,
 }
 
 fn params(settings: &ChannelSettings) -> Result<&AmParams, ChannelError> {
@@ -75,6 +79,31 @@ fn audio_lowpass(p: &AmParams) -> Result<RealDecimator, ChannelError> {
     Ok(RealDecimator::new(&design_lowpass(AUDIO_TAPS, cutoff), 1))
 }
 
+/// The library waveform this channel is an attachment to. The depth is the transmitter's
+/// ([`MODULATION_DEPTH`]); an envelope detector never reads it, but the entry is one waveform and
+/// stating it here is what keeps the two ends describing the same thing.
+fn waveform(p: &AmParams) -> Result<AmWaveform, ChannelError> {
+    check_bandwidth(p)?;
+    let mut waveform = AmWaveform::new(
+        AmMode::FullCarrier {
+            depth: f64::from(MODULATION_DEPTH),
+        },
+        p.bandwidth_hz / 2.0 / DESCRIPTOR.input_rate_hz,
+    );
+    waveform.audio_taps = AUDIO_TAPS;
+    Ok(waveform)
+}
+
+fn demodulator(p: &AmParams) -> Result<AmDemod, ChannelError> {
+    Ok(AmDemod::new(
+        &waveform(p)?,
+        &AmRx {
+            predetection: false,
+            ..AmRx::new(AmDetector::Envelope)
+        },
+    ))
+}
+
 impl AmChannel {
     fn set_agc(&mut self, enabled: bool) {
         if enabled {
@@ -95,29 +124,21 @@ impl ChannelRx for AmChannel {
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
         let p = params(&settings)?;
-        let audio_lp = audio_lowpass(p)?;
-        let mut chan = Self {
-            dc: DcBlocker::new(),
-            audio_lp,
-            agc: None,
-            mag_buf: Vec::new(),
-        };
+        let demod = demodulator(p)?;
+        let mut chan = Self { demod, agc: None };
         chan.set_agc(p.agc);
         Ok(chan)
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
-        self.audio_lp = audio_lowpass(p)?;
+        self.demod = demodulator(p)?;
         self.set_agc(p.agc);
         Ok(())
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
-        self.mag_buf.clear();
-        self.mag_buf.extend(iq.iter().map(|x| x.norm()));
-        self.dc.process(&mut self.mag_buf);
-        self.audio_lp.process(&self.mag_buf, &mut out.audio_pcm);
+        self.demod.process(iq, &mut out.audio_pcm);
         if let Some(agc) = self.agc.as_mut() {
             agc.process(&mut out.audio_pcm);
         }

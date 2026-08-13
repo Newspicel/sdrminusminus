@@ -765,6 +765,89 @@ impl Dd {
     }
 }
 
+// --- Analog figures of merit ------------------------------------------------------------------
+//
+// An analog entry has no bits, so Eb/N0 describes nothing and the reference every closed form
+// below is stated against is the *channel* SNR: `SNR_c = P_R/(N0·W)`, received power over the
+// noise in one message bandwidth (the accounting `impair::sigma_for_channel_snr` applies). The
+// **figure of merit** is then `SNR_out / SNR_c` — dimensionless, independent of the detector's
+// own gain, and therefore exactly what a SINAD measurement can be held to.
+//
+// Every form here is the high-SNR one: above the detector's threshold, where the noise is small
+// enough that the nonlinearity in it is linear. The knee below that threshold is precisely what
+// the entries' committed curves measure and no closed form describes, which is why the analog
+// gates read their oracle at the top of the grid and record the knee as a number instead.
+//
+// The derivations are all one shape, done in complex baseband with per-component noise variance
+// σ² so no sample rate appears: the received power is `P_R = mean|x|²`, `N0 = 2σ²` per
+// cycle/sample, and the output noise is whatever the detector's own transfer does to a white
+// phase or amplitude perturbation before the audio filter cuts it at W.
+
+/// Amplitude modulation, both detectors, above threshold: `(m²P̄)/(1 + m²P̄)` for a message of
+/// normalised power `P̄` at depth `m` — the fraction of the transmitted power that is message
+/// rather than carrier.
+///
+/// For the sinusoidal message every SINAD measurement uses, `P̄ = ½`. At full depth that is
+/// `⅓`, the textbook **4.77 dB** an envelope-detectable carrier costs against suppressing it,
+/// and at the 0.8 depth broadcast practice leaves, 6.15 dB. A suppressed carrier is not this
+/// form's `m = 1` case — there is no `1` in the denominator to add, because there is no carrier
+/// — and it has its own, [`ssb_fom`].
+#[must_use]
+pub fn am_fom(depth: f64, message_power: f64) -> f64 {
+    let modulated = depth * depth * message_power;
+    modulated / (1.0 + modulated)
+}
+
+/// Suppressed-carrier amplitude modulation — DSB-SC, SSB and VSB alike: unity.
+///
+/// Both halves of that are worth stating, because both are measured. Coherent detection of a
+/// double-sideband signal collects twice the signal *and* twice the noise of a single-sideband
+/// one, so the two land on the same number; and a receiver that reads only the real axis
+/// discards the quadrature noise, which is what pays for the coherent gain.
+#[must_use]
+pub fn ssb_fom() -> f64 {
+    1.0
+}
+
+/// Frequency modulation above threshold: `3β²P̄`, with `β = Δf/W` the deviation ratio and `P̄`
+/// the message's normalised power — `3β²/2` for the sinusoid a SINAD measurement uses.
+///
+/// The derivation, since the constant is the whole acceptance: a small complex perturbation on
+/// `A·e^{jφ}` is a phase error of variance `σ²/2A²` per sample, white across the sampled band;
+/// a discriminator differentiates it, which weights that white spectrum by `f²`; integrating
+/// the result to ±W gives output noise `W³σ²/(3A²)` per unit rate against a signal of
+/// `Δf²P̄·2`. Dividing by `SNR_c = A²/(2σ²W)` leaves `3β²P̄`, with everything else cancelling.
+///
+/// This is where an analog entry's bandwidth becomes sensitivity: **the improvement is
+/// quadratic in deviation**. Broadcast FM's 75 kHz over a 15 kHz message is β = 5 and
+/// **+15.74 dB** over its own channel SNR; a 12.5 kHz voice channel's 2.5 kHz over 3 kHz is
+/// β = 0.83 and only +0.18 dB. Against full-carrier AM at 0.8 depth — which *loses* 6.15 dB —
+/// the two are 21.9 dB and 6.3 dB ahead, bought with 180 kHz and 11 kHz of occupied
+/// bandwidth against AM's 6.
+#[must_use]
+pub fn fm_fom(deviation_ratio: f64, message_power: f64) -> f64 {
+    3.0 * deviation_ratio * deviation_ratio * message_power
+}
+
+/// Phase modulation above threshold: `β_p²P̄` for a peak phase deviation of `β_p` radians —
+/// the same derivation as [`fm_fom`] without the differentiator, so the noise is flat rather
+/// than parabolic and the `3` becomes a `1`.
+///
+/// A phase modulator at one radian of deviation is therefore `10·log₁₀(3)` — 4.77 dB — behind
+/// a frequency modulator whose deviation ratio is also one, and that gap is the `f²` weighting
+/// alone.
+#[must_use]
+pub fn pm_fom(peak_phase_rad: f64, message_power: f64) -> f64 {
+    peak_phase_rad * peak_phase_rad * message_power
+}
+
+/// The oracle a measured SINAD curve is held to: output SINAD in dB for a channel SNR in dB,
+/// above the detector's threshold.
+#[must_use]
+pub fn analog_sinad_db(fom: f64, channel_snr_db: f64) -> f64 {
+    channel_snr_db + 10.0 * fom.log10()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1244,5 +1327,56 @@ mod tests {
             assert_strictly_decreasing(&|db| mfsk_noncoherent_ser(m, db), &format!("{m}-FSK SER"));
             assert_strictly_decreasing(&|db| mfsk_noncoherent_ber(m, db), &format!("{m}-FSK BER"));
         }
+    }
+
+    /// The analog figures of merit against their published values (§4.1: trust comes from
+    /// published numbers, not from the harness). Every one of these appears in Haykin's
+    /// *Communication Systems* §§2.9–4.6 as the entry's own figure of merit.
+    #[test]
+    fn analog_figures_of_merit_match_published_values() {
+        // Full-depth envelope AM on a sinusoid: ⅓, the classic 4.77 dB behind suppressed
+        // carrier — and the 0.8 depth broadcast practice leaves costs 6.15 dB.
+        assert_rel(am_fom(1.0, 0.5), 1.0 / 3.0, 1e-12, "AM at full depth");
+        let full = 10.0 * am_fom(1.0, 0.5).log10();
+        assert_rel(full, -4.771, 1e-3, "AM full-depth penalty in dB");
+        let broadcast = 10.0 * am_fom(0.8, 0.5).log10();
+        assert_rel(broadcast, -6.150, 1e-3, "AM 0.8-depth penalty in dB");
+        // Suppressing the carrier and spending its power on the message reaches unity — the
+        // form above does not describe that case, which is what `ssb_fom` is for.
+        assert!((ssb_fom() - 1.0).abs() < 1e-15);
+        // Wideband FM: 75 kHz over a 15 kHz message is β = 5 and 15.74 dB of improvement;
+        // narrowband FM at 2.5 kHz over 3 kHz is β = 0.833 and 0.18 dB. Against AM at 0.8
+        // depth the two are 21.9 and 6.3 dB ahead, which is what the deviation bought.
+        assert_rel(
+            10.0 * fm_fom(5.0, 0.5).log10(),
+            15.740,
+            1e-3,
+            "WFM improvement",
+        );
+        assert_rel(
+            10.0 * fm_fom(2.5 / 3.0, 0.5).log10(),
+            0.1773,
+            1e-2,
+            "NFM improvement",
+        );
+        let over_am = 10.0 * (fm_fom(5.0, 0.5) / am_fom(0.8, 0.5)).log10();
+        assert_rel(over_am, 21.890, 1e-3, "WFM over broadcast-depth AM");
+        // Phase modulation is the same derivation without the differentiator's f² weighting,
+        // which is exactly 10·log10(3) — 4.77 dB — at equal deviation.
+        let gap = 10.0 * (fm_fom(1.0, 0.5) / pm_fom(1.0, 0.5)).log10();
+        assert_rel(gap, 4.771, 1e-3, "FM over PM at equal deviation");
+        // The oracle is the figure of merit in dB added to the channel SNR, nothing else.
+        assert_rel(
+            analog_sinad_db(1.0, 20.0),
+            20.0,
+            1e-12,
+            "unity FoM passes SNR through",
+        );
+        assert_rel(
+            analog_sinad_db(fm_fom(5.0, 0.5), 10.0),
+            25.740,
+            1e-3,
+            "WFM at 10 dB channel SNR",
+        );
     }
 }

@@ -24,23 +24,148 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use sdrmm_modem::ber::{
     Curve,
-    catalog::{self, Entry, Measurement},
+    analog::{self as analog_harness, SinadCurve},
+    catalog::{self, Entry, Measurement, analog as analog_catalog},
     impair::ChannelSpec,
     sweep::{save_csv, save_json, sweep_ber},
 };
 
 pub fn run(root: &Path, entry: &str, out: Option<&Path>, full: bool) -> Result<()> {
+    let dir = out.map_or_else(|| root.join("target/ber"), Path::to_path_buf);
+    if let Some(analog) = analog_catalog::find(entry) {
+        std::fs::create_dir_all(&dir)
+            .with_context(|| format!("create output directory {}", dir.display()))?;
+        return measure_analog(root, analog, &dir, full);
+    }
     let Some(entry) = catalog::find(entry) else {
-        let known: Vec<&str> = catalog::ENTRIES.iter().map(|e| e.name).collect();
+        let known: Vec<&str> = catalog::ENTRIES
+            .iter()
+            .map(|e| e.name)
+            .chain(analog_catalog::ENTRIES.iter().map(|e| e.name))
+            .collect();
         bail!(
             "unknown ber entry `{entry}`; known entries: {}",
             known.join(", ")
         );
     };
-    let dir = out.map_or_else(|| root.join("target/ber"), Path::to_path_buf);
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("create output directory {}", dir.display()))?;
     measure(root, entry, &dir, full)
+}
+
+/// The analog half of the command (MODEM-PLAN §5 item 4): the same shape as [`measure`], with a
+/// SINAD curve against channel SNR in place of a BER curve against Eb/N0, and a figure of merit
+/// in place of an error-rate oracle. One command, because "run this catalog entry and land its
+/// curve" is one question whichever units the answer comes back in.
+fn measure_analog(
+    root: &Path,
+    entry: &analog_catalog::AnalogEntry,
+    dir: &Path,
+    full: bool,
+) -> Result<()> {
+    let mut failures = Vec::new();
+    for m in entry.measurements {
+        let curve = analog_harness::sweep_sinad(
+            &(m.link)(),
+            &ChannelSpec::default(),
+            m.tier(full),
+            m.seed,
+            m.trials,
+        );
+        println!("{}", curve.label);
+        for p in &curve.points {
+            println!(
+                "{:>5.1} dB  SINAD {:>7.2} dB  THD {:>6.2} %",
+                p.snr_db, p.sinad_db, p.thd_percent
+            );
+        }
+        write_sinad_curve(&curve, dir, &m.stem.replace('/', "_"))?;
+        if let Err(fault) = judge_analog(root, m, &curve) {
+            println!("FAIL: {fault}");
+            failures.push(fault);
+        } else {
+            println!("PASS: {}", m.stem);
+        }
+        println!();
+    }
+    if failures.is_empty() {
+        println!(
+            "PASS: {} ({} measured)",
+            entry.name,
+            entry.measurements.len()
+        );
+        return Ok(());
+    }
+    bail!(
+        "FAIL: {} — {} of {} measurements off their reference:\n  {}",
+        entry.name,
+        failures.len(),
+        entry.measurements.len(),
+        failures.join("\n  ")
+    );
+}
+
+fn judge_analog(
+    root: &Path,
+    m: &analog_catalog::AnalogMeasurement,
+    curve: &SinadCurve,
+) -> std::result::Result<(), String> {
+    let mut faults = Vec::new();
+    let (Some(lo), Some(hi)) = (curve.points.first(), curve.points.last()) else {
+        return Err(format!("{}: the sweep produced no usable point", m.stem));
+    };
+    match analog_harness::load_json(&root.join(m.artifact())) {
+        Ok(committed) => {
+            let drift = analog_harness::worst_shortfall_db_vs_curve(
+                curve, &committed, lo.snr_db, hi.snr_db,
+            );
+            println!("{}: drift vs committed {drift:+.4} dB", m.stem);
+            if drift.abs() >= catalog::DRIFT_TOLERANCE_DB {
+                faults.push(format!("{} drifted {drift:+.4} dB", m.stem));
+            }
+        }
+        Err(_) => println!(
+            "{}: no committed artifact at {} — nothing to guard against",
+            m.stem,
+            m.artifact()
+        ),
+    }
+    match m.reference.oracle() {
+        Some((name, oracle, from_db, tolerance)) if hi.snr_db >= from_db => {
+            let gap = analog_harness::worst_shortfall_db(curve, oracle, from_db, hi.snr_db);
+            println!(
+                "{}: {gap:+.4} dB vs {name} (tolerance {tolerance} dB)",
+                m.stem
+            );
+            if gap.abs() >= tolerance {
+                faults.push(format!("{} is {gap:+.4} dB from {name}", m.stem));
+            }
+        }
+        // A smoke prefix stops below the oracle's own region, where no closed form applies.
+        Some((name, _, from_db, _)) => println!(
+            "{}: below {from_db} dB there is no {name} to judge against",
+            m.stem
+        ),
+        None => println!(
+            "{}: commit-and-guard — no closed form; the committed curve is the reference",
+            m.stem
+        ),
+    }
+    if faults.is_empty() {
+        Ok(())
+    } else {
+        Err(faults.join("; "))
+    }
+}
+
+fn write_sinad_curve(curve: &SinadCurve, dir: &Path, stem: &str) -> Result<()> {
+    let json = dir.join(format!("{stem}.json"));
+    analog_harness::save_json(curve, &json).with_context(|| format!("write {}", json.display()))?;
+    let csv = dir.join(format!("{stem}.csv"));
+    analog_harness::save_csv(curve, &csv).with_context(|| format!("write {}", csv.display()))?;
+    println!("wrote {}", json.display());
+    println!("wrote {}", csv.display());
+    Ok(())
 }
 
 /// Every measurement of the entry, each judged on its own line, with the entry's verdict the
@@ -177,12 +302,12 @@ mod tests {
         let err = run(Path::new("."), "no-such-entry", None, false)
             .expect_err("an unknown entry must not run");
         let msg = err.to_string();
-        for entry in catalog::ENTRIES {
-            assert!(
-                msg.contains(entry.name),
-                "{msg:?} does not name {}",
-                entry.name
-            );
+        for name in catalog::ENTRIES
+            .iter()
+            .map(|e| e.name)
+            .chain(analog_catalog::ENTRIES.iter().map(|e| e.name))
+        {
+            assert!(msg.contains(name), "{msg:?} does not name {name}");
         }
     }
 

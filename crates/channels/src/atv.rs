@@ -13,7 +13,11 @@
 use std::sync::LazyLock;
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, FmDemod, design_lowpass, flat_bandwidth_hz};
+use sdrmm_dsp::{Decimator, design_lowpass, flat_bandwidth_hz};
+use sdrmm_modem::analog::{
+    AmDemod, AmDetector, AmMode, AmParams as AmWaveform, AmRx, AngleDemod, AngleDetector,
+    AngleKind, AngleParams, AngleRx,
+};
 use sdrmm_wire::{
     AtvModulation, AtvParams, AtvStandard, ChannelDescriptor, ChannelParams, ChannelSettings,
 };
@@ -177,6 +181,48 @@ impl Levels {
     }
 }
 
+/// The library detector this channel is an attachment to, in the one shape `sdrmm_modem::analog`
+/// offers it: the bare detector, with the engine's predetection filter, audio lowpass and DC
+/// block all switched off. A raster is not audio — the host runtime supplies the selectivity, the
+/// video band *is* the sample rate, and the blanking level a DC blocker would remove is precisely
+/// the datum the sync separator slices against.
+enum Detector {
+    /// Amplitude television, read as an envelope.
+    Envelope(AmDemod),
+    /// Frequency television, read as an instantaneous frequency. A discriminator's scale cancels
+    /// in the level tracker, so the deviation only has to keep the output near unity rather than
+    /// match the transmitter's.
+    Discriminator(AngleDemod),
+}
+
+impl Detector {
+    fn new(p: &AtvParams) -> Self {
+        let bandwidth = p.bandwidth_hz / 2.0 / INPUT_RATE_HZ;
+        match p.modulation {
+            AtvModulation::Fm => Self::Discriminator(AngleDemod::new(
+                &AngleParams::new(
+                    AngleKind::Fm {
+                        deviation: bandwidth,
+                    },
+                    bandwidth,
+                ),
+                &AngleRx::detector_only(AngleDetector::Discriminator),
+            )),
+            AtvModulation::Am => Self::Envelope(AmDemod::new(
+                &AmWaveform::new(AmMode::FullCarrier { depth: 1.0 }, bandwidth),
+                &AmRx::detector_only(AmDetector::Envelope),
+            )),
+        }
+    }
+
+    fn process(&mut self, iq: &[Complex<f32>], video: &mut Vec<f32>) {
+        match self {
+            Self::Envelope(am) => am.process(iq, video),
+            Self::Discriminator(fm) => fm.process(iq, video),
+        }
+    }
+}
+
 pub struct AtvChannel {
     params: AtvParams,
     timing: Timing,
@@ -185,7 +231,7 @@ pub struct AtvChannel {
     line_len: f64,
     /// Demodulated video, one sample per input sample; reused across blocks.
     video: Vec<f32>,
-    fm: Option<FmDemod>,
+    detector: Detector,
     /// −1.0 when the transmission keys sync at the *top* of the demodulated signal
     /// (negative-modulation AM), so everything below sees a video whose minimum is the sync tip.
     polarity: f32,
@@ -275,8 +321,7 @@ impl AtvChannel {
             .resize(usize::from(width) * usize::from(timing.active_lines), 0);
         // A discriminator's scale cancels in the level tracker, so the deviation only has to
         // keep the output near unity rather than match the transmitter's.
-        self.fm = matches!(p.modulation, AtvModulation::Fm)
-            .then(|| FmDemod::new(INPUT_RATE_HZ, p.bandwidth_hz / 2.0));
+        self.detector = Detector::new(p);
         // AM television is negative-modulated — peak carrier is the sync tip — so its envelope
         // arrives upside down; FM ATV keys the other way. `invert` flips whichever applies.
         let flipped = matches!(p.modulation, AtvModulation::Am) != p.invert;
@@ -485,7 +530,7 @@ impl ChannelRx for AtvChannel {
             nominal_line: 0.0,
             line_len: 0.0,
             video: Vec::new(),
-            fm: None,
+            detector: Detector::new(p),
             polarity: 1.0,
             levels: Levels::new(INPUT_RATE_HZ),
             line: Vec::new(),
@@ -517,13 +562,7 @@ impl ChannelRx for AtvChannel {
         // Taken out so the per-sample loop can call back into `self`; put back below, so the
         // buffer's capacity survives the block and nothing here allocates in steady state.
         let mut video = std::mem::take(&mut self.video);
-        match self.fm.as_mut() {
-            Some(fm) => fm.process(iq, &mut video),
-            None => {
-                video.clear();
-                video.extend(iq.iter().map(|x| x.norm()));
-            }
-        }
+        self.detector.process(iq, &mut video);
         let polarity = self.polarity;
         for &v in &video {
             self.push_sample(v * polarity, out);
