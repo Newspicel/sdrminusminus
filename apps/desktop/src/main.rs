@@ -1,4 +1,4 @@
-//! `sdrmm-desktop` — Tauri v2 shell (PLAN §10). Embeds `crates/server` in-process on an
+//! `sdrmm-desktop` — Tauri v2 shell. Embeds `crates/server` in-process on an
 //! ephemeral loopback port and points the WebView at it, so the desktop app and a remote
 //! browser run the exact same frontend over the same origin model. The UI talks to the server
 //! purely over HTTP/WebSocket, so no Tauri IPC (and no capability grant) is required.
@@ -11,7 +11,28 @@ use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 mod update;
 
+#[cfg(feature = "soapy")]
+fn configure_soapy_runtime() -> anyhow::Result<()> {
+    let executable = std::env::current_exe().context("cannot locate desktop executable")?;
+    let executable_dir = executable
+        .parent()
+        .context("desktop executable has no parent directory")?;
+    #[cfg(target_os = "macos")]
+    let resources = executable_dir.join("../Resources");
+    #[cfg(target_os = "linux")]
+    let resources = executable_dir.join("../lib/sdr--");
+    #[cfg(target_os = "windows")]
+    let resources = executable_dir.to_path_buf();
+    let root = resources.join("soapy");
+    let modules = root.join("lib").join("SoapySDR").join("modules0.8");
+    unsafe { sdrmm_device_soapy::configure_bundled_runtime(&root, &modules) }
+        .map_err(anyhow::Error::msg)
+}
+
 fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "soapy")]
+    configure_soapy_runtime()?;
+
     tracing_subscriber::fmt()
         .with_env_filter("info,sdrmm=debug")
         .init();

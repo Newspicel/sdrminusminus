@@ -1,6 +1,6 @@
 # CI mirrors the local gate 1:1 (CLAUDE.md): every job here is an `xtask` subcommand a developer
 # can run unchanged — `check`, `test`, `smoke`, `desktop`, `audit`. No hardware — everything runs
-# on `device-virtual` (PLAN §14).
+# on `device-virtual`.
 #
 # Pull requests pay for Linux only. macOS bills at 10x the Linux minute rate for a job that has
 # never once failed on its own, so it runs on `main` and on release tags, where a platform-
@@ -63,7 +63,7 @@ jobs:
       - name: cargo xtask test
         run: cargo xtask test
       # The browser flow is its own step because it needs a browser binary the other gates do
-      # not; it drives the real server on `device-virtual`, so still no hardware (PLAN §14).
+      # not; it drives the real server on `device-virtual`, so still no hardware.
       - name: install the smoke browser
         run: pnpm --dir web exec playwright install --with-deps chromium
       - name: cargo xtask smoke
@@ -89,7 +89,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
-            libxdo-dev libssl-dev cmake file
+            libxdo-dev libssl-dev libsoapysdr-dev cmake file
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
         with:
@@ -126,6 +126,17 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm sdrmm:ci --version
+          doctor="$(docker run --rm sdrmm:ci --doctor)"
+          echo "$doctor"
+          grep -q 'compiled backends:.*soapy' <<< "$doctor"
+          grep -q 'core: 0.8.' <<< "$doctor"
+          grep -qi 'rtlsdr' <<< "$doctor"
+          grep -qi 'hackrf' <<< "$doctor"
+          grep -qi 'airspy' <<< "$doctor"
+          grep -qi 'bladerf' <<< "$doctor"
+          grep -qi 'lms7' <<< "$doctor"
+          grep -qi 'pluto' <<< "$doctor"
+          grep -qi 'remote' <<< "$doctor"
           docker run --rm --detach --name sdrmm-ci --publish 8080:8080 sdrmm:ci
           trap 'docker rm --force sdrmm-ci >/dev/null 2>&1 || true' EXIT
           for _ in $(seq 30); do

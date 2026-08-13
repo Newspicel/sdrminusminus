@@ -1553,6 +1553,7 @@ mod tests {
                     rx_streams: 1,
                     tx_streams: 0,
                     per_stream: sdrmm_wire::StreamScope::default(),
+                    directional: None,
                 },
                 settings: sdrmm_wire::DeviceSettings::default(),
                 die: self.die.clone(),

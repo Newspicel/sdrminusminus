@@ -2358,6 +2358,88 @@
           }
         }
       },
+      "ArgumentInfo": {
+        "type": "object",
+        "description": "Lossless wire representation of SoapySDR's `ArgInfo`.",
+        "required": [
+          "key",
+          "default",
+          "value_type"
+        ],
+        "properties": {
+          "default": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArgumentOption"
+            }
+          },
+          "range": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Range"
+              }
+            ]
+          },
+          "units": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value_type": {
+            "$ref": "#/components/schemas/ArgumentType"
+          }
+        }
+      },
+      "ArgumentOption": {
+        "type": "object",
+        "description": "One labelled value in a driver's discrete option list.",
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "ArgumentType": {
+        "type": "string",
+        "description": "The exact type SoapySDR declares for an argument. This stays separate from\n[`ExtraSetting`], which is the compact control shape used by the existing receiver UI.",
+        "enum": [
+          "bool",
+          "float",
+          "int",
+          "string"
+        ]
+      },
       "AtvModulation": {
         "type": "string",
         "description": "How an analog television transmission carries its video, and with it the polarity the\ndemodulated signal arrives in (PLAN §13: ATV).",
@@ -2805,6 +2887,17 @@
               "format": "double"
             }
           },
+          "directional": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DirectionalCapabilities",
+                "description": "Full per-direction, per-channel capability data. Older backends and stored payloads omit\nit; Soapy-backed devices always populate it."
+              }
+            ]
+          },
           "duplex": {
             "$ref": "#/components/schemas/Duplex",
             "description": "Which directions this radio has, and whether it can run them together. Receive-only\nunless a backend says otherwise, so a device cannot advertise a transmitter by omission.\nThis is the *hardware's* shape, not a permission: PLAN §12a gates transmit behind an\nauthorized-use switch that does not exist, so a `half` radio still transmits nothing."
@@ -2865,6 +2958,119 @@
             "format": "int32",
             "description": "How many independent transmit streams it accepts. Reported for symmetry and for the\ndevice picker; the canvas still draws a single reserved transmit input, because there is\nnothing to wire into it until PLAN §12a lands.",
             "minimum": 0
+          }
+        }
+      },
+      "ChannelCapabilities": {
+        "type": "object",
+        "description": "Capabilities of one hardware channel in one signal direction.",
+        "required": [
+          "channel",
+          "freq_ranges",
+          "sample_rates",
+          "bandwidth_ranges",
+          "gains",
+          "antennas"
+        ],
+        "properties": {
+          "antennas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bandwidth_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            }
+          },
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "dc_offset_mode": {
+            "type": "boolean"
+          },
+          "freq_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            }
+          },
+          "frequency_args": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArgumentInfo"
+            }
+          },
+          "frequency_components": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "full_duplex": {
+            "type": "boolean"
+          },
+          "gain_mode": {
+            "type": "boolean"
+          },
+          "gains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GainStage"
+            }
+          },
+          "info": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "iq_balance": {
+            "type": "boolean"
+          },
+          "native_stream_format": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sample_rate_ranges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Range"
+            }
+          },
+          "sample_rates": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArgumentInfo"
+            }
+          },
+          "stream_args": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArgumentInfo"
+            }
+          },
+          "stream_formats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -4441,6 +4647,80 @@
           "tx"
         ]
       },
+      "DirectionalCapabilities": {
+        "type": "object",
+        "description": "Directional and runtime capabilities that cannot be represented by the legacy channel-0\nreceiver fields on [`Capabilities`].",
+        "properties": {
+          "clock_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clock_sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "device_settings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArgumentInfo"
+            }
+          },
+          "hardware_info": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "hardware_time": {
+            "type": "boolean"
+          },
+          "hardware_time_ns": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "master_clock_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "rx": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelCapabilities"
+            }
+          },
+          "time_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time_sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tx": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelCapabilities"
+            }
+          }
+        }
+      },
       "DmrParams": {
         "type": "object",
         "properties": {
@@ -4909,6 +5189,28 @@
                 "items": {
                   "type": "string"
                 }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "default",
+              "kind"
+            ],
+            "properties": {
+              "default": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "string"
+                ]
+              },
+              "name": {
+                "type": "string"
               }
             }
           }

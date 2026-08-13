@@ -1,6 +1,6 @@
-//! `sdrmm-device` — the device abstraction (PLAN §6): `DeviceDriver`/`SdrDevice` traits, the
-//! capability model (re-exported from `wire`), and the `RxSink` that carries `cf32` from a
-//! device thread into the engine's ring. Backends (soapy, rtlsdr, hackrf, virtual) implement
+//! `sdrmm-device` — the `DeviceDriver`/`SdrDevice` traits, capability model (re-exported from
+//! `wire`), and the `RxSink` that carries `cf32` from a device thread into the engine's ring.
+//! Backends (SoapySDR, network receivers, and virtual devices) implement
 //! these; nothing here does I/O itself.
 //!
 //! It also owns everything a backend would otherwise write for itself and get subtly wrong: the
@@ -174,7 +174,7 @@ impl std::fmt::Debug for RxSink {
 
 /// A backend that can enumerate and open devices (PLAN §6).
 pub trait DeviceDriver: Send + Sync {
-    /// Stable driver id: `"virtual"`, `"soapy"`, `"rtlsdr"`, `"hackrf"`.
+    /// Stable driver id, such as `"virtual"`, `"soapy"`, `"rtltcp"`, or `"spyserver"`.
     fn id(&self) -> &'static str;
     /// Enumerate currently-attached devices.
     fn probe(&self) -> Vec<DeviceInfo>;
@@ -222,6 +222,20 @@ pub trait TxStream: Send {
     fn write(
         &mut self,
         samples: &[Sample],
+        timeout: std::time::Duration,
+        end_burst: bool,
+    ) -> Result<usize, DeviceError> {
+        self.write_channels(&[samples], timeout, end_burst)
+    }
+
+    /// Queue one equally-sized sample slice for every channel opened on this stream.
+    ///
+    /// # Errors
+    /// [`DeviceError::Unsupported`] when the channel count or lengths do not match the stream,
+    /// and [`DeviceError::Io`] for transport errors and reported underflows.
+    fn write_channels(
+        &mut self,
+        channels: &[&[Sample]],
         timeout: std::time::Duration,
         end_burst: bool,
     ) -> Result<usize, DeviceError>;
@@ -276,6 +290,11 @@ pub trait SdrDevice: Send {
     /// with a transmitter has to think about this — or [`DeviceError::DuplexConflict`] while a
     /// half-duplex radio is receiving.
     fn tx_start(&mut self) -> Result<Box<dyn TxStream>, DeviceError> {
+        self.tx_start_channels(&[0])
+    }
+
+    /// Claim and start the named transmit channels without silently substituting channel 0.
+    fn tx_start_channels(&mut self, _channels: &[u32]) -> Result<Box<dyn TxStream>, DeviceError> {
         Err(DeviceError::Unsupported(
             "this device does not transmit".to_string(),
         ))
@@ -318,6 +337,78 @@ mod tests {
     };
 
     use super::*;
+
+    struct NoopTx;
+
+    impl TxStream for NoopTx {
+        fn write_channels(
+            &mut self,
+            channels: &[&[Sample]],
+            _timeout: std::time::Duration,
+            _end_burst: bool,
+        ) -> Result<usize, DeviceError> {
+            Ok(channels.first().map_or(0, |samples| samples.len()))
+        }
+
+        fn stop(&mut self) -> Result<(), DeviceError> {
+            Ok(())
+        }
+    }
+
+    struct MultiTxDevice {
+        capabilities: Capabilities,
+        settings: DeviceSettings,
+        opened: Vec<u32>,
+    }
+
+    impl SdrDevice for MultiTxDevice {
+        fn capabilities(&self) -> &Capabilities {
+            &self.capabilities
+        }
+
+        fn settings(&self) -> &DeviceSettings {
+            &self.settings
+        }
+
+        fn apply(&mut self, _settings: &DeviceSettings) -> Result<(), DeviceError> {
+            Ok(())
+        }
+
+        fn rx_start(&mut self, _sinks: Vec<RxSink>) -> Result<(), DeviceError> {
+            Err(DeviceError::Unsupported("receive".to_string()))
+        }
+
+        fn rx_stop(&mut self) {}
+
+        fn tx_start_channels(
+            &mut self,
+            channels: &[u32],
+        ) -> Result<Box<dyn TxStream>, DeviceError> {
+            self.opened = channels.to_vec();
+            Ok(Box::new(NoopTx))
+        }
+    }
+
+    #[test]
+    fn default_tx_start_opens_only_channel_zero() {
+        let mut capabilities = caps(0, StreamScope::default());
+        capabilities.duplex = Duplex::Full;
+        capabilities.tx_streams = 3;
+        let mut device = MultiTxDevice {
+            capabilities,
+            settings: DeviceSettings::default(),
+            opened: Vec::new(),
+        };
+        let mut stream = device.tx_start().expect("start channel zero");
+        assert_eq!(device.opened, vec![0]);
+        let samples = [Sample::new(0.0, 0.0); 4];
+        assert_eq!(
+            stream
+                .write(&samples, std::time::Duration::ZERO, false)
+                .expect("write one channel"),
+            samples.len()
+        );
+    }
 
     #[test]
     fn fail_invokes_fatal_handler_once() {
@@ -373,6 +464,7 @@ mod tests {
             rx_streams,
             tx_streams: 0,
             per_stream,
+            directional: None,
         }
     }
 

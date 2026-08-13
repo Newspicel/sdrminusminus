@@ -4,12 +4,9 @@ members = [
     "crates/wire",
     "crates/dsp",
     "crates/modem",
-    "crates/usb-stream",
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
-    "crates/device-rtlsdr",
-    "crates/device-hackrf",
     "crates/device-net",
     "crates/channels",
     "crates/recorder",
@@ -26,12 +23,9 @@ default-members = [
     "crates/wire",
     "crates/dsp",
     "crates/modem",
-    "crates/usb-stream",
     "crates/device",
     "crates/device-virtual",
     "crates/device-soapy",
-    "crates/device-rtlsdr",
-    "crates/device-hackrf",
     "crates/device-net",
     "crates/channels",
     "crates/recorder",
@@ -54,17 +48,14 @@ rust-version = "1.99"
 sdrmm-wire = { path = "crates/wire" }
 sdrmm-dsp = { path = "crates/dsp" }
 sdrmm-modem = { path = "crates/modem" }
-sdrmm-usb-stream = { path = "crates/usb-stream" }
 sdrmm-device = { path = "crates/device" }
 sdrmm-device-virtual = { path = "crates/device-virtual" }
 sdrmm-device-soapy = { path = "crates/device-soapy" }
-sdrmm-device-rtlsdr = { path = "crates/device-rtlsdr" }
-sdrmm-device-hackrf = { path = "crates/device-hackrf" }
 sdrmm-device-net = { path = "crates/device-net" }
 sdrmm-channels = { path = "crates/channels" }
 sdrmm-recorder = { path = "crates/recorder" }
 # default-features = false so binaries opt into `soapy` themselves — a member manifest cannot
-# disable a workspace dep's defaults, only add to them (needed for the Soapy-free build, PLAN §3).
+# disable a workspace dep's defaults, only add to them (needed for the minimal build).
 sdrmm-engine = { path = "crates/engine", default-features = false }
 sdrmm-server = { path = "crates/server", default-features = false }
 
@@ -95,11 +86,9 @@ utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
 mime_guess = "2"
 
 # Device backends
-soapysdr = "0.5"
-# The native backends own their drivers outright (PLAN §17); `nusb` is the pure-Rust USB stack
-# under all of them (PLAN §15: release artifacts must launch with no C dependency), and the
-# soapysdr crate stays for exotic hardware only.
-nusb = "0.2.7"
+# Upstream 0.5.1 exposes the stream API but not getSettingInfo. This pinned fork adds only safe
+# wrappers for setting metadata and runtime/module diagnostics over the existing soapysdr-sys API.
+soapysdr = { git = "https://github.com/Newspicel/rust-soapysdr", rev = "5f05fb65366d75e4706285df5bc3864abbd51284" }
 
 # DSP
 num-complex = "0.4"
@@ -181,15 +170,6 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.sdrmm-engine]
-opt-level = 3
-
-[profile.dev.package.sdrmm-usb-stream]
-opt-level = 3
-
-[profile.dev.package.sdrmm-device-rtlsdr]
-opt-level = 3
-
-[profile.dev.package.sdrmm-device-hackrf]
 opt-level = 3
 
 [profile.dev.package.sdrmm-device-net]

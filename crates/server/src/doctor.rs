@@ -1,7 +1,6 @@
-//! Environment diagnostics (PLAN §15: `sdrmm --doctor` prints what's found — backends, USB
-//! permissions, paths). Split in two on purpose: [`collect`] does the I/O and is untestable
-//! without hardware, [`render`] is a pure function over the report and is not (PLAN §14: no
-//! hardware in CI, ever). The same [`DoctorReport`] is served as `GET /api/doctor`, so the
+//! Environment diagnostics: `sdrmm --doctor` prints backends, USB permissions, and paths.
+//! Split in two on purpose: [`collect`] does the I/O and [`render`] is a pure function over the
+//! report. The same [`DoctorReport`] is served as `GET /api/doctor`, so the
 //! CLI and the web UI never disagree about what is wrong.
 
 use std::path::Path;
@@ -29,7 +28,10 @@ pub fn report(
     recordings_dir: Option<&Path>,
 ) -> DoctorReport {
     let mut checks = vec![backends_check(registry)];
-    checks.push(devices_check(registry));
+    let devices = devices_check(registry);
+    #[cfg(all(feature = "soapy", not(test)))]
+    checks.push(soapy_check(&sdrmm_device_soapy::runtime_info()));
+    checks.push(devices);
     checks.extend(usb_checks());
     checks.push(path_check(
         "storage.db",
@@ -72,7 +74,7 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
             detail,
             hint: Some(
                 "this build has no hardware backend — only the signal generator and SigMF \
-                 playback. Rebuild with --features rtl-native,hackrf-native (or soapy)."
+                 playback. Use a normal build, or rebuild with --features soapy."
                     .to_string(),
             ),
         };
@@ -83,6 +85,57 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
         status: CheckStatus::Ok,
         detail,
         hint: None,
+    }
+}
+
+#[cfg(feature = "soapy")]
+fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
+    let module_names: Vec<String> = info
+        .modules
+        .iter()
+        .map(|path| {
+            Path::new(path)
+                .file_name()
+                .map_or_else(|| path.clone(), |name| name.to_string_lossy().into_owned())
+        })
+        .collect();
+    let expected = ["rtlsdr", "hackrf"];
+    let missing: Vec<&str> = expected
+        .into_iter()
+        .filter(|name| {
+            !module_names
+                .iter()
+                .any(|module| module.to_ascii_lowercase().contains(name))
+        })
+        .collect();
+    DoctorCheck {
+        id: "soapy.runtime".to_string(),
+        name: "SoapySDR runtime".to_string(),
+        status: if missing.is_empty() {
+            CheckStatus::Ok
+        } else {
+            CheckStatus::Warn
+        },
+        detail: format!(
+            "core: {}\nmodule search path: {}\nloaded modules: {}",
+            info.core_version,
+            if info.search_paths.is_empty() {
+                "(none)".to_string()
+            } else {
+                info.search_paths.join(", ")
+            },
+            if module_names.is_empty() {
+                "(none)".to_string()
+            } else {
+                module_names.join(", ")
+            }
+        ),
+        hint: (!missing.is_empty()).then(|| {
+            format!(
+                "missing bundled module(s): {}; reinstall the complete package",
+                missing.join(", ")
+            )
+        }),
     }
 }
 
@@ -346,6 +399,20 @@ mod tests {
         let check = backends_check(&registry);
         assert_eq!(check.status, CheckStatus::Warn);
         assert!(check.detail.contains("virtual"));
-        assert!(check.hint.is_some_and(|h| h.contains("rtl-native")));
+        assert!(check.hint.is_some_and(|h| h.contains("soapy")));
+    }
+
+    #[cfg(feature = "soapy")]
+    #[test]
+    fn soapy_check_reports_core_paths_modules_and_missing_baseline() {
+        let check = soapy_check(&sdrmm_device_soapy::RuntimeInfo {
+            core_version: "0.8.1".to_string(),
+            search_paths: vec!["/app/soapy/modules0.8".to_string()],
+            modules: vec!["librtlsdrSupport.so".to_string()],
+        });
+        assert_eq!(check.status, CheckStatus::Warn);
+        assert!(check.detail.contains("core: 0.8.1"));
+        assert!(check.detail.contains("librtlsdrSupport.so"));
+        assert!(check.hint.is_some_and(|hint| hint.contains("hackrf")));
     }
 }

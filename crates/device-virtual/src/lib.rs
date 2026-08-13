@@ -228,6 +228,7 @@ fn siggen_capabilities() -> Capabilities {
         rx_streams: 1,
         tx_streams: 0,
         per_stream: StreamScope::default(),
+        directional: None,
     }
 }
 

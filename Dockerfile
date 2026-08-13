@@ -1,10 +1,9 @@
 # syntax=docker/dockerfile:1
 
-# sdr-- multi-arch image (PLAN §15: Pi/NAS deployment, `--device /dev/bus/usb`).
+# sdr-- multi-arch image for Pi/NAS deployment (`--device /dev/bus/usb`).
 #
-# Self-contained by construction: the `soapy` feature is OFF (soapysdr-sys pkg-configs
-# libSoapySDR and `links`-declares it, which would make a shared library a launch dependency)
-# and the pure-Rust RTL-SDR/HackRF backends are ON, so the runtime image needs no SDR package.
+# Self-contained by construction: the Soapy backend, core, curated modules, and every module
+# runtime dependency are installed in the image. Nothing from the Docker host is visible here.
 #
 #   docker buildx build --platform linux/amd64,linux/arm64 -t sdrmm .
 #
@@ -28,6 +27,29 @@ RUN pnpm build
 # crates/server/build.rs creates web/dist when it is missing, so a Rust build with no UI
 # succeeds and silently ships the "not built" 503 page. Fail here, where the cause is local.
 RUN test -f dist/index.html
+
+
+# --- pinned Soapy runtime ---------------------------------------------------------------
+FROM mambaorg/micromamba:2.8.1 AS soapy
+ARG TARGETARCH
+COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-64.lock /tmp/conda-linux-64.lock
+COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-aarch64.lock /tmp/conda-linux-aarch64.lock
+COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/licenses /opt/conda/share/licenses/sdrmm-soapy
+# The explicit per-platform locks pin every transitive package URL and checksum.
+RUN case "$TARGETARCH" in \
+      amd64) lock=/tmp/conda-linux-64.lock ;; \
+      arm64) lock=/tmp/conda-linux-aarch64.lock ;; \
+      *) echo "unsupported Docker architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && micromamba install --yes --name base --file "$lock" \
+    && micromamba clean --all --yes \
+    && test -f /opt/conda/lib/libSoapySDR.so \
+    && test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname '*rtlsdr*' -print -quit)" \
+    && test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname '*hackrf*' -print -quit)" \
+    && test -f /opt/conda/share/licenses/sdrmm-soapy/HackRF-GPL-2.0-or-later.txt \
+    && for module in airspy blade lms7 pluto remote; do \
+         test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname "*$module*" -print -quit)"; \
+       done
 
 
 # --- workspace skeleton ------------------------------------------------------------------
@@ -59,15 +81,20 @@ RUN find crates apps xtask -type f ! -name Cargo.toml -delete \
 
 # --- server binary -----------------------------------------------------------------------
 FROM debian:trixie-slim AS builder
-# cc + cmake: audiopus_sys builds vendored libopus through the cmake crate, libsqlite3-sys is
-# bundled C. Nothing else is needed with `soapy` off — no pkg-config, and no libusb because
-# nusb talks to usbfs directly.
+# cc + cmake: audiopus_sys builds vendored libopus through the cmake crate. The private Soapy
+# environment supplies the core library used to link the canonical hardware backend.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential cmake ca-certificates curl \
+    && apt-get install -y --no-install-recommends \
+       build-essential cmake ca-certificates curl pkg-config \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=soapy /opt/conda /opt/conda
 
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
+    SOAPY_SDR_ROOT=/opt/conda \
+    PKG_CONFIG_PATH=/opt/conda/lib/pkgconfig \
+    LD_LIBRARY_PATH=/opt/conda/lib \
     PATH=/usr/local/cargo/bin:$PATH
 # `--default-toolchain none` so rust-toolchain.toml is the only thing choosing the compiler.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
@@ -80,7 +107,7 @@ WORKDIR /src
 COPY --from=planner /plan/ ./
 RUN rustup show
 
-ARG FEATURES=rtl-native,hackrf-native,net-client
+ARG FEATURES=soapy,net-client
 # Dependency compilation against the stubs: invalidated only by Cargo.lock or a manifest, never
 # by a source edit. The stubs reference nothing, so each workspace crate compiles empty while
 # cargo still builds every external dependency it declares.
@@ -105,13 +132,25 @@ LABEL org.opencontainers.image.source="https://github.com/newspicel/sdrminusminu
       org.opencontainers.image.description="sdr-- — headless SDR server with embedded web UI" \
       org.opencontainers.image.licenses="MIT"
 
-# curl is here only for HEALTHCHECK; ca-certificates so outbound TLS works if anything grows it.
+# The pinned private environment includes the core, curated modules, transitive shared libraries,
+# package metadata, and licenses. UHD and SDRplay remain optional packs because of their size and
+# redistribution constraints.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && apt-get install -y --no-install-recommends \
+       ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --user-group --create-home --home-dir /home/sdrmm sdrmm
 
+COPY --from=soapy /opt/conda /opt/conda
 COPY --from=builder /out/sdrmm /usr/local/bin/sdrmm
+COPY THIRD_PARTY_NOTICES.md /usr/share/doc/sdrmm/THIRD_PARTY_NOTICES.md
+
+ENV SDRMM_SOAPY_ROOT=/opt/conda \
+    SDRMM_SOAPY_MODULE_PATH=/opt/conda/lib/SoapySDR/modules0.8 \
+    SOAPY_SDR_ROOT=/opt/conda \
+    SOAPY_SDR_PLUGIN_PATH=/opt/conda/lib/SoapySDR/modules0.8 \
+    LD_LIBRARY_PATH=/opt/conda/lib \
+    PATH=/opt/conda/bin:$PATH
 
 # Docker seeds a fresh named or anonymous volume from the image path, ownership included, so
 # /data has to belong to the unprivileged user *here* for it to be writable there.
@@ -121,8 +160,8 @@ VOLUME ["/data"]
 # USB access is the one thing the image cannot grant this user: /dev/bus/usb nodes are
 # root-owned unless the *host* udev rules relax them (the stock rtl-sdr and hackrf rules ship
 # MODE="0666"/GROUP="plugdev", in which case this works as-is). Where they do not, run with
-# `--group-add <gid owning /dev/bus/usb/*>` or `--user root`. PLAN §15 keeps OS USB permissions
-# explicitly out of scope rather than pretending static linking can fix them.
+# `--group-add <gid owning /dev/bus/usb/*>` or `--user root`. OS USB permissions remain a host
+# concern; static linking cannot change device-node permissions.
 USER sdrmm
 
 EXPOSE 8080

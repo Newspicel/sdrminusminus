@@ -589,6 +589,7 @@ impl DeviceDriver for PagingDriver {
                     gain: true,
                     antenna: false,
                 },
+                directional: None,
             },
             settings: DeviceSettings {
                 center_hz: Some(DEFAULT_CENTER_HZ),

@@ -44,16 +44,11 @@ use crate::{
     scanner::{ScanPlan, ScannerState},
 };
 
-/// Merge priority for the built-in virtual driver (native backends register higher, PLAN §6).
+/// Merge priority for the built-in virtual driver.
 const VIRTUAL_PRIORITY: u8 = 10;
 /// Soapy sits above virtual.
 #[cfg(feature = "soapy")]
 const SOAPY_PRIORITY: u8 = 20;
-/// Native backends win the serial merge against Soapy for the same physical device (PLAN §6):
-/// they expose what Soapy hides — direct sampling, bias-T, per-stage gain — and they need no
-/// C library to be installed.
-#[cfg(any(feature = "rtl-native", feature = "hackrf-native"))]
-const NATIVE_PRIORITY: u8 = 30;
 /// The network clients sit beside the native backends, and the merge never reaches them: a remote
 /// receiver reports no serial, because what identifies it is the endpoint it answers on and not
 /// the hardware at the far end. Collapsing it into a local radio of the same serial would bind a
@@ -72,7 +67,7 @@ const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
 const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
 
 /// The driver registry every binary gets: the virtual driver plus whichever hardware backends
-/// this build compiled in (PLAN §6 merge priority — native above Soapy above virtual). Split
+/// this build compiled in. Split
 /// out of [`Engine::new`] so `sdrmm --doctor` reports the same set the server would open,
 /// rather than forking the registration policy.
 #[must_use]
@@ -87,16 +82,6 @@ pub fn builtin_registry(recordings_dir: Option<PathBuf>) -> DeviceRegistry {
     registry.register(
         SOAPY_PRIORITY,
         Box::new(sdrmm_device_soapy::SoapyDriver::new()),
-    );
-    #[cfg(feature = "rtl-native")]
-    registry.register(
-        NATIVE_PRIORITY,
-        Box::new(sdrmm_device_rtlsdr::RtlSdrDriver::new()),
-    );
-    #[cfg(feature = "hackrf-native")]
-    registry.register(
-        NATIVE_PRIORITY,
-        Box::new(sdrmm_device_hackrf::HackRfDriver::new()),
     );
     #[cfg(feature = "net-client")]
     {
@@ -2298,6 +2283,7 @@ mod tests {
             rx_streams: 1,
             tx_streams: 0,
             per_stream: StreamScope::default(),
+            directional: None,
         }
     }
 
