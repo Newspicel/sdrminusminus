@@ -394,12 +394,26 @@ pub fn worst_shortfall_db(
 /// matched by their own SNR: a committed grid and its reproduction share it exactly, and a
 /// point the reference does not carry is a grid that moved, which must fail rather than
 /// interpolate.
+///
+/// The grid is checked in *both* directions over `[lo, hi]`. A measured curve that simply omits
+/// the SNRs it would have regressed at is the same defect as one that moved the grid, and only
+/// the reverse check sees it.
 pub fn worst_shortfall_db_vs_curve(
     measured: &SinadCurve,
     reference: &SinadCurve,
     lo: f64,
     hi: f64,
 ) -> f64 {
+    let in_span = |p: &&SinadPoint| p.snr_db >= lo && p.snr_db <= hi;
+    let same_snr = |a: f64, b: f64| (a - b).abs() < 1e-9;
+    let missing = reference
+        .points
+        .iter()
+        .filter(in_span)
+        .any(|r| !measured.points.iter().any(|p| same_snr(p.snr_db, r.snr_db)));
+    if missing {
+        return f64::INFINITY;
+    }
     let mut worst = f64::INFINITY;
     let mut any = false;
     for p in &measured.points {
@@ -409,7 +423,7 @@ pub fn worst_shortfall_db_vs_curve(
         let Some(r) = reference
             .points
             .iter()
-            .find(|q| (q.snr_db - p.snr_db).abs() < 1e-9)
+            .find(|q| same_snr(q.snr_db, p.snr_db))
         else {
             return f64::INFINITY;
         };
@@ -556,6 +570,12 @@ mod tests {
         // A grid that moved is not a comparison to interpolate.
         let moved = synthetic(1.0, &[0.0, 6.0, 12.0]);
         assert!(worst_shortfall_db_vs_curve(&moved, &exact, 0.0, 20.0).is_infinite());
+        // Nor is a subset of the committed grid: every point it drops is a point it cannot
+        // regress at, so the omission has to fail as loudly as a shift.
+        let subset = synthetic(1.0, &[0.0, 10.0, 20.0]);
+        assert!(worst_shortfall_db_vs_curve(&subset, &exact, 0.0, 20.0).is_infinite());
+        // Narrowing the span to the points it does carry is how a partial curve is compared.
+        assert!(worst_shortfall_db_vs_curve(&subset, &exact, 10.0, 10.0).abs() < 1e-9);
         // Nor is an empty span.
         assert!(worst_shortfall_db(&exact, oracle, 40.0, 50.0).is_infinite());
     }

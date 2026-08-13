@@ -34,11 +34,16 @@ pub fn sigma_for_ebn0(signal_energy: f64, info_bits: u64, ebn0_db: f64) -> f64 {
 ///
 /// No sample rate appears, exactly as in [`sigma_for_ebn0`]: `bandwidth` is in cycles per
 /// sample and an entry's physical reading follows from its own rate.
+///
+/// # Panics
+/// If `bandwidth` is not a positive finite number. A release build has to refuse it too: the
+/// sigma it would otherwise produce is infinite or NaN, and every sample drawn from it is a
+/// measurement silently destroyed rather than a failure reported (§8).
 #[must_use]
 pub fn sigma_for_channel_snr(mean_power: f64, bandwidth: f64, snr_db: f64) -> f64 {
-    debug_assert!(
-        bandwidth > 0.0,
-        "a channel SNR is stated in a message bandwidth; zero bandwidth has none"
+    assert!(
+        bandwidth.is_finite() && bandwidth > 0.0,
+        "a channel SNR is stated in a message bandwidth; {bandwidth} is not one"
     );
     (mean_power / (2.0 * 10f64.powf(snr_db / 10.0) * bandwidth)).sqrt()
 }

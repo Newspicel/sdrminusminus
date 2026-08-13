@@ -63,8 +63,13 @@ impl BandFilter {
     /// configuration asks for more than Nyquist holds should pass everything it has, not fail.
     #[must_use]
     pub fn build(&self) -> Band {
-        let low = self.low.clamp(-0.4999, 0.4999);
-        let high = self.high.clamp(low + 1e-6, 0.4999);
+        // The lower edge is held a guard width below the upper one, so a band asked for *at*
+        // Nyquist still leaves `high`'s clamp a range to work in. Without it a `low` of 0.4999
+        // hands `clamp` a floor above its ceiling, which panics.
+        const EDGE: f64 = 0.4999;
+        const GUARD: f64 = 1e-6;
+        let low = self.low.clamp(-EDGE, EDGE - GUARD);
+        let high = self.high.clamp((low + GUARD).min(EDGE), EDGE);
         let taps = self.taps.clamp(3, MAX_TAPS) | 1;
         let half_width = 0.5 * (high - low);
         let centre = 0.5 * (high + low);
@@ -296,6 +301,27 @@ mod tests {
             .build(),
             Band::Complex(_)
         ));
+    }
+
+    /// A band asked for past Nyquist is clamped, not rejected and not a panic — including the
+    /// degenerate case where both edges land on the same side of the clamp.
+    #[test]
+    fn a_band_at_the_nyquist_edge_still_builds() {
+        for (low, high) in [(0.4999, 0.5), (0.6, 0.7), (-0.7, -0.6), (0.5, 0.4)] {
+            let mut band = BandFilter {
+                low,
+                high,
+                taps: 33,
+            }
+            .build();
+            let mut out = Vec::new();
+            band.process(&[Complex::new(1.0, 0.0); 64], &mut out);
+            assert_eq!(out.len(), 64, "band {low}..{high} produced no output");
+            assert!(
+                out.iter().all(|s| s.re.is_finite() && s.im.is_finite()),
+                "band {low}..{high} produced a non-finite sample"
+            );
+        }
     }
 
     /// The band passes what it says it passes and stops what it says it stops, measured on
