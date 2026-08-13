@@ -1,4 +1,4 @@
-//! `sdrmm-desktop` — Tauri v2 shell (PLAN §10). Embeds `crates/server` in-process on an
+//! `sdrmm-desktop` — Tauri v2 shell. Embeds `crates/server` in-process on an
 //! ephemeral loopback port and points the WebView at it, so the desktop app and a remote
 //! browser run the exact same frontend over the same origin model. The UI talks to the server
 //! purely over HTTP/WebSocket, so no Tauri IPC (and no capability grant) is required.
@@ -21,6 +21,12 @@ fn main() -> anyhow::Result<()> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            #[cfg(feature = "soapy")]
+            {
+                let soapy_root = app.path().resource_dir()?.join("soapy");
+                let modules = soapy_root.join("lib").join("SoapySDR").join("modules0.8");
+                sdrmm_device_soapy::configure_bundled_runtime(&soapy_root, &modules)?;
+            }
             // Bind synchronously so the port is known before we build the window.
             let listener =
                 tauri::async_runtime::block_on(tokio::net::TcpListener::bind(("127.0.0.1", 0u16)))?;

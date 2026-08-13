@@ -106,6 +106,7 @@ pub(crate) fn capabilities(
         rx_streams: 1,
         tx_streams: 0,
         per_stream: StreamScope::default(),
+        directional: None,
     }
 }
 
@@ -296,7 +297,7 @@ pub(crate) fn validate(
                 batch.push((Setting::IqFormat, format.code()));
                 rescale = true;
             }
-            ExtraSetting::Bool { name, .. } => {
+            ExtraSetting::Bool { name, .. } | ExtraSetting::String { name, .. } => {
                 return Err(DeviceError::Unsupported(format!("extra setting {name}")));
             }
         }
@@ -312,7 +313,8 @@ fn extra_name(setting: &ExtraSetting) -> &str {
     match setting {
         ExtraSetting::Bool { name, .. }
         | ExtraSetting::Range { name, .. }
-        | ExtraSetting::Enum { name, .. } => name,
+        | ExtraSetting::Enum { name, .. }
+        | ExtraSetting::String { name, .. } => name,
     }
 }
 

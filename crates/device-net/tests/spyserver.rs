@@ -230,7 +230,8 @@ fn extra_name(setting: &ExtraSetting) -> &str {
     match setting {
         ExtraSetting::Bool { name, .. }
         | ExtraSetting::Range { name, .. }
-        | ExtraSetting::Enum { name, .. } => name,
+        | ExtraSetting::Enum { name, .. }
+        | ExtraSetting::String { name, .. } => name,
     }
 }
 

@@ -1,7 +1,7 @@
 //! The capture thread and its tier-1 supervisor, written once for every backend that streams
-//! blocks of bytes from a radio (PLAN §6, §18).
+//! blocks of bytes from a radio.
 //!
-//! Both native backends had their own copy of this loop, identical but for the restart
+//! The network backends would otherwise carry copies of this loop, differing only in the restart
 //! primitive, the block size and the word in the log line — and the copies had already diverged
 //! on a real bug. What a backend still owns is what genuinely differs: how to point its radio at
 //! a stream ([`CaptureRadio`]), and how its ADC codes become samples
@@ -14,8 +14,7 @@
 //! re-open it), which is why tier 1 has to live *below* it, on the capture thread.
 //!
 //! Transport-agnostic: the only thing this asks of a stream is blocks of bytes, a stop handle
-//! and an account of how it ended. The USB implementation lives behind the `usb` feature, so a
-//! Soapy-only or virtual-only build never compiles a USB stack it cannot use.
+//! and an account of how it ended.
 
 use std::{
     ops::Deref,
@@ -30,9 +29,6 @@ use crate::{
     DeviceError, Recovery, RestartPolicy, RxSink, SILENT_STREAM_TIMEOUT, SampleConverter, Worker,
     lock,
 };
-
-#[cfg(feature = "usb")]
-mod usb;
 
 /// Why a stream stopped delivering when nobody asked it to.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,7 +107,7 @@ pub trait CaptureRadio: Send + Sync + 'static {
 pub struct CaptureConfig {
     /// Thread name, so a stuck capture is identifiable in a backtrace.
     pub thread_name: &'static str,
-    /// Radio id on every log line this supervisor writes: `"rtlsdr"`, `"hackrf"`.
+    /// Radio id on every log line this supervisor writes.
     pub radio: &'static str,
     /// Samples per push into the sink. One USB transfer can be a coarse unit for a ring the DSP
     /// thread drains continuously, so a converted block is split before it goes downstream —

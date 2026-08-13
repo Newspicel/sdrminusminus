@@ -1,4 +1,4 @@
-# Release artifacts (PLAN §15). Tag-driven; workflow_dispatch builds and uploads everything
+# Release artifacts. Tag-driven; workflow_dispatch builds and uploads everything
 # without publishing, so the pipeline can be exercised off a branch.
 #
 # Three rules run through every job here:
@@ -8,9 +8,9 @@
 #    this existed the tag named the tarball and nothing else: bundles shipped as `0.0.0` and
 #    `sdrmm --version` disagreed with the release it came from.
 #
-#  - Binaries and images are built `--no-default-features` (drops `soapy`, whose sys crate
-#    links libSoapySDR) with the native pure-Rust backends on, because release artifacts must
-#    launch with no shared library installed. Those flags live in `xtask`, not here.
+#  - Every artifact compiles the canonical Soapy backend. Desktop installers and containers
+#    carry a pinned private runtime; headless archives deliberately document their matching
+#    system-runtime prerequisite. The cargo flags live in `xtask`, not here.
 #
 #  - The web UI is built by whatever produces the artifact and its presence is then asserted.
 #    crates/server/build.rs creates web/dist when it is missing, so a Rust build with no UI
@@ -125,16 +125,21 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-24.04
+            conda-platform: linux-64
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
+            conda-platform: linux-aarch64
           - target: aarch64-apple-darwin
             runner: macos-15
+            conda-platform: osx-arm64
           # The one cross build: Apple ships both slices in a single SDK, so the arm64 runner
           # produces the Intel binary without a sysroot of its own.
           - target: x86_64-apple-darwin
             runner: macos-15
+            conda-platform: osx-64
           - target: x86_64-pc-windows-msvc
             runner: windows-2025
+            conda-platform: win-64
     # Every other entry is a native runner — GitHub's hosted arm64 Linux runners remove the need
     # to cross-compile or emulate, so no sysroot, no cargo-zigbuild, no QEMU. The OS is pinned
     # rather than `-latest` because the build machine's glibc is the floor of every Linux
@@ -154,6 +159,32 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: version-stamp
+      - id: soapy
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          micromamba-version: 2.8.1-0
+          environment-file: packaging/soapy/environment.yml
+          environment-name: sdrmm-soapy-${{ matrix.target }}
+          create-args: --platform ${{ matrix.conda-platform }}
+          cache-environment: true
+      - name: Configure pinned Soapy build runtime
+        shell: bash
+        env:
+          PREFIX: ${{ steps.soapy.outputs.environment-path }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            echo "$PREFIX/Library/bin" >> "$GITHUB_PATH"
+          else
+            export SOAPY_SDR_ROOT="$PREFIX"
+            export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+            export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            export DYLD_LIBRARY_PATH="$PREFIX/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+            echo "SOAPY_SDR_ROOT=$PREFIX" >> "$GITHUB_ENV"
+            echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
+            echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
+            echo "DYLD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
+          fi
       # `xtask dist` builds the UI itself, so the toolchain has to be here rather than in a
       # shared artifact — which is also what lets one command reproduce this on a laptop.
       - uses: pnpm/action-setup@v6
@@ -190,6 +221,10 @@ jobs:
           printed="$("$bin" --version)"
           echo "$printed"
           test "$printed" = "sdrmm $VERSION"
+          doctor="$("$bin" --doctor)"
+          echo "$doctor"
+          grep -q 'compiled backends:.*soapy' <<< "$doctor"
+          grep -q 'core: 0.8.1' <<< "$doctor"
       - uses: actions/upload-artifact@v7
         with:
           name: sdrmm-${{ matrix.target }}
@@ -317,18 +352,22 @@ jobs:
             runner: macos-15
             target: aarch64-apple-darwin
             bundles: app,dmg
+            conda-platform: osx-arm64
           - label: macos-x86_64
             runner: macos-15
             target: x86_64-apple-darwin
             bundles: app,dmg
+            conda-platform: osx-64
           - label: linux-x86_64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             bundles: deb,appimage
+            conda-platform: linux-64
           - label: windows-x86_64
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             bundles: msi,nsis
+            conda-platform: win-64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
@@ -341,6 +380,34 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: version-stamp
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends patchelf
+      - id: soapy
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          micromamba-version: 2.8.1-0
+          environment-file: packaging/soapy/environment.yml
+          environment-name: sdrmm-soapy-${{ matrix.target }}
+          create-args: --platform ${{ matrix.conda-platform }}
+          cache-environment: true
+      - name: Stage private Soapy runtime
+        shell: bash
+        env:
+          PREFIX: ${{ steps.soapy.outputs.environment-path }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Windows ]; then
+            echo "$PREFIX/Library/bin" >> "$GITHUB_PATH"
+            powershell -NoProfile -File packaging/soapy/stage-windows.ps1 \
+              -Prefix "$PREFIX" -Destination apps/desktop/resources/soapy
+          else
+            echo "SOAPY_SDR_ROOT=$PREFIX" >> "$GITHUB_ENV"
+            echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
+            echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
+            echo "DYLD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
+            packaging/soapy/stage-unix.sh "$PREFIX" apps/desktop/resources/soapy
+          fi
+          cargo xtask soapy-bundle-check
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -436,7 +503,29 @@ jobs:
           # flags go after `--`, which is the only way it takes them — v2's `build` has no
           # `--no-default-features` of its own and rejects it outright. Same order as the arg list
           # `xtask desktop --bundles` builds, so the local bundle and this one stay one build.
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features rtl-native,hackrf-native,net-client
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,net-client
+      - name: Verify packaged Soapy payload
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          bundle="target/$TARGET/release/bundle"
+          if [ "$RUNNER_OS" = macOS ]; then
+            test -n "$(find "$bundle/macos" -path '*/Resources/soapy/lib/*SoapySDR*' -print -quit)"
+            test -n "$(find "$bundle/macos" -iname '*rtlsdr*' -print -quit)"
+            test -n "$(find "$bundle/macos" -iname '*hackrf*' -print -quit)"
+          elif [ "$RUNNER_OS" = Linux ]; then
+            deb="$(find "$bundle/deb" -name '*.deb' -print -quit)"
+            dpkg-deb --contents "$deb" | grep -qi soapysdr
+            dpkg-deb --contents "$deb" | grep -qi rtlsdr
+            dpkg-deb --contents "$deb" | grep -qi hackrf
+          else
+            installer="$(find "$bundle" -type f \( -name '*.msi' -o -name '*-setup.exe' \) -print -quit)"
+            7z l "$installer" | grep -qi soapysdr
+            7z l "$installer" | grep -qi rtlsdr
+            7z l "$installer" | grep -qi hackrf
+          fi
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
       # — and the release job below treats every downloaded entry as a file to attach.

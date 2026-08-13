@@ -146,6 +146,7 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
         rx_streams: 1,
         tx_streams: 0,
         per_stream: StreamScope::default(),
+        directional: None,
     }
 }
 
@@ -427,7 +428,8 @@ fn extra_name(setting: &ExtraSetting) -> &str {
     match setting {
         ExtraSetting::Bool { name, .. }
         | ExtraSetting::Range { name, .. }
-        | ExtraSetting::Enum { name, .. } => name,
+        | ExtraSetting::Enum { name, .. }
+        | ExtraSetting::String { name, .. } => name,
     }
 }
 

@@ -1,0 +1,13 @@
+name: sdrmm-soapy
+channels:
+  - conda-forge
+dependencies:
+  - soapysdr=0.8.1
+  - soapysdr-module-rtlsdr=0.3.3
+  - soapysdr-module-hackrf=0.3.4
+  - soapysdr-module-airspy=0.2.0
+  - soapysdr-module-airspyhf=0.2.0
+  - soapysdr-module-bladerf=0.4.2
+  - soapysdr-module-lms7=23.11.0
+  - soapysdr-module-plutosdr=0.2.2
+  - soapysdr-module-remote=0.5.2

@@ -291,5 +291,22 @@ function ExtraControl({
           </span>
         </div>
       );
+    case "string":
+      return (
+        <div className={ROW}>
+          <span className="legend truncate" title={setting.name}>
+            {setting.name}
+          </span>
+          <input
+            aria-label={setting.name}
+            className="min-w-0 rounded border border-line bg-surface px-2 py-1 font-mono text-xs text-ink"
+            defaultValue={typeof raw === "string" ? raw : setting.default}
+            onBlur={(event) => onCommit(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+          />
+        </div>
+      );
   }
 }

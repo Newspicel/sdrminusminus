@@ -1048,6 +1048,7 @@ mod tests {
             rx_streams,
             tx_streams,
             per_stream: StreamScope::default(),
+            directional: None,
         }
     }
 

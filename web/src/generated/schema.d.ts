@@ -744,6 +744,28 @@ export interface components {
             bandwidth_hz?: number;
             mode?: components["schemas"]["AprsMode"];
         };
+        /** @description Lossless wire representation of SoapySDR's `ArgInfo`. */
+        ArgumentInfo: {
+            default: string;
+            description?: string | null;
+            key: string;
+            name?: string | null;
+            options?: components["schemas"]["ArgumentOption"][];
+            range?: null | components["schemas"]["Range"];
+            units?: string | null;
+            value_type: components["schemas"]["ArgumentType"];
+        };
+        /** @description One labelled value in a driver's discrete option list. */
+        ArgumentOption: {
+            label?: string | null;
+            value: string;
+        };
+        /**
+         * @description The exact type SoapySDR declares for an argument. This stays separate from
+         *     [`ExtraSetting`], which is the compact control shape used by the existing receiver UI.
+         * @enum {string}
+         */
+        ArgumentType: "bool" | "float" | "int" | "string";
         /**
          * @description How an analog television transmission carries its video, and with it the polarity the
          *     demodulated signal arrives in (PLAN §13: ATV).
@@ -987,6 +1009,7 @@ export interface components {
         Capabilities: {
             antennas: string[];
             bandwidths: number[];
+            directional?: null | components["schemas"]["DirectionalCapabilities"];
             /**
              * @description Which directions this radio has, and whether it can run them together. Receive-only
              *     unless a backend says otherwise, so a device cannot advertise a transmitter by omission.
@@ -1034,6 +1057,29 @@ export interface components {
              *     nothing to wire into it until PLAN §12a lands.
              */
             tx_streams?: number;
+        };
+        /** @description Capabilities of one hardware channel in one signal direction. */
+        ChannelCapabilities: {
+            antennas: string[];
+            bandwidth_ranges: components["schemas"]["Range"][];
+            /** Format: int32 */
+            channel: number;
+            dc_offset_mode?: boolean;
+            freq_ranges: components["schemas"]["Range"][];
+            frequency_args?: components["schemas"]["ArgumentInfo"][];
+            full_duplex?: boolean;
+            gain_mode?: boolean;
+            gains: components["schemas"]["GainStage"][];
+            info?: {
+                [key: string]: string;
+            };
+            iq_balance?: boolean;
+            native_stream_format?: string | null;
+            sample_rate_ranges?: components["schemas"]["Range"][];
+            sample_rates: number[];
+            settings?: components["schemas"]["ArgumentInfo"][];
+            stream_args?: components["schemas"]["ArgumentInfo"][];
+            stream_formats?: string[];
         };
         /** @description Static description of a channel type, surfaced to drive the "add channel" UI (PLAN §8). */
         ChannelDescriptor: {
@@ -1619,6 +1665,27 @@ export interface components {
          * @enum {string}
          */
         Direction: "rx" | "tx";
+        /**
+         * @description Directional and runtime capabilities that cannot be represented by the legacy channel-0
+         *     receiver fields on [`Capabilities`].
+         */
+        DirectionalCapabilities: {
+            clock_source?: string | null;
+            clock_sources?: string[];
+            device_settings?: components["schemas"]["ArgumentInfo"][];
+            hardware_info?: {
+                [key: string]: string;
+            };
+            hardware_time?: boolean;
+            /** Format: int64 */
+            hardware_time_ns?: number | null;
+            /** Format: double */
+            master_clock_rate?: number | null;
+            rx?: components["schemas"]["ChannelCapabilities"][];
+            time_source?: string | null;
+            time_sources?: string[];
+            tx?: components["schemas"]["ChannelCapabilities"][];
+        };
         DmrParams: {
             slots?: components["schemas"]["DmrSlots"];
         };
@@ -1815,6 +1882,11 @@ export interface components {
             kind: "enum";
             name: string;
             options: string[];
+        } | {
+            default: string;
+            /** @enum {string} */
+            kind: "string";
+            name: string;
         };
         /** @description A value for one [`ExtraSetting`], keyed by its name. `value` is bool/number/string. */
         ExtraValue: {

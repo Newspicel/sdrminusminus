@@ -1,6 +1,6 @@
-//! `sdrmm-device` — the device abstraction (PLAN §6): `DeviceDriver`/`SdrDevice` traits, the
-//! capability model (re-exported from `wire`), and the `RxSink` that carries `cf32` from a
-//! device thread into the engine's ring. Backends (soapy, rtlsdr, hackrf, virtual) implement
+//! `sdrmm-device` — the `DeviceDriver`/`SdrDevice` traits, capability model (re-exported from
+//! `wire`), and the `RxSink` that carries `cf32` from a device thread into the engine's ring.
+//! Backends (SoapySDR, network receivers, and virtual devices) implement
 //! these; nothing here does I/O itself.
 //!
 //! It also owns everything a backend would otherwise write for itself and get subtly wrong: the
@@ -174,7 +174,7 @@ impl std::fmt::Debug for RxSink {
 
 /// A backend that can enumerate and open devices (PLAN §6).
 pub trait DeviceDriver: Send + Sync {
-    /// Stable driver id: `"virtual"`, `"soapy"`, `"rtlsdr"`, `"hackrf"`.
+    /// Stable driver id, such as `"virtual"`, `"soapy"`, `"rtltcp"`, or `"spyserver"`.
     fn id(&self) -> &'static str;
     /// Enumerate currently-attached devices.
     fn probe(&self) -> Vec<DeviceInfo>;
@@ -222,6 +222,20 @@ pub trait TxStream: Send {
     fn write(
         &mut self,
         samples: &[Sample],
+        timeout: std::time::Duration,
+        end_burst: bool,
+    ) -> Result<usize, DeviceError> {
+        self.write_channels(&[samples], timeout, end_burst)
+    }
+
+    /// Queue one equally-sized sample slice for every channel opened on this stream.
+    ///
+    /// # Errors
+    /// [`DeviceError::Unsupported`] when the channel count or lengths do not match the stream,
+    /// and [`DeviceError::Io`] for transport errors and reported underflows.
+    fn write_channels(
+        &mut self,
+        channels: &[&[Sample]],
         timeout: std::time::Duration,
         end_burst: bool,
     ) -> Result<usize, DeviceError>;
@@ -276,6 +290,12 @@ pub trait SdrDevice: Send {
     /// with a transmitter has to think about this — or [`DeviceError::DuplexConflict`] while a
     /// half-duplex radio is receiving.
     fn tx_start(&mut self) -> Result<Box<dyn TxStream>, DeviceError> {
+        let channels: Vec<u32> = (0..self.capabilities().tx_streams).collect();
+        self.tx_start_channels(&channels)
+    }
+
+    /// Claim and start the named transmit channels without silently substituting channel 0.
+    fn tx_start_channels(&mut self, _channels: &[u32]) -> Result<Box<dyn TxStream>, DeviceError> {
         Err(DeviceError::Unsupported(
             "this device does not transmit".to_string(),
         ))
@@ -373,6 +393,7 @@ mod tests {
             rx_streams,
             tx_streams: 0,
             per_stream,
+            directional: None,
         }
     }
 

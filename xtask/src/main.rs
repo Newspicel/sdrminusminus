@@ -39,7 +39,7 @@ enum Cmd {
     /// Dependency advisories (`deny.toml`). Separate from `check`: it needs `cargo-deny` and
     /// fetches the RustSec database, so it can go red on a day the tree did not change.
     Audit,
-    /// The Playwright smoke flow against the real server on `device-virtual` (PLAN §14).
+    /// The Playwright smoke flow against the real server on `device-virtual`.
     /// Separate from `test` because it needs a browser binary; CI installs one.
     Smoke,
     /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
@@ -84,6 +84,12 @@ enum Cmd {
         #[arg(long)]
         bundles: Option<String>,
     },
+    /// Verify a staged private Soapy runtime contains the core, baseline modules, and notices.
+    SoapyBundleCheck {
+        /// Staged `soapy` directory (defaults to the desktop resource directory).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+    },
     /// Stamp a release version across the workspace (PLAN §15). CI runs this from the tag.
     SetVersion {
         /// Semver, with or without a leading `v`.
@@ -121,6 +127,10 @@ fn main() -> Result<()> {
         Cmd::Icons => icons::icons(&root()),
         Cmd::Dist { target } => dist(&root(), target.as_deref()),
         Cmd::Desktop { target, bundles } => desktop(&root(), target.as_deref(), bundles.as_deref()),
+        Cmd::SoapyBundleCheck { dir } => soapy_bundle_check(
+            dir.unwrap_or_else(|| root().join("apps/desktop/resources/soapy"))
+                .as_path(),
+        ),
         Cmd::SetVersion { version } => set_version(&root(), &version),
         Cmd::UpdaterManifest {
             version,
@@ -148,7 +158,7 @@ fn root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Emit `openapi.json` from the Rust types (no server needed, PLAN §4 step 1) and regenerate the
+/// Emit `openapi.json` from the Rust types (no server needed) and regenerate the
 /// typed TS client from it.
 fn codegen(root: &Path) -> Result<()> {
     let spec = sdrmm_server::openapi()
@@ -258,14 +268,14 @@ fn check(root: &Path) -> Result<()> {
         &["clippy", "--all-targets", "--", "-D", "warnings"],
         root,
     )?;
-    // Every backend must stay optional (PLAN §3: minimal Pi images).
+    // Every backend must stay optional for deliberate virtual-only builds.
     run(
         "cargo",
         &["check", "-p", "sdrmm", "--no-default-features"],
         root,
     )?;
-    // …and the shape a release artifact actually ships must build: native backends in, Soapy
-    // out, so a missing libSoapySDR costs exotic-device support and not startup (PLAN §15).
+    // …and the shape a release artifact actually ships must build: Soapy is the canonical
+    // local-hardware backend, with network receivers alongside it.
     run(
         "cargo",
         &[
@@ -281,7 +291,7 @@ fn check(root: &Path) -> Result<()> {
 
     web_build(root)?;
 
-    // Codegen must be reproducible: regenerate and fail on any diff (PLAN §4 step 5).
+    // Codegen must be reproducible: regenerate and fail on any diff.
     codegen(root)?;
     run(
         "git",
@@ -434,15 +444,13 @@ fn agree(what: &str, pins: &[(String, String)]) -> Result<()> {
     Ok(())
 }
 
-/// The cargo flags a release artifact is built with: native RTL-SDR and HackRF compiled in
-/// (pure Rust, no C library to install) along with the rtl_tcp and SpyServer clients (`std::net`,
-/// no dependency at all), SoapySDR left out (`soapysdr-sys` dynamically links libSoapySDR, which
-/// PLAN §15 forbids as a launch dependency of a release artifact).
+/// The cargo flags every normal release artifact uses. Keeping them explicit makes a release
+/// immune to an unrelated future default-feature addition while Soapy remains mandatory.
 fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
         "--features".to_string(),
-        "rtl-native,hackrf-native,net-client".to_string(),
+        "soapy,net-client".to_string(),
     ]
 }
 
@@ -467,7 +475,7 @@ fn assert_web_dist(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Build the self-contained headless artifact (PLAN §15: "release artifacts just run") and pack
+/// Build the portable headless artifact and pack
 /// it the way its platform's users expect. The output contract — one archive per target at
 /// `dist/sdrmm-<version>-<triple>.{tar.gz,zip}`, holding the binary plus README and LICENSE —
 /// is what the release workflow uploads, so the build flags live here and only here.
@@ -519,7 +527,7 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
     // README.md and LICENSE are release contents, not optional: a missing one fails here.
     std::fs::copy(&built, staged.join(exe))
         .with_context(|| format!("cannot stage {}", built.display()))?;
-    for doc in ["README.md", "LICENSE"] {
+    for doc in ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"] {
         std::fs::copy(root.join(doc), staged.join(doc))
             .with_context(|| format!("cannot stage {doc}"))?;
     }
@@ -624,7 +632,7 @@ fn host_triple() -> Result<String> {
         .context("`rustc -vV` printed no host line")
 }
 
-/// Build the Tauri shell (PLAN §10). The workspace's `default-members` deliberately skips this
+/// Build the Tauri shell. The workspace's `default-members` deliberately skips this
 /// crate — it pulls the platform webview toolchain — so without this command nothing builds it
 /// until release day.
 ///
@@ -662,6 +670,7 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
 
     web_build(root)?;
     assert_web_dist(root)?;
+    soapy_bundle_check(&root.join("apps/desktop/resources/soapy"))?;
 
     let installed = Command::new("cargo")
         .args(["tauri", "--version"])
@@ -704,6 +713,73 @@ fn desktop(root: &Path, target: Option<&str>, bundles: Option<&str>) -> Result<(
         args.insert(2, "--no-sign");
     }
     run("cargo", &args, &root.join("apps/desktop"))
+}
+
+fn soapy_bundle_check(dir: &Path) -> Result<()> {
+    ensure!(
+        dir.is_dir(),
+        "Soapy bundle directory is missing: {}",
+        dir.display()
+    );
+    let files = files_under(dir)?;
+    let names: Vec<String> = files
+        .iter()
+        .filter_map(|path| path.file_name())
+        .map(|name| name.to_string_lossy().to_ascii_lowercase())
+        .collect();
+    let has = |needle: &str| names.iter().any(|name| name.contains(needle));
+    ensure!(
+        has("soapysdr"),
+        "{} contains no SoapySDR core library",
+        dir.display()
+    );
+    ensure!(
+        has("rtlsdr"),
+        "{} contains no SoapyRTLSDR module",
+        dir.display()
+    );
+    ensure!(
+        has("hackrf"),
+        "{} contains no SoapyHackRF module",
+        dir.display()
+    );
+    let curated = ["airspyhf", "bladerf", "lms7", "pluto", "remote"];
+    for module in curated {
+        ensure!(
+            has(module),
+            "{} contains no curated {module} module",
+            dir.display()
+        );
+    }
+    ensure!(
+        names
+            .iter()
+            .any(|name| name.contains("airspy") && !name.contains("airspyhf")),
+        "{} contains no curated Airspy module",
+        dir.display()
+    );
+    ensure!(
+        files
+            .iter()
+            .any(|path| path.components().any(|part| part.as_os_str() == "licenses")),
+        "{} contains no dependency notices/licenses",
+        dir.display()
+    );
+    println!("soapy bundle: {} files in {}", files.len(), dir.display());
+    Ok(())
+}
+
+fn files_under(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
+        let path = entry?.path();
+        if path.is_dir() {
+            files.extend(files_under(&path)?);
+        } else {
+            files.push(path);
+        }
+    }
+    Ok(files)
 }
 
 /// Stamp `version` across everything a release artifact carries it in.
@@ -769,7 +845,26 @@ fn set_version(root: &Path, version: &str) -> Result<()> {
 }
 
 fn test(root: &Path) -> Result<()> {
-    run("cargo", &["test", "--all-targets"], root)?;
+    let soapy_root = root.join("target/hermetic-soapy");
+    let modules = soapy_root.join("lib/SoapySDR/modules0.8");
+    std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;
+    run_with_env(
+        "cargo",
+        &["test", "--all-targets"],
+        root,
+        &[
+            (
+                "SOAPY_SDR_ROOT",
+                soapy_root
+                    .to_str()
+                    .context("non-utf8 hermetic Soapy path")?,
+            ),
+            (
+                "SOAPY_SDR_PLUGIN_PATH",
+                modules.to_str().context("non-utf8 hermetic Soapy path")?,
+            ),
+        ],
+    )?;
     ensure_web_deps(root)?;
     run(PNPM, &["--dir", "web", "test"], root)?;
     Ok(())
@@ -798,7 +893,26 @@ fn audit(root: &Path) -> Result<()> {
 fn smoke(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
     web_build(root)?;
-    run(PNPM, &["--dir", "web", "exec", "playwright", "test"], root)?;
+    let soapy_root = root.join("target/hermetic-soapy");
+    let modules = soapy_root.join("lib/SoapySDR/modules0.8");
+    std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;
+    run_with_env(
+        PNPM,
+        &["--dir", "web", "exec", "playwright", "test"],
+        root,
+        &[
+            (
+                "SOAPY_SDR_ROOT",
+                soapy_root
+                    .to_str()
+                    .context("non-utf8 hermetic Soapy path")?,
+            ),
+            (
+                "SOAPY_SDR_PLUGIN_PATH",
+                modules.to_str().context("non-utf8 hermetic Soapy path")?,
+            ),
+        ],
+    )?;
     Ok(())
 }
 
