@@ -1,0 +1,45 @@
+{
+  "label": "ufmc qpsk uncoded, 128-point transform, 4 subbands of 12, 33-tap prototype, 16 symbols, zero-pad-to-2N receiver, uncoded BER, seed 0xfc5e",
+  "points": [
+    {
+      "ebn0_db": 0.0,
+      "errors": 2078,
+      "trials": 19968
+    },
+    {
+      "ebn0_db": 2.0,
+      "errors": 2034,
+      "trials": 36864
+    },
+    {
+      "ebn0_db": 4.0,
+      "errors": 2022,
+      "trials": 90624
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2012,
+      "trials": 351744
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2001,
+      "trials": 2783232
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 708,
+      "trials": 4001280
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 137,
+      "trials": 4001280
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 11,
+      "trials": 4001280
+    }
+  ]
+}
