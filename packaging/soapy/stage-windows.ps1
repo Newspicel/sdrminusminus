@@ -3,8 +3,18 @@ param(
   [Parameter(Mandatory = $true)][string]$Destination
 )
 $ErrorActionPreference = "Stop"
-if ([string]::IsNullOrWhiteSpace($Destination) -or $Destination -eq "." -or $Destination -eq "\") {
+if ([string]::IsNullOrWhiteSpace($Destination)) {
   throw "Refusing unsafe staging destination: $Destination"
+}
+$Destination = [System.IO.Path]::GetFullPath($Destination)
+$workingDirectory = [System.IO.Path]::GetFullPath((Get-Location).Path)
+$volumeRoot = [System.IO.Path]::GetPathRoot($Destination)
+$separator = [System.IO.Path]::DirectorySeparatorChar
+$atRoot = $Destination.TrimEnd($separator) -eq $volumeRoot.TrimEnd($separator)
+$atOrAboveWorkingDirectory = $workingDirectory -eq $Destination -or
+  $workingDirectory.StartsWith($Destination.TrimEnd($separator) + $separator, [System.StringComparison]::OrdinalIgnoreCase)
+if ($atRoot -or $atOrAboveWorkingDirectory) {
+  throw "Refusing staging destination at or above the working directory: $Destination"
 }
 if (Test-Path $Destination) { Remove-Item -Recurse -Force $Destination }
 $bin = Join-Path $Destination "bin"
@@ -28,3 +38,6 @@ foreach ($licenseRoot in @("Library\share\licenses", "share\licenses")) {
     Copy-Item $source (Join-Path $licenses "texts") -Recurse -Force
   }
 }
+$licenseTexts = Join-Path $licenses "texts"
+New-Item -ItemType Directory -Force $licenseTexts | Out-Null
+Copy-Item (Join-Path $PSScriptRoot "licenses\*.txt") $licenseTexts -Force

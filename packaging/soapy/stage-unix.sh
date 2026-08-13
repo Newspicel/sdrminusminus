@@ -3,14 +3,20 @@ set -euo pipefail
 
 prefix="${1:?radioconda prefix}"
 destination="${2:?staging destination}"
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 export LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export DYLD_LIBRARY_PATH="$prefix/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+destination="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$destination")"
+working_directory="$(pwd -P)"
 case "$destination" in
-  /|""|.) echo "refusing unsafe staging destination: $destination" >&2; exit 2 ;;
+  /|"") echo "refusing unsafe staging destination: $destination" >&2; exit 2 ;;
+esac
+case "$working_directory/" in
+  "$destination/"*) echo "refusing staging destination at or above the working directory: $destination" >&2; exit 2 ;;
 esac
 
 rm -rf -- "$destination"
-install -d "$destination/lib/SoapySDR/modules0.8" "$destination/licenses"
+install -d "$destination/bin" "$destination/lib/SoapySDR/modules0.8" "$destination/licenses"
 
 cores="$(find "$prefix/lib" -maxdepth 1 \( -type f -o -type l \) \
   \( -name 'libSoapySDR.so*' -o -name 'libSoapySDR*.dylib' \) | sort)"
@@ -83,6 +89,14 @@ if [ "$(uname -s)" = Darwin ]; then copy_dependencies_macos; else copy_dependenc
 if [ -d "$prefix/conda-meta" ]; then
   cp "$prefix/conda-meta/"*.json "$destination/licenses/" 2>/dev/null || true
 fi
+for license_root in "$prefix/share/licenses" "$prefix/Library/share/licenses"; do
+  if [ -d "$license_root" ]; then
+    install -d "$destination/licenses/texts"
+    cp -R "$license_root/." "$destination/licenses/texts/"
+  fi
+done
+install -d "$destination/licenses/texts"
+cp "$script_directory/licenses/"*.txt "$destination/licenses/texts/"
 find "$prefix" -maxdepth 4 -type f \( -iname 'license*' -o -iname 'copying*' \) \
   | head -200 | while IFS= read -r license; do
       cp "$license" "$destination/licenses/$(basename "$(dirname "$license")")-$(basename "$license")"

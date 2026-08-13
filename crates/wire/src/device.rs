@@ -251,6 +251,18 @@ pub enum ExtraSetting {
     },
 }
 
+impl ExtraSetting {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Bool { name, .. }
+            | Self::Range { name, .. }
+            | Self::Enum { name, .. }
+            | Self::String { name, .. } => name,
+        }
+    }
+}
+
 /// The exact type SoapySDR declares for an argument. This stays separate from
 /// [`ExtraSetting`], which is the compact control shape used by the existing receiver UI.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -315,6 +327,8 @@ pub struct ChannelCapabilities {
     pub stream_args: Vec<ArgumentInfo>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub frequency_args: Vec<ArgumentInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub frequency_components: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub settings: Vec<ArgumentInfo>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

@@ -31,14 +31,22 @@ RUN test -f dist/index.html
 
 # --- pinned Soapy runtime ---------------------------------------------------------------
 FROM mambaorg/micromamba:2.8.1 AS soapy
-COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/environment.yml /tmp/environment.yml
-# Versions are exact in the environment file. Conda-forge publishes this complete set for both
-# linux-64 and linux-aarch64, including every transitive shared library and license payload.
-RUN micromamba install --yes --name base --file /tmp/environment.yml \
+ARG TARGETARCH
+COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-64.lock /tmp/conda-linux-64.lock
+COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-aarch64.lock /tmp/conda-linux-aarch64.lock
+COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/licenses /opt/conda/share/licenses/sdrmm-soapy
+# The explicit per-platform locks pin every transitive package URL and checksum.
+RUN case "$TARGETARCH" in \
+      amd64) lock=/tmp/conda-linux-64.lock ;; \
+      arm64) lock=/tmp/conda-linux-aarch64.lock ;; \
+      *) echo "unsupported Docker architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && micromamba install --yes --name base --file "$lock" \
     && micromamba clean --all --yes \
     && test -f /opt/conda/lib/libSoapySDR.so \
     && test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname '*rtlsdr*' -print -quit)" \
     && test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname '*hackrf*' -print -quit)" \
+    && test -f /opt/conda/share/licenses/sdrmm-soapy/HackRF-GPL-2.0-or-later.txt \
     && for module in airspy blade lms7 pluto remote; do \
          test -n "$(find /opt/conda/lib/SoapySDR/modules0.8 -iname "*$module*" -print -quit)"; \
        done
@@ -135,6 +143,7 @@ RUN apt-get update \
 
 COPY --from=soapy /opt/conda /opt/conda
 COPY --from=builder /out/sdrmm /usr/local/bin/sdrmm
+COPY THIRD_PARTY_NOTICES.md /usr/share/doc/sdrmm/THIRD_PARTY_NOTICES.md
 
 ENV SDRMM_SOAPY_ROOT=/opt/conda \
     SDRMM_SOAPY_MODULE_PATH=/opt/conda/lib/SoapySDR/modules0.8 \

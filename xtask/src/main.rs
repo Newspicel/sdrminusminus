@@ -765,6 +765,17 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "{} contains no dependency notices/licenses",
         dir.display()
     );
+    for license in [
+        "soapyhackrf-mit",
+        "hackrf-gpl-2.0-or-later",
+        "hackrf-bsd-3-clause",
+    ] {
+        ensure!(
+            has(license),
+            "{} contains no {license} license text",
+            dir.display()
+        );
+    }
     println!("soapy bundle: {} files in {}", files.len(), dir.display());
     Ok(())
 }

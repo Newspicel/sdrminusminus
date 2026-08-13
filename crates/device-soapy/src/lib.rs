@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
@@ -48,31 +48,20 @@ pub fn runtime_info() -> RuntimeInfo {
 }
 
 /// Select the application's private Soapy tree before the first enumerate or device open.
-/// The tree must contain `lib/SoapySDR/modules0.8` (or the platform equivalent).
-pub fn configure_bundled_runtime(root: &Path, modules: &Path) -> Result<(), DeviceError> {
+///
+/// # Safety
+/// The caller must invoke this during single-threaded process startup, before any other thread
+/// can read or write the process environment and before constructing a [`SoapyDriver`].
+pub unsafe fn configure_bundled_runtime(root: &Path, modules: &Path) -> Result<(), DeviceError> {
     if !modules.is_dir() {
         return Err(DeviceError::Io(format!(
             "bundled Soapy module directory is missing: {}",
             modules.display()
         )));
     }
-    unsafe {
-        std::env::set_var("SOAPY_SDR_ROOT", root);
-        std::env::set_var("SOAPY_SDR_PLUGIN_PATH", modules);
-    }
+    unsafe { std::env::set_var("SOAPY_SDR_ROOT", root) };
+    unsafe { std::env::set_var("SOAPY_SDR_PLUGIN_PATH", modules) };
     Ok(())
-}
-
-fn configure_from_environment() {
-    let Some(root) = std::env::var_os("SDRMM_SOAPY_ROOT").map(PathBuf::from) else {
-        return;
-    };
-    let modules = std::env::var_os("SDRMM_SOAPY_MODULE_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join("lib").join("SoapySDR").join("modules0.8"));
-    if let Err(error) = configure_bundled_runtime(&root, &modules) {
-        tracing::warn!("{error}");
-    }
 }
 
 fn enumerate_serialized(filter: &str) -> Result<Vec<soapysdr::Args>, soapysdr::Error> {
@@ -146,7 +135,6 @@ pub struct SoapyDriver;
 impl SoapyDriver {
     #[must_use]
     pub fn new() -> Self {
-        configure_from_environment();
         Self
     }
 }
@@ -228,11 +216,7 @@ fn query_channel(
         "frequency components",
         device.list_frequencies(direction, channel),
     );
-    let mut info = args_map(&device.channel_info(direction, channel).map_err(map_err)?);
-    info.insert(
-        "frequency_components".to_string(),
-        frequency_components.join(","),
-    );
+    let info = args_map(&device.channel_info(direction, channel).map_err(map_err)?);
     let formats = optional("stream formats", device.stream_formats(direction, channel));
     let native = optional_value(
         "native stream format",
@@ -273,6 +257,7 @@ fn query_channel(
             "frequency arguments",
             device.frequency_args_info(direction, channel),
         )),
+        frequency_components,
         settings: caps::argument_infos(&optional(
             "channel settings",
             device.channel_setting_info(direction, channel),
@@ -328,12 +313,10 @@ fn query_capabilities(device: &soapysdr::Device) -> Result<Capabilities, DeviceE
         .and_then(|directional| directional.rx.first())
         .is_some_and(|channel| channel.gain_mode);
     if gain_mode
-        && !capabilities.extra.iter().any(|setting| match setting {
-            sdrmm_wire::ExtraSetting::Bool { name, .. }
-            | sdrmm_wire::ExtraSetting::Range { name, .. }
-            | sdrmm_wire::ExtraSetting::Enum { name, .. }
-            | sdrmm_wire::ExtraSetting::String { name, .. } => name == GAIN_MODE_SETTING,
-        })
+        && !capabilities
+            .extra
+            .iter()
+            .any(|setting| setting.name() == GAIN_MODE_SETTING)
     {
         capabilities.extra.push(sdrmm_wire::ExtraSetting::Bool {
             name: GAIN_MODE_SETTING.to_string(),
@@ -387,18 +370,13 @@ fn read_settings(device: &soapysdr::Device, capabilities: &Capabilities) -> Devi
         });
     }
     for extra in &capabilities.extra {
-        let name = match extra {
-            sdrmm_wire::ExtraSetting::Bool { name, .. }
-            | sdrmm_wire::ExtraSetting::Range { name, .. }
-            | sdrmm_wire::ExtraSetting::Enum { name, .. }
-            | sdrmm_wire::ExtraSetting::String { name, .. } => name,
-        };
+        let name = extra.name();
         let read = if name == GAIN_MODE_SETTING {
             device
                 .gain_mode(Direction::Rx, 0)
                 .map(|value| value.to_string())
         } else {
-            device.read_setting(name.as_str())
+            device.read_setting(name)
         };
         if let Ok(value) = read {
             let value = match extra {
@@ -413,7 +391,7 @@ fn read_settings(device: &soapysdr::Device, capabilities: &Capabilities) -> Devi
                 _ => serde_json::Value::String(value),
             };
             settings.extra.push(sdrmm_wire::ExtraValue {
-                name: name.clone(),
+                name: name.to_string(),
                 value,
             });
         }
@@ -539,6 +517,16 @@ impl SoapyDevice {
         }
     }
 
+    fn rollback_extras(
+        &mut self,
+        originals: &[(String, String)],
+        previous_capabilities: Capabilities,
+    ) {
+        self.restore_extras(originals);
+        self.capabilities = query_capabilities(&self.device).unwrap_or(previous_capabilities);
+        self.settings = read_settings(&self.device, &self.capabilities);
+    }
+
     fn apply_rx_settings(&self, delta: &DeviceSettings) -> Result<(), DeviceError> {
         let Some(directional) = &self.capabilities.directional else {
             return Ok(());
@@ -601,23 +589,23 @@ impl SdrDevice for SoapyDevice {
                 ))
             })
             .collect::<Result<_, DeviceError>>()?;
+        let previous_capabilities = self.capabilities.clone();
         let originals = self.write_extras(&writes)?;
         if !writes.is_empty() {
-            self.capabilities = query_capabilities(&self.device)?;
+            match query_capabilities(&self.device) {
+                Ok(capabilities) => self.capabilities = capabilities,
+                Err(error) => {
+                    self.rollback_extras(&originals, previous_capabilities);
+                    return Err(error);
+                }
+            }
         }
         if let Err(error) = caps::validate(delta, &self.capabilities) {
-            self.restore_extras(&originals);
-            if !writes.is_empty() {
-                self.capabilities = query_capabilities(&self.device)?;
-            }
+            self.rollback_extras(&originals, previous_capabilities);
             return Err(error);
         }
         if let Err(error) = self.apply_rx_settings(delta) {
-            self.restore_extras(&originals);
-            if let Ok(capabilities) = query_capabilities(&self.device) {
-                self.capabilities = capabilities;
-                self.settings = read_settings(&self.device, &self.capabilities);
-            }
+            self.rollback_extras(&originals, previous_capabilities);
             return Err(error);
         }
         self.settings.merge_from(delta);

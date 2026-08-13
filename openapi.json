@@ -3005,6 +3005,12 @@
               "$ref": "#/components/schemas/ArgumentInfo"
             }
           },
+          "frequency_components": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "full_duplex": {
             "type": "boolean"
           },

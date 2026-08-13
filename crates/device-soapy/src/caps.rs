@@ -1,7 +1,7 @@
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceSettings,
-    DirectionalCapabilities, Duplex, ExtraSetting, Range, StreamScope,
+    DirectionalCapabilities, Duplex, ExtraSetting, Range,
 };
 use soapysdr::ArgType;
 
@@ -63,54 +63,6 @@ pub(crate) fn argument_infos(infos: &[soapysdr::ArgInfo]) -> Vec<ArgumentInfo> {
     infos.iter().map(argument_info).collect()
 }
 
-#[cfg(test)]
-pub(crate) fn extra_settings(infos: &[soapysdr::ArgInfo]) -> Vec<ExtraSetting> {
-    infos
-        .iter()
-        .map(|info| {
-            let options: Vec<String> = info
-                .options
-                .iter()
-                .map(|(value, _)| value.clone())
-                .collect();
-            if !options.is_empty() {
-                return ExtraSetting::Enum {
-                    name: info.key.clone(),
-                    options,
-                    default: info.value.clone(),
-                };
-            }
-            match info.data_type {
-                ArgType::Bool => ExtraSetting::Bool {
-                    name: info.key.clone(),
-                    default: matches!(info.value.to_ascii_lowercase().as_str(), "true" | "1"),
-                },
-                ArgType::Float | ArgType::Int if info.range.is_some() => {
-                    let range = info.range.expect("checked above");
-                    ExtraSetting::Range {
-                        name: info.key.clone(),
-                        range: ranges(&[range])[0],
-                        unit: info.units.clone().unwrap_or_default(),
-                    }
-                }
-                _ => ExtraSetting::String {
-                    name: info.key.clone(),
-                    default: info.value.clone(),
-                },
-            }
-        })
-        .collect()
-}
-
-fn extra_name(setting: &ExtraSetting) -> &str {
-    match setting {
-        ExtraSetting::Bool { name, .. }
-        | ExtraSetting::Range { name, .. }
-        | ExtraSetting::Enum { name, .. }
-        | ExtraSetting::String { name, .. } => name,
-    }
-}
-
 pub(crate) fn extra_write_value(
     extra: &[ExtraSetting],
     name: &str,
@@ -118,7 +70,7 @@ pub(crate) fn extra_write_value(
 ) -> Result<String, DeviceError> {
     let setting = extra
         .iter()
-        .find(|setting| extra_name(setting) == name)
+        .find(|setting| setting.name() == name)
         .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {name}")))?;
     let written = match setting {
         ExtraSetting::Bool { .. } => value.as_bool().map(|value| value.to_string()),
@@ -152,7 +104,7 @@ pub(crate) fn duplex(rx: &[ChannelCapabilities], tx: &[ChannelCapabilities]) -> 
 }
 
 pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities {
-    let primary = directional.rx.first().or_else(|| directional.tx.first());
+    let primary = directional.rx.first();
     let (freq_ranges, sample_rates, sample_rate_range, gains, antennas, bandwidths, ppm) =
         match primary {
             Some(channel) => (
@@ -168,9 +120,9 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
                     .map(|range| range.min)
                     .collect(),
                 channel
-                    .info
-                    .get("frequency_components")
-                    .is_some_and(|components| components.split(',').any(|item| item == "CORR")),
+                    .frequency_components
+                    .iter()
+                    .any(|component| component == "CORR"),
             ),
             None => (
                 Vec::new(),
@@ -198,15 +150,7 @@ pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities
         duplex,
         rx_streams,
         tx_streams,
-        per_stream: if rx_streams > 1 {
-            StreamScope {
-                tuning: true,
-                gain: true,
-                antenna: true,
-            }
-        } else {
-            StreamScope::default()
-        },
+        per_stream: sdrmm_wire::StreamScope::default(),
         directional: Some(directional),
     }
 }
@@ -473,7 +417,8 @@ mod tests {
 
     #[test]
     fn iq_swap_is_an_independent_boolean_control() {
-        let extras = extra_settings(&[soapy_arg("iq_swap", ArgType::Bool)]);
+        let extras =
+            extra_settings_from_wire(&argument_infos(&[soapy_arg("iq_swap", ArgType::Bool)]));
         assert!(matches!(
             &extras[0],
             ExtraSetting::Bool { name, default } if name == "iq_swap" && !default
@@ -502,7 +447,7 @@ mod tests {
         assert_eq!(caps.rx_streams, 2);
         assert_eq!(caps.tx_streams, 1);
         assert_eq!(caps.duplex, Duplex::Full);
-        assert!(caps.per_stream.tuning);
+        assert_eq!(caps.per_stream, sdrmm_wire::StreamScope::default());
     }
 
     #[test]
@@ -526,6 +471,10 @@ mod tests {
         assert!(
             matches!(validate(&delta, &caps), Err(DeviceError::Unsupported(message)) if message.contains("TX-only"))
         );
+        assert!(caps.freq_ranges.is_empty());
+        assert!(caps.sample_rates.is_empty());
+        assert!(caps.gains.is_empty());
+        assert!(caps.antennas.is_empty());
     }
 
     #[test]

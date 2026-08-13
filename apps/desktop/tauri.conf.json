@@ -17,7 +17,7 @@
     "createUpdaterArtifacts": true,
     "resources": {
       "resources/soapy": "soapy",
-      "resources/soapy/bin/*.dll": ".",
+      "resources/soapy/bin": ".",
       "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
     "icon": [

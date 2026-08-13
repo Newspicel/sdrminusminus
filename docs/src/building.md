@@ -52,7 +52,9 @@ so every gate that can fail in CI can be run locally first.
 and license/notices files. These portable headless archives compile the Soapy backend but do not
 copy a runtime: the target machine must provide SoapySDR 0.8.1 (module ABI 0.8) and its hardware
 module. Release baselines are SoapyRTLSDR 0.3.3 and SoapyHackRF 0.3.4; the other curated versions
-are pinned in `packaging/soapy/environment.yml`. Confirm the installation with `sdrmm --doctor`;
+are declared in `packaging/soapy/environment.yml`. Release and Docker builds install the
+matching immutable `packaging/soapy/conda-<platform>.lock`, which pins every transitive package
+URL and checksum. Confirm the installation with `sdrmm --doctor`;
 its report includes the compiled backend, core version, module search paths, and discovered
 modules.
 
@@ -63,9 +65,12 @@ without the UI would otherwise succeed and silently ship a "not built" placehold
 `cargo xtask desktop --bundles dmg` (or `deb,appimage`, `msi,nsis`) builds the desktop
 installers through the Tauri CLI, which you need installed:
 `cargo install --locked tauri-cli`. Before bundling, stage the pinned private runtime from
-`packaging/soapy/environment.yml` into `apps/desktop/resources/soapy` with
+the matching `packaging/soapy/conda-<platform>.lock` into a Conda prefix, then stage it in
+`apps/desktop/resources/soapy` with
 `packaging/soapy/stage-unix.sh <conda-prefix> apps/desktop/resources/soapy` (or
-`stage-windows.ps1`). `cargo xtask soapy-bundle-check` checks the staged payload. Release CI
+`powershell -NoProfile -File packaging/soapy/stage-windows.ps1 -Prefix "<conda-prefix>" -Destination apps/desktop/resources/soapy`
+on Windows). `cargo xtask soapy-bundle-check`
+checks the staged payload. Release CI
 performs these steps automatically and verifies the resulting installers. Without `--bundles`
 the command is a compile gate only,
 which is what CI runs on every pull request — `apps/desktop` is outside the workspace's

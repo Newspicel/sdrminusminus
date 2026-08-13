@@ -2,6 +2,7 @@
 // `DeviceSettings` alone, so a new device setting needs zero frontend work. One row per setting,
 // everything the dial is not — the same rows serve the device node's face (CANVAS §1) and the
 // M6 radio popover, because a receiver has one set of controls, not one per surface.
+import { useEffect, useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
 import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
@@ -240,6 +241,18 @@ function ExtraControl({
   raw: unknown;
   onCommit: (value: boolean | string | number) => void;
 }) {
+  const authoritative =
+    setting.kind === "string" && typeof raw === "string"
+      ? raw
+      : setting.kind === "string"
+        ? setting.default
+        : "";
+  const [draft, setDraft] = useState(authoritative);
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    if (!dirty) setDraft(authoritative);
+  }, [authoritative, dirty]);
+
   switch (setting.kind) {
     case "bool":
       return (
@@ -300,8 +313,15 @@ function ExtraControl({
           <input
             aria-label={setting.name}
             className="min-w-0 rounded border border-line bg-surface px-2 py-1 font-mono text-xs text-ink"
-            defaultValue={typeof raw === "string" ? raw : setting.default}
-            onBlur={(event) => onCommit(event.currentTarget.value)}
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.currentTarget.value);
+              setDirty(true);
+            }}
+            onBlur={() => {
+              onCommit(draft);
+              setDirty(false);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter") event.currentTarget.blur();
             }}

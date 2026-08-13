@@ -226,15 +226,6 @@ fn settings(observed: &Observed, connection: usize) -> Vec<(u32, u32)> {
     lock(observed).get(&connection).cloned().unwrap_or_default()
 }
 
-fn extra_name(setting: &ExtraSetting) -> &str {
-    match setting {
-        ExtraSetting::Bool { name, .. }
-        | ExtraSetting::Range { name, .. }
-        | ExtraSetting::Enum { name, .. }
-        | ExtraSetting::String { name, .. } => name,
-    }
-}
-
 #[test]
 fn opening_reads_the_capability_set_off_the_handshake() {
     let (server, _) = fake_spyserver(Behaviour::default());
@@ -253,7 +244,7 @@ fn opening_reads_the_capability_set_off_the_handshake() {
     let gain = caps
         .extra
         .iter()
-        .find(|s| extra_name(s) == "gain")
+        .find(|setting| setting.name() == "gain")
         .expect("the gain index");
     let ExtraSetting::Range { range, unit, .. } = gain else {
         panic!("the gain index is a range, not {gain:?}");
@@ -279,7 +270,7 @@ fn a_server_that_will_not_be_steered_reports_only_what_it_will_move() {
     let caps = device.capabilities();
     assert_eq!(caps.freq_ranges[0].min, 99e6);
     assert_eq!(caps.freq_ranges[0].max, 101e6);
-    assert!(!caps.extra.iter().any(|s| extra_name(s) == "gain"));
+    assert!(!caps.extra.iter().any(|setting| setting.name() == "gain"));
 }
 
 #[test]

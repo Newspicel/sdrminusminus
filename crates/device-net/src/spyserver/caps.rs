@@ -176,13 +176,13 @@ impl Remote {
     /// What the client is shown.
     pub(crate) fn wire(self, info: DeviceInfo, caps: &Capabilities) -> DeviceSettings {
         let mut extra = Vec::with_capacity(2);
-        if caps.extra.iter().any(|s| extra_name(s) == GAIN) {
+        if caps.extra.iter().any(|setting| setting.name() == GAIN) {
             extra.push(ExtraValue {
                 name: GAIN.to_string(),
                 value: self.gain.into(),
             });
         }
-        if caps.extra.iter().any(|s| extra_name(s) == IQ_FORMAT) {
+        if caps.extra.iter().any(|setting| setting.name() == IQ_FORMAT) {
             extra.push(ExtraValue {
                 name: IQ_FORMAT.to_string(),
                 value: self.format.name().into(),
@@ -264,7 +264,7 @@ pub(crate) fn validate(
         let setting = caps
             .extra
             .iter()
-            .find(|s| extra_name(s) == value.name)
+            .find(|setting| setting.name() == value.name)
             .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", value.name)))?;
         match setting {
             ExtraSetting::Range { range, .. } => {
@@ -307,15 +307,6 @@ pub(crate) fn validate(
         batch.push((Setting::IqDigitalGain, next.digital_gain(info)));
     }
     Ok((next, ordered(batch)))
-}
-
-fn extra_name(setting: &ExtraSetting) -> &str {
-    match setting {
-        ExtraSetting::Bool { name, .. }
-        | ExtraSetting::Range { name, .. }
-        | ExtraSetting::Enum { name, .. }
-        | ExtraSetting::String { name, .. } => name,
-    }
 }
 
 #[cfg(test)]
@@ -398,13 +389,13 @@ mod tests {
         let open = capabilities(info(), sync(true), &formats());
         assert_eq!(open.freq_ranges[0].min, 24e6);
         assert_eq!(open.freq_ranges[0].max, 1.766e9);
-        assert!(open.extra.iter().any(|s| extra_name(s) == GAIN));
+        assert!(open.extra.iter().any(|setting| setting.name() == GAIN));
 
         let locked = capabilities(info(), sync(false), &formats());
         assert_eq!(locked.freq_ranges[0].min, 99e6);
         assert_eq!(locked.freq_ranges[0].max, 101e6);
         assert!(
-            !locked.extra.iter().any(|s| extra_name(s) == GAIN),
+            !locked.extra.iter().any(|setting| setting.name() == GAIN),
             "a gain control that the server will refuse is not offered"
         );
     }

@@ -1067,6 +1067,7 @@ export interface components {
             dc_offset_mode?: boolean;
             freq_ranges: components["schemas"]["Range"][];
             frequency_args?: components["schemas"]["ArgumentInfo"][];
+            frequency_components?: string[];
             full_duplex?: boolean;
             gain_mode?: boolean;
             gains: components["schemas"]["GainStage"][];

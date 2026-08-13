@@ -11,7 +11,28 @@ use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 mod update;
 
+#[cfg(feature = "soapy")]
+fn configure_soapy_runtime() -> anyhow::Result<()> {
+    let executable = std::env::current_exe().context("cannot locate desktop executable")?;
+    let executable_dir = executable
+        .parent()
+        .context("desktop executable has no parent directory")?;
+    #[cfg(target_os = "macos")]
+    let resources = executable_dir.join("../Resources");
+    #[cfg(target_os = "linux")]
+    let resources = executable_dir.join("../lib/sdr--");
+    #[cfg(target_os = "windows")]
+    let resources = executable_dir.to_path_buf();
+    let root = resources.join("soapy");
+    let modules = root.join("lib").join("SoapySDR").join("modules0.8");
+    unsafe { sdrmm_device_soapy::configure_bundled_runtime(&root, &modules) }
+        .map_err(anyhow::Error::msg)
+}
+
 fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "soapy")]
+    configure_soapy_runtime()?;
+
     tracing_subscriber::fmt()
         .with_env_filter("info,sdrmm=debug")
         .init();
@@ -21,12 +42,6 @@ fn main() -> anyhow::Result<()> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            #[cfg(feature = "soapy")]
-            {
-                let soapy_root = app.path().resource_dir()?.join("soapy");
-                let modules = soapy_root.join("lib").join("SoapySDR").join("modules0.8");
-                sdrmm_device_soapy::configure_bundled_runtime(&soapy_root, &modules)?;
-            }
             // Bind synchronously so the port is known before we build the window.
             let listener =
                 tauri::async_runtime::block_on(tokio::net::TcpListener::bind(("127.0.0.1", 0u16)))?;
