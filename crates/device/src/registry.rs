@@ -1,6 +1,8 @@
 //! Driver registry (PLAN §6): probes every registered backend and merges results, collapsing
-//! duplicates by serial with native drivers winning over Soapy. At M0 only `device-virtual`
-//! registers, but the merge policy is here from the start.
+//! cross-backend duplicates by serial with native drivers winning over Soapy. One backend may
+//! intentionally expose several addresses for a serial (the RSPduo's Soapy operating modes), so
+//! those remain separate. At M0 only `device-virtual` registers, but the merge policy is here
+//! from the start.
 
 use std::collections::HashMap;
 
@@ -35,10 +37,11 @@ impl DeviceRegistry {
         self.drivers.iter().map(|(p, d)| (*p, d.id())).collect()
     }
 
-    /// Probe all drivers and merge, collapsing serial duplicates by priority (PLAN §6).
+    /// Probe all drivers and merge, collapsing cross-driver serial duplicates by priority while
+    /// retaining distinct keys a single driver exposes for one serial (PLAN §6).
     #[must_use]
     pub fn probe_all(&self) -> Vec<DeviceInfo> {
-        let mut by_serial: HashMap<String, (u8, DeviceInfo)> = HashMap::new();
+        let mut by_serial: HashMap<String, (u8, &'static str, Vec<DeviceInfo>)> = HashMap::new();
         let mut serialless: Vec<DeviceInfo> = Vec::new();
 
         for (priority, driver) in &self.drivers {
@@ -48,12 +51,21 @@ impl DeviceRegistry {
                         let entry = by_serial.entry(serial.clone());
                         match entry {
                             std::collections::hash_map::Entry::Occupied(mut e) => {
-                                if *priority > e.get().0 {
-                                    e.insert((*priority, info));
+                                let (winning_priority, winning_driver, variants) = e.get_mut();
+                                if *priority > *winning_priority {
+                                    *winning_priority = *priority;
+                                    *winning_driver = driver.id();
+                                    variants.clear();
+                                    variants.push(info);
+                                } else if *priority == *winning_priority
+                                    && driver.id() == *winning_driver
+                                    && !variants.iter().any(|known| known.key == info.key)
+                                {
+                                    variants.push(info);
                                 }
                             }
                             std::collections::hash_map::Entry::Vacant(e) => {
-                                e.insert((*priority, info));
+                                e.insert((*priority, driver.id(), vec![info]));
                             }
                         }
                     }
@@ -62,7 +74,10 @@ impl DeviceRegistry {
             }
         }
 
-        let mut out: Vec<DeviceInfo> = by_serial.into_values().map(|(_, info)| info).collect();
+        let mut out: Vec<DeviceInfo> = by_serial
+            .into_values()
+            .flat_map(|(_, _, variants)| variants)
+            .collect();
         out.extend(serialless);
         out.sort_by_key(DeviceInfo::id);
         out
@@ -240,6 +255,13 @@ mod tests {
         registry
     }
 
+    fn serial_info(driver: &str, key: &str, serial: &str) -> DeviceInfo {
+        DeviceInfo {
+            serial: Some(serial.to_string()),
+            ..info(driver, key)
+        }
+    }
+
     #[test]
     fn open_finds_a_probed_device() {
         let registry = registry([Fake::new("mock", &["one", "two"])]);
@@ -294,5 +316,56 @@ mod tests {
         let registry = registry([Fake::adopting("mock"), Fake::new("mock", &["real"])]);
         let (info, _) = registry.open("mock:real").expect("the probed one");
         assert_eq!(info.label, "mock real");
+    }
+
+    #[test]
+    fn one_driver_can_expose_multiple_addresses_for_a_serial() {
+        let variants = Fake {
+            id: "soapy",
+            probed: Mutex::new(vec![
+                serial_info("soapy", "123456@ST", "123456"),
+                serial_info("soapy", "123456@DT", "123456"),
+            ]),
+            adopts: false,
+        };
+        let registry = registry([variants]);
+
+        assert_eq!(
+            registry
+                .probe_all()
+                .iter()
+                .map(DeviceInfo::id)
+                .collect::<Vec<_>>(),
+            vec!["soapy:123456@DT", "soapy:123456@ST"]
+        );
+    }
+
+    #[test]
+    fn a_higher_priority_backend_still_wins_a_shared_serial() {
+        let soapy = Fake {
+            id: "soapy",
+            probed: Mutex::new(vec![
+                serial_info("soapy", "123456@ST", "123456"),
+                serial_info("soapy", "123456@DT", "123456"),
+            ]),
+            adopts: false,
+        };
+        let native = Fake {
+            id: "native",
+            probed: Mutex::new(vec![serial_info("native", "123456", "123456")]),
+            adopts: false,
+        };
+        let mut registry = DeviceRegistry::new();
+        registry.register(10, Box::new(soapy));
+        registry.register(20, Box::new(native));
+
+        assert_eq!(
+            registry
+                .probe_all()
+                .iter()
+                .map(DeviceInfo::id)
+                .collect::<Vec<_>>(),
+            vec!["native:123456"]
+        );
     }
 }

@@ -56,6 +56,17 @@ describe("device references", () => {
     expect(refMatches(bySerial, info({ key: "3", serial: "00000001" }))).toBe(true);
     expect(refMatches(bySerial, info({ serial: "00000002" }))).toBe(false);
 
+    const duo = info({
+      driver: "soapy",
+      key: "123456@DT",
+      label: "RSPduo Dual Tuner",
+      serial: "123456",
+    });
+    const byVariant = deviceRefOf(duo);
+    expect(byVariant).toEqual({ backend: "soapy", serial: "123456", key: "123456@DT" });
+    expect(refMatches(byVariant, duo)).toBe(true);
+    expect(refMatches(byVariant, { ...duo, key: "123456@ST" })).toBe(false);
+
     const file = info({ driver: "virtual", key: "file:/rec/capture", serial: undefined });
     const byKey = deviceRefOf(file);
     expect(byKey).toEqual({ backend: "virtual", key: "file:/rec/capture" });

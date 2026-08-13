@@ -26,7 +26,9 @@ private SoapySDR 0.8.1 runtime, SoapyRTLSDR, SoapyHackRF, and the curated module
 [`packaging/soapy/environment.yml`](packaging/soapy/environment.yml); do not install SoapySDR
 separately for those artifacts. Portable `sdrmm` headless archives compile the same backend but
 use the host runtime: install SoapySDR 0.8.1 (module ABI 0.8) plus the matching module first;
-the release baseline is SoapyRTLSDR 0.3.3 and SoapyHackRF 0.3.4.
+the release baseline is SoapyRTLSDR 0.3.3 and SoapyHackRF 0.3.4. SDRplay RSP receivers are
+supported through SoapySDRPlay3 0.5.2 after installing SDRplay API 3.15 or newer; the proprietary
+API and its module are not bundled. See the [hardware guide](docs/src/hardware.md#sdrplay).
 
 To build from source you need the pinned nightly Rust toolchain (`rust-toolchain.toml` —
 `rustup` installs it on the first build), Node 26, pnpm 11, and SoapySDR 0.8 development files:

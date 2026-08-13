@@ -79,8 +79,17 @@ fn map_err(error: soapysdr::Error) -> DeviceError {
 }
 
 fn args_key(args: &soapysdr::Args) -> String {
-    args.get("serial")
-        .map_or_else(|| args.to_string(), str::to_string)
+    args.get("serial").map_or_else(
+        || args.to_string(),
+        |serial| match args.get("mode") {
+            // SoapySDRPlay3 enumerates each RSPduo operating mode as a separate device with the
+            // same serial. The mode is part of the address upstream too (`serial@mode` in its
+            // claimed-device cache), so keep it in our probe key or every choice opens the first
+            // mode returned by the module.
+            Some(mode) => format!("{serial}@{mode}"),
+            None => serial.to_string(),
+        },
+    )
 }
 
 fn device_info(args: &soapysdr::Args) -> DeviceInfo {
@@ -111,9 +120,12 @@ struct ProbeIdentity {
 
 impl ProbeIdentity {
     fn from_args(args: &soapysdr::Args) -> Self {
-        let filter = match (args.get("driver"), args.get("serial")) {
-            (Some(driver), Some(serial)) => format!("driver={driver},serial={serial}"),
-            (Some(driver), None) => format!("driver={driver}"),
+        let filter = match (args.get("driver"), args.get("serial"), args.get("mode")) {
+            (Some(driver), Some(serial), Some(mode)) => {
+                format!("driver={driver},serial={serial},mode={mode}")
+            }
+            (Some(driver), Some(serial), None) => format!("driver={driver},serial={serial}"),
+            (Some(driver), None, _) => format!("driver={driver}"),
             _ => args.to_string(),
         };
         Self {
@@ -408,6 +420,34 @@ pub struct SoapyDevice {
     duplex: Arc<Mutex<DuplexState>>,
 }
 
+/// Most Soapy modules accept one stream containing every requested channel. SoapySDRPlay3 is
+/// deliberately different for the RSPduo: it exposes two channels but requires one stream handle
+/// per channel. Keep the combined path where it exists and fall back to split handles when the
+/// module refuses it.
+enum RxStreams {
+    Combined(soapysdr::RxStream<Sample>),
+    Split(Vec<soapysdr::RxStream<Sample>>),
+}
+
+impl RxStreams {
+    fn activate(&mut self) -> Result<(), soapysdr::Error> {
+        match self {
+            Self::Combined(stream) => stream.activate(None),
+            Self::Split(streams) => {
+                for index in 0..streams.len() {
+                    if let Err(error) = streams[index].activate(None) {
+                        for active in &mut streams[..index] {
+                            let _ = active.deactivate(None);
+                        }
+                        return Err(error);
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 impl SoapyDevice {
     fn from_device(device: soapysdr::Device, identity: ProbeIdentity) -> Result<Self, DeviceError> {
         let capabilities = query_capabilities(&device)?;
@@ -622,21 +662,42 @@ impl SdrDevice for SoapyDevice {
             )));
         }
         lock(&self.duplex).claim(WireDirection::Rx)?;
-        let mut stream = match self.device.rx_stream::<Sample>(&channels) {
-            Ok(stream) => stream,
+        let mut streams = match self.device.rx_stream::<Sample>(&channels) {
+            Ok(stream) => RxStreams::Combined(stream),
+            Err(combined) if channels.len() > 1 => {
+                match channels
+                    .iter()
+                    .map(|channel| self.device.rx_stream::<Sample>(&[*channel]))
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    Ok(streams) => RxStreams::Split(streams),
+                    Err(split) => {
+                        lock(&self.duplex).release(WireDirection::Rx);
+                        return Err(DeviceError::Io(format!(
+                            "soapy multi-channel stream setup failed: combined: {combined}; \
+                             split: {split}"
+                        )));
+                    }
+                }
+            }
             Err(error) => {
                 lock(&self.duplex).release(WireDirection::Rx);
                 return Err(map_err(error));
             }
         };
-        if let Err(error) = stream.activate(None) {
+        if let Err(error) = streams.activate() {
             lock(&self.duplex).release(WireDirection::Rx);
             return Err(map_err(error));
         }
         let identity = self.identity.clone();
         let duplex = self.duplex.clone();
         if let Err(error) = self.worker.start("sdrmm-soapy-rx", move |running| {
-            capture_loop(stream, &identity, running, sinks);
+            match streams {
+                RxStreams::Combined(stream) => capture_loop(stream, &identity, running, sinks),
+                RxStreams::Split(streams) => {
+                    capture_split_loop(streams, &identity, running, sinks);
+                }
+            }
             lock(&duplex).release(WireDirection::Rx);
         }) {
             lock(&self.duplex).release(WireDirection::Rx);
@@ -762,6 +823,89 @@ fn capture_loop(
     }
     if let Err(error) = stream.deactivate(None) {
         tracing::debug!("soapy stream deactivate failed: {error}");
+    }
+}
+
+fn capture_split_loop(
+    mut streams: Vec<soapysdr::RxStream<Sample>>,
+    identity: &ProbeIdentity,
+    running: &AtomicBool,
+    mut sinks: Vec<RxSink>,
+) {
+    let mut buffers: Vec<Vec<Sample>> = streams
+        .iter()
+        .map(|stream| vec![Sample::new(0.0, 0.0); stream.mtu().unwrap_or(MIN_BLOCK).max(MIN_BLOCK)])
+        .collect();
+    let mut timeouts = vec![0u32; streams.len()];
+    let mut probe_failures = 0u32;
+    let mut last_probe: Option<Instant> = None;
+    let mut overflows = vec![0u64; streams.len()];
+    'capture: while running.load(Ordering::Acquire) {
+        for channel in 0..streams.len() {
+            let result = streams[channel].read(&mut [&mut buffers[channel]], READ_TIMEOUT_US);
+            match result {
+                Ok(count) => {
+                    timeouts[channel] = 0;
+                    probe_failures = 0;
+                    if count > 0 {
+                        sinks[channel].push(&buffers[channel][..count]);
+                    }
+                }
+                Err(error) if error.code == ErrorCode::Timeout => {
+                    timeouts[channel] += 1;
+                    if timeouts[channel] < UNPLUG_TIMEOUT_READS
+                        || last_probe.is_some_and(|at| at.elapsed() < PROBE_MIN_INTERVAL)
+                    {
+                        continue;
+                    }
+                    last_probe = Some(Instant::now());
+                    match identity.is_present() {
+                        Ok(true) => {
+                            timeouts[channel] = 0;
+                            probe_failures = 0;
+                        }
+                        Ok(false) => {
+                            fail_all(&mut sinks, "device lost: no longer enumerates");
+                            break 'capture;
+                        }
+                        Err(probe) => {
+                            probe_failures += 1;
+                            if probe_failures >= UNPLUG_PROBE_FAILURES {
+                                fail_all(
+                                    &mut sinks,
+                                    &format!("device lost: enumerate failed: {probe}"),
+                                );
+                                break 'capture;
+                            }
+                        }
+                    }
+                }
+                Err(error) if error.code == ErrorCode::Overflow => {
+                    overflows[channel] += 1;
+                    if overflows[channel] == 1
+                        || overflows[channel].is_multiple_of(OVERFLOW_LOG_EVERY)
+                    {
+                        tracing::warn!(
+                            channel,
+                            overflows = overflows[channel],
+                            "soapy rx overflow"
+                        );
+                    }
+                }
+                Err(error) => {
+                    fail_all(
+                        &mut sinks,
+                        &format!("stream {channel} read failed: {error}"),
+                    );
+                    break 'capture;
+                }
+            }
+        }
+    }
+    for (channel, stream) in streams.iter_mut().enumerate() {
+        if let Err(error) = stream.deactivate(None) {
+            tracing::debug!(channel, "soapy stream deactivate failed: {error}");
+        }
     }
 }
 
@@ -985,6 +1129,22 @@ mod tests {
         assert_eq!(info.driver, "soapy");
         assert_eq!(info.key, "00000001");
         assert_eq!(info.label, "Generic RTL2832U");
+    }
+
+    #[test]
+    fn sdrplay_duo_modes_have_distinct_keys_and_probe_filters() {
+        let single = soapysdr::Args::from(
+            "driver=sdrplay, serial=123456, mode=ST, label=RSPduo Single Tuner",
+        );
+        let dual =
+            soapysdr::Args::from("driver=sdrplay, serial=123456, mode=DT, label=RSPduo Dual Tuner");
+
+        assert_eq!(device_info(&single).key, "123456@ST");
+        assert_eq!(device_info(&dual).key, "123456@DT");
+        assert_eq!(
+            ProbeIdentity::from_args(&dual).filter,
+            "driver=sdrplay,serial=123456,mode=DT"
+        );
     }
 
     #[test]

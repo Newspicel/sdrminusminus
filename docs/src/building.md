@@ -52,7 +52,9 @@ so every gate that can fail in CI can be run locally first.
 and license/notices files. These portable headless archives compile the Soapy backend but do not
 copy a runtime: the target machine must provide SoapySDR 0.8.1 (module ABI 0.8) and its hardware
 module. Release baselines are SoapyRTLSDR 0.3.3 and SoapyHackRF 0.3.4; the other curated versions
-are declared in `packaging/soapy/environment.yml`. Release and Docker builds install the
+are declared in `packaging/soapy/environment.yml`. SDRplay uses the separately installed
+SoapySDRPlay3 0.5.2 module and SDRplay API 3.15 or newer described in the
+[hardware guide](hardware.md#sdrplay). Release and Docker builds install the
 matching immutable `packaging/soapy/conda-<platform>.lock`, which pins every transitive package
 URL and checksum. Confirm the installation with `sdrmm --doctor`;
 its report includes the compiled backend, core version, module search paths, and discovered
