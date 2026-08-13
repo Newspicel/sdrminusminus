@@ -1,6 +1,6 @@
 # `sdrmm-modem` — Modulation Library Plan
 
-**Status:** in progress (phases 0–8 landed).
+**Status:** complete (phases 0–9 landed).
 
 Phase 4 landed the linear engine and every linear row of §6 with its §5 bundle: OOK on both
 tiers, M-PAM and unipolar M-ASK, BPSK/QPSK/8-PSK, the DPSK family, OQPSK and π/2-BPSK,
@@ -196,7 +196,39 @@ them would either filter twice or need a "message already limited" flag on every
 receivers, where the engines and the measurements are, have all migrated; the transmitters are a
 second, smaller merge with its own round-trip gates, and they are not in phase 8's scope.
 
-Next: phase 9.
+Phase 9 landed the multicarrier completion, and with it §6's last pending row. What it turned out
+to be about: **three of the four waveforms are transparent under AWGN, and the fourth cannot be.**
+UFMC, FBMC and OTFS are orthogonal maps from points to samples — in the *real* field for FBMC,
+which is the same statement once the OQAM stagger is accounted for — so thermal noise alone can see
+none of them, and each is held to Gray QPSK's exact closed form shifted by its own overhead. Every
+one of those overheads is arithmetic rather than a fitted constant (the block prefix, the filter
+tail, the guard symbols, the carrier frame), and the three land at **−0.11, −0.11 and −0.05 dB**.
+GFDM's pulses overlap by construction, so its distance from the same oracle is *attributed* rather
+than tolerated: 1.40 dB from bare QPSK, of which 0.41 is the block's one prefix and 0.94 the
+inverse's own mean row energy — predicted 1.36, measured 1.40.
+
+Four measured findings came with it. **The OTFS headline is not the one the literature's summary
+suggests.** Spreading every symbol over every subcarrier turns a localised failure into a shared
+one, and whether that is an improvement belongs to the *equaliser*: through the same null, zero
+forcing makes OTFS more than twice as bad as plain OFDM — the null's `1/|H|²` noise is shared out
+over the whole frame instead of costing one subcarrier its bits — while MMSE makes it more than
+twice as good. Both are asserted, neither is quoted alone. **GFDM's roll-off runs with the
+frequency axis, not the time axis**: a reader expects a time-localised pulse to help a waveform
+whose subsymbols overlap in time, and the measurement says the subcarrier overlap dominates —
+roll-off 0.9 amplifies the inverse's noise by 1.86 against 0.1's 1.01, so the pulse that costs the
+receiver least is the one whose spectrum is tightest. **The PHYDYAS prototype's centre is `KM/2`
+and not `(KM−1)/2`**, and referencing the carrier half a sample away leaves a residual the real
+projection cannot discard — the difference between a bank that round-trips and one that does not.
+And **two of the five receive paths do not keep up with their own rate**, committed rather than
+hidden: FBMC's at 0.37× because the analysis bank is written in direct form (the definition, not
+the implementation — the polyphase form is `O(M log M)` per slot against this `O(M·KM)`), and
+GFDM's at 1.6× because a dense inverse is what a non-orthogonal waveform *is*.
+
+Open from phase 9, scoped rather than dropped: **the polyphase FBMC bank** above, and **the
+delay–Doppler channel view** where OTFS's other claims live — a sparse, slowly-varying channel
+matrix and message passing over it — which needs a doubly-selective channel model the harness does
+not have and which is §1.1's channel modelling rather than this crate's modulation.
+
 **Audience:** implementer working in the `sdrmm` workspace
 
 ---
@@ -764,6 +796,12 @@ where available) and the full §5 bundle.
 *Accept:* every row of §6 shows a complete bundle in `CATALOG.md`; CI enforces the
 docs-row rule; the nightly full run (all sweeps, all limits, all perf, all E2E levels)
 is green.
+*Landed:* five committed curves — GFDM on both receivers, UFMC, FBMC/OQAM and OTFS — three of them
+held to their constellation's *own* closed form rather than to a committed reference (worst
+0.11 dB), which is a stronger acceptance than the phase asked for; the GFDM pair committed with its
+distance from that oracle attributed to the prefix and the inverse rather than tolerated; two limits
+tables, a perf baseline with zero-allocation gates on every transmit and receive path, and level-1
+E2E throughout. Findings and the two open follow-ons are in the status above.
 
 ---
 

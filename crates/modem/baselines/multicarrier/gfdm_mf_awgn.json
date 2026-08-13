@@ -1,0 +1,30 @@
+{
+  "label": "gfdm qpsk uncoded, 16×5 block, roll-off 0.5, 8-sample prefix, 16 blocks, matched filter (Aᴴ), uncoded BER, seed 0x9fd1",
+  "points": [
+    {
+      "ebn0_db": 0.0,
+      "errors": 2006,
+      "trials": 17920
+    },
+    {
+      "ebn0_db": 2.0,
+      "errors": 2171,
+      "trials": 30720
+    },
+    {
+      "ebn0_db": 4.0,
+      "errors": 2082,
+      "trials": 48640
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2032,
+      "trials": 79360
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2030,
+      "trials": 148480
+    }
+  ]
+}

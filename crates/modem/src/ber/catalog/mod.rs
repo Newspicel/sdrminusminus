@@ -22,6 +22,7 @@ pub mod gmsk;
 pub mod linear;
 pub mod mfsk;
 pub mod msk;
+pub mod multicarrier;
 pub mod ofdm;
 pub mod orthogonal;
 pub mod ppm;
@@ -320,6 +321,22 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         name: "dmt",
         measurements: ofdm::DMT,
+    },
+    Entry {
+        name: "gfdm",
+        measurements: multicarrier::GFDM,
+    },
+    Entry {
+        name: "ufmc",
+        measurements: multicarrier::UFMC,
+    },
+    Entry {
+        name: "fbmc",
+        measurements: multicarrier::FBMC,
+    },
+    Entry {
+        name: "otfs",
+        measurements: multicarrier::OTFS,
     },
     Entry {
         name: "dsss",

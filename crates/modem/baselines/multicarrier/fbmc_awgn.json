@@ -1,0 +1,45 @@
+{
+  "label": "fbmc/oqam qpsk uncoded, 64-subcarrier bank, 48 allocated, PHYDYAS K=4, 32 payload + 4 guard symbols each end, uncoded BER, seed 0xfb3c",
+  "points": [
+    {
+      "ebn0_db": 0.0,
+      "errors": 2218,
+      "trials": 21504
+    },
+    {
+      "ebn0_db": 2.0,
+      "errors": 2137,
+      "trials": 39936
+    },
+    {
+      "ebn0_db": 4.0,
+      "errors": 2047,
+      "trials": 92160
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2001,
+      "trials": 340992
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 2002,
+      "trials": 2651136
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 710,
+      "trials": 4002816
+    },
+    {
+      "ebn0_db": 10.0,
+      "errors": 112,
+      "trials": 4002816
+    },
+    {
+      "ebn0_db": 11.0,
+      "errors": 15,
+      "trials": 4002816
+    }
+  ]
+}
