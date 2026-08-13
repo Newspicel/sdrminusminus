@@ -340,7 +340,15 @@ impl CssDemod {
     /// N0 estimated from the transform, as the mean of every bin except each symbol's largest —
     /// the M-FSK engine's estimator, valid here for the same reason and with the same stated bias:
     /// under correct detection those bins hold noise alone.
+    ///
+    /// # Panics
+    /// If `symbols` is zero: the estimator would divide no measurement by no sample and hand back
+    /// a NaN variance, which `energy_llrs` would then spread over every LLR without a word (§8).
     pub fn noise_var(&mut self, iq: &[Complex<f32>], origin: usize, symbols: usize) -> f64 {
+        assert!(
+            symbols > 0,
+            "a variance needs at least one symbol to measure"
+        );
         let n = self.params.chips();
         let mut sum = 0.0f64;
         for symbol in 0..symbols {
