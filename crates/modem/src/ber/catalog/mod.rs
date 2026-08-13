@@ -26,6 +26,7 @@ pub mod orthogonal;
 pub mod ppm;
 pub mod psk;
 pub mod qam;
+pub mod spread;
 
 use crate::ber::{
     Curve,
@@ -318,6 +319,22 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         name: "dmt",
         measurements: ofdm::DMT,
+    },
+    Entry {
+        name: "dsss",
+        measurements: spread::DSSS,
+    },
+    Entry {
+        name: "cck",
+        measurements: spread::CCK,
+    },
+    Entry {
+        name: "css",
+        measurements: spread::CSS,
+    },
+    Entry {
+        name: "fhss",
+        measurements: spread::FHSS,
     },
 ];
 

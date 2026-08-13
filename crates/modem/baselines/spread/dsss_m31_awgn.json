@@ -1,0 +1,35 @@
+{
+  "label": "bpsk-dsss m31 uncoded, DSSS 31 chips/symbol at 11 Mchip/s, 4 samples/chip, RRC α=0.35, 64-symbol preamble, 2048-symbol payload, correlator + gain anchor, uncoded BER, seed 0x5b31",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 2013,
+      "trials": 139264
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 2000,
+      "trials": 301056
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2004,
+      "trials": 743424
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2000,
+      "trials": 2179072
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 728,
+      "trials": 3000320
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 147,
+      "trials": 3000320
+    }
+  ]
+}

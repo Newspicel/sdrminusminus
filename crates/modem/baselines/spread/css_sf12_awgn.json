@@ -1,0 +1,35 @@
+{
+  "label": "css-sf12 uncoded, 4096 chirp shifts at 125 kHz bandwidth, critically sampled, 16-symbol preamble, 192-symbol payload, dechirp + transform argmax, uncoded BER, seed 0x5c12",
+  "points": [
+    {
+      "ebn0_db": 0.0,
+      "errors": 2039,
+      "trials": 13824
+    },
+    {
+      "ebn0_db": 1.0,
+      "errors": 2165,
+      "trials": 32256
+    },
+    {
+      "ebn0_db": 2.0,
+      "errors": 2034,
+      "trials": 92160
+    },
+    {
+      "ebn0_db": 3.0,
+      "errors": 2014,
+      "trials": 486144
+    },
+    {
+      "ebn0_db": 4.0,
+      "errors": 1136,
+      "trials": 3002112
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 51,
+      "trials": 3002112
+    }
+  ]
+}

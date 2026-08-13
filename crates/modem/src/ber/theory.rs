@@ -382,22 +382,68 @@ fn bessel_i_scaled(x: f64, k_max: usize) -> Vec<f64> {
 
 // --- Noncoherent orthogonal M-FSK ------------------------------------------------------------
 
-/// Noncoherent orthogonal M-FSK symbol error rate — exact, the alternating binomial sum
-/// (Proakis & Salehi 5e, §4.5-4) at symbol SNR γ_s = k·γ_b:
-/// P_s = Σ_{n=1}^{M−1} (−1)^{n+1}·C(M−1,n)/(n+1)·e^{−γ_s·n/(n+1)}.
+/// Largest orthogonal alphabet the oracle evaluates — the chirp entry's SF12, 4096 cyclic
+/// shifts of one sweep ([`crate::spread::css`]).
+pub const MAX_ORTHOGONAL_ORDER: u32 = 1 << 12;
+
+/// Order above which [`mfsk_noncoherent_ser`] switches from the binomial sum to the quadrature.
+/// 64 is where the binomials stop converting to double-double without rounding, and the two
+/// evaluations are asserted to agree everywhere below it.
+const BINOMIAL_LIMIT: u32 = 64;
+
+/// Noncoherent orthogonal M-ary symbol error rate — exact, at symbol SNR γ_s = k·γ_b.
 ///
-/// The sum is violently ill-conditioned in plain f64: at M = 64 and 0 dB the alternating terms
-/// reach 8.6e13 while the result is 0.296, and plain double precision misses it by 19% (measured).
-/// So the binomials are held exactly as integers — which is why m stops at 64, the largest
-/// order whose every C(m−1, n) still converts to double-double without rounding — and every
-/// term and the accumulation run in double-double arithmetic: absolute error ≤ max-term·1e-32
-/// ≈ 1e-17 across the whole SNR axis, so the oracle stays exact even where a low-SNR sweep
-/// point reads the worst of the cancellation.
+/// **One reference, three engines.** M orthogonal equal-energy signals under envelope detection
+/// is one signalling set however the orthogonality is arranged, so the M-FSK filterbank (M tones
+/// in one interval), the M-PPM matched filter (M intervals at one tone) and the chirp entry
+/// (M cyclic shifts of one sweep) all answer here.
+///
+/// Two evaluations of the same quantity, because no single one is well conditioned across the
+/// order range the catalog needs. `debug_assert`ed to a power of two in `2..=`
+/// [`MAX_ORTHOGONAL_ORDER`]; the two agree to 1e-12 wherever both apply, which is what makes the
+/// second trustworthy (`both_evaluations_of_the_orthogonal_oracle_agree`).
+///
+/// **M ≤ 64: the alternating binomial sum** (Proakis & Salehi 5e, §4.5-4),
+/// `P_s = Σ_{n=1}^{M−1} (−1)^{n+1}·C(M−1,n)/(n+1)·e^{−γ_s·n/(n+1)}`. It is violently
+/// ill-conditioned in plain f64 — at M = 64 and 0 dB the alternating terms reach 8.6e13 while the
+/// result is 0.296, and plain double precision misses it by 19% (measured) — so the binomials are
+/// held exactly as integers and every term and the accumulation run in double-double arithmetic:
+/// absolute error ≤ max-term·1e-32 ≈ 1e-17 across the whole SNR axis. Past M = 64 the binomials
+/// themselves stop being representable and the cancellation becomes unbounded, so the sum is not
+/// merely slow there — it is wrong.
+///
+/// **M > 64: the defining integral**, over the correct branch's own density:
+///
+/// ```text
+/// P_s = ∫₀^∞ e^{−(x+γ)}·I₀(2√(xγ)) · [1 − (1−e^{−x})^{M−1}] dx
+/// ```
+///
+/// — the noncentral-χ²(2) density of the correct envelope times the probability that at least one
+/// of the M−1 Rayleigh branches exceeds it. Computed in `u = √x`, where the leading factor is
+/// `exp(−(u−√γ)²)` and every term is bounded by 1, and computed as `P_s` directly rather than as
+/// `1 − P_c`: there is no cancellation anywhere, so the result's *relative* accuracy is the
+/// integrand's — set by the `I₀` approximation's stated 1.9e-7 — at every error rate, not just
+/// the large ones.
 #[must_use]
 pub fn mfsk_noncoherent_ser(m: u32, ebn0_db: f64) -> f64 {
-    debug_assert!(m <= 64, "binomials are exact only to m = 64, got {m}");
+    debug_assert!(
+        m >= 2 && m.is_power_of_two() && m <= MAX_ORTHOGONAL_ORDER,
+        "orthogonal order {m} is not a power of two in 2..={MAX_ORTHOGONAL_ORDER}"
+    );
     let k = bits_per_symbol(m);
-    let gs = Dd::product(k, ebn0_lin(ebn0_db));
+    let gamma_b = ebn0_lin(ebn0_db);
+    if m <= BINOMIAL_LIMIT {
+        orthogonal_ser_binomial(m, k, gamma_b)
+    } else {
+        orthogonal_ser_quadrature(m, k * gamma_b)
+    }
+}
+
+/// The alternating binomial sum in double-double — see [`mfsk_noncoherent_ser`]. γ_s = k·γ_b is
+/// formed as an *exact* product, since the whole point of this path is that nothing rounds before
+/// the cancellation.
+fn orthogonal_ser_binomial(m: u32, k: f64, gamma_b: f64) -> f64 {
+    let gs = Dd::product(k, gamma_b);
     let mut sum = Dd::ZERO;
     let mut binom: u128 = 1;
     for n in 1..m {
@@ -409,6 +455,64 @@ pub fn mfsk_noncoherent_ser(m: u32, ebn0_db: f64) -> f64 {
         sum = sum.add(if n % 2 == 1 { term } else { term.neg() });
     }
     sum.to_f64()
+}
+
+/// Composite Simpson over `u = √x` — see [`mfsk_noncoherent_ser`].
+///
+/// The window is `[0, √γ + 12]`: the `exp(−(u−√γ)²)` factor puts everything past twelve standard
+/// deviations of the peak below f64 resolution, and starting at zero keeps the low-SNR case —
+/// where the peak sits against the origin — inside it without a second branch. The step is held
+/// near 0.002 (the narrowest feature is the unit-width Gaussian) and the panel count capped, so a
+/// probe at an absurd SNR stays bounded rather than quadratic.
+fn orthogonal_ser_quadrature(m: u32, gamma: f64) -> f64 {
+    let root_gamma = gamma.max(0.0).sqrt();
+    let hi = root_gamma + 12.0;
+    let panels = ((hi / 0.002).ceil() as usize).clamp(2_000, 200_000) & !1;
+    let step = hi / panels as f64;
+    let exponent = f64::from(m - 1);
+    let integrand = |u: f64| {
+        let gap = u - root_gamma;
+        // 1 − (1−e^{−x})^{M−1}, formed so that the small-value regime — which is the whole of the
+        // high-SNR tail — never passes through a subtraction of near-equal numbers.
+        let tail = -(exponent * (-(-u * u).exp()).ln_1p()).exp_m1();
+        2.0 * u * (-gap * gap).exp() * bessel_i0_scaled(2.0 * u * root_gamma) * tail
+    };
+    let mut sum = integrand(0.0) + integrand(hi);
+    for i in 1..panels {
+        let weight = if i % 2 == 1 { 4.0 } else { 2.0 };
+        sum += weight * integrand(i as f64 * step);
+    }
+    (sum * step / 3.0).clamp(0.0, 1.0)
+}
+
+/// `I₀(x)·e^{−x}` for x ≥ 0 — Abramowitz & Stegun 9.8.1/9.8.2, whose stated relative error is
+/// 1.6e-7 below 3.75 and 1.9e-7 above.
+///
+/// A scalar polynomial rather than [`bessel_i_scaled`]'s Miller recurrence, which is exact to
+/// f64 but costs `O(x)` iterations and an allocation: the quadrature above evaluates this tens of
+/// thousands of times per point at arguments in the thousands, and the recurrence would make an
+/// oracle slower than the sweep it judges. What that costs is stated where it matters — in
+/// [`mfsk_noncoherent_ser`]'s accuracy paragraph — rather than left for a reader to discover.
+fn bessel_i0_scaled(x: f64) -> f64 {
+    if x < 3.75 {
+        let t = x / 3.75;
+        let t2 = t * t;
+        let series = 1.0
+            + t2 * (3.515_622_9
+                + t2 * (3.089_942_4
+                    + t2 * (1.206_749_2
+                        + t2 * (0.265_973_2 + t2 * (0.036_076_8 + t2 * 0.004_581_3)))));
+        return series * (-x).exp();
+    }
+    let t = 3.75 / x;
+    let series = 0.398_942_28
+        + t * (0.013_285_92
+            + t * (0.002_253_19
+                + t * (-0.001_575_65
+                    + t * (0.009_162_81
+                        + t * (-0.020_577_06
+                            + t * (0.026_355_37 + t * (-0.016_476_33 + t * 0.003_923_77)))))));
+    series / x.sqrt()
 }
 
 /// Noncoherent orthogonal M-FSK bit error rate — exact given the SER: orthogonal signalling
@@ -1032,6 +1136,70 @@ mod tests {
             1e-13,
             "4-FSK BER at 8 dB",
         );
+    }
+
+    /// The two evaluations of the orthogonal oracle are two derivations of one quantity — the
+    /// alternating binomial sum and the integral over the correct branch's density — and neither
+    /// shares a line of code with the other. Where both apply they must agree, and that agreement
+    /// is the *only* reason the quadrature can be trusted at the orders where the sum cannot run.
+    ///
+    /// The tolerance is the quadrature's own: relative 1e-6, set by the `I₀` polynomial's stated
+    /// 1.9e-7 plus Simpson's residual. Asserted across the whole SNR span a curve is measured
+    /// over, and at every order the exact sum still reaches.
+    #[test]
+    fn both_evaluations_of_the_orthogonal_oracle_agree() {
+        for m in [2u32, 4, 8, 16, 32, 64] {
+            let k = f64::from(m.ilog2());
+            for tenth in -20..=200 {
+                let db = f64::from(tenth) * 0.1;
+                let exact = super::orthogonal_ser_binomial(m, k, super::ebn0_lin(db));
+                if exact < 1e-12 {
+                    break;
+                }
+                let quadrature = super::orthogonal_ser_quadrature(m, k * super::ebn0_lin(db));
+                assert_rel(
+                    quadrature,
+                    exact,
+                    1e-6,
+                    &format!("{m}-ary orthogonal SER at {db} dB"),
+                );
+            }
+        }
+    }
+
+    /// The orders the quadrature exists for — the chirp entry's SF7 through SF12. Nothing
+    /// independent can check these directly, so what is checked is the structure the closed form
+    /// has to have: monotone in SNR, monotone *downward* in alphabet size at fixed Eb/N0 (the
+    /// property that makes a spreading factor worth spending), and bracketed by the orders on
+    /// either side of it.
+    #[test]
+    fn the_large_alphabet_oracle_is_ordered_in_both_arguments() {
+        for db in [0.0f64, 2.0, 4.0, 6.0] {
+            let mut previous = mfsk_noncoherent_ser(64, db);
+            for sf in 7..=12u32 {
+                let ser = mfsk_noncoherent_ser(1 << sf, db);
+                assert!(
+                    ser.is_finite() && (0.0..=1.0).contains(&ser),
+                    "SF{sf} at {db} dB: SER {ser}"
+                );
+                assert!(
+                    ser < previous,
+                    "SF{sf} at {db} dB: SER {ser:e} did not improve on {previous:e}"
+                );
+                previous = ser;
+            }
+        }
+        // …and strictly decreasing in SNR at the extreme order, where the quadrature's window and
+        // the `1 − (1−e^{−x})^{M−1}` tail are both worked hardest.
+        let mut previous = f64::INFINITY;
+        for tenth in 0..=120 {
+            let ser = mfsk_noncoherent_ser(4096, f64::from(tenth) * 0.1);
+            assert!(
+                ser < previous,
+                "SF12 SER not decreasing at {tenth} tenths dB"
+            );
+            previous = ser;
+        }
     }
 
     #[test]

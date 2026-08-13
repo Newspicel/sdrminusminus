@@ -1,0 +1,63 @@
+{
+  "entry": "dsss-barker11-bpsk",
+  "seed": 23313,
+  "sensitivity_db_1e2": 4.479995386995595,
+  "sensitivity_db_1e3": 6.941958251828861,
+  "sensitivity_db_1e4": 8.474882285717456,
+  "rows": [
+    {
+      "axis": "static CFO",
+      "unit": "Hz",
+      "threshold": 97.65625,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "frequency drift",
+      "unit": "Hz/s",
+      "threshold": 99487.3046875,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "sample clock",
+      "unit": "ppm",
+      "threshold": 30.859375,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "static timing offset",
+      "unit": "samples",
+      "threshold": 16.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "narrowband J/C",
+      "unit": "dB",
+      "threshold": 1.953125,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "IQ gain",
+      "unit": "dB",
+      "threshold": 6.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "IQ phase",
+      "unit": "deg",
+      "threshold": 30.0,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "parked jammer J/C",
+      "unit": "dB",
+      "threshold": 3.671875,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "profile:static-indoor",
+      "unit": "dB",
+      "threshold": 0.0052262431715695,
+      "criterion": "Eb/N0 degradation at BER 1e-3"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "label": "qpsk-dsss barker-11 uncoded, DSSS 11 chips/symbol at 11 Mchip/s, 4 samples/chip, RRC α=0.35, 64-symbol preamble, 2048-symbol payload, correlator + gain anchor, uncoded BER, seed 0x5b12",
+  "points": [
+    {
+      "ebn0_db": 4.0,
+      "errors": 2014,
+      "trials": 147456
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 2042,
+      "trials": 286720
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 2010,
+      "trials": 700416
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 2006,
+      "trials": 2097152
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 765,
+      "trials": 3002368
+    },
+    {
+      "ebn0_db": 9.0,
+      "errors": 164,
+      "trials": 3002368
+    }
+  ]
+}
