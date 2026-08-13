@@ -105,12 +105,26 @@ impl UfmcParams {
     /// receiver's per-bin division from amplifying noise at the subband edges.
     ///
     /// # Panics
-    /// If the transform is empty or past [`MAX_FFT`], or the prototype is shorter than 3 taps.
+    /// If the transform is empty or past [`MAX_FFT`], if the prototype is not `3..=fft + 1` taps,
+    /// or if the subband count is odd.
+    ///
+    /// The upper tap bound is the receiver's: it reads a symbol of `fft + filter_len − 1` samples
+    /// into a `2·fft` transform, so a longer prototype has nowhere to land. The parity is the
+    /// allocation's: the subbands split evenly either side of the carrier, and an odd count leaves
+    /// one of them straddling the DC bin the allocation skips — a filter centred where no
+    /// subcarrier is, with no panic to say so.
     #[must_use]
     pub fn subband_filter(&self, b: usize) -> Vec<Complex<f32>> {
         assert!(
-            (1..=MAX_FFT).contains(&self.fft) && self.filter_len >= 3,
-            "a UFMC symbol runs a 1..={MAX_FFT} transform and at least 3 filter taps"
+            (1..=MAX_FFT).contains(&self.fft)
+                && (3..=self.fft + 1).contains(&self.filter_len)
+                && self.subbands.is_multiple_of(2),
+            "a UFMC symbol runs a 1..={MAX_FFT} transform, 3..={} filter taps and an even subband \
+             count; got {} taps over {} subbands of a {}-point transform",
+            self.fft + 1,
+            self.filter_len,
+            self.subbands,
+            self.fft
         );
         let half_width = self.per_subband as f64 / 2.0 / self.fft as f64;
         let transition = 2.75 / self.filter_len as f64;
@@ -375,5 +389,25 @@ mod tests {
         let want = 10.0 * (160.0f64 / 128.0).log10();
         assert!((params.overhead_db() - want).abs() < 1e-12);
         assert!((params.overhead_db() - 0.9691).abs() < 1e-4);
+    }
+
+    /// A prototype longer than the receiver's own padding used to panic inside
+    /// `copy_from_slice`, which names the buffer and not the parameter that sized it.
+    #[test]
+    #[should_panic(expected = "a UFMC symbol runs")]
+    fn a_prototype_the_receiver_cannot_hold_is_rejected() {
+        let mut params = UfmcParams::reference();
+        params.filter_len = params.fft + 2;
+        let _ = UfmcMod::new(params);
+    }
+
+    /// An odd subband count splits the allocation unevenly across a carrier it never allocates,
+    /// which centres one filter where no subcarrier is — and does it silently.
+    #[test]
+    #[should_panic(expected = "even subband count")]
+    fn an_odd_subband_count_is_rejected() {
+        let mut params = UfmcParams::reference();
+        params.subbands = 3;
+        let _ = UfmcMod::new(params);
     }
 }

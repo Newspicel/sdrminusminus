@@ -336,13 +336,13 @@ fn equalising_demodulator(
 
 // --- Level-1 E2E (§4.4) ---------------------------------------------------------------------------
 
+/// One level-1 loopback: artifact stem, chain, and the margin above its own sensitivity.
+type Loopback = (&'static str, fn() -> Link, f64);
+
 /// Every entry's payload survives its own link at a stated margin above its committed 1e-3
 /// sensitivity. The matched GFDM tier is exempt and its exemption is the finding: an error floor
 /// is not a sensitivity, so no margin exists at which it is clean — the same shape of exemption
 /// the tracked-timing 16-QAM row carries.
-/// One level-1 loopback: artifact stem, chain, and the margin above its own sensitivity.
-type Loopback = (&'static str, fn() -> Link, f64);
-
 #[test]
 fn every_entry_loops_back_clean_at_its_stated_margin() {
     let rows: [Loopback; 4] = [

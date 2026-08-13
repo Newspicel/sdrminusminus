@@ -157,8 +157,18 @@ pub struct GfdmMod {
 }
 
 impl GfdmMod {
+    /// # Panics
+    /// If the prefix is longer than the block it prefixes — the block is what it is copied from,
+    /// so a longer one has nothing to take, and `modulate` would underflow rather than say so.
     #[must_use]
     pub fn new(params: GfdmParams) -> Self {
+        assert!(
+            params.cp <= params.block(),
+            "a cyclic prefix is a copy of the block's tail; {} samples of a {}-sample block is \
+             not one",
+            params.cp,
+            params.block()
+        );
         let matrix = params
             .matrix()
             .into_iter()
@@ -427,5 +437,15 @@ mod tests {
         for (a, b) in got.iter().zip(&sent) {
             assert!((a - b).norm() < 2e-4);
         }
+    }
+
+    /// `cp` is a public field nothing else validates, and a prefix longer than the block it
+    /// copies underflows a `usize` in `modulate` rather than naming the parameter.
+    #[test]
+    #[should_panic(expected = "a cyclic prefix is a copy of the block's tail")]
+    fn a_prefix_longer_than_its_block_is_rejected_at_construction() {
+        let mut params = reference();
+        params.cp = params.block() + 1;
+        let _ = GfdmMod::new(params);
     }
 }

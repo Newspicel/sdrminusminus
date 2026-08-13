@@ -84,12 +84,24 @@ impl FbmcParams {
     /// The PHYDYAS prototype, unit energy.
     ///
     /// # Panics
-    /// If the bank is empty, past [`MAX_SUBCARRIERS`], or odd.
+    /// If the bank is empty, past [`MAX_SUBCARRIERS`], or odd, or if the allocation is empty or
+    /// wider than the bank.
+    ///
+    /// The allocation is checked here because nothing downstream would say so: an empty one
+    /// divides by zero in [`Self::frame_samples`], and one wider than the bank wraps two
+    /// subcarriers onto the same transform bin, which builds two identical kernels and destroys
+    /// the real-field orthogonality the entry rests on without failing anywhere.
     #[must_use]
     pub fn prototype(&self) -> Vec<f64> {
         assert!(
             (2..=MAX_SUBCARRIERS).contains(&self.subcarriers) && self.subcarriers.is_multiple_of(2),
             "an FBMC bank runs an even 2..={MAX_SUBCARRIERS} subcarriers"
+        );
+        assert!(
+            (1..=self.subcarriers).contains(&self.allocated),
+            "an allocation runs 1..={} subcarriers of the bank, got {}",
+            self.subcarriers,
+            self.allocated
         );
         let len = self.prototype_len();
         let mut p: Vec<f64> = (0..len)
@@ -383,5 +395,20 @@ mod tests {
             "the real part is not orthogonal: {}",
             projected.re
         );
+    }
+
+    /// The allocation is as much a parameter as the bank: empty divides by zero when a frame is
+    /// sized, and wider than the bank aliases two subcarriers onto one bin — which builds two
+    /// identical kernels and breaks the orthogonality above without failing anywhere.
+    #[test]
+    fn an_allocation_the_bank_cannot_carry_is_rejected() {
+        for allocated in [0usize, 65] {
+            let params = FbmcParams {
+                subcarriers: 64,
+                allocated,
+            };
+            let panicked = std::panic::catch_unwind(|| params.prototype()).is_err();
+            assert!(panicked, "an allocation of {allocated} was accepted");
+        }
     }
 }

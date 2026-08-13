@@ -8,13 +8,14 @@
 //! prototype is four symbols long; UFMC's is one `2N` transform and a per-bin division; and OTFS
 //! adds two small transforms to a carrier that was already paid for.
 //!
-//! **Two of the five do not keep up with their own rate**, and both numbers are committed rather
-//! than hidden. FBMC's analysis bank is written in direct form — one convolution per subcarrier
-//! per slot — which is the definition rather than the implementation: the polyphase form every
+//! **One of the five does not keep up with its own rate**, and the number is committed rather than
+//! hidden: FBMC's analysis bank is written in direct form — one convolution per subcarrier per
+//! slot — which is the definition rather than the implementation. The polyphase form every
 //! deployed filter bank uses is `O(M log M)` per slot where this is `O(M·KM)`, and it is a second
-//! merge with its own baseline rather than a change to this one. GFDM's is not an implementation
-//! choice at all: a dense inverse is what a non-orthogonal waveform *is*, and the frequency-domain
-//! factorisation that makes it cheaper is a different receiver.
+//! merge with its own baseline rather than a change to this one. GFDM clears its rate, but only
+//! just, and that is not an implementation choice either: a dense inverse is what a non-orthogonal
+//! waveform *is*, and the frequency-domain factorisation that makes it cheaper is a different
+//! receiver.
 //!
 //! Real-time factors divide by the entries' shared 20 MHz reference rate — the OFDM rows' own — so
 //! the numbers answer the same "how many channels of this per core" question every other entry's
