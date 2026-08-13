@@ -20,12 +20,13 @@ import { portStream } from "./graph";
 export function deviceRefOf(info: DeviceInfo): DeviceRef {
   return {
     backend: info.driver,
-    ...(info.serial == null ? { key: info.key } : { serial: info.serial }),
+    ...(info.serial == null ? {} : { serial: info.serial }),
+    ...(info.serial == null || info.key.startsWith(`${info.serial}@`) ? { key: info.key } : {}),
   };
 }
 
-/** Whether `info` is the device this reference names (mirrors `DeviceRef::matches`): serial when
- * the driver exposes one, else the key, else a backend with a single serial-less device. */
+/** Whether `info` is the device this reference names (mirrors `DeviceRef::matches`): a serial
+ * plus an optional variant key, else the key, else a backend with one serial-less device. */
 /** The durable reference that names the device a `driver:key` handle addresses.
  *
  * Split on the *first* colon only, exactly as `DeviceRegistry::open` does: a playback device's
@@ -45,7 +46,9 @@ export function refMatches(reference: DeviceRef, info: DeviceInfo): boolean {
     return false;
   }
   if (reference.serial != null) {
-    return reference.serial === info.serial;
+    return (
+      reference.serial === info.serial && (reference.key == null || reference.key === info.key)
+    );
   }
   return reference.key == null || reference.key === info.key;
 }

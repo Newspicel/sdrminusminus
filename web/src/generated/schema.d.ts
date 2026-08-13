@@ -1596,16 +1596,17 @@ export interface components {
          *     allocated per run and reused, so a stored engine id would silently bind a node to whichever
          *     radio opened first — the kind of failure that looks like a working panel.
          *
-         *     `key` is the tie-break CANVAS §3 does not name, added because a backend can have several
-         *     devices and no serials: the virtual backend's key is `siggen` or the stem of a recording, both
-         *     durable, and without it a patch could not say *which* capture it plays. It is consulted only
-         *     when there is no serial, which is what keeps it away from the case it would be wrong for — an
-         *     RTL-SDR clone whose key is a bus index.
+         *     `key` is the tie-break CANVAS §3 does not name. It normally matters only when there is no
+         *     serial: the virtual backend's key is `siggen` or the stem of a recording, both durable, and
+         *     without it a patch could not say *which* capture it plays. It is also retained when a backend
+         *     deliberately exposes several durable addresses for one serial, such as the RSPduo's SDRplay
+         *     operating modes. Variant keys use the `serial@variant` form; every other key is omitted when
+         *     there is a serial, which keeps a transient USB index from overriding it on ordinary radios.
          */
         DeviceRef: {
             /** @description Driver id, matching [`DeviceInfo::driver`]: `"rtlsdr"`, `"hackrf"`, `"soapy"`, `"virtual"`. */
             backend: string;
-            /** @description Per-driver key, used only when the driver exposes no serial. */
+            /** @description Per-driver key, used without a serial or to distinguish variants sharing one serial. */
             key?: string | null;
             serial?: string | null;
         };

@@ -304,18 +304,19 @@ pub enum NodeCategory {
 /// allocated per run and reused, so a stored engine id would silently bind a node to whichever
 /// radio opened first — the kind of failure that looks like a working panel.
 ///
-/// `key` is the tie-break CANVAS §3 does not name, added because a backend can have several
-/// devices and no serials: the virtual backend's key is `siggen` or the stem of a recording, both
-/// durable, and without it a patch could not say *which* capture it plays. It is consulted only
-/// when there is no serial, which is what keeps it away from the case it would be wrong for — an
-/// RTL-SDR clone whose key is a bus index.
+/// `key` is the tie-break CANVAS §3 does not name. It normally matters only when there is no
+/// serial: the virtual backend's key is `siggen` or the stem of a recording, both durable, and
+/// without it a patch could not say *which* capture it plays. It is also retained when a backend
+/// deliberately exposes several durable addresses for one serial, such as the RSPduo's SDRplay
+/// operating modes. Variant keys use the `serial@variant` form; every other key is omitted when
+/// there is a serial, which keeps a transient USB index from overriding it on ordinary radios.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceRef {
     /// Driver id, matching [`DeviceInfo::driver`]: `"rtlsdr"`, `"hackrf"`, `"soapy"`, `"virtual"`.
     pub backend: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
-    /// Per-driver key, used only when the driver exposes no serial.
+    /// Per-driver key, used without a serial or to distinguish variants sharing one serial.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
 }
@@ -324,23 +325,30 @@ impl DeviceRef {
     /// The reference that names this discovered device.
     #[must_use]
     pub fn from_info(info: &DeviceInfo) -> Self {
+        let variant = info.serial.as_ref().is_some_and(|serial| {
+            info.key
+                .strip_prefix(serial)
+                .is_some_and(|suffix| suffix.starts_with('@'))
+        });
         Self {
             backend: info.driver.clone(),
             serial: info.serial.clone(),
-            key: info.serial.is_none().then(|| info.key.clone()),
+            key: (info.serial.is_none() || variant).then(|| info.key.clone()),
         }
     }
 
-    /// Whether `info` is the device this reference names. Serial wins when the driver exposes
-    /// one; otherwise the key does; a backend with a single serial-less device matches on the
-    /// backend alone, which is what makes `{backend, serial: none}` unambiguous for a singleton.
+    /// Whether `info` is the device this reference names. Serial identifies the physical radio;
+    /// an accompanying key narrows that to a variant. Without a serial the key identifies the
+    /// device; a backend with a single serial-less device can match on the backend alone.
     #[must_use]
     pub fn matches(&self, info: &DeviceInfo) -> bool {
         if self.backend != info.driver {
             return false;
         }
         match (&self.serial, &info.serial) {
-            (Some(want), Some(have)) => want == have,
+            (Some(want), Some(have)) => {
+                want == have && self.key.as_ref().is_none_or(|key| *key == info.key)
+            }
             (Some(_), None) => false,
             (None, _) => match &self.key {
                 Some(key) => *key == info.key,
@@ -1462,6 +1470,21 @@ mod tests {
         assert!(by_serial.matches(&DeviceInfo {
             key: "3".to_owned(),
             ..hardware.clone()
+        }));
+
+        let duo = DeviceInfo {
+            driver: "soapy".to_owned(),
+            key: "123456@DT".to_owned(),
+            label: "RSPduo Dual Tuner".to_owned(),
+            serial: Some("123456".to_owned()),
+            profile: None,
+        };
+        let by_variant = DeviceRef::from_info(&duo);
+        assert_eq!(by_variant.key.as_deref(), Some("123456@DT"));
+        assert!(by_variant.matches(&duo));
+        assert!(!by_variant.matches(&DeviceInfo {
+            key: "123456@ST".to_owned(),
+            ..duo
         }));
 
         let by_key = DeviceRef::from_info(&file);

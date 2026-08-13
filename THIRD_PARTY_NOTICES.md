@@ -12,5 +12,6 @@ Their package metadata and license texts are shipped under `soapy/licenses` in d
 - Airspy, AirspyHF, bladeRF, LimeSuite, libiio/PlutoSDR, and SoapyRemote: see the bundled package
   metadata and license files for the exact versions in each platform package.
 
-UHD and SDRplay are not part of the base package. Their modules may be installed as optional
-packs when their size and redistribution terms are acceptable.
+SoapySDRPlay3 is MIT licensed. It and SDRplay API are not part of the base package: SDRplay API
+is commercial software licensed for use with genuine SDRplay hardware, so operators install the
+vendor API and the SoapySDRPlay3 module themselves. UHD is likewise not part of the base package.

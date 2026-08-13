@@ -9,7 +9,8 @@
   capabilities, explicit multi-channel streams, generic module settings, reconnect supervision,
   and pinned private runtimes in desktop installers and containers
 - **[shipped]** Base packages include RTL-SDR, HackRF, Airspy/AirspyHF, bladeRF, LimeSDR,
-  PlutoSDR/libiio, and SoapyRemote modules; UHD and SDRplay are documented optional packs
+  PlutoSDR/libiio, and SoapyRemote modules; SDRplay RSP devices are supported through a
+  user-installed SDRplay API and SoapySDRPlay3 module, while UHD remains an optional pack
 - **[planned]** KiwiSDR client device
 - **[planned]** Remote source/sink between sdr-- instances; local routing between device sets
 - **[planned]** Audio-input device (`cpal`) — soundcard as a receiver

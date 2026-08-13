@@ -4449,7 +4449,7 @@
       },
       "DeviceRef": {
         "type": "object",
-        "description": "A device named by durable identity (CANVAS §3), never by an engine or probe id: those are\nallocated per run and reused, so a stored engine id would silently bind a node to whichever\nradio opened first — the kind of failure that looks like a working panel.\n\n`key` is the tie-break CANVAS §3 does not name, added because a backend can have several\ndevices and no serials: the virtual backend's key is `siggen` or the stem of a recording, both\ndurable, and without it a patch could not say *which* capture it plays. It is consulted only\nwhen there is no serial, which is what keeps it away from the case it would be wrong for — an\nRTL-SDR clone whose key is a bus index.",
+        "description": "A device named by durable identity (CANVAS §3), never by an engine or probe id: those are\nallocated per run and reused, so a stored engine id would silently bind a node to whichever\nradio opened first — the kind of failure that looks like a working panel.\n\n`key` is the tie-break CANVAS §3 does not name. It normally matters only when there is no\nserial: the virtual backend's key is `siggen` or the stem of a recording, both durable, and\nwithout it a patch could not say *which* capture it plays. It is also retained when a backend\ndeliberately exposes several durable addresses for one serial, such as the RSPduo's SDRplay\noperating modes. Variant keys use the `serial@variant` form; every other key is omitted when\nthere is a serial, which keeps a transient USB index from overriding it on ordinary radios.",
         "required": [
           "backend"
         ],
@@ -4463,7 +4463,7 @@
               "string",
               "null"
             ],
-            "description": "Per-driver key, used only when the driver exposes no serial."
+            "description": "Per-driver key, used without a serial or to distinguish variants sharing one serial."
           },
           "serial": {
             "type": [
