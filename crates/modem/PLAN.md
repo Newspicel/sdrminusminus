@@ -1,6 +1,6 @@
 # `sdrmm-modem` — Modulation Library Plan
 
-**Status:** in progress (phases 0–7 landed).
+**Status:** in progress (phases 0–8 landed).
 
 Phase 4 landed the linear engine and every linear row of §6 with its §5 bundle: OOK on both
 tiers, M-PAM and unipolar M-ASK, BPSK/QPSK/8-PSK, the DPSK family, OQPSK and π/2-BPSK,
@@ -155,7 +155,48 @@ scope. The chirp entry's own second tier is named where it belongs too: LoRa's d
 symbols resolve the delay/frequency ambiguity this one absorbs, since a down-chirp's peak moves the
 opposite way.
 
-Next: phase 8.
+Phase 8 landed the analog consolidation. What it turned out to be about is the opposite of what
+"analog" suggests: **every analog row has a closed form.** Above its detector's threshold each
+family's output SINAD is its input channel SNR plus a constant that depends only on the
+modulation's geometry — the figure of merit — so the analog rows are oracle-matched like the
+linear ones rather than commit-and-guard, and what is committed instead is the *knee*, the SNR at
+which the nonlinearity ends the straight line. Ten curves at −0.60 to +0.27 dB from their own
+closed forms, four limits tables under the plan's documented analog override (12 dB SINAD in place
+of a BER floor), a perf baseline, and all five analog channels migrated onto the engines.
+
+Read the figures of merit down the table and the family tree is one sentence: **amplitude
+modulation cannot beat unity because it spends bandwidth on a mirror image; angle modulation is
+unbounded because it spends bandwidth on deviation, which enters squared** — at a threshold that
+arrives sooner the more of it is bought. At 30 dB of channel SNR the committed curves read SSB
+30.11 dB, DSB-SC 30.09, narrowband FM 30.37, PM 27.11, full-carrier AM 23.97 and broadcast FM
+45.71; at 15 dB, below its own threshold, that same broadcast FM reads 11.36 against single
+sideband's 15.15.
+
+Four measured findings came with it. **A soft receive filter reads above its own oracle**, because
+a figure of merit is stated for a brick-wall receiver at the message bandwidth and a real filter's
+transition throws away noise inside that band the ideal one keeps — measured directly (sharpen the
+filters, the gap shrinks) and paid for with 1023-tap filters in the acceptance configuration,
+quoted separately from the 129-tap deployed one at an order more throughput. **A modulator's own
+transient is an accounting error**: the AWGN axis sets its level from the waveform's measured
+power, and a filter ramping up over its first few hundred samples lowers that mean, so every curve
+read ~0.2 dB better than it should until the modulator was primed and its transient discarded.
+**Single sideband's carrier axes are its defining property, not a defect** — it carries no
+frequency reference at all, so its CFO row lands at 0.32 Hz and is an audio-pitch bound rather than
+a lock bound, while every double-sideband envelope and discriminator row is *bracket-bound* on
+CFO, drift, timing and IQ imbalance alike, because those receivers read no phase for a front end to
+spoil. And **the FM PLL tier buys sensitivity rather than threshold at this geometry**: a loop that
+extends an FM threshold must be narrow against the message, a 3 kHz message at 48 kHz forbids one,
+and the tier is committed with that measurement attached instead of the claim it was expected to
+support.
+
+Open from phase 8, scoped rather than dropped: **the analog transmit paths in `channels` still
+build their own waveforms.** `AmTx`, `SsbTx` and `NfmTx` band-limit at submit time and key a
+queue at generate time, and the library's modulators band-limit inside `process` — so adopting
+them would either filter twice or need a "message already limited" flag on every one. The
+receivers, where the engines and the measurements are, have all migrated; the transmitters are a
+second, smaller merge with its own round-trip gates, and they are not in phase 8's scope.
+
+Next: phase 9.
 **Audience:** implementer working in the `sdrmm` workspace
 
 ---
@@ -707,6 +748,15 @@ attachment, per §6. Findings and the one open follow-on are in the status above
 engines; VSB as configuration; SINAD-based correctness and limits (co-channel,
 adjacent-channel, clipping rows especially).
 *Accept:* all analog rows bundled; channel behaviour unchanged on existing fixtures.
+*Landed:* ten committed SINAD curves — AM on both tiers, DSB-SC, VSB, single sideband by both
+methods, narrowband FM on both tiers, broadcast FM and PM — eight of them held to a *figure of
+merit* rather than to a committed reference (worst 0.60 dB), the two knees committed as the
+quantity no closed form describes (12 dB narrowband, 21 dB broadcast), four limits tables under the
+plan's documented analog override, a perf baseline with zero-allocation gates on every receive path
+and every modulator, and level-1 loopbacks throughout. All five analog channels run the engines'
+detectors — am and ssb through the full receiver, nfm/wfm/atv through the detector alone, since
+what follows a discriminator there is the channel's own — with every existing fixture unchanged.
+Findings and the one open follow-on are in the status above.
 
 **Phase 9 — Multicarrier completion.** OTFS, FBMC, GFDM, UFMC through the framework
 slot, each with commit-and-guard references (cross-checked against published curves

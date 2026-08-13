@@ -12,7 +12,8 @@
 use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
-use sdrmm_dsp::{Decimator, FmDemod, Highpass, RealDecimator, design_lowpass};
+use sdrmm_dsp::{Decimator, Highpass, RealDecimator, design_lowpass};
+use sdrmm_modem::analog::{AngleDemod, AngleDetector, AngleKind, AngleParams, AngleRx};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, NfmParams, NfmToneMode,
     ToneSquelchStatus,
@@ -41,7 +42,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct NfmChannel {
-    demod: FmDemod,
+    demod: AngleDemod,
     audio_lp: RealDecimator,
     demod_buf: Vec<f32>,
     /// `None` while [`NfmToneMode::Off`] — the subaudible path costs a decimation chain and
@@ -161,6 +162,24 @@ fn check_params(p: &NfmParams) -> Result<(), ChannelError> {
 
 /// Deviation follows the channel plan — ±2.5 kHz on 12.5 kHz spacing, ±5 kHz on 25 kHz —
 /// so a fixed bandwidth/5 ratio covers both standards.
+/// The library detector this channel is an attachment to: `sdrmm_modem::analog`'s quadrature
+/// discriminator alone. Everything the engine can also do — a Carson-rule predetection filter, an
+/// audio lowpass, a DC block — is switched off, because the host runtime already filters at
+/// `bandwidth_hz` and what follows the discriminator here is the channel's own: the subaudible
+/// detector, its highpass, and the voice-band lowpass.
+fn discriminator(rate: f64, p: &NfmParams) -> AngleDemod {
+    let params = AngleParams::new(
+        AngleKind::Fm {
+            deviation: deviation_hz(p) / rate,
+        },
+        VOICE_CUTOFF_HZ / rate,
+    );
+    AngleDemod::new(
+        &params,
+        &AngleRx::detector_only(AngleDetector::Discriminator),
+    )
+}
+
 fn deviation_hz(p: &NfmParams) -> f64 {
     p.bandwidth_hz / 5.0
 }
@@ -192,7 +211,7 @@ impl ChannelRx for NfmChannel {
         let p = params(&settings)?;
         check_params(p)?;
         Ok(Self {
-            demod: FmDemod::new(ctx.input_rate, deviation_hz(p)),
+            demod: discriminator(ctx.input_rate, p),
             audio_lp: audio_lowpass(),
             demod_buf: Vec::new(),
             tone: (p.tone_mode != NfmToneMode::Off).then(|| Tone::new(p)),
@@ -202,7 +221,7 @@ impl ChannelRx for NfmChannel {
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
         let p = params(&settings)?;
         check_params(p)?;
-        self.demod = FmDemod::new(DESCRIPTOR.input_rate_hz, deviation_hz(p));
+        self.demod = discriminator(DESCRIPTOR.input_rate_hz, p);
         // Which tone is required is a comparison, not state, so retuning the gate keeps
         // whatever the detector has already heard on this frequency.
         match (&mut self.tone, p.tone_mode) {

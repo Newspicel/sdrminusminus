@@ -311,7 +311,7 @@ const DMR_MARGIN_DB: f64 = 6.0;
 const DMR_CRITERION: &str = "BER <= 3e-2 at sensitivity(3e-2) + 6 dB \
     (documented 4.3 override: the chain's continuous-mode floor sits above the 1e-3 default)";
 
-/// Only `ber_limit()` feeds the search; the rows carry [`DMR_CRITERION`] instead of the
+/// Only `limit()` feeds the search; the rows carry [`DMR_CRITERION`] instead of the
 /// enum's label, which names the default operating point this entry cannot state.
 fn dmr_search_criterion() -> Criterion {
     Criterion::MaxPenalty {

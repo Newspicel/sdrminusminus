@@ -1,0 +1,44 @@
+[
+  {
+    "bench": "am_envelope_48k",
+    "msamples_per_s": 12.78766190433449,
+    "realtime_factor": 266.4096230069685,
+    "config": "48000 Hz, 3000 Hz message, 129-tap filters, 4096-sample blocks, envelope detector",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "am_synchronous_48k",
+    "msamples_per_s": 9.494012864213591,
+    "realtime_factor": 197.79193467111648,
+    "config": "48000 Hz, 3000 Hz message, 129-tap filters, 4096-sample blocks, carrier PLL at 1e-3 cycles/sample",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "ssb_filter_48k",
+    "msamples_per_s": 12.079377820621167,
+    "realtime_factor": 251.6537045962743,
+    "config": "48000 Hz, 3000 Hz message, 129-tap filters, 4096-sample blocks, one-sided complex band filter + product detector",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "nfm_discriminator_48k",
+    "msamples_per_s": 13.277438859841428,
+    "realtime_factor": 276.61330958002975,
+    "config": "48000 Hz, 3000 Hz message, 129-tap filters, 4096-sample blocks, ±2500 Hz, quadrature discriminator",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "wfm_discriminator_240k",
+    "msamples_per_s": 13.130673231832311,
+    "realtime_factor": 54.71113846596796,
+    "config": "240000 Hz, 15000 Hz message, ±75000 Hz, 129-tap filters, quadrature discriminator",
+    "host": "aarch64-macos"
+  },
+  {
+    "bench": "am_envelope_48k_acceptance",
+    "msamples_per_s": 1.0722331230408269,
+    "realtime_factor": 22.338190063350556,
+    "config": "48000 Hz, 3000 Hz message, 1023-tap filters, envelope detector — the SINAD curves' own configuration",
+    "host": "aarch64-macos"
+  }
+]

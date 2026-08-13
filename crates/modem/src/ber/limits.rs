@@ -5,11 +5,18 @@
 //! Sensitivity is measured first because every axis row's operating point is defined off it;
 //! an axis row without a sensitivity has no stated meaning.
 //!
-//! Two pass criteria exist (§4.3), and every row records which one produced it: the default
-//! failure floor — BER above [`FAILURE_BER`] at the operating point — and the "≤ 1 dB Eb/N0
+//! Four pass criteria exist (§4.3), and every row records which one produced it: the default
+//! failure floor — BER above [`FAILURE_BER`] at the operating point — the "≤ 1 dB Eb/N0
 //! penalty" form the plan states for the tracking axes (CFO, drift, sample-clock ppm, phase
-//! noise, …). A threshold without its criterion is not a measurement, and [`compare_tables`]
-//! refuses to compare thresholds taken under different ones.
+//! noise, …), and the two analog overrides the plan explicitly provides for, where BER is
+//! meaningless: a SINAD floor and a SINAD penalty. A threshold without its criterion is not a
+//! measurement, and [`compare_tables`] refuses to compare thresholds taken under different ones.
+//!
+//! One runner serves all four because they are one shape: **a cost that must stay at or below a
+//! limit**. The digital rows report BER; the analog rows report *negated* SINAD in dB, since a
+//! SINAD criterion is a floor and negating it turns the floor into the same ceiling every other
+//! row is judged by. [`Criterion::limit`] states the limit and the closure states the cost, so
+//! no axis search knows which class it is measuring.
 //!
 //! Determinism is inherited from the sweep: an axis search is a fixed sequence of seeded
 //! one-point BER measurements, so every committed threshold regenerates bit-for-bit from its
@@ -54,6 +61,11 @@ pub struct LimitsTable {
     pub sensitivity_db_1e2: Option<f64>,
     pub sensitivity_db_1e3: Option<f64>,
     pub sensitivity_db_1e4: Option<f64>,
+    /// The analog rows' sensitivity (§4.3 override, §5 item 4): the channel SNR at which
+    /// measured SINAD reaches [`ANALOG_SINAD_DB`]. `None` — and absent from the artifact — for
+    /// every BER-referenced entry, so no committed table moved when this arrived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sinad_sensitivity_db: Option<f64>,
     pub rows: Vec<LimitRow>,
 }
 
@@ -68,16 +80,36 @@ impl LimitsTable {
             sensitivity_db_1e2: sensitivity.db_at_1e2,
             sensitivity_db_1e3: sensitivity.db_at_1e3,
             sensitivity_db_1e4: sensitivity.db_at_1e4,
+            sinad_sensitivity_db: None,
             rows: Vec::new(),
         }
     }
 
-    /// The operating point every axis closure measures at: the 1e-3 sensitivity plus the
-    /// standing margin (§4.3). `None` while 1e-3 is unmeasured — an axis search without an
-    /// operating point measures nothing defined.
+    /// Starts an analog table from its measured SINAD sensitivity — the same structural rule as
+    /// [`Self::new`] under the §4.3 override: no axis row exists before the number that defines
+    /// its operating point.
+    #[must_use]
+    pub fn analog(entry: impl Into<String>, seed: u64, sinad_sensitivity_db: Option<f64>) -> Self {
+        Self {
+            entry: entry.into(),
+            seed,
+            sensitivity_db_1e2: None,
+            sensitivity_db_1e3: None,
+            sensitivity_db_1e4: None,
+            sinad_sensitivity_db,
+            rows: Vec::new(),
+        }
+    }
+
+    /// The operating point every axis closure measures at: the entry's own sensitivity plus
+    /// the standing margin (§4.3) — the 1e-3 BER crossing, or for an analog table the
+    /// [`ANALOG_SINAD_DB`] SINAD crossing. `None` while that sensitivity is unmeasured: an axis
+    /// search without an operating point measures nothing defined.
     #[must_use]
     pub fn operating_point_db(&self) -> Option<f64> {
-        self.sensitivity_db_1e3.map(|db| db + SENSITIVITY_MARGIN_DB)
+        self.sensitivity_db_1e3
+            .or(self.sinad_sensitivity_db)
+            .map(|db| db + SENSITIVITY_MARGIN_DB)
     }
 }
 
@@ -220,15 +252,34 @@ pub enum Criterion {
     /// once by [`penalty_criterion`]. Carrying the resolved BER keeps every probe of the
     /// search a plain comparison instead of a curve read per axis value.
     MaxPenalty { penalty_db: f64, max_ber: f64 },
+    /// The analog default (§4.3: "entries may override with a documented criterion where that
+    /// default is meaningless"): measured SINAD at the operating point stays at or above
+    /// `min_sinad_db`. [`ANALOG_SINAD_DB`] is the value every analog row uses — 12 dB SINAD is
+    /// the sensitivity criterion analog receivers have always been specified at, so the
+    /// threshold a row reports is directly comparable with a datasheet's.
+    MinSinad { min_sinad_db: f64 },
+    /// The analog "≤ N dB penalty" rows: pass while measured SINAD stays within `penalty_db`
+    /// of the clean chain's own SINAD at the operating point, resolved once by
+    /// [`sinad_penalty_criterion`]. The resolved floor rides along for the same reason
+    /// [`Criterion::MaxPenalty`]'s BER does.
+    SinadPenalty { penalty_db: f64, min_sinad_db: f64 },
 }
 
+/// The SINAD every analog row's default criterion is stated at — the 12 dB figure analog
+/// receiver sensitivity has been specified at since long before any of this.
+pub const ANALOG_SINAD_DB: f64 = 12.0;
+
 impl Criterion {
-    /// The BER a probe must stay at or below to pass.
+    /// The cost a probe must stay at or below to pass: a BER for the digital criteria, a
+    /// negated SINAD in dB for the analog ones (see the module docs).
     #[must_use]
-    pub fn ber_limit(self) -> f64 {
+    pub fn limit(self) -> f64 {
         match self {
             Self::FailureBer => FAILURE_BER,
             Self::MaxPenalty { max_ber, .. } => max_ber,
+            Self::MinSinad { min_sinad_db } | Self::SinadPenalty { min_sinad_db, .. } => {
+                -min_sinad_db
+            }
         }
     }
 
@@ -244,6 +295,18 @@ impl Criterion {
             Self::MaxPenalty { penalty_db, .. } => {
                 format!(
                     "<= {penalty_db} dB Eb/N0 penalty at sensitivity(1e-3) + {SENSITIVITY_MARGIN_DB} dB"
+                )
+            }
+            Self::MinSinad { min_sinad_db } => {
+                format!(
+                    "SINAD >= {min_sinad_db} dB at sensitivity({ANALOG_SINAD_DB} dB SINAD) \
+                     + {SENSITIVITY_MARGIN_DB} dB"
+                )
+            }
+            Self::SinadPenalty { penalty_db, .. } => {
+                format!(
+                    "<= {penalty_db} dB SINAD penalty at sensitivity({ANALOG_SINAD_DB} dB SINAD) \
+                     + {SENSITIVITY_MARGIN_DB} dB"
                 )
             }
         }
@@ -262,6 +325,18 @@ pub fn penalty_criterion(clean: &Curve, op_ebn0_db: f64, penalty_db: f64) -> Opt
         penalty_db,
         max_ber,
     })
+}
+
+/// The analog "≤ `penalty_db` dB penalty" criterion: an impairment costs at most `penalty_db`
+/// exactly when the SINAD it leaves is no worse than `clean_sinad_db - penalty_db`. The clean
+/// SINAD is measured once, at the operating point, by the caller — there is no curve to read it
+/// off, because an analog axis row's clean reference *is* a single measurement.
+#[must_use]
+pub fn sinad_penalty_criterion(clean_sinad_db: f64, penalty_db: f64) -> Criterion {
+    Criterion::SinadPenalty {
+        penalty_db,
+        min_sinad_db: clean_sinad_db - penalty_db,
+    }
 }
 
 // --- The axis runner -------------------------------------------------------------------------
@@ -289,10 +364,11 @@ pub fn measure_ber(
 const MAX_SEARCH_ITERS: u32 = 64;
 
 /// Binary-searches the largest axis value in `[0, max_axis]` still meeting `criterion`
-/// (§4.3). `ber_at` measures the BER at one axis value with the link held at its operating
-/// point — sensitivity(1e-3) + [`SENSITIVITY_MARGIN_DB`] — and must be deterministic per
-/// value ([`measure_ber`] with a fixed seed is the intended body). A NaN reading counts as a
-/// failure: an unmeasurable point must shrink the claimed limit, never extend it.
+/// (§4.3). `metric_at` measures the criterion's own cost — BER, or negated SINAD — at one axis
+/// value with the link held at its operating point, and must be deterministic per value
+/// ([`measure_ber`] or [`analog::sinad_metric`](super::analog::sinad_metric) with a fixed seed
+/// is the intended body). A NaN reading counts as a failure: an unmeasurable point must shrink
+/// the claimed limit, never extend it.
 ///
 /// Return semantics, all deterministic: `0.0` means the link fails even unimpaired (itself a
 /// finding, not an error); `max_axis` means no failure inside the bracket — the bracket, not
@@ -302,10 +378,10 @@ pub fn search_axis_limit(
     criterion: Criterion,
     max_axis: f64,
     tolerance: f64,
-    ber_at: impl Fn(f64) -> f64,
+    metric_at: impl Fn(f64) -> f64,
 ) -> f64 {
-    let limit = criterion.ber_limit();
-    let passes = |value: f64| ber_at(value) <= limit;
+    let limit = criterion.limit();
+    let passes = |value: f64| metric_at(value) <= limit;
     if !passes(0.0) {
         return 0.0;
     }
@@ -336,12 +412,12 @@ pub fn measure_axis_row(
     criterion: Criterion,
     max_axis: f64,
     tolerance: f64,
-    ber_at: impl Fn(f64) -> f64,
+    metric_at: impl Fn(f64) -> f64,
 ) -> LimitRow {
     LimitRow {
         axis: axis.into(),
         unit: unit.into(),
-        threshold: search_axis_limit(criterion, max_axis, tolerance, ber_at),
+        threshold: search_axis_limit(criterion, max_axis, tolerance, metric_at),
         criterion: criterion.label(),
     }
 }
@@ -482,6 +558,11 @@ pub fn compare_tables(
             measured.sensitivity_db_1e4,
             committed.sensitivity_db_1e4,
         ),
+        (
+            "sensitivity at SINAD 12 dB",
+            measured.sinad_sensitivity_db,
+            committed.sinad_sensitivity_db,
+        ),
     ];
     for (what, m, c) in sensitivities {
         compare_sensitivity(what, m, c, tolerance_fraction, &mut faults);
@@ -590,6 +671,7 @@ mod tests {
             sensitivity_db_1e2: Some(4.32),
             sensitivity_db_1e3: Some(6.79),
             sensitivity_db_1e4: None,
+            sinad_sensitivity_db: None,
             rows: vec![
                 LimitRow {
                     axis: "static CFO".to_string(),
@@ -694,7 +776,7 @@ mod tests {
 
     #[test]
     fn criteria_state_their_limits_and_labels() {
-        assert!((Criterion::FailureBer.ber_limit() - FAILURE_BER).abs() < 1e-18);
+        assert!((Criterion::FailureBer.limit() - FAILURE_BER).abs() < 1e-18);
         assert_eq!(
             Criterion::FailureBer.label(),
             "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
