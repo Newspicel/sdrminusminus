@@ -20,6 +20,7 @@ import type {
   WorkspaceSnapshot,
 } from "../lib/types";
 import { pruneRack } from "./graph";
+import { WorkspaceDrafts } from "./workspaceDrafts";
 
 export interface WorkspaceStore {
   workspaces: WorkspaceInfo[];
@@ -52,11 +53,9 @@ export function useWorkspace(): WorkspaceStore {
   // workspace invalidation for every accepted write). Keep the composed local draft outside that
   // cache until the last queued write settles, or a refetch containing only an earlier edit can
   // erase a later one before it has been sent.
-  const pending = useRef<{ id: number; snapshot: WorkspaceSnapshot } | null>(null);
-  // The query cache can likewise receive an older in-flight response after a write. The queue
-  // advances revisions from each mutation response instead of trusting that cache between writes.
-  const revisions = useRef(new Map<number, number>());
-  const generation = useRef(0);
+  // Keyed by workspace because a switch can put A, B and then A back into the same global write
+  // queue. Settling one workspace must neither discard another's draft nor retain A's old revision.
+  const drafts = useRef(new WorkspaceDrafts());
 
   const update = useMutation({
     mutationFn: (variables: { id: number; revision: number; snapshot: WorkspaceSnapshot }) =>
@@ -68,16 +67,13 @@ export function useWorkspace(): WorkspaceStore {
     // here. Preserve the latest local draft at the same time: the server's answer describes this
     // write, which may not be the last edit already waiting behind it.
     onSuccess: (info, variables) => {
-      revisions.current.set(variables.id, info.revision);
+      const snapshot = drafts.current.accepted(variables.id, info.revision) ?? variables.snapshot;
       queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, variables.id], (previous) =>
         previous
           ? {
               ...previous,
               ...info,
-              snapshot:
-                pending.current?.id === variables.id
-                  ? pending.current.snapshot
-                  : variables.snapshot,
+              snapshot,
             }
           : previous,
       );
@@ -102,10 +98,9 @@ export function useWorkspace(): WorkspaceStore {
   const queried = detail.data ?? null;
   // Refetches still update the authoritative metadata and revision in the query. While a local
   // draft is pending, its snapshot is what the operator is editing and therefore what we render.
+  const draft = queried === null ? undefined : drafts.current.get(queried.id);
   const active =
-    queried !== null && pending.current?.id === queried.id
-      ? { ...queried, snapshot: pending.current.snapshot }
-      : queried;
+    queried !== null && draft !== undefined ? { ...queried, snapshot: draft.snapshot } : queried;
   const activeIdRef = useRef<number | null>(null);
   activeIdRef.current = active?.id ?? null;
   // Writes are serialized: each one reads the revision the previous one produced. Issuing them
@@ -127,13 +122,9 @@ export function useWorkspace(): WorkspaceStore {
       // Compose against the pending draft, not necessarily the query cache. A StateChanged
       // refetch may have replaced the cache with the last snapshot the server accepted while a
       // newer local edit is still queued.
-      const base = pending.current?.id === id ? pending.current.snapshot : current.snapshot;
+      const base = drafts.current.get(id)?.snapshot ?? current.snapshot;
       const snapshot = fitRack(edit(base));
-      pending.current = { id, snapshot };
-      if (!revisions.current.has(id)) {
-        revisions.current.set(id, current.revision);
-      }
-      const write = ++generation.current;
+      const write = drafts.current.stage(id, snapshot, current.revision);
       // Applied to the cache *synchronously*, in the same task as the gesture that ended: a
       // drag's own preview is dropped on pointer-up, and anything that renders the stored
       // arrangement between the two — one microtask, or one whole round trip when a previous
@@ -155,16 +146,14 @@ export function useWorkspace(): WorkspaceStore {
             if (latest !== undefined) {
               await update.mutateAsync({
                 id,
-                revision: revisions.current.get(id) ?? latest.revision,
+                revision: drafts.current.get(id)?.revision ?? latest.revision,
                 snapshot,
               });
             }
           } finally {
-            // One authoritative refetch after the last queued write is enough. Earlier writes
-            // leave the draft in place for the edits behind them.
-            if (generation.current === write && pending.current?.id === id) {
-              pending.current = null;
-              revisions.current.delete(id);
+            // One authoritative refetch after this workspace's last queued write is enough.
+            // Earlier generations leave its newer draft in place; other workspaces are separate.
+            if (drafts.current.finish(id, write.generation)) {
               await queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
             }
           }
