@@ -360,8 +360,11 @@ pub fn css_link(spreading_factor: u32) -> Link {
     let demod = CssDemod::new(params.clone());
     let known = preamble.clone();
     // The origin the estimator has to find. It must stay inside one symbol — a chirp's
-    // delay/frequency ambiguity is only resolvable modulo the symbol length.
-    debug_assert!(CSS_LEAD < params.chips());
+    // delay/frequency ambiguity is only resolvable modulo the symbol length — with room left for
+    // the timing residual, so the lead is a quarter symbol wherever a symbol is shorter than
+    // `CSS_LEAD`. Every committed row is SF7 or above, where a quarter symbol is ≥ 32 and the
+    // lead is `CSS_LEAD` unchanged.
+    let lead = CSS_LEAD.min(params.chips() / 4);
 
     let label = format!(
         "css-sf{spreading_factor} uncoded, {} chirp shifts at {} kHz bandwidth, critically \
@@ -375,9 +378,9 @@ pub fn css_link(spreading_factor: u32) -> Link {
         bits_per_trial: payload * bits,
         modulate: Box::new(move |bit_slice| {
             let symbols: Vec<u32> = bits_to_labels(bit_slice, bits);
-            let mut wave = vec![Complex::new(0.0, 0.0); CSS_LEAD];
+            let mut wave = vec![Complex::new(0.0, 0.0); lead];
             modulator.frame(&preamble, &symbols, &mut wave);
-            wave.resize(wave.len() + CSS_LEAD, Complex::new(0.0, 0.0));
+            wave.resize(wave.len() + lead, Complex::new(0.0, 0.0));
             wave
         }),
         demodulate: Box::new(move |wave| {

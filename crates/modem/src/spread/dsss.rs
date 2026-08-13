@@ -225,9 +225,12 @@ impl DsssDemod {
     }
 
     /// Matched-filters `wave` and finds the burst whose preamble carries `preamble`, searching
-    /// origins in `0..search`. `None` when the search found no origin whose preamble fit is
-    /// believable — a receiver that reports a burst it did not find is worse than one that
-    /// reports none.
+    /// origins in `0..search`.
+    ///
+    /// `None` when the search was impossible or the anchor would not fit — a preamble shorter than
+    /// two symbols, an empty origin range, or a degenerate fit. It is *not* a detector: given a
+    /// searchable range the correlator always names its best origin, so a `Some` says "this is
+    /// where the burst is if there is one", not "there is one".
     ///
     /// Steady state allocates nothing: both buffers reach their capacity on the first call and
     /// are reused, which is what the §4.2 gate asserts.
@@ -320,6 +323,10 @@ impl DsssDemod {
     /// Per-bit LLRs of despread points through the crate's one demapper, at the noise variance
     /// the acquisition measured. Appends `points.len() · bits_per_symbol` values.
     ///
+    /// Writes zeros — the erasure a decoder reads as "no information" — when nothing has been
+    /// acquired, for the reason [`Self::demodulate`] writes nothing: an LLR at an invented
+    /// variance looks calibrated and is not, which is exactly the silent failure §8 forbids.
+    ///
     /// # Panics
     /// If `out` is not exactly `points.len() · table.bits_per_symbol()` long.
     pub fn llrs(&self, points: &[Complex<f32>], table: &Constellation, out: &mut [Llr]) {
@@ -329,10 +336,11 @@ impl DsssDemod {
             points.len() * bits,
             "one LLR slot per payload bit"
         );
-        let noise_var = self
-            .acquisition
-            .map_or(1.0, |a| a.noise_var)
-            .max(f64::MIN_POSITIVE);
+        let Some(acquisition) = self.acquisition else {
+            out.fill(Llr(0.0));
+            return;
+        };
+        let noise_var = acquisition.noise_var.max(f64::MIN_POSITIVE);
         for (point, slot) in points.iter().zip(out.chunks_exact_mut(bits)) {
             demap::max_log_llrs(*point, table, noise_var, slot);
         }

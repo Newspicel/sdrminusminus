@@ -173,6 +173,12 @@ impl Codebook {
     /// # Panics
     /// If `out` is shorter than the bank.
     pub fn correlate(&self, chips: &[Complex<f32>; CHIPS], out: &mut [Complex<f32>]) {
+        assert!(
+            out.len() >= self.words.len(),
+            "the bank has {} words; {} slots cannot hold it",
+            self.words.len(),
+            out.len()
+        );
         let scale = (CHIPS as f64).sqrt().recip();
         for (slot, word) in out.iter_mut().zip(&self.words) {
             let mut re = 0.0f64;
@@ -370,6 +376,7 @@ pub struct CckDemod {
     filtered: Vec<Complex<f32>>,
     known: Vec<Complex<f32>>,
     fitted: Vec<Complex<f32>>,
+    expected: Vec<Complex<f32>>,
     acquisition: Option<super::dsss::Acquisition>,
 }
 
@@ -381,6 +388,7 @@ impl CckDemod {
             filtered: Vec::new(),
             known: Vec::new(),
             fitted: Vec::new(),
+            expected: Vec::new(),
             acquisition: None,
         }
     }
@@ -396,7 +404,15 @@ impl CckDemod {
     }
 
     /// Matched-filters `wave`, finds the burst whose first symbols carry `preamble`, and fits the
-    /// §3.4 anchor over them. `None` when no origin produced a believable fit.
+    /// §3.4 anchor over them.
+    ///
+    /// `None` when the search was impossible or the anchor would not fit — a preamble shorter than
+    /// two symbols, an empty origin range, or a degenerate fit. It is *not* a detector: given a
+    /// searchable range the correlator always names its best origin, so a `Some` says "this is
+    /// where the burst is if there is one", not "there is one".
+    ///
+    /// Steady state allocates nothing: every buffer reaches its capacity on the first call and is
+    /// reused, which is what the §4.2 gate asserts.
     pub fn acquire(
         &mut self,
         wave: &[Complex<f32>],
@@ -428,21 +444,22 @@ impl CckDemod {
         // acquisition has to work at, a decision-directed reference would occasionally fit the
         // rotation to the wrong codeword and take the whole burst with it.
         self.fitted.clear();
+        self.expected.clear();
         let mut bank = [Complex::new(0.0, 0.0); MAX_WORDS];
         let bank = &mut bank[..self.params.codebook.words().len()];
-        let mut expected = Vec::with_capacity(preamble.len());
         for (k, &label) in preamble.iter().enumerate() {
             self.bank_at(origin, k, bank);
             self.fitted.push(bank[(label >> 2) as usize % bank.len()]);
-            expected.push(self.params.codebook.reference(label, k));
+            self.expected.push(self.params.codebook.reference(label, k));
         }
         // Gain only, no slope: the direct-sequence entry beside this one records the measurement
         // (`dsss`'s module docs) — a slope fitted on a short preamble and extrapolated across a
         // long payload is worth more phase error than it removes, and both entries frame bursts
         // the same way.
-        let anchor = PhaseAnchor::fit_gain_only(&self.fitted, &expected).ok()?;
+        let anchor = PhaseAnchor::fit_gain_only(&self.fitted, &self.expected).ok()?;
         anchor.correct_block(0, &mut self.fitted);
-        let noise_var = crate::constellation::demap::noise_var_from_known(&self.fitted, &expected);
+        let noise_var =
+            crate::constellation::demap::noise_var_from_known(&self.fitted, &self.expected);
         let acquisition = super::dsss::Acquisition {
             origin,
             anchor,
