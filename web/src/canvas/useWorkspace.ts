@@ -48,6 +48,16 @@ export function useWorkspace(): WorkspaceStore {
   const activeId = list.data?.active ?? null;
   const detail = useQuery(workspaceQuery(activeId));
 
+  // A refetch is allowed to replace the query cache while writes are queued (the server emits a
+  // workspace invalidation for every accepted write). Keep the composed local draft outside that
+  // cache until the last queued write settles, or a refetch containing only an earlier edit can
+  // erase a later one before it has been sent.
+  const pending = useRef<{ id: number; snapshot: WorkspaceSnapshot } | null>(null);
+  // The query cache can likewise receive an older in-flight response after a write. The queue
+  // advances revisions from each mutation response instead of trusting that cache between writes.
+  const revisions = useRef(new Map<number, number>());
+  const generation = useRef(0);
+
   const update = useMutation({
     mutationFn: (variables: { id: number; revision: number; snapshot: WorkspaceSnapshot }) =>
       updateWorkspace(variables.id, {
@@ -55,15 +65,23 @@ export function useWorkspace(): WorkspaceStore {
         snapshot: variables.snapshot,
       }),
     // The write's own answer carries the new revision, and the next queued write reads it from
-    // here: without folding it in, that write would still send the revision this one consumed
-    // and the server would refuse it as stale.
-    onSuccess: (info, variables) =>
+    // here. Preserve the latest local draft at the same time: the server's answer describes this
+    // write, which may not be the last edit already waiting behind it.
+    onSuccess: (info, variables) => {
+      revisions.current.set(variables.id, info.revision);
       queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, variables.id], (previous) =>
-        previous ? { ...previous, ...info } : previous,
-      ),
-    // A 409 means another client wrote first. The fix is always the same — take their patch —
-    // so refetching is the whole recovery, and the canvas re-applies what came back.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY }),
+        previous
+          ? {
+              ...previous,
+              ...info,
+              snapshot:
+                pending.current?.id === variables.id
+                  ? pending.current.snapshot
+                  : variables.snapshot,
+            }
+          : previous,
+      );
+    },
   });
   const activateMut = useMutation({
     mutationFn: activateWorkspace,
@@ -81,7 +99,13 @@ export function useWorkspace(): WorkspaceStore {
   const applyMut = useMutation({ mutationFn: applyWorkspace });
   const applyAsync = applyMut.mutateAsync;
 
-  const active = detail.data ?? null;
+  const queried = detail.data ?? null;
+  // Refetches still update the authoritative metadata and revision in the query. While a local
+  // draft is pending, its snapshot is what the operator is editing and therefore what we render.
+  const active =
+    queried !== null && pending.current?.id === queried.id
+      ? { ...queried, snapshot: pending.current.snapshot }
+      : queried;
   const activeIdRef = useRef<number | null>(null);
   activeIdRef.current = active?.id ?? null;
   // Writes are serialized: each one reads the revision the previous one produced. Issuing them
@@ -100,6 +124,16 @@ export function useWorkspace(): WorkspaceStore {
       if (current === undefined) {
         return;
       }
+      // Compose against the pending draft, not necessarily the query cache. A StateChanged
+      // refetch may have replaced the cache with the last snapshot the server accepted while a
+      // newer local edit is still queued.
+      const base = pending.current?.id === id ? pending.current.snapshot : current.snapshot;
+      const snapshot = fitRack(edit(base));
+      pending.current = { id, snapshot };
+      if (!revisions.current.has(id)) {
+        revisions.current.set(id, current.revision);
+      }
+      const write = ++generation.current;
       // Applied to the cache *synchronously*, in the same task as the gesture that ended: a
       // drag's own preview is dropped on pointer-up, and anything that renders the stored
       // arrangement between the two — one microtask, or one whole round trip when a previous
@@ -108,25 +142,32 @@ export function useWorkspace(): WorkspaceStore {
       // within one round trip composing: the second sees the first.
       queryClient.setQueryData<WorkspaceDetail>(key, {
         ...current,
-        // Every write leaves a rack the server will accept: it validates the whole snapshot, so
-        // one slot left over from an older grid would refuse every later write — including a
-        // node drag on the canvas that has nothing to do with the rack.
-        snapshot: fitRack(edit(current.snapshot)),
+        snapshot,
       });
-      // The write itself is still serialized, and still reads the revision the previous one
-      // produced — issuing them concurrently would send the same revision twice, and the server,
-      // correctly, refuses the second as stale.
+      // Capture this edit's composed snapshot now. Only the revision is read when its turn comes:
+      // the cache may legitimately refetch before then, but that must not change what this write
+      // means.
       queue.current = queue.current
         .catch(() => undefined)
-        .then(() => {
-          const latest = queryClient.getQueryData<WorkspaceDetail>(key);
-          return latest === undefined
-            ? undefined
-            : update.mutateAsync({
+        .then(async () => {
+          try {
+            const latest = queryClient.getQueryData<WorkspaceDetail>(key);
+            if (latest !== undefined) {
+              await update.mutateAsync({
                 id,
-                revision: latest.revision,
-                snapshot: latest.snapshot,
+                revision: revisions.current.get(id) ?? latest.revision,
+                snapshot,
               });
+            }
+          } finally {
+            // One authoritative refetch after the last queued write is enough. Earlier writes
+            // leave the draft in place for the edits behind them.
+            if (generation.current === write && pending.current?.id === id) {
+              pending.current = null;
+              revisions.current.delete(id);
+              await queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
+            }
+          }
         })
         // The failure is already on screen through `update.error`; this only keeps the last one
         // in a chain from surfacing as an unhandled rejection.

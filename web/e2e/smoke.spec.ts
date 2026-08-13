@@ -89,6 +89,10 @@ async function dragBy(page: Page, grip: Locator, cells: number): Promise<void> {
 }
 
 test.describe("the workspace", () => {
+  // These legs deliberately share the throwaway server state built by the first one. If that
+  // setup fails, later assertions describe consequences rather than independent failures.
+  test.describe.configure({ mode: "serial" });
+
   test("binds a radio, adds a channel and pins a face", async ({ page }) => {
     // The tile CDN is cut off, not awaited: CI must not lean on a third party, and the offline
     // fallback the map leg below lands in is itself behaviour the map owes a field workspace.
@@ -185,6 +189,30 @@ test.describe("the workspace", () => {
     // something to preserve.
     await expect(node("scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
 
+    // Hold the first pin's response after the server has accepted it. Its StateChanged refetch can
+    // then return the one-pin snapshot while the second optimistic pin is already on screen — the
+    // exact ordering that used to erase the second edit before its queued write began.
+    let heldFirstPin = false;
+    await page.route(/\/api\/workspaces\/\d+$/, async (route) => {
+      const request = route.request();
+      const rackSlots =
+        request.method() === "PUT" ? request.postDataJSON()?.snapshot?.rack?.slots : null;
+      if (
+        !heldFirstPin &&
+        request.method() === "PUT" &&
+        Array.isArray(rackSlots) &&
+        rackSlots.length === 1 &&
+        rackSlots[0]?.node === "scope"
+      ) {
+        heldFirstPin = true;
+        const response = await route.fetch();
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        await route.fulfill({ response });
+        return;
+      }
+      await route.continue();
+    });
+
     // Pinning adds the face to the rack and leaves the canvas node where it was (CANVAS §5).
     for (const id of ["scope", "speaker"]) {
       await node(id)
@@ -192,6 +220,9 @@ test.describe("the workspace", () => {
         .click();
       await expect(node(id).getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
     }
+    await expect
+      .poll(async () => (await slots(page)).map((slot) => slot.node))
+      .toEqual(["scope", "speaker"]);
     await expect(node("scope").getByText(/pinned to the rack/i)).toHaveCount(0);
 
     const rack = page.getByRole("group", { name: "View" }).getByRole("button", { name: "Rack" });
