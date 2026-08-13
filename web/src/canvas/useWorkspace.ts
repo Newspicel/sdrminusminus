@@ -20,6 +20,7 @@ import type {
   WorkspaceSnapshot,
 } from "../lib/types";
 import { pruneRack } from "./graph";
+import { WorkspaceDrafts } from "./workspaceDrafts";
 
 export interface WorkspaceStore {
   workspaces: WorkspaceInfo[];
@@ -48,6 +49,14 @@ export function useWorkspace(): WorkspaceStore {
   const activeId = list.data?.active ?? null;
   const detail = useQuery(workspaceQuery(activeId));
 
+  // A refetch is allowed to replace the query cache while writes are queued (the server emits a
+  // workspace invalidation for every accepted write). Keep the composed local draft outside that
+  // cache until the last queued write settles, or a refetch containing only an earlier edit can
+  // erase a later one before it has been sent.
+  // Keyed by workspace because a switch can put A, B and then A back into the same global write
+  // queue. Settling one workspace must neither discard another's draft nor retain A's old revision.
+  const drafts = useRef(new WorkspaceDrafts());
+
   const update = useMutation({
     mutationFn: (variables: { id: number; revision: number; snapshot: WorkspaceSnapshot }) =>
       updateWorkspace(variables.id, {
@@ -55,15 +64,20 @@ export function useWorkspace(): WorkspaceStore {
         snapshot: variables.snapshot,
       }),
     // The write's own answer carries the new revision, and the next queued write reads it from
-    // here: without folding it in, that write would still send the revision this one consumed
-    // and the server would refuse it as stale.
-    onSuccess: (info, variables) =>
+    // here. Preserve the latest local draft at the same time: the server's answer describes this
+    // write, which may not be the last edit already waiting behind it.
+    onSuccess: (info, variables) => {
+      const snapshot = drafts.current.accepted(variables.id, info.revision) ?? variables.snapshot;
       queryClient.setQueryData<WorkspaceDetail>([...WORKSPACES_KEY, variables.id], (previous) =>
-        previous ? { ...previous, ...info } : previous,
-      ),
-    // A 409 means another client wrote first. The fix is always the same — take their patch —
-    // so refetching is the whole recovery, and the canvas re-applies what came back.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY }),
+        previous
+          ? {
+              ...previous,
+              ...info,
+              snapshot,
+            }
+          : previous,
+      );
+    },
   });
   const activateMut = useMutation({
     mutationFn: activateWorkspace,
@@ -81,13 +95,35 @@ export function useWorkspace(): WorkspaceStore {
   const applyMut = useMutation({ mutationFn: applyWorkspace });
   const applyAsync = applyMut.mutateAsync;
 
-  const active = detail.data ?? null;
+  const queried = detail.data ?? null;
+  // Refetches still update the authoritative metadata and revision in the query. While a local
+  // draft is pending, its snapshot is what the operator is editing and therefore what we render.
+  const draft = queried === null ? undefined : drafts.current.get(queried.id);
+  const active =
+    queried !== null && draft !== undefined ? { ...queried, snapshot: draft.snapshot } : queried;
   const activeIdRef = useRef<number | null>(null);
   activeIdRef.current = active?.id ?? null;
   // Writes are serialized: each one reads the revision the previous one produced. Issuing them
   // concurrently would send the same revision twice, and the server — correctly — refuses the
   // second as stale, which would silently drop whichever change lost the race.
   const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const refreshOwed = useRef(false);
+  const finishQueue = useCallback(
+    (task: Promise<unknown>) => {
+      queue.current = task;
+      // Only the actual tail pays for the authoritative refetch. `apply` uses this same finalizer,
+      // so a save followed by its apply cannot strand the refresh merely because the apply is last.
+      void task
+        .then(() => {
+          if (queue.current === task && refreshOwed.current) {
+            refreshOwed.current = false;
+            return queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
+          }
+        })
+        .catch(() => undefined);
+    },
+    [queryClient],
+  );
 
   const save = useCallback(
     (edit: (snapshot: WorkspaceSnapshot) => WorkspaceSnapshot) => {
@@ -100,6 +136,12 @@ export function useWorkspace(): WorkspaceStore {
       if (current === undefined) {
         return;
       }
+      // Compose against the pending draft, not necessarily the query cache. A StateChanged
+      // refetch may have replaced the cache with the last snapshot the server accepted while a
+      // newer local edit is still queued.
+      const base = drafts.current.get(id)?.snapshot ?? current.snapshot;
+      const snapshot = fitRack(edit(base));
+      const write = drafts.current.stage(id, snapshot, current.revision);
       // Applied to the cache *synchronously*, in the same task as the gesture that ended: a
       // drag's own preview is dropped on pointer-up, and anything that renders the stored
       // arrangement between the two — one microtask, or one whole round trip when a previous
@@ -108,31 +150,37 @@ export function useWorkspace(): WorkspaceStore {
       // within one round trip composing: the second sees the first.
       queryClient.setQueryData<WorkspaceDetail>(key, {
         ...current,
-        // Every write leaves a rack the server will accept: it validates the whole snapshot, so
-        // one slot left over from an older grid would refuse every later write — including a
-        // node drag on the canvas that has nothing to do with the rack.
-        snapshot: fitRack(edit(current.snapshot)),
+        snapshot,
       });
-      // The write itself is still serialized, and still reads the revision the previous one
-      // produced — issuing them concurrently would send the same revision twice, and the server,
-      // correctly, refuses the second as stale.
-      queue.current = queue.current
+      // Capture this edit's composed snapshot now. Only the revision is read when its turn comes:
+      // the cache may legitimately refetch before then, but that must not change what this write
+      // means.
+      const task = queue.current
         .catch(() => undefined)
-        .then(() => {
-          const latest = queryClient.getQueryData<WorkspaceDetail>(key);
-          return latest === undefined
-            ? undefined
-            : update.mutateAsync({
+        .then(async () => {
+          try {
+            const latest = queryClient.getQueryData<WorkspaceDetail>(key);
+            if (latest !== undefined) {
+              await update.mutateAsync({
                 id,
-                revision: latest.revision,
-                snapshot: latest.snapshot,
+                revision: drafts.current.get(id)?.revision ?? latest.revision,
+                snapshot,
               });
+            }
+          } catch {
+            // `update.error` owns the visible failure; the queue must still clean up and refetch.
+          } finally {
+            // Earlier generations leave this workspace's newer draft in place. The global queue
+            // tail below turns the last completed generation into one authoritative refetch.
+            const finished = drafts.current.finish(id, write.generation);
+            refreshOwed.current = refreshOwed.current || finished;
+          }
         })
-        // The failure is already on screen through `update.error`; this only keeps the last one
-        // in a chain from surfacing as an unhandled rejection.
+        // Defensive for cache/draft errors outside the mutation itself.
         .catch(() => undefined);
+      finishQueue(task);
     },
-    [queryClient, update],
+    [finishQueue, queryClient, update],
   );
 
   // Apply goes through the same queue as a write, and that ordering is load-bearing: the gesture
@@ -144,11 +192,12 @@ export function useWorkspace(): WorkspaceStore {
     if (id === null) {
       return;
     }
-    queue.current = queue.current
+    const task = queue.current
       .catch(() => undefined)
       .then(() => applyAsync(id))
       .catch(() => undefined);
-  }, [applyAsync]);
+    finishQueue(task);
+  }, [applyAsync, finishQueue]);
 
   // Applying is idempotent, so it runs once per workspace that becomes active: opening the app on
   // a workspace whose radios are attached should give you the workspace, not an empty canvas waiting
