@@ -440,9 +440,10 @@ jobs:
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
       # — and the release job below treats every downloaded entry as a file to attach.
-      # The `.tar.gz`/`.zip`/`.sig` set is what the updater fetches; the installers beside them
-      # are what a human downloads. Both go to the release, and `latest.json` is built from the
-      # signatures — so a dropped `.sig` here is a platform that silently stops updating.
+      # Tauri v2 reuses the AppImage and Windows installers as updater payloads; macOS still
+      # archives the `.app`. The installers are also what a human downloads. Everything goes to
+      # the release, and `latest.json` is built from the signatures — so a dropped `.sig` here is
+      # a platform that silently stops updating.
       - name: Collect bundles
         shell: bash
         env:
@@ -457,8 +458,7 @@ jobs:
           find "target/$TARGET/release/bundle" -maxdepth 2 -type f \
             \( -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \
                -o -name '*.msi' -o -name '*-setup.exe' \
-               -o -name '*.app.tar.gz' -o -name '*.AppImage.tar.gz' \
-               -o -name '*.nsis.zip' -o -name '*.msi.zip' -o -name '*.sig' \) \
+               -o -name '*.app.tar.gz' -o -name '*.sig' \) \
             -exec cp {} bundles/ \;
           # macOS names its updater artifact after the product alone (`sdr--.app.tar.gz`), with
           # no architecture in it — so both slices would reach one release under the same name

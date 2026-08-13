@@ -16,18 +16,24 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 
-/// The updater artifact each bundle target produces, in preference order within a platform:
-/// macOS tars the `.app`, Linux tars the AppImage, Windows zips the installer. The `.dmg`,
-/// `.deb` and bare `.msi` a user downloads by hand are never what the updater fetches.
+/// The updater artifact each bundle target produces in Tauri v2, in preference order within a
+/// platform: macOS tars the `.app`, while Linux reuses the AppImage and Windows reuses the
+/// installer. The `.dmg` and Linux package-manager bundles are never what the updater fetches.
 ///
 /// NSIS outranks WiX because its passive mode installs per-user with a progress bar and no
 /// elevation prompt; the MSI would ask for admin rights on an update the user already accepted.
 const KINDS: &[(&str, &str)] = &[
     ("darwin", ".app.tar.gz"),
-    ("linux", ".AppImage.tar.gz"),
-    ("windows", ".nsis.zip"),
-    ("windows", ".msi.zip"),
+    ("linux", ".AppImage"),
+    ("windows", "-setup.exe"),
+    ("windows", ".msi"),
 ];
+
+/// `createUpdaterArtifacts: true` signs every emitted Linux package even though this app only
+/// updates AppImages (a `.deb` install is deliberately left to its package manager). These are
+/// known non-updater signatures rather than a bundler naming change; every other unknown suffix
+/// remains an error so a new updater artifact format cannot silently disappear from the manifest.
+const NON_UPDATER_KINDS: &[&str] = &[".deb", ".rpm", ".dmg"];
 
 /// Architecture tokens as they appear in bundler output, mapped to the keys the updater matches
 /// against. Longest first: `x86_64` contains `x86`, so the order is what keeps an x86_64 build
@@ -119,7 +125,9 @@ fn build(sigs: &[(String, String)], version: &str, base_url: &str) -> Result<Man
             .strip_suffix(".sig")
             .with_context(|| format!("`{sig_name}` is not a .sig file"))?
             .to_string();
-        let (platform, rank) = classify(&file)?;
+        let Some((platform, rank)) = classify(&file)? else {
+            continue;
+        };
         // The bundler writes the signature with a trailing newline; the client compares it raw.
         let candidate = Candidate {
             rank,
@@ -170,14 +178,20 @@ fn build(sigs: &[(String, String)], version: &str, base_url: &str) -> Result<Man
     })
 }
 
-/// `(platform key, preference)`, where a lower preference wins if one platform has two
-/// artifacts.
-fn classify(file: &str) -> Result<(String, usize)> {
-    let (os, rank) = KINDS
+/// `Some(platform key, preference)`, where a lower preference wins if one platform has two
+/// updater artifacts; `None` for a known package the updater does not install.
+fn classify(file: &str) -> Result<Option<(String, usize)>> {
+    let kind = KINDS
         .iter()
         .enumerate()
-        .find_map(|(rank, (os, ext))| file.ends_with(ext).then_some((*os, rank)))
-        .with_context(|| format!("`{file}` is not an updater artifact any bundle target emits"))?;
+        .find_map(|(rank, (os, ext))| file.ends_with(ext).then_some((*os, rank)));
+    let Some((os, rank)) = kind else {
+        ensure!(
+            NON_UPDATER_KINDS.iter().any(|ext| file.ends_with(ext)),
+            "`{file}` is not an updater artifact any bundle target emits"
+        );
+        return Ok(None);
+    };
     let arch = ARCHES
         .iter()
         .find_map(|(token, arch)| file.contains(token).then_some(*arch))
@@ -188,7 +202,7 @@ fn classify(file: &str) -> Result<(String, usize)> {
                  before both slices land in one release."
             )
         })?;
-    Ok((format!("{os}-{arch}"), rank))
+    Ok(Some((format!("{os}-{arch}"), rank)))
 }
 
 #[cfg(test)]
@@ -203,8 +217,8 @@ mod tests {
         [
             "sdr--_1.2.3_aarch64.app.tar.gz",
             "sdr--_1.2.3_x86_64.app.tar.gz",
-            "sdr---1.2.3-x86_64.AppImage.tar.gz",
-            "sdr--_1.2.3_x64-setup.nsis.zip",
+            "sdr--_1.2.3_amd64.AppImage",
+            "sdr--_1.2.3_x64-setup.exe",
         ]
         .iter()
         .map(|file| (format!("{file}.sig"), format!("sig-of-{file}\n")))
@@ -223,12 +237,9 @@ mod tests {
     fn url_is_the_artifact_beside_the_signature() {
         let manifest = build(&release(), "1.2.3", &format!("{BASE}/")).unwrap();
         let linux = &manifest.platforms["linux-x86_64"];
-        assert_eq!(
-            linux.url,
-            format!("{BASE}/sdr---1.2.3-x86_64.AppImage.tar.gz")
-        );
+        assert_eq!(linux.url, format!("{BASE}/sdr--_1.2.3_amd64.AppImage"));
         // Trimmed: a trailing newline in the .sig would fail verification on the client.
-        assert_eq!(linux.signature, "sig-of-sdr---1.2.3-x86_64.AppImage.tar.gz");
+        assert_eq!(linux.signature, "sig-of-sdr--_1.2.3_amd64.AppImage");
     }
 
     /// Windows builds both installers, so both signatures reach the release directory.
@@ -236,7 +247,7 @@ mod tests {
     fn prefers_nsis_over_msi() {
         let mut sigs = release();
         sigs.push((
-            "sdr--_1.2.3_x64_en-US.msi.zip.sig".to_string(),
+            "sdr--_1.2.3_x64_en-US.msi.sig".to_string(),
             "sig-of-msi".to_string(),
         ));
         sigs.sort();
@@ -244,7 +255,7 @@ mod tests {
         assert!(
             manifest.platforms["windows-x86_64"]
                 .url
-                .ends_with("-setup.nsis.zip")
+                .ends_with("-setup.exe")
         );
     }
 
@@ -252,7 +263,7 @@ mod tests {
     fn rejects_two_artifacts_of_the_same_kind_for_one_platform() {
         let mut sigs = release();
         sigs.push((
-            "other_1.2.3_x64-setup.nsis.zip.sig".to_string(),
+            "other_1.2.3_x64-setup.exe.sig".to_string(),
             "sig".to_string(),
         ));
         let err = build(&sigs, "1.2.3", BASE).unwrap_err().to_string();
@@ -281,12 +292,23 @@ mod tests {
         );
     }
 
-    /// A `.dmg`/`.deb` signature would mean the bundler started signing things the updater
-    /// cannot install, which is a change to react to rather than skip past.
+    /// Tauri v2 signs a `.deb` too, but a package-manager install is not an updater candidate.
     #[test]
-    fn rejects_an_artifact_the_updater_cannot_install() {
+    fn ignores_a_known_non_updater_signature() {
         let mut sigs = release();
         sigs.push(("sdr--_1.2.3_amd64.deb.sig".to_string(), "sig".to_string()));
+        let manifest = build(&sigs, "1.2.3", BASE).unwrap();
+        assert!(
+            manifest.platforms["linux-x86_64"]
+                .url
+                .ends_with(".AppImage")
+        );
+    }
+
+    #[test]
+    fn rejects_an_unknown_signed_artifact() {
+        let mut sigs = release();
+        sigs.push(("sdr--_1.2.3_amd64.pkg.sig".to_string(), "sig".to_string()));
         let err = build(&sigs, "1.2.3", BASE).unwrap_err().to_string();
         assert!(err.contains("not an updater artifact"), "{err}");
     }
