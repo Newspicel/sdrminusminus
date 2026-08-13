@@ -1,0 +1,21 @@
+{
+  "entry": "fhss-barker11",
+  "seed": 24389,
+  "sensitivity_db_1e2": 4.413279552052843,
+  "sensitivity_db_1e3": 6.898104536737007,
+  "sensitivity_db_1e4": 8.500894418348746,
+  "rows": [
+    {
+      "axis": "parked jammer J/C",
+      "unit": "dB",
+      "threshold": 3.828125,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    },
+    {
+      "axis": "narrowband J/C",
+      "unit": "dB",
+      "threshold": 2.96875,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    }
+  ]
+}

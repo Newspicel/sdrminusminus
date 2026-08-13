@@ -1,0 +1,15 @@
+{
+  "entry": "dsss-m31-bpsk",
+  "seed": 23345,
+  "sensitivity_db_1e2": 4.473917027015272,
+  "sensitivity_db_1e3": 6.920407420917911,
+  "sensitivity_db_1e4": 8.554052994942275,
+  "rows": [
+    {
+      "axis": "narrowband J/C",
+      "unit": "dB",
+      "threshold": 2.890625,
+      "criterion": "BER <= 1e-2 at sensitivity(1e-3) + 3 dB"
+    }
+  ]
+}
