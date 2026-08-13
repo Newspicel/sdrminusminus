@@ -53,6 +53,8 @@ pub enum FhssError {
     ChannelOutOfRange(usize),
     /// An empty hop order visits nothing.
     EmptyOrder,
+    /// The code ran through its whole period without drawing enough in-range channels.
+    ExhaustedCode,
     /// The sequence generator could not build the code the schedule is derived from.
     Sequence(PnError),
 }
@@ -68,6 +70,10 @@ impl std::fmt::Display for FhssError {
                 "the order names channel {c}, which the plan does not have"
             ),
             Self::EmptyOrder => write!(f, "an empty hop order visits nothing"),
+            Self::ExhaustedCode => write!(
+                f,
+                "the code's period never drew enough in-range channels to fill the schedule"
+            ),
             Self::Sequence(why) => write!(f, "hop sequence: {why}"),
         }
     }
@@ -115,7 +121,8 @@ impl HopSequence {
     /// [`Self::visits`] measures.
     ///
     /// # Errors
-    /// [`FhssError::Sequence`] if the degree is untabulated, plus [`Self::new`]'s.
+    /// [`FhssError::Sequence`] if the degree is untabulated, [`FhssError::ExhaustedCode`] if the
+    /// code never draws enough in-range channels, plus [`Self::new`]'s.
     pub fn from_m_sequence(
         channels: usize,
         spacing_cycles: f64,
@@ -123,6 +130,15 @@ impl HopSequence {
         hops: usize,
         degree: u32,
     ) -> Result<Self, FhssError> {
+        // The plan is checked before anything is generated, not after: `channels - 1` below and
+        // the draw loop's termination both depend on it, so `Self::new` at the end is too late to
+        // protect either.
+        if channels < 2 || dwell_samples == 0 {
+            return Err(FhssError::DegenerateSchedule);
+        }
+        if hops == 0 {
+            return Err(FhssError::EmptyOrder);
+        }
         let code = PnSequence::maximal_length(degree).map_err(FhssError::Sequence)?;
         let bits = (usize::BITS - (channels - 1).leading_zeros()) as usize;
         let chips = code.chips();
@@ -130,9 +146,20 @@ impl HopSequence {
         // two-bit draw reduced mod 3 lands on channel 0 twice as often as on 1 or 2, and the
         // framework's whole claim is that a jammer reaches `1/C` of the dwells. A biased plan
         // would break that quietly, in exactly the row that measures it.
+        //
+        // Rejection needs a budget, though, because the code is periodic: the draw positions
+        // repeat after at most `chips.len()` of them, so a plan the code never draws in range for
+        // would otherwise spin forever. If any draw in one period is accepted, `hops` of them
+        // arrive within `hops` periods; if none is, the budget is what reports it.
+        let budget = chips.len().saturating_mul(hops);
         let mut at = 0usize;
+        let mut draws = 0usize;
         let mut order = Vec::with_capacity(hops);
         while order.len() < hops {
+            if draws == budget {
+                return Err(FhssError::ExhaustedCode);
+            }
+            draws += 1;
             let mut index = 0usize;
             for _ in 0..bits {
                 index = (index << 1) | usize::from(chips[at % chips.len()] < 0.0);
@@ -431,5 +458,25 @@ mod tests {
             HopSequence::from_m_sequence(4, 0.01, 16, 8, 99).unwrap_err(),
             FhssError::Sequence(_)
         ));
+    }
+
+    /// The generator validates the plan *before* it draws, because a plan it cannot draw for is
+    /// the one case where the loop has no natural end.
+    #[test]
+    fn the_generator_refuses_a_degenerate_plan_instead_of_drawing_for_it() {
+        for channels in [0usize, 1] {
+            assert_eq!(
+                HopSequence::from_m_sequence(channels, 0.01, 16, 8, 7).unwrap_err(),
+                FhssError::DegenerateSchedule
+            );
+        }
+        assert_eq!(
+            HopSequence::from_m_sequence(4, 0.01, 0, 8, 7).unwrap_err(),
+            FhssError::DegenerateSchedule
+        );
+        assert_eq!(
+            HopSequence::from_m_sequence(4, 0.01, 16, 0, 7).unwrap_err(),
+            FhssError::EmptyOrder
+        );
     }
 }
