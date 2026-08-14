@@ -5,7 +5,16 @@ import type {
   DeviceSet,
   PatchGraph,
   PatchNodeOf,
+  TrunkSystemStatus,
 } from "../lib/types";
+
+/** A decoder feeding a sink: which node named it, and the live channel behind it. */
+export interface Input {
+  node: string;
+  deviceSet: number;
+  channel: ChannelInfo;
+}
+
 import { portStream } from "./graph";
 
 /** The reference that names this discovered device (mirrors `DeviceRef::from_info`). */
@@ -198,16 +207,26 @@ export function targetsOf(graph: PatchGraph, node: string, port: string): string
 }
 
 /** The channel faces feeding a sink (speaker, map, log, export), with the device set each one
- * belongs to — everything a sink needs to subscribe to the right streams. */
+ * belongs to — everything a sink needs to subscribe to the right streams.
+ *
+ * A trunk system is expanded to the traffic channels it is following. Those have no node of
+ * their own — the follower creates and destroys them as grants come and go — so they are named
+ * by the system that owns them, which is what the server stores on their log rows too. */
 export function inputsOf(
   graph: PatchGraph,
   node: string,
   port: string,
   devices: ReadonlyMap<string, DeviceSet>,
   channels: ReadonlyMap<string, ChannelInfo>,
-): { node: string; deviceSet: number; channel: ChannelInfo }[] {
-  const out: { node: string; deviceSet: number; channel: ChannelInfo }[] = [];
+  trunks: readonly TrunkSystemStatus[] = [],
+): Input[] {
+  const out: Input[] = [];
   for (const source of sourcesOf(graph, node, port)) {
+    const trunk = trunks.find((system) => system.node === source);
+    if (trunk !== undefined) {
+      out.push(...followerInputs(trunk, devices));
+      continue;
+    }
     const channel = channels.get(source);
     if (channel === undefined) {
       continue;
@@ -219,4 +238,19 @@ export function inputsOf(
     }
   }
   return out;
+}
+
+function followerInputs(
+  trunk: TrunkSystemStatus,
+  devices: ReadonlyMap<string, DeviceSet>,
+): Input[] {
+  const sets = [...devices.values()];
+  return trunk.followers.flatMap((follower) => {
+    const channel = sets
+      .find((set) => set.id === follower.device_set)
+      ?.channels.find((candidate) => candidate.id === follower.channel);
+    return channel === undefined
+      ? []
+      : [{ node: trunk.node, deviceSet: follower.device_set, channel }];
+  });
 }

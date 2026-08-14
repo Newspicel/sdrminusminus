@@ -16,6 +16,8 @@ const BS_DATA_SYNC: u64 = 0xDFF5_7D75_DF5D;
 const DT_VOICE_LC_HEADER: u8 = 0x1;
 const DT_TERMINATOR_WITH_LC: u8 = 0x2;
 const DT_CSBK: u8 = 0x3;
+const DT_MBC_HEADER: u8 = 0x4;
+const DT_MBC_CONTINUATION: u8 = 0x5;
 
 const BAUD: f64 = 4_800.0;
 const DEVIATION_HZ: f64 = 1_944.0;
@@ -264,6 +266,91 @@ pub(crate) fn csbk_with_fid(
         tx.burst(&data_burst(&call, DT_CSBK, &payload));
     }
     tx.modulate(rate)
+}
+
+/// A Tier III absolute channel definition: the broadcast MBC header that announces one, and the
+/// continuation carrying the frequencies. They are only meaningful as the pair the transmitter
+/// sends them as, so the generator emits nothing else.
+#[must_use]
+pub fn channel_definition(
+    color_code: u8,
+    channel: u16,
+    tx_hz: u64,
+    rx_hz: u64,
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    multi_block(color_code, channel, tx_hz, rx_hz, false, rate)
+}
+
+/// The same pair with an unrelated CSBK burst between the two halves — which the standard does
+/// not allow, and a receiver must not read as a definition.
+#[must_use]
+pub fn interrupted_channel_definition(
+    color_code: u8,
+    channel: u16,
+    tx_hz: u64,
+    rx_hz: u64,
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    multi_block(color_code, channel, tx_hz, rx_hz, true, rate)
+}
+
+fn multi_block(
+    color_code: u8,
+    channel: u16,
+    tx_hz: u64,
+    rx_hz: u64,
+    interrupt: bool,
+    rate: f64,
+) -> Vec<Complex<f32>> {
+    const OPCODE: u64 = 0b101000;
+
+    let mut header = vec![false; 80];
+    write(&mut header, 2, 6, OPCODE);
+    // Announcement type 0b00101: "broadcast channel frequency".
+    write(&mut header, 16, 5, 0b00101);
+    write(&mut header, 68, 12, u64::from(channel));
+    let header = with_crc(header, 0xAAAA);
+
+    let mut block = vec![false; 80];
+    block[0] = true;
+    write(&mut block, 2, 6, OPCODE);
+    write(&mut block, 22, 12, u64::from(channel));
+    write(&mut block, 34, 10, tx_hz / 1_000_000);
+    write(&mut block, 44, 13, tx_hz % 1_000_000 / 125);
+    write(&mut block, 57, 10, rx_hz / 1_000_000);
+    write(&mut block, 67, 13, rx_hz % 1_000_000 / 125);
+    let continuation = with_crc(block, 0);
+
+    let mut preamble = vec![false; 80];
+    write(&mut preamble, 2, 6, 0b111101);
+    let preamble = with_crc(preamble, 0xA5A5);
+
+    let call = Call {
+        color_code,
+        ..Call::default()
+    };
+    let mut tx = Keyed::default();
+    for _ in 0..2 {
+        tx.burst(&data_burst(&call, DT_MBC_HEADER, &header));
+        if interrupt {
+            tx.burst(&data_burst(&call, DT_CSBK, &preamble));
+        }
+        tx.burst(&data_burst(&call, DT_MBC_CONTINUATION, &continuation));
+    }
+    tx.modulate(rate)
+}
+
+fn write(bits: &mut [bool], at: usize, width: usize, value: u64) {
+    for index in 0..width {
+        bits[at + index] = value >> (width - index - 1) & 1 == 1;
+    }
+}
+
+fn with_crc(mut payload: Vec<bool>, mask: u16) -> Vec<bool> {
+    let crc = !crc16_msb(0x1021, 0, &pack(&payload)) ^ mask;
+    payload.extend(bits(u64::from(crc), 16));
+    payload
 }
 
 /// The symbol stream a direct-mode radio puts on the air: its own burst, then the guard time

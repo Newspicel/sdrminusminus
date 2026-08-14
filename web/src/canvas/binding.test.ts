@@ -181,6 +181,43 @@ describe("binding", () => {
     expect(inputsOf(g, "spk", "audio", devices, new Map())).toEqual([]);
   });
 
+  // A trunk system's traffic channels have no node of their own: the follower opens and closes
+  // them as grants come and go, so a sink wired to the system must reach them through it.
+  it("expands a trunk system into the traffic channels it is following", () => {
+    const g: PatchGraph = {
+      nodes: [
+        node("dev", { kind: "device", data: { device: deviceRefOf(rtl) } }),
+        node("dmr", { kind: "channel", data: { channel_type: "dmr" } }),
+        node("trunk", { kind: "dmr_trunk", data: { protocol: "auto", retention_seconds: 300 } }),
+        node("log", { kind: "decoder_log" }),
+      ],
+      edges: [
+        { from: { node: "dev", port: "iq" }, to: { node: "dmr", port: "iq" } },
+        { from: { node: "dmr", port: "events" }, to: { node: "trunk", port: "events" } },
+        { from: { node: "trunk", port: "events" }, to: { node: "log", port: "events" } },
+      ],
+    };
+    const control = channel(9, "dmr");
+    const traffic = channel(10, "dmr");
+    const devices = bindDevices(g, [set(1, rtl, [control, traffic])]);
+    const channels = bindChannels(g, devices);
+    const trunks = [
+      {
+        node: "trunk",
+        carriers: 1,
+        followers: [{ device_set: 1, channel: 10, slot: 2, freq_hz: 451_125_000 }],
+        problems: [],
+      },
+    ];
+
+    expect(inputsOf(g, "log", "events", devices, channels, trunks)).toEqual([
+      { node: "trunk", deviceSet: 1, channel: traffic },
+    ]);
+    // Without the system's status there is nothing to expand it to, and no channel node is
+    // wired to the log directly.
+    expect(inputsOf(g, "log", "events", devices, channels)).toEqual([]);
+  });
+
   // Two lanes of one radio: the wire names the stream (`iq` is 0, `iq3` is 2), and everything
   // that follows an IQ wire must land on the lane it names rather than defaulting to the first.
   describe("multi-stream wires", () => {

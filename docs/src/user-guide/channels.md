@@ -64,6 +64,27 @@ off passes audio continuously. NFM additionally supports:
 - **CTCSS**, which opens only for a selected standard tone;
 - **DCS**, which opens only for a selected standard code.
 
+## Following a DMR trunk system
+
+The **DMR trunk system** node turns a control channel into the traffic channels it grants. Wire
+the events output of one or more DMR decoders into it and choose the system type, or leave it on
+auto-detect and let the signalling identify itself.
+
+- **Tier III / Capacity Max** learns where each logical channel is from the system's own channel
+  definitions and opens a receiver when a voice grant names one.
+- **Capacity Plus** grants no frequency: every carrier you wire in is itself a traffic channel, so
+  both timeslots of each are followed as soon as the system is recognized.
+
+The receivers it opens are the server's, not the patch's, so following continues while no browser
+is connected. They obey the same passband rule as any other channel: a traffic channel outside the
+radio's current sample rate cannot be opened, and the node says so instead of failing quietly.
+Widen the sample rate, retune so the traffic channels fall inside it, or give the system a second
+radio.
+
+Completed calls are buffered in memory for the retention you choose on the node — audio included,
+unless the transmission was encrypted, in which case only its metadata is kept. Set retention to
+off to follow traffic without buffering any audio.
+
 ## Decoder output
 
 Decoder events are typed on the server and timestamped with source and frequency information.

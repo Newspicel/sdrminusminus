@@ -7,6 +7,7 @@ import type {
   DeviceSet,
   PatchGraph,
   RackLayout,
+  TrunkSystemStatus,
   WorkspaceSettings,
   WorkspaceSnapshot,
 } from "../lib/types";
@@ -24,6 +25,8 @@ export interface Workspace {
   context: GraphContext;
   /** Every open device set, for the pickers that have to name a radio. */
   deviceSets: readonly DeviceSet[];
+  /** What each trunk node is following. Its traffic channels have no node of their own. */
+  trunks: readonly TrunkSystemStatus[];
   devices: ReadonlyMap<string, DeviceSet>;
   /** Channel node id → the engine channel it drives. Absent means apply has not created it. */
   channels: ReadonlyMap<string, ChannelInfo>;

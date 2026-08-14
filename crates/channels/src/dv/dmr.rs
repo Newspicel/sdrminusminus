@@ -11,7 +11,7 @@ use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, FracResampler, ParityCode, crc16_m
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DmrParams, DmrSlots,
-    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, Vendor,
+    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol, Vendor,
 };
 
 use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params, pack_bytes};
@@ -234,6 +234,7 @@ struct Decoder {
 
 #[derive(Clone)]
 struct MbcHeader {
+    fid: u8,
     opcode: u8,
     frame: DvFrame,
 }
@@ -457,6 +458,10 @@ impl Decoder {
         let colour = (info >> 4) as u16 & 0x0F;
         let data_type = info as u8 & 0x0F;
 
+        if !matches!(data_type, DT_MBC_HEADER | DT_MBC_CONTINUATION) {
+            self.mbc_headers[index] = None;
+        }
+
         let mut coded = [false; Bptc196::CODED_BITS];
         for (slot, &bit) in coded
             .iter_mut()
@@ -487,13 +492,13 @@ impl Decoder {
                 frame.kind = DvFrameKind::Terminator;
                 frame
             }
-            DT_CSBK => self.csbk(&payload)?,
-            DT_MBC_HEADER => self.mbc_header(index, &payload)?,
-            DT_MBC_CONTINUATION => self.mbc_continuation(index, &payload)?,
-            DT_DATA_HEADER => self.data_header(&payload)?,
+            DT_CSBK => self.csbk(&payload, errors)?,
+            DT_MBC_HEADER => self.mbc_header(index, &payload, errors)?,
+            DT_MBC_CONTINUATION => self.mbc_continuation(index, &payload, errors)?,
+            DT_DATA_HEADER => self.data_header(&payload, errors)?,
             DT_RATE_HALF_DATA => data_block(&payload, "rate 1/2 data"),
             DT_UNIFIED_SINGLE_BLOCK_DATA => {
-                let mut frame = self.checked_block(&payload, DATA_HEADER_MASK)?;
+                let mut frame = self.checked_block(&payload, DATA_HEADER_MASK, errors)?;
                 frame.kind = DvFrameKind::Data;
                 frame.opcode = Some("unified single block data".to_owned());
                 frame.data = Some(hex_bits(&payload[..80]));
@@ -502,7 +507,7 @@ impl Decoder {
             // A privacy indicator header says the payload that follows is encrypted. Its
             // undisclosed fields are opaque, but §B.3.11 still requires its masked CRC.
             DT_PI_HEADER => {
-                let mut frame = self.checked_block(&payload, PI_HEADER_MASK)?;
+                let mut frame = self.checked_block(&payload, PI_HEADER_MASK, errors)?;
                 frame.kind = DvFrameKind::Header;
                 frame.encrypted = Some(true);
                 frame.algorithm_id = Some(bits_to_u32(&payload, 5, 3) as u8);
@@ -524,12 +529,21 @@ impl Decoder {
     }
 
     /// A 96-bit block whose last 16 bits are a mask-XORed CRC-16 over the rest.
-    fn checked_block(&mut self, payload: &[bool; 96], mask: u16) -> Option<DvFrame> {
+    ///
+    /// `ignore_crc` keeps a block whose CRC fails under an undisclosed mask (Hytera RAS and
+    /// friends), but only when the FEC had nothing to repair: a block the BPTC had to correct
+    /// and whose CRC then disagrees is noise, and the frame is marked unverified either way so
+    /// that nothing acts on it.
+    fn checked_block(&mut self, payload: &[bool; 96], mask: u16, errors: u32) -> Option<DvFrame> {
         pack_bytes(&payload[..80], &mut self.bytes);
         let expected = dmr_crc16(&self.bytes) ^ mask;
-        let found = bits_to_u32(payload, 80, 16) as u16;
-        (expected == found || self.params.ignore_crc)
-            .then(|| DvFrame::new(DvMode::Dmr, DvFrameKind::Control))
+        let verified = expected == bits_to_u32(payload, 80, 16) as u16;
+        if !verified && !(self.params.ignore_crc && errors == 0) {
+            return None;
+        }
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        frame.crc_verified = Some(verified);
+        Some(frame)
     }
 
     /// A full link control: 72 bits of addressing under Reed-Solomon(12,9) parity, masked by
@@ -552,8 +566,8 @@ impl Decoder {
         Some(self.decode_lc(index, payload))
     }
 
-    fn csbk(&mut self, payload: &[bool; 96]) -> Option<DvFrame> {
-        let mut frame = self.checked_block(payload, CSBK_MASK)?;
+    fn csbk(&mut self, payload: &[bool; 96], errors: u32) -> Option<DvFrame> {
+        let mut frame = self.checked_block(payload, CSBK_MASK, errors)?;
         let opcode = bits_to_u32(payload, 2, 6) as u8;
         let fid = bits_to_u32(payload, 8, 8) as u8;
         set_dmr_vendor(&mut frame, fid);
@@ -596,8 +610,8 @@ impl Decoder {
         Some(frame)
     }
 
-    fn mbc_header(&mut self, index: usize, payload: &[bool; 96]) -> Option<DvFrame> {
-        let mut frame = self.checked_block(payload, MBC_HEADER_MASK)?;
+    fn mbc_header(&mut self, index: usize, payload: &[bool; 96], errors: u32) -> Option<DvFrame> {
+        let mut frame = self.checked_block(payload, MBC_HEADER_MASK, errors)?;
         let opcode = bits_to_u32(payload, 2, 6) as u8;
         let fid = bits_to_u32(payload, 8, 8) as u8;
         set_dmr_vendor(&mut frame, fid);
@@ -611,27 +625,35 @@ impl Decoder {
             }
         }
         self.mbc_headers[index] = Some(MbcHeader {
+            fid,
             opcode,
             frame: frame.clone(),
         });
         Some(frame)
     }
 
-    fn mbc_continuation(&mut self, index: usize, payload: &[bool; 96]) -> Option<DvFrame> {
+    fn mbc_continuation(
+        &mut self,
+        index: usize,
+        payload: &[bool; 96],
+        errors: u32,
+    ) -> Option<DvFrame> {
         let header = self.mbc_headers[index].take()?;
         let opcode = bits_to_u32(payload, 2, 6) as u8;
+        let verified = valid_mbc_crc(payload);
         if opcode != header.opcode
             || !payload[0]
-            || (!self.params.ignore_crc && !valid_mbc_crc(payload))
+            || (!verified && !(self.params.ignore_crc && errors == 0))
         {
             return None;
         }
         let mut frame = header.frame;
-        let color_code =
-            matches!(opcode, 0b110000..=0b110110).then(|| bits_to_u32(payload, 12, 4) as u8);
+        frame.crc_verified = Some(verified && frame.crc_verified == Some(true));
+        let color_code = is_tier_three_grant(opcode).then(|| bits_to_u32(payload, 12, 4) as u8);
         frame.channel_definition = decode_channel_definition(payload, color_code);
         if let Some(definition) = &frame.channel_definition {
             frame.channel = Some(definition.channel);
+            frame.trunk_protocol = Some(DvTrunkProtocol::TierThree);
             frame.data = Some(format!(
                 "TX {} Hz, RX {} Hz",
                 definition.tx_hz, definition.rx_hz
@@ -639,13 +661,13 @@ impl Decoder {
         }
         frame.opcode = Some(format!(
             "{} absolute parameters",
-            csbk_opcode_name(0, opcode)
+            csbk_opcode_name(header.fid, opcode)
         ));
         Some(frame)
     }
 
-    fn data_header(&mut self, payload: &[bool; 96]) -> Option<DvFrame> {
-        let mut frame = self.checked_block(payload, DATA_HEADER_MASK)?;
+    fn data_header(&mut self, payload: &[bool; 96], errors: u32) -> Option<DvFrame> {
+        let mut frame = self.checked_block(payload, DATA_HEADER_MASK, errors)?;
         let format = bits_to_u32(payload, 4, 4) as u8;
         frame.kind = DvFrameKind::Data;
         frame.group_call = Some(payload[0]);
@@ -698,6 +720,7 @@ impl Decoder {
             }
             (0x10, 4 | 7) => {
                 frame.opcode = Some("Capacity Plus voice channel user".to_owned());
+                frame.trunk_protocol = Some(DvTrunkProtocol::CapacityPlus);
                 frame.group_call = Some(flco == 4);
                 frame.destination = Some(bits_to_u32(lc, 24, 24));
                 frame.source = Some(bits_to_u32(lc, 56, 16));
@@ -1000,6 +1023,9 @@ fn set_dmr_vendor(frame: &mut DvFrame, fid: u8) {
 }
 
 fn decode_vendor_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]) {
+    if fid == 0x10 && matches!(opcode, 0x3A | 0x3B | 0x3E) {
+        frame.trunk_protocol = Some(DvTrunkProtocol::CapacityPlus);
+    }
     match (fid, opcode) {
         (0x10, 0x3A | 0x3E) => {
             frame.rest_channel = Some(bits_to_u32(payload, 20, 4) as u16);
@@ -1069,11 +1095,20 @@ fn decode_vendor_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]
     }
 }
 
+/// The four ETSI voice channel grants of TS 102 361-4, whose 12-bit logical channel and slot
+/// bit share one layout.
+fn is_tier_three_grant(opcode: u8) -> bool {
+    matches!(opcode, 0b110000..=0b110101)
+}
+
 fn decode_tier_three_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]) {
     if fid != 0 {
         return;
     }
-    if matches!(opcode, 0b110000..=0b110101) {
+    if is_tier_three_grant(opcode) || matches!(opcode, 0b011001 | 0b011100 | 0b101000) {
+        frame.trunk_protocol = Some(DvTrunkProtocol::TierThree);
+    }
+    if is_tier_three_grant(opcode) {
         frame.channel = Some(bits_to_u32(payload, 16, 12) as u16);
         frame.slot = Some(if payload[28] { 2 } else { 1 });
         frame.late_entry = Some(payload[29]);
@@ -1510,6 +1545,61 @@ mod tests {
         }
     }
 
+    /// The absolute channel definition off the air, as the header-and-continuation pair a
+    /// Tier III control channel actually sends it as. This is what tells the trunk follower
+    /// where a logical channel is, so it is asserted through the demodulator and not only
+    /// against a hand-built bit array.
+    #[test]
+    fn decodes_an_absolute_channel_definition_off_the_air() {
+        let iq = tx::channel_definition(3, 811, 451_125_000, 456_250_000, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(DmrSlots::Both), &iq);
+
+        let defined = frames
+            .iter()
+            .find(|frame| frame.channel_definition.is_some())
+            .expect("an absolute channel definition");
+        assert_eq!(
+            defined.channel_definition,
+            Some(DvChannelDefinition {
+                channel: 811,
+                tx_hz: 451_125_000,
+                rx_hz: 456_250_000,
+                color_code: None,
+            })
+        );
+        assert_eq!(defined.channel, Some(811));
+        assert_eq!(defined.color_code, Some(3));
+        assert_eq!(defined.crc_verified, Some(true));
+        assert_eq!(defined.trunk_protocol, Some(DvTrunkProtocol::TierThree));
+    }
+
+    /// A continuation is only ever read against the header directly before it; a burst of any
+    /// other type in between drops the header rather than letting it pair with a later block.
+    #[test]
+    fn an_interrupted_multi_block_is_not_read_as_a_definition() {
+        let iq =
+            tx::interrupted_channel_definition(3, 811, 451_125_000, 456_250_000, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(DmrSlots::Both), &iq);
+        assert!(
+            frames
+                .iter()
+                .all(|frame| frame.channel_definition.is_none()),
+            "a stale header paired with a later continuation"
+        );
+    }
+
+    #[test]
+    fn a_tier_three_csbk_names_its_protocol() {
+        let iq = tx::csbk(3, 0b110001, 505, 2_621_001, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(DmrSlots::Both), &iq);
+        let grant = frames
+            .iter()
+            .find(|frame| frame.trunk_protocol.is_some())
+            .expect("a tagged grant");
+        assert_eq!(grant.trunk_protocol, Some(DvTrunkProtocol::TierThree));
+        assert_eq!(grant.crc_verified, Some(true));
+    }
+
     #[test]
     fn tier_three_grant_exposes_channel_slot_and_flags() {
         let mut payload = [false; 96];
@@ -1552,17 +1642,22 @@ mod tests {
         );
     }
 
+    /// RAS keeps a block whose CRC fails under an undisclosed mask, but the frame says so and
+    /// a block the FEC had to repair is refused outright: an unverified grant would steer a
+    /// receiver onto noise.
     #[test]
-    fn ras_mode_accepts_a_fec_valid_block_with_an_alternate_crc_mask() {
+    fn ras_mode_marks_an_unverified_block_and_refuses_a_repaired_one() {
         let payload = [false; 96];
         let mut strict = Decoder::new(DmrParams::default());
-        assert!(strict.checked_block(&payload, CSBK_MASK).is_none());
+        assert!(strict.checked_block(&payload, CSBK_MASK, 0).is_none());
 
         let mut ras = Decoder::new(DmrParams {
             ignore_crc: true,
             ..DmrParams::default()
         });
-        assert!(ras.checked_block(&payload, CSBK_MASK).is_some());
+        let frame = ras.checked_block(&payload, CSBK_MASK, 0).expect("kept");
+        assert_eq!(frame.crc_verified, Some(false));
+        assert!(ras.checked_block(&payload, CSBK_MASK, 1).is_none());
     }
 
     fn dmr_interleave(code: &[u32; 4]) -> [bool; VOCODER_FRAME_BITS] {

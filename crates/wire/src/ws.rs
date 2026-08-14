@@ -107,6 +107,10 @@ pub enum ServerEvent {
     DecodedLost {
         count: u64,
     },
+    /// Appended client-side for the same reason decodes are: refetching the whole call list per
+    /// call is the cost [`StateScope::DecoderLog`] exists to avoid. `StateChanged { Calls }`
+    /// still fires for structural changes — retention expiry, audio eviction.
+    CallCompleted(Box<crate::rest::VoiceCall>),
     /// Live frequency-scanner progress. Its own event rather than a `StateChanged`:
     /// a scan retunes the device every dwell, and one full-state refetch per step would
     /// cost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which

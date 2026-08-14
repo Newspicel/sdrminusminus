@@ -405,8 +405,16 @@ async fn call_audio(
             header::CONTENT_DISPOSITION,
             format!("inline; filename=\"call-{id}.wav\""),
         ),
+        // A call's audio never changes, and ids are never reused while it is listed.
+        (header::CACHE_CONTROL, "private, max-age=3600".to_owned()),
     ];
-    Ok((headers, Body::from(audio.to_vec())).into_response())
+    Ok((headers, Body::from(audio)).into_response())
+}
+
+/// Where [`call_audio`] answers, so the buffer that mints a call does not spell the route out a
+/// second time.
+pub(crate) fn call_audio_path(id: u64) -> String {
+    format!("/api/calls/{id}/audio")
 }
 
 #[utoipa::path(

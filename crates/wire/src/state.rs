@@ -6,6 +6,7 @@ use utoipa::ToSchema;
 
 use crate::{
     channel::ChannelInfo,
+    decode::DvTrunkProtocol,
     device::{Capabilities, DeviceInfo, DeviceSettings},
     scan::ScannerStatus,
 };
@@ -87,10 +88,49 @@ pub struct DeviceSet {
     pub playback: Option<PlaybackStatus>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TrunkFollower {
+    pub device_set: u32,
+    /// The engine channel doing the following; it has no patch node of its own.
+    pub channel: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical_channel: Option<u16>,
+    pub slot: u8,
+    pub freq_hz: u64,
+}
+
+/// A grant the follower could not act on — commonly a traffic channel outside the sampled
+/// bandwidth. Carried in state so the operator sees why a busy system produces no calls.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TrunkProblem {
+    pub freq_hz: u64,
+    pub slot: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical_channel: Option<u16>,
+    pub reason: String,
+    /// RFC3339 UTC.
+    pub since: String,
+    pub attempts: u32,
+}
+
+/// What one `dmr_trunk` node is following. Also how the client attributes follower channels,
+/// which have no patch node, to the system that owns them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TrunkSystemStatus {
+    pub node: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detected: Option<DvTrunkProtocol>,
+    pub carriers: u32,
+    pub followers: Vec<TrunkFollower>,
+    pub problems: Vec<TrunkProblem>,
+}
+
 /// Full state snapshot for initial load ( `GET /api/state`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct StateSnapshot {
     pub device_sets: Vec<DeviceSet>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trunk_systems: Vec<TrunkSystemStatus>,
     /// Monotonic revision; bumps on every mutation so clients can detect missed events.
     pub revision: u64,
 }

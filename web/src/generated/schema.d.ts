@@ -1821,6 +1821,11 @@ export interface components {
              *     NXDN/dPMR RAN or colour code, P25 NAC, YSF has none.
              */
             color_code?: number | null;
+            /**
+             * @description Whether the frame's own CRC matched. `Some(false)` survived only because the channel was
+             *     told to ignore the check, so nothing may act on it.
+             */
+            crc_verified?: boolean | null;
             /** @description Decoded packet text, or hexadecimal when its application format is not understood. */
             data?: string | null;
             /**
@@ -1894,6 +1899,7 @@ export interface components {
              *     field.
              */
             text?: string | null;
+            trunk_protocol?: null | components["schemas"]["DvTrunkProtocol"];
             vendor?: null | components["schemas"]["Vendor"];
             /** @description The repeater or reflector the call is routed through: D-Star RPT1/RPT2. */
             via?: string | null;
@@ -1920,6 +1926,12 @@ export interface components {
             /** Format: int32 */
             slot: number;
         };
+        /**
+         * @description What the signalling turned out to be. An observation, so it has no "auto" —
+         *     [`crate::DmrTrunkProtocol`] is what an operator asks the node for.
+         * @enum {string}
+         */
+        DvTrunkProtocol: "capacity_plus" | "tier_three";
         EventAudio: {
             media_type: string;
             url: string;
@@ -2837,6 +2849,15 @@ export interface components {
             type: "DecodedLost";
         } | {
             /**
+             * @description Appended client-side for the same reason decodes are: refetching the whole call list per
+             *     call is the cost [`StateScope::DecoderLog`] exists to avoid. `StateChanged { Calls }`
+             *     still fires for structural changes — retention expiry, audio eviction.
+             */
+            data: components["schemas"]["VoiceCall"];
+            /** @enum {string} */
+            type: "CallCompleted";
+        } | {
+            /**
              * @description Live frequency-scanner progress. Its own event rather than a `StateChanged`:
              *     a scan retunes the device every dwell, and one full-state refetch per step would
              *     cost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which
@@ -2932,6 +2953,7 @@ export interface components {
              * @description Monotonic revision; bumps on every mutation so clients can detect missed events.
              */
             revision: number;
+            trunk_systems?: components["schemas"]["TrunkSystemStatus"][];
         };
         /**
          * @description Which binary stream a control event refers to. Every id is allocated per connection, from a
@@ -3112,6 +3134,50 @@ export interface components {
              *     [`crate::NfmToneMode::Detect`] reports what is there without acting on it.
              */
             open: boolean;
+        };
+        TrunkFollower: {
+            /**
+             * Format: int32
+             * @description The engine channel doing the following; it has no patch node of its own.
+             */
+            channel: number;
+            /** Format: int32 */
+            device_set: number;
+            /** Format: int64 */
+            freq_hz: number;
+            /** Format: int32 */
+            logical_channel?: number | null;
+            /** Format: int32 */
+            slot: number;
+        };
+        /**
+         * @description A grant the follower could not act on — commonly a traffic channel outside the sampled
+         *     bandwidth. Carried in state so the operator sees why a busy system produces no calls.
+         */
+        TrunkProblem: {
+            /** Format: int32 */
+            attempts: number;
+            /** Format: int64 */
+            freq_hz: number;
+            /** Format: int32 */
+            logical_channel?: number | null;
+            reason: string;
+            /** @description RFC3339 UTC. */
+            since: string;
+            /** Format: int32 */
+            slot: number;
+        };
+        /**
+         * @description What one `dmr_trunk` node is following. Also how the client attributes follower channels,
+         *     which have no patch node, to the system that owns them.
+         */
+        TrunkSystemStatus: {
+            /** Format: int32 */
+            carriers: number;
+            detected?: null | components["schemas"]["DvTrunkProtocol"];
+            followers: components["schemas"]["TrunkFollower"][];
+            node: string;
+            problems: components["schemas"]["TrunkProblem"][];
         };
         /** @description `PUT /api/workspaces/{id}` — rename, re-patch, or both. */
         UpdateWorkspaceRequest: {

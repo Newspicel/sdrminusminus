@@ -36,7 +36,14 @@ import { usePositionStore, watchDevicePosition } from "./lib/position";
 import { useScannerStore } from "./lib/scanner";
 import { spectrumHub } from "./lib/spectrum";
 import { pushToast } from "./lib/toasts";
-import type { PatchGraph, ServerEvent, StateScope, WorkspaceSettings } from "./lib/types";
+import type {
+  PatchGraph,
+  ServerEvent,
+  StateScope,
+  VoiceCall,
+  VoiceCallsResponse,
+  WorkspaceSettings,
+} from "./lib/types";
 import { useChannelPatch } from "./lib/useChannelPatch";
 import { useDevicePatch } from "./lib/useDevicePatch";
 import { videoHub } from "./lib/video";
@@ -62,6 +69,7 @@ export function App() {
   const { applyPatch, cachedSettings } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
   const deviceSets = useMemo(() => state.data?.device_sets ?? [], [state.data?.device_sets]);
+  const trunks = useMemo(() => state.data?.trunk_systems ?? [], [state.data?.trunk_systems]);
 
   useEffect(() => {
     const s = new SdrSocket();
@@ -103,6 +111,9 @@ export function App() {
           break;
         case "StateChanged":
           invalidateScope(queryClient, event.data.scope);
+          break;
+        case "CallCompleted":
+          appendCall(queryClient, event.data);
           break;
         case "Error":
           if (!audioEngine.claimServerError(event.data.message)) {
@@ -315,6 +326,7 @@ export function App() {
               settings,
               context,
               deviceSets,
+              trunks,
               devices,
               channels,
               selected,
@@ -361,6 +373,17 @@ export function App() {
       </div>
     </TokenGate>
   );
+}
+
+/** What the server itself buffers, so the cache cannot outgrow a refetch. */
+const MAX_CACHED_CALLS = 10_000;
+
+/** Newest first, matching what `GET /api/calls` returns, and capped at what the list shows so
+ * a busy trunked system cannot grow the cache without bound between refetches. */
+function appendCall(queryClient: QueryClient, call: VoiceCall) {
+  queryClient.setQueryData(CALLS_KEY, (previous: VoiceCallsResponse | undefined) => ({
+    calls: [call, ...(previous?.calls ?? [])].slice(0, MAX_CACHED_CALLS),
+  }));
 }
 
 function invalidateScope(queryClient: QueryClient, scope: StateScope): void {

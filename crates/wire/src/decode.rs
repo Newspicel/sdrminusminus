@@ -440,6 +440,15 @@ pub struct DvChannelDefinition {
     pub color_code: Option<u8>,
 }
 
+/// What the signalling turned out to be. An observation, so it has no "auto" —
+/// [`crate::DmrTrunkProtocol`] is what an operator asks the node for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DvTrunkProtocol {
+    CapacityPlus,
+    TierThree,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DvFrame {
     pub mode: DvMode,
@@ -497,6 +506,14 @@ pub struct DvFrame {
     pub channel: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel_definition: Option<DvChannelDefinition>,
+    /// Set where the signalling names its own flavour, so a follower keys on a discriminant
+    /// rather than on the wording of [`DvFrame::opcode`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trunk_protocol: Option<DvTrunkProtocol>,
+    /// Whether the frame's own CRC matched. `Some(false)` survived only because the channel was
+    /// told to ignore the check, so nothing may act on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crc_verified: Option<bool>,
     /// Capacity Plus logical slot number carrying the rest channel.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rest_channel: Option<u16>,

@@ -10,7 +10,6 @@ use sdrmm_engine::Engine;
 use sdrmm_wire::{DecodedRecord, StateScope};
 use tokio::{
     sync::broadcast::{Receiver, error::RecvError},
-    task::JoinHandle,
     time::{Duration, MissedTickBehavior, interval},
 };
 
@@ -39,53 +38,57 @@ const RETRY_MAX: usize = 4 * BATCH_MAX;
 ///
 /// Only a `Weak` reference is kept: holding the engine alive would mean the broadcast sender
 /// never drops, and the task would never see [`RecvError::Closed`].
-pub(crate) fn spawn_writer(
-    engine: Arc<Engine>,
-    store: Arc<Store>,
-    dropped: Arc<AtomicU64>,
-) -> JoinHandle<()> {
+pub(crate) async fn run(engine: Arc<Engine>, store: Arc<Store>, dropped: Arc<AtomicU64>) {
     let records = engine.subscribe_decoded();
     let weak = Arc::downgrade(&engine);
     drop(engine);
-    spawn_writer_on(records, weak, store, dropped)
+    write(records, weak, store, dropped).await;
 }
 
+#[cfg(test)]
 fn spawn_writer_on(
+    records: Receiver<DecodedRecord>,
+    engine: Weak<Engine>,
+    store: Arc<Store>,
+    dropped: Arc<AtomicU64>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(write(records, engine, store, dropped))
+}
+
+async fn write(
     mut records: Receiver<DecodedRecord>,
     engine: Weak<Engine>,
     store: Arc<Store>,
     dropped: Arc<AtomicU64>,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut batch: Vec<DecodedRecord> = Vec::with_capacity(BATCH_MAX);
-        let mut nodes = NodeMap::default();
-        let mut flush_tick = ticker(FLUSH_INTERVAL);
-        let mut prune_tick = ticker(PRUNE_INTERVAL);
-        loop {
-            tokio::select! {
-                received = records.recv() => match received {
-                    Ok(record) => {
-                        batch.push(record);
-                        if batch.len() >= BATCH_MAX {
-                            flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
-                        }
-                    }
-                    Err(RecvError::Lagged(count)) => {
-                        dropped.fetch_add(count, Ordering::Relaxed);
-                        tracing::warn!(count, "decoder frames lost: log writer behind");
-                    }
-                    Err(RecvError::Closed) => {
+) {
+    let mut batch: Vec<DecodedRecord> = Vec::with_capacity(BATCH_MAX);
+    let mut nodes = NodeMap::default();
+    let mut flush_tick = ticker(FLUSH_INTERVAL);
+    let mut prune_tick = ticker(PRUNE_INTERVAL);
+    loop {
+        tokio::select! {
+            received = records.recv() => match received {
+                Ok(record) => {
+                    batch.push(record);
+                    if batch.len() >= BATCH_MAX {
                         flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
-                        return;
                     }
-                },
-                _ = flush_tick.tick() => {
-                    flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
                 }
-                _ = prune_tick.tick() => prune(&store, &engine, MAX_ROWS).await,
+                Err(RecvError::Lagged(count)) => {
+                    dropped.fetch_add(count, Ordering::Relaxed);
+                    tracing::warn!(count, "decoder frames lost: log writer behind");
+                }
+                Err(RecvError::Closed) => {
+                    flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
+                    return;
+                }
+            },
+            _ = flush_tick.tick() => {
+                flush(&store, &mut batch, &dropped, &engine, &mut nodes).await;
             }
+            _ = prune_tick.tick() => prune(&store, &engine, MAX_ROWS).await,
         }
-    })
+    }
 }
 
 /// Which patch node each live channel belongs to, so a stored row carries the durable half of
@@ -161,6 +164,14 @@ impl NodeMap {
                     .map(move |(node, channel)| ((binding.device_set, channel), node))
             })
             .collect();
+        // A trunk follower has no node of its own, so its rows are attributed to the system that
+        // opened it; without this every traffic-channel decode is stored unattributed.
+        for system in &state.trunk_systems {
+            for follower in &system.followers {
+                self.map
+                    .insert((follower.device_set, follower.channel), system.node.clone());
+            }
+        }
         self.workspace = Some(active.info.id);
         self.key = Some(key);
         self.origin()

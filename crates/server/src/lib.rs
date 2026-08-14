@@ -81,7 +81,6 @@ pub(crate) struct AppState {
     pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
     pub(crate) tracks: Arc<tracks::Tracks>,
     pub(crate) calls: Arc<calls::Calls>,
-    pub(crate) trunking: Arc<trunking::Trunking>,
     /// Live WebSocket connections, reported by `GET /api/clients`.
     pub clients: Arc<std::sync::atomic::AtomicU32>,
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
@@ -113,7 +112,6 @@ impl AppState {
             decoded_text: tokio::sync::broadcast::channel(DECODED_TEXT_CAP).0,
             tracks: Arc::new(tracks::Tracks::default()),
             calls: Arc::new(calls::Calls::default()),
-            trunking: Arc::new(trunking::Trunking::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
@@ -154,31 +152,20 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Router {
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(options.token.as_deref());
-    let (router, writer) = router_with_state(state, options);
-    writer.detach();
+    let (router, background) = router_with_state(state, options);
+    background.detach();
     router
 }
 
-/// The router plus the decoder-log writer, so a caller that owns the server's lifetime can
-/// tear the writer down with it.
+/// The router plus its background work, so a caller that owns the server's lifetime can tear
+/// that work down with it.
 ///
 /// Layer order is load-bearing. Auth goes on with `route_layer`, which covers the routed API,
 /// WebSocket and MCP surfaces but deliberately not the fallback: the SPA has to load before
 /// the user can type a token into it, and an unmatched `/api/*` must stay a typed 404 rather
 /// than becoming a 401. CORS stays outermost so a preflight is answered before auth runs.
-fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Writer) {
-    let writer = start_decoder_log_writer(&state);
-    let _trunking = trunking::spawn(
-        state.engine.clone(),
-        state.store.clone(),
-        state.trunking.clone(),
-    );
-    let _calls = calls::spawn(
-        state.engine.clone(),
-        state.store.clone(),
-        state.calls.clone(),
-        state.trunking.clone(),
-    );
+fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Background) {
+    let background = start_background(&state);
     ws::start_decoded_encoder(&state);
     workspace::spawn_autosave(&state);
     state.gps.reconcile(&state);
@@ -210,71 +197,108 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Write
     if options.dev_cors {
         app = app.layer(CorsLayer::very_permissive());
     }
-    (app, writer)
+    (app, background)
 }
 
-/// The running decoder-log writer. Both forms stop on their own once the engine is dropped
-/// (the decoded broadcast closes); the handle exists so the writer cannot outlive the server
-/// that started it.
-enum Writer {
+/// Long-lived work the router owns: the decoder-log writer, the trunk-system watcher and the
+/// call assembler. Each stops on its own once the engine is dropped; the handle exists so they
+/// cannot outlive the server that started them.
+struct Background {
+    tasks: Vec<BackgroundTask>,
+    detached: bool,
+}
+
+enum BackgroundTask {
     Task(tokio::task::JoinHandle<()>),
-    /// The writer owns the thread and the runtime it runs on.
+    /// The task owns the thread and the runtime it runs on.
     Owned,
 }
 
-impl Writer {
-    /// Let the writer run unsupervised — it still stops when the engine is dropped. Forgetting
-    /// the handle *is* the detach: dropping it would run [`Drop`] and abort the task.
-    fn detach(self) {
-        std::mem::forget(self);
+impl Background {
+    /// Let the work run unsupervised — it still stops when the engine is dropped.
+    fn detach(mut self) {
+        self.detached = true;
     }
 }
 
-impl Drop for Writer {
+impl Drop for Background {
     fn drop(&mut self) {
-        if let Self::Task(task) = self {
-            task.abort();
+        if self.detached {
+            return;
+        }
+        for task in &self.tasks {
+            if let BackgroundTask::Task(task) = task {
+                task.abort();
+            }
         }
     }
 }
 
+fn start_background(state: &AppState) -> Background {
+    let (retentions_tx, retentions_rx) =
+        tokio::sync::watch::channel(trunking::Retentions::default());
+    let log = {
+        let engine = state.engine.clone();
+        let store = state.store.clone();
+        let dropped = state.decoder_log_dropped.clone();
+        spawn_task("sdrmm-decoderlog", move || {
+            decoderlog::run(engine, store, dropped)
+        })
+    };
+    let patch = {
+        let engine = Arc::downgrade(&state.engine);
+        let store = state.store.clone();
+        spawn_task("sdrmm-trunking", move || {
+            trunking::watch_patch(engine, store, retentions_tx)
+        })
+    };
+    let calls = {
+        let engine = Arc::downgrade(&state.engine);
+        let calls = state.calls.clone();
+        spawn_task("sdrmm-calls", move || {
+            calls::run(engine, calls, retentions_rx)
+        })
+    };
+    Background {
+        tasks: vec![log, patch, calls],
+        detached: false,
+    }
+}
+
 /// [`router`] is also called from outside a tokio runtime — the desktop shell builds it in
-/// Tauri's synchronous `setup` — so the writer falls back to a thread with a runtime of its
-/// own rather than panicking on `tokio::spawn` (or, worse, skipping the log entirely).
-fn start_decoder_log_writer(state: &AppState) -> Writer {
-    let engine = state.engine.clone();
-    let store = state.store.clone();
-    let dropped = state.decoder_log_dropped.clone();
+/// Tauri's synchronous `setup` — so each task falls back to a thread with a runtime of its own
+/// rather than panicking on `tokio::spawn` (or, worse, silently not running at all).
+fn spawn_task<F, Fut>(name: &'static str, make: F) -> BackgroundTask
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
         let _guard = handle.enter();
-        return Writer::Task(decoderlog::spawn_writer(engine, store, dropped));
+        return BackgroundTask::Task(tokio::spawn(make()));
     }
     let spawned = std::thread::Builder::new()
-        .name("sdrmm-decoderlog".to_string())
+        .name(name.to_string())
         .spawn(move || {
             match tokio::runtime::Builder::new_current_thread()
-                .enable_time()
+                .enable_all()
                 .build()
             {
-                Ok(runtime) => runtime.block_on(async {
-                    if let Err(err) = decoderlog::spawn_writer(engine, store, dropped).await {
-                        tracing::error!(error = %err, "decoder log writer stopped");
-                    }
-                }),
-                Err(err) => tracing::error!(error = %err, "no runtime for the decoder log writer"),
+                Ok(runtime) => runtime.block_on(make()),
+                Err(err) => tracing::error!(error = %err, name, "no runtime for a background task"),
             }
         });
     if let Err(err) = spawned {
-        tracing::error!(error = %err, "failed to start the decoder log writer");
+        tracing::error!(error = %err, name, "failed to start a background task");
     }
-    Writer::Owned
+    BackgroundTask::Owned
 }
 
 /// A running server plus the address it actually bound (the port may be ephemeral).
 pub struct ServerHandle {
     pub local_addr: SocketAddr,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
-    _decoder_log: Writer,
+    _background: Background,
 }
 
 impl ServerHandle {
@@ -309,7 +333,7 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(config.options.token.as_deref());
     state.db_path = config.db_path.clone();
-    let (app, writer) = router_with_state(state, &config.options);
+    let (app, background) = router_with_state(state, &config.options);
     let listener = tokio::net::TcpListener::bind(config.bind).await?;
     let local_addr = listener.local_addr()?;
     tracing::info!(%local_addr, "sdr-- server listening");
@@ -317,7 +341,7 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     Ok(ServerHandle {
         local_addr,
         task,
-        _decoder_log: writer,
+        _background: background,
     })
 }
 
@@ -355,8 +379,8 @@ mod tests {
     fn test_router_with_state() -> (Router, AppState) {
         let store = Arc::new(Store::open(None).expect("in-memory store"));
         let state = state_over(store);
-        let (router, writer) = router_with_state(state.clone(), &ServerOptions::default());
-        writer.detach();
+        let (router, background) = router_with_state(state.clone(), &ServerOptions::default());
+        background.detach();
         (router, state)
     }
 
@@ -382,8 +406,8 @@ mod tests {
             Engine::with_registry(registry, Some(dir.to_path_buf())),
             Arc::new(Store::open(None).expect("in-memory store")),
         );
-        let (router, writer) = router_with_state(state, &ServerOptions::default());
-        writer.detach();
+        let (router, background) = router_with_state(state, &ServerOptions::default());
+        background.detach();
         router
     }
 
@@ -1698,9 +1722,9 @@ mod tests {
         let store = Arc::new(Store::open(None).expect("in-memory store"));
         seed_decoder_log(&store);
         let mut events = engine.subscribe_events();
-        let (app, writer) =
+        let (app, background) =
             router_with_state(AppState::new(engine, store), &ServerOptions::default());
-        writer.detach();
+        background.detach();
 
         let (status, _) = request(app, "DELETE", "/api/decoderlog?kind=adsb", None).await;
         assert_eq!(status, StatusCode::OK);
@@ -2385,8 +2409,8 @@ mod tests {
         workspace::save_active(&state).expect("capture the workspace");
 
         let restarted = state_over(state.store.clone());
-        let (app, writer) = router_with_state(restarted, &ServerOptions::default());
-        writer.detach();
+        let (app, background) = router_with_state(restarted, &ServerOptions::default());
+        background.detach();
         assert!(get_state(&app).await.device_sets.is_empty());
 
         let report = apply(&app, workspace).await;
@@ -2422,8 +2446,8 @@ mod tests {
         workspace::save_active(&state).expect("capture the workspace");
 
         let restarted = state_over(state.store.clone());
-        let (app, writer) = router_with_state(restarted, &ServerOptions::default());
-        writer.detach();
+        let (app, background) = router_with_state(restarted, &ServerOptions::default());
+        background.detach();
         create_virtual_set(&app).await;
         apply(&app, workspace).await;
         assert_eq!(
@@ -2698,8 +2722,8 @@ mod tests {
         workspace::save_active(&state).expect("capture the workspace");
 
         let restarted = state_over(state.store.clone());
-        let (app, writer) = router_with_state(restarted, &ServerOptions::default());
-        writer.detach();
+        let (app, background) = router_with_state(restarted, &ServerOptions::default());
+        background.detach();
         let report = apply(&app, workspace).await;
         assert!(report.refused.is_empty(), "{:?}", report.refused);
 
@@ -2790,8 +2814,8 @@ mod tests {
         workspace::save_active(&state).expect("capture the workspace");
 
         let restarted = state_over(state.store.clone());
-        let (app, writer) = router_with_state(restarted, &ServerOptions::default());
-        writer.detach();
+        let (app, background) = router_with_state(restarted, &ServerOptions::default());
+        background.detach();
         let report = apply(&app, workspace).await;
         assert!(report.refused.is_empty(), "{:?}", report.refused);
 

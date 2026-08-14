@@ -20,23 +20,27 @@ import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { positionSourcesOf } from "../../lib/position";
 import { pushToast } from "../../lib/toasts";
 import type {
-  ChannelInfo,
   DeviceSet,
   PatchNode,
   RecordAction,
   RecordingStatus,
   VoiceCall,
 } from "../../lib/types";
-import { inputsOf, iqSourceOf } from "../binding";
+import { type Input, inputsOf, iqSourceOf } from "../binding";
 import { deviceSetOf, useWorkspaceContext } from "../context";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 /** One channel wired into a sink, resolved to the engine objects behind it. */
-type Input = { node: string; deviceSet: number; channel: ChannelInfo };
-
 function useInputs(node: string, port: string): Input[] {
   const workspace = useWorkspaceContext();
-  return inputsOf(workspace.graph, node, port, workspace.devices, workspace.channels);
+  return inputsOf(
+    workspace.graph,
+    node,
+    port,
+    workspace.devices,
+    workspace.channels,
+    workspace.trunks,
+  );
 }
 
 function useWiredDecoders(inputs: readonly Input[]): { input: Input; kind: string }[] {

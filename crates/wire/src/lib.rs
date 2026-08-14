@@ -28,8 +28,8 @@ pub use channel::{
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent,
-    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, MorseText, NavtexMessage,
-    PocsagMessage, PocsagPayload, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame,
+    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol, MorseText,
+    NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame,
     ToneSquelchStatus, Vendor,
 };
 pub use device::{
@@ -63,7 +63,10 @@ pub use rest::{
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
-pub use state::{DeviceSet, DeviceSetStatus, PlaybackStatus, RecordingStatus, StateSnapshot};
+pub use state::{
+    DeviceSet, DeviceSetStatus, PlaybackStatus, RecordingStatus, StateSnapshot, TrunkFollower,
+    TrunkProblem, TrunkSystemStatus,
+};
 pub use workspace::{
     CreateWorkspaceRequest, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport, PatchBinding,
     PatchRefusal, UpdateWorkspaceRequest, WORKSPACE_SNAPSHOT_VERSION, WorkspaceDetail,

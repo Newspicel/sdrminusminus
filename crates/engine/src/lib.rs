@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -18,7 +18,7 @@ use sdrmm_wire::{
     Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DecodedRecord,
     DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, PlaybackRequest, PlaybackStatus,
     PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
-    StateSnapshot,
+    StateSnapshot, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
@@ -28,10 +28,12 @@ pub mod recording;
 pub mod runtime;
 pub mod scanner;
 mod spectrum;
+pub mod trunking;
 pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
 pub use recording::FinalizedRecording;
 pub use runtime::{SpectrumSnapshot, adaptive_db_window};
+pub use trunking::TrunkSystem;
 pub use video::VideoPacket;
 
 use crate::{
@@ -514,6 +516,11 @@ pub struct Engine {
     decoded_dropped: Arc<AtomicU64>,
     /// Stamped decoder records, fanned out to the WS hub and the decoder-log writer.
     decoded_tx_out: broadcast::Sender<DecodedRecord>,
+    /// The trunk follower's inbox. Gated on the flag so an idle installation does not clone
+    /// every decoded record.
+    trunk_tx: mpsc::Sender<trunking::TrunkInput>,
+    trunk_active: AtomicBool,
+    trunk_status: Arc<Mutex<Vec<TrunkSystemStatus>>>,
     recordings_dir: Option<PathBuf>,
 }
 
@@ -536,6 +543,8 @@ impl Engine {
         let (fault_tx, fault_rx) = mpsc::channel();
         let (decoded_tx, decoded_rx) = mpsc::sync_channel(DECODED_QUEUE_CAP);
         let (decoded_tx_out, _) = broadcast::channel(DECODED_CHANNEL_CAP);
+        let (trunk_tx, trunk_rx) = mpsc::channel();
+        let trunk_status = Arc::new(Mutex::new(Vec::new()));
         let engine = Arc::new(Self {
             registry,
             inner: Mutex::new(Inner::default()),
@@ -544,11 +553,29 @@ impl Engine {
             decoded_tx,
             decoded_dropped: Arc::new(AtomicU64::new(0)),
             decoded_tx_out,
+            trunk_tx,
+            trunk_active: AtomicBool::new(false),
+            trunk_status: trunk_status.clone(),
             recordings_dir,
         });
         engine.spawn_fault_drainer(fault_rx);
         engine.spawn_decoded_pump(decoded_rx);
+        trunking::spawn(&engine, trunk_rx, trunk_status);
         engine
+    }
+
+    /// Which channels are trunk control channels. Only the patch knows, and it lives above the
+    /// engine, so the answer is pushed down rather than polled for.
+    pub fn configure_trunking(&self, systems: Vec<trunking::TrunkSystem>) {
+        self.trunk_active
+            .store(!systems.is_empty(), Ordering::Relaxed);
+        if self
+            .trunk_tx
+            .send(trunking::TrunkInput::Configure(systems))
+            .is_err()
+        {
+            tracing::error!("the trunk follower is gone: trunked systems will not be followed");
+        }
     }
 
     fn spawn_decoded_pump(self: &Arc<Self>, decoded_rx: mpsc::Receiver<RawDecoded>) {
@@ -560,13 +587,19 @@ impl Engine {
                 while let Ok(raw) = decoded_rx.recv() {
                     let Some(engine) = weak.upgrade() else { return };
                     let at = format!("{:.9}", jiff::Timestamp::now());
-                    let _ = engine.decoded_tx_out.send(DecodedRecord {
+                    let record = DecodedRecord {
                         device_set: raw.device_set,
                         channel: raw.channel,
                         at,
                         freq_hz: raw.freq_hz,
                         event: raw.event,
-                    });
+                    };
+                    if engine.trunk_active.load(Ordering::Relaxed) {
+                        let _ = engine
+                            .trunk_tx
+                            .send(trunking::TrunkInput::Record(Box::new(record.clone())));
+                    }
+                    let _ = engine.decoded_tx_out.send(record);
                     // Report queue overflow from here rather than the DSP thread, which must
                     // not emit: the count is cumulative, so one event per growth suffices.
                     let lost = engine.decoded_dropped.load(Ordering::Relaxed);
@@ -1042,6 +1075,9 @@ impl Engine {
     /// Full authoritative snapshot ( `GET /api/state`).
     #[must_use]
     pub fn snapshot(&self) -> StateSnapshot {
+        // Before the engine lock: the follower publishes without holding it, and this order is
+        // what keeps the two from meeting head-on.
+        let trunk_systems = self.trunk_systems();
         let inner = self.lock();
         StateSnapshot {
             device_sets: inner
@@ -1049,8 +1085,22 @@ impl Engine {
                 .iter()
                 .map(|(id, s)| s.project(*id))
                 .collect(),
+            trunk_systems,
             revision: inner.revision,
         }
+    }
+
+    #[must_use]
+    pub fn trunk_systems(&self) -> Vec<TrunkSystemStatus> {
+        self.trunk_status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Publish a server-owned event on the engine's bus: the hub is the one fan-out.
+    pub fn emit_event(&self, event: ServerEvent) {
+        self.emit(event);
     }
 
     /// Open a device into a new device set and start streaming ( POST devicesets).

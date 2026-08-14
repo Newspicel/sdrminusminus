@@ -5167,6 +5167,13 @@
             "description": "The mode's network discriminator, under whichever name it publishes: DMR colour code,\nNXDN/dPMR RAN or colour code, P25 NAC, YSF has none.",
             "minimum": 0
           },
+          "crc_verified": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the frame's own CRC matched. `Some(false)` survived only because the channel was\ntold to ignore the check, so nothing may act on it."
+          },
           "data": {
             "type": [
               "string",
@@ -5357,6 +5364,17 @@
             ],
             "description": "Free text the frame carried: a D-Star slow-data message, a YSF radio ID, an M17 meta\nfield."
           },
+          "trunk_protocol": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DvTrunkProtocol",
+                "description": "Set where the signalling names its own flavour, so a follower keys on a discriminant\nrather than on the wording of [`DvFrame::opcode`]."
+              }
+            ]
+          },
           "vendor": {
             "oneOf": [
               {
@@ -5425,6 +5443,14 @@
             "minimum": 0
           }
         }
+      },
+      "DvTrunkProtocol": {
+        "type": "string",
+        "description": "What the signalling turned out to be. An observation, so it has no \"auto\" —\n[`crate::DmrTrunkProtocol`] is what an operator asks the node for.",
+        "enum": [
+          "capacity_plus",
+          "tier_three"
+        ]
       },
       "EventAudio": {
         "type": "object",
@@ -7572,6 +7598,26 @@
           },
           {
             "type": "object",
+            "description": "Appended client-side for the same reason decodes are: refetching the whole call list per\ncall is the cost [`StateScope::DecoderLog`] exists to avoid. `StateChanged { Calls }`\nstill fires for structural changes — retention expiry, audio eviction.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/VoiceCall",
+                "description": "Appended client-side for the same reason decodes are: refetching the whole call list per\ncall is the cost [`StateScope::DecoderLog`] exists to avoid. `StateChanged { Calls }`\nstill fires for structural changes — retention expiry, audio eviction."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "CallCompleted"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "Live frequency-scanner progress. Its own event rather than a `StateChanged`:\na scan retunes the device every dwell, and one full-state refetch per step would\ncost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which\nthis mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.",
             "required": [
               "data",
@@ -7897,6 +7943,12 @@
             "format": "int64",
             "description": "Monotonic revision; bumps on every mutation so clients can detect missed events.",
             "minimum": 0
+          },
+          "trunk_systems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrunkSystemStatus"
+            }
           }
         }
       },
@@ -8196,6 +8248,131 @@
           "open": {
             "type": "boolean",
             "description": "Whether audio is passing. Always true unless the channel was told to gate on a tone:\n[`crate::NfmToneMode::Detect`] reports what is there without acting on it."
+          }
+        }
+      },
+      "TrunkFollower": {
+        "type": "object",
+        "required": [
+          "device_set",
+          "channel",
+          "slot",
+          "freq_hz"
+        ],
+        "properties": {
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The engine channel doing the following; it has no patch node of its own.",
+            "minimum": 0
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "freq_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "logical_channel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "slot": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TrunkProblem": {
+        "type": "object",
+        "description": "A grant the follower could not act on — commonly a traffic channel outside the sampled\nbandwidth. Carried in state so the operator sees why a busy system produces no calls.",
+        "required": [
+          "freq_hz",
+          "slot",
+          "reason",
+          "since",
+          "attempts"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "freq_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "logical_channel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC3339 UTC."
+          },
+          "slot": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TrunkSystemStatus": {
+        "type": "object",
+        "description": "What one `dmr_trunk` node is following. Also how the client attributes follower channels,\nwhich have no patch node, to the system that owns them.",
+        "required": [
+          "node",
+          "carriers",
+          "followers",
+          "problems"
+        ],
+        "properties": {
+          "carriers": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "detected": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DvTrunkProtocol"
+              }
+            ]
+          },
+          "followers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrunkFollower"
+            }
+          },
+          "node": {
+            "type": "string"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrunkProblem"
+            }
           }
         }
       },

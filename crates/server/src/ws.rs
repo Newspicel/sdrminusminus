@@ -849,9 +849,9 @@ mod tests {
     async fn serve_ws(engine: Arc<Engine>) -> (std::net::SocketAddr, AppState) {
         let store = Arc::new(crate::Store::open(None).expect("in-memory store"));
         let state = AppState::new(engine, store);
-        let (app, writer) =
+        let (app, background) =
             crate::router_with_state(state.clone(), &crate::ServerOptions::default());
-        writer.detach();
+        background.detach();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("bind");
