@@ -1,19 +1,4 @@
 //! P25 Phase 1 decoder (TIA-102.BAAA): C4FM at 4800 symbols per second in 12.5 kHz.
-//!
-//! Every frame — header, voice, terminator, trunking block — opens with the same 48-bit sync
-//! and a 64-bit network identifier: the 12-bit network access code that separates one system
-//! from the next on a shared frequency, and the 4-bit data unit id that says what the frame is.
-//! The NID is a BCH(63,16,23) codeword with a parity bit, so eleven bit errors still decode.
-//!
-//! Voice LDUs are collected at their complete 1728-bit wire length, their status dibits removed,
-//! and their nine Annex-H IMBE frames decoded. The Hamming/Golay and GF(64) Reed-Solomon layers
-//! recover HDU, LDU1 link control and LDU2 encryption sync; TSDUs pass their trellis and CRC
-//! before standard or MFID-gated trunking fields are exposed.
-//!
-//! Status symbols complicate the framing: the transmitter inserts a dibit of its own after
-//! every 35 payload dibits, starting at bit 70 of the frame, and they have to come out before
-//! the voice-frame offsets are meaningful.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -37,7 +22,6 @@ const SYNC: u64 = 0x5575_F5FF_77FF;
 const SYNC_BITS: u32 = 48;
 const SYNC_TOLERANCE: u32 = 4;
 
-/// First status symbol of a frame, and how often one follows (TIA-102.BAAA §7.1).
 const STATUS_START: usize = 70;
 const STATUS_STRIDE: usize = 72;
 
@@ -50,7 +34,6 @@ const MAX_FRAME_SYMBOLS: usize = MAX_FRAME_BITS / 2;
 /// Status-free dibit offsets of the nine 144-bit IMBE frames after the 64-bit NID.
 const IMBE_OFFSETS: [usize; 9] = [0, 72, 164, 256, 348, 440, 532, 624, 712];
 
-/// Data unit ids (TIA-102.BAAA §7.3).
 const DUID_HEADER: u8 = 0x0;
 const DUID_TERMINATOR: u8 = 0x3;
 const DUID_LDU1: u8 = 0x5;
@@ -242,8 +225,6 @@ impl Decoder {
             DUID_PDU => DvFrameKind::Data,
             _ => DvFrameKind::Voice,
         };
-        // Voice metadata is emitted after its protected LC/encryption fields decode. Reporting
-        // the NID first would create a second, less useful line for every LDU.
         if kind == DvFrameKind::Voice {
             self.last_duid = Some(duid);
             self.pending_nac = nac;
@@ -271,7 +252,6 @@ impl Decoder {
             }
             self.logical.push(bit);
         }
-        // Sync (48) + NID (64) precede the LDU body after status removal.
         const BODY_START: usize = SYNC_BITS as usize + NID_BITS;
         for &offset in &IMBE_OFFSETS {
             let start = BODY_START + offset * 2;
@@ -744,7 +724,6 @@ mod tests {
             frames.iter().any(|f| f.kind == DvFrameKind::Terminator),
             "no terminator: {frames:?}"
         );
-        // Two voice frames, one line.
         assert_eq!(
             frames
                 .iter()

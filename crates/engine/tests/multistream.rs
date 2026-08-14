@@ -1,12 +1,4 @@
-//! Engine e2e over the multi-stream virtual radios (, §9, and the per-stream
-//! settings ): a channel, a spectrum subscription, and a recording each address one
-//! lane, and lane k must carry stream k's signal — the per-stream markers make a wrong lane
-//! observable, not just a wrong count. The 2×2 transceiver (per-stream tuning) proves a
-//! per-stream retune reaches exactly one lane's DSP meta; the coherent array proves shared
-//! tuning is honoured.
-
 // Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
-// `#[cfg(test)]` items, which an integration-test crate's helpers are not.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -186,7 +178,6 @@ async fn removing_a_channel_on_a_non_zero_stream_frees_it() {
         .add_channel(ds, 3, nfm(stream_marker_offset_hz(3), None))
         .unwrap();
     let mut rx = engine.subscribe_audio(ds, ch).unwrap();
-    // The host is demonstrably live on its lane before the removal.
     collect_packets(&mut rx, 2).await;
 
     let removal = {
@@ -234,7 +225,6 @@ async fn an_out_of_range_stream_is_a_clean_bad_request_naming_the_count() {
     assert!(err.is_bad_request(), "expected bad request, got {err}");
     assert!(err.to_string().contains("4 rx streams"), "unhelpful: {err}");
 
-    // A single-stream radio has exactly stream 0, and its refusal says so.
     let siggen = engine.create_device_set("virtual:siggen").unwrap();
     let err = engine.add_channel(siggen, 1, nfm(0.0, None)).unwrap_err();
     assert!(err.to_string().contains("1 rx streams"), "unhelpful: {err}");
@@ -321,10 +311,6 @@ async fn settle(
     }
 }
 
-///  + §6.3 on the 2×2 transceiver (per-stream tuning): a per-stream retune must
-/// reach exactly its lane's DSP meta — visible as the lane spectrum's `center_hz`, with the
-/// lane's marker displaced by the difference — and a later radio-wide retune moves only the
-/// lanes without an override, never wiping the override that exists.
 #[tokio::test]
 async fn a_per_stream_retune_moves_only_that_lanes_centre() {
     const RETUNE_HZ: f64 = 50_000.0;
@@ -346,8 +332,6 @@ async fn a_per_stream_retune_moves_only_that_lanes_centre() {
         )
         .unwrap();
 
-    // Lane 1 sits on its own centre with its marker displaced by the difference; lane 0
-    // (a fresh subscription, so post-retune frames only) stays on the radio-wide dial.
     let mut rx1 = engine.subscribe_spectrum(ds, 1).unwrap();
     settle(&mut rx1, lane1, stream_marker_offset_hz(1) + RETUNE_HZ).await;
     let mut rx0 = engine.subscribe_spectrum(ds, 0).unwrap();
@@ -365,7 +349,6 @@ async fn a_per_stream_retune_moves_only_that_lanes_centre() {
         .unwrap();
     let mut rx0 = engine.subscribe_spectrum(ds, 0).unwrap();
     settle(&mut rx0, radio, stream_marker_offset_hz(0)).await;
-    // Lane 1 keeps its centre; its marker (radiating on the radio dial) drifts 25 kHz further.
     let mut rx1 = engine.subscribe_spectrum(ds, 1).unwrap();
     settle(
         &mut rx1,
@@ -388,9 +371,6 @@ async fn a_per_stream_retune_moves_only_that_lanes_centre() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// /§6: a `streams` entry the capability cannot honour is a clean bad request from
-/// the engine, refused before the device sees any of the delta — and the refusal is per
-/// capability, not blanket: what one radio refuses another accepts.
 #[tokio::test]
 async fn a_bad_streams_entry_is_a_clean_bad_request_naming_the_problem() {
     let engine = engine();
@@ -414,7 +394,6 @@ async fn a_bad_streams_entry_is_a_clean_bad_request_naming_the_problem() {
         "unhelpful: {err}"
     );
 
-    // A per-stream centre is range-checked like the radio-wide dial: same tuner.
     let err = engine
         .patch_device(ds, entry(1, Some(7_000_000_000.0)))
         .unwrap_err();
@@ -487,10 +466,6 @@ async fn a_scan_is_refused_where_tuning_is_per_stream() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// A recording on a per-stream-retuned lane must file under that lane's centre ():
-/// the meta's opening capture and the tap's block stamps agree, so the pair holds exactly one
-/// segment at the lane's frequency — a radio-wide value in either place would split or
-/// mislabel it.
 #[tokio::test]
 async fn a_recording_on_a_retuned_lane_stamps_that_lanes_centre() {
     const LANE1_HZ: f64 = 99_950_000.0;
@@ -684,7 +659,6 @@ async fn a_decoded_frame_reports_its_lanes_absolute_frequency() {
     }];
     let mut iq = testgen::pocsag::transmission(&pages, 1_200, 4_500.0, PAGING_RATE);
     testgen::shift(&mut iq, PAGING_OFFSET_HZ, PAGING_RATE);
-    // A silence tail so the loop never re-enters mid-frame without a clean lead-in.
     iq.extend(testgen::silence(PAGING_RATE as usize));
 
     let mut registry = DeviceRegistry::new();

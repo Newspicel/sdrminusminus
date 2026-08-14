@@ -1,13 +1,5 @@
 //! POCSAG pager decoder ( P2): two-level FSK at 512/1200/2400 bit/s carrying
 //! BCH(31,21) codewords (ITU-R M.584).
-//!
-//! One `sdrmm_modem::cpm` two-level CPFSK front end per candidate bit rate (quadrature
-//! discriminator → integrate-and-dump matched filter → `SymbolSync` → normalised soft
-//! symbols; the entry is data alone,  §3.3). A candidate that finds the frame sync
-//! codeword takes the lock and the others' framing restarts; losing frame sync releases it,
-//! so the rate is re-detected on the next transmission. The channel produces decoder events
-//! only — no audio.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -25,13 +17,8 @@ use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, 
 
 const CHANNEL_TAPS: usize = 129;
 
-/// Nominal deviation of a POCSAG transmitter (ITU-R M.584 §2) — the deviation the entry's
-/// modulation index is derived from. Only sets the discriminator's output scale: the front
-/// end's level normalisation absorbs a transmitter that deviates differently, and every
-/// decision downstream is on the sign, not the magnitude.
 const NOMINAL_DEVIATION_HZ: f64 = 4_500.0;
 
-/// Frame synchronisation codeword (ITU-R M.584 §2).
 const FRAME_SYNC: u32 = 0x7CD2_15D8;
 /// Idle codeword — fills unused slots and terminates a message.
 const IDLE: u32 = 0x7A89_C197;
@@ -63,7 +50,6 @@ const MAX_PAYLOAD_BITS: usize = 128 * PAYLOAD_BITS;
 /// decision, so whatever an ungated level estimate learns from noise costs nothing.
 const QUIET_SYMBOLS: f64 = 512.0;
 
-/// BCD alphabet used when the function bits are 0 (ITU-R M.584 §2).
 const NUMERIC_ALPHABET: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*', 'U', ' ', '-', ')', '(',
 ];
@@ -92,15 +78,10 @@ pub struct PocsagChannel {
     soft: Vec<f32>,
 }
 
-/// The symbol→level table, ITU-R M.584 §2's polarity as data: mark — the higher of the two
-/// frequencies — carries a 0 bit, so index 0 transmits +1 and a sliced symbol index is the
-/// data bit.
 fn mapping() -> Mapping {
     Mapping::new(vec![1.0, -1.0])
 }
 
-/// The POCSAG waveform at one bit rate as `cpm/` entry data ( §3.3): two-level
-/// CPFSK, NRZ (rect) frequency pulse, ±4.5 kHz nominal deviation.
 fn cpm_params(rate: f64, baud: u16) -> CpmParams {
     let sps = rate / f64::from(baud);
     CpmParams::from_deviation(
@@ -166,8 +147,6 @@ enum Framing {
     Lost,
 }
 
-/// Where a candidate sits inside the batch structure (ITU-R M.584 §2: a batch is one frame
-/// sync codeword followed by 16 codewords).
 #[derive(Clone, Copy, Debug)]
 enum Batching {
     /// Sliding search for the frame sync codeword.
@@ -291,13 +270,10 @@ impl Candidate {
             self.flush(out);
             return;
         }
-        // Bit 31 is 0 for an address codeword, 1 for a message codeword (ITU-R M.584 §2).
         if word >> 31 == 0 {
             self.flush(out);
             self.payload.clear();
             self.pending = Some(Pending {
-                // The address codeword carries the 18 high bits; the 3 low bits are the index
-                // of the frame it arrived in.
                 address: ((word >> 13) & 0x3_FFFF) << 3 | (index / 2) as u32,
                 function: ((word >> 11) & 3) as u8,
                 errors,
@@ -339,8 +315,6 @@ impl Candidate {
     }
 }
 
-/// Characters are packed least-significant-bit first into the codeword bit stream, for both
-/// the 7-bit alphanumeric and the 4-bit BCD alphabets (ITU-R M.584 §2).
 fn character(bits: &[bool]) -> u8 {
     bits.iter()
         .enumerate()
@@ -365,7 +339,6 @@ fn numeric_text(bits: &[bool]) -> String {
         // The mask is what keeps the index inside the alphabet; four bits already are.
         .map(|chunk| NUMERIC_ALPHABET[usize::from(character(chunk) & 0x0F)])
         .collect();
-    // The last codeword is padded with the space code.
     text.truncate(text.trim_end_matches(' ').len());
     text
 }
@@ -682,8 +655,6 @@ mod tests {
             .iter()
             .position(|&w| w >> 31 == 1)
             .expect("the fixture carries message codewords");
-        // BCH(31,21) plus the parity bit has distance 6: every weight-3 error is detected and
-        // none of them is repairable.
         damaged[victim] ^= 0b0111_0000_0000;
         assert_eq!(
             pocsag_bch_decode(damaged[victim]),

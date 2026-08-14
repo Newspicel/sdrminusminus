@@ -1,6 +1,3 @@
-//! RTTY reference modulator (): ITA2 text → start/stop character frames → two-tone
-//! FSK at complex baseband, symmetric about DC.
-
 use num_complex::Complex;
 use sdrmm_modem::cpm::CpmMod;
 
@@ -74,7 +71,6 @@ pub fn encode_codes(codes: &[u8], stop_bits: f64) -> Vec<bool> {
     let stop_cells = (stop_bits * 2.0).round().max(2.0) as usize;
     let mut cells = Vec::with_capacity(codes.len() * (12 + stop_cells));
     for &code in codes {
-        // Start bit is space, then five data bits LSB first, then mark for the stop period.
         cells.extend_from_slice(&[false, false]);
         for i in 0..5 {
             let bit = (code >> i) & 1 == 1;
@@ -85,9 +81,6 @@ pub fn encode_codes(codes: &[u8], stop_bits: f64) -> Vec<bool> {
     cells
 }
 
-/// Key half-bit `cells` as continuous-phase FSK — mark at `+shift_hz/2`, space at
-/// `−shift_hz/2` — through the library's own modulator, built from the decoder's entry data
-/// ( §1.2: the two cannot drift apart).
 #[must_use]
 pub fn modulate(cells: &[bool], baud: f64, shift_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     let mut keyed = vec![true; LEAD_IN_BITS * 2];
@@ -119,7 +112,6 @@ mod tests {
 
     #[test]
     fn a_letter_frames_as_start_five_data_lsb_first_and_stop() {
-        // 'A' is 0x03: data bits 1, 1, 0, 0, 0 in transmission order.
         let cells = encode_codes(&[0x03], 1.0);
         assert_eq!(
             cells,

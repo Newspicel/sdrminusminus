@@ -1,9 +1,3 @@
-// Preset save/apply/delete (). The list is WS-invalidated (scope "presets");
-// rejections surface inline like the device PATCH banner.
-//
-// A preset is the whole workspace, not one radio (`PresetSnapshot`): saving takes every radio the
-// patch has open, and applying puts each of them back — matched to the node that drew it. So
-// nothing here names a target, and there is nothing to select before pressing Save.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import {

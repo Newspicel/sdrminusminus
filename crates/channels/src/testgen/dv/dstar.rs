@@ -1,10 +1,5 @@
 //! D-Star reference transmitter: GMSK voice frames whose slow-data channel repeats the header,
 //! which is the path a receiver joining a call in progress actually reads.
-//!
-//! The waveform comes from the library's own [`CpmMod`] ( §1.2), with the shaping
-//! parameters declared here from the spec rather than shared with the decoder, so a wrong
-//! constant cannot cancel out between the two.
-
 use num_complex::Complex;
 use sdrmm_dsp::crc16_x25;
 use sdrmm_modem::{
@@ -52,7 +47,6 @@ impl Default for Call {
 pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
     let header = header(call);
     let mut slow = Vec::new();
-    // Header segments, five bytes at a time, then the text message in four-character packets.
     for chunk in header.chunks(5) {
         slow.push(build_packet(0x50 | chunk.len() as u8, chunk));
     }
@@ -62,14 +56,10 @@ pub fn transmission(call: &Call, rate: f64) -> Vec<Complex<f32>> {
     }
 
     let mut bits = Vec::new();
-    // A lead-in of alternating bits: the bit sync every D-Star transmitter opens with.
     for i in 0..64 {
         bits.push(i % 2 == 0);
     }
-    // Ten slow-data packets fit in a superframe: frames 1 and 2 carry the first, 3 and 4 the
-    // second, and so on. Two superframes are enough for the header to come round once.
     for superframe in 0..2 {
-        // Frame 0 of a superframe carries the sync in its data field.
         bits.extend(voice_frame(&sync_data(), superframe));
         for frame in 1..21 {
             let index = superframe * 10 + (frame - 1) / 2;

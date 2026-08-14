@@ -1,6 +1,3 @@
-// The keyboard layer ( "keyboard-first", ). One listener on the document,
-// one table, and every binding also listed in the `?` overlay — a shortcut nobody can find is
-// not a feature.
 import { useEffect, useRef } from "react";
 
 export interface HotkeyActions {
@@ -16,7 +13,6 @@ export interface HotkeyActions {
   selectChannel: (direction: number) => void;
   /** Zero-based node index from the number row — the patch in stored order. */
   selectNode: (index: number) => void;
-  /** Pin or unpin the selected node's face on the rack (CANVAS §5). */
   togglePin: () => void;
   /** Swap between the patch and the rack. */
   toggleView: () => void;
@@ -50,7 +46,6 @@ export const BINDINGS: readonly Binding[] = [
 ];
 
 export function useHotkeys(actions: HotkeyActions): void {
-  // The listener is registered once; the actions it calls change every render as state moves.
   const latest = useRef(actions);
   latest.current = actions;
 

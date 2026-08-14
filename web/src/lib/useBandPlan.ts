@@ -1,14 +1,3 @@
-// The band plan as the UI consumes it: the region list, the workspace's choice, and that
-// region's resolved table ().
-//
-// One hook because two very different surfaces need exactly the same things — the ruler on every
-// scope face and the explorer in the library drawer — and because the fallback to the server's
-// default region has to happen wherever the plan is read, not in whichever of them the operator
-// happened to open.
-//
-// The choice is a *workspace* setting (`WorkspaceSettings`), not a browser one: which plan is in
-// force is a property of the bench the patch describes, and while it was per-browser two
-// operators on one server drew two different rulers over one signal.
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceContext } from "../canvas/context";
 import { bandPlanQuery, bandRegionsQuery } from "./api";

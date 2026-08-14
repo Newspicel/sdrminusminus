@@ -1,12 +1,3 @@
-//! The decoder-log writer (): the task that turns the engine's decoded-frame
-//! broadcast into rows the log endpoints can query and export.
-//!
-//! Loss is surfaced through a counter, not an event (). The engine already pushes
-//! `ServerEvent::DecodedLost` for the frames *it* drops, and the WS hub does the same for a
-//! slow connection — but a client that opens the log page after a burst would never see those
-//! events. A counter is reported on every `GET /api/decoderlog` as `dropped`, so the loss
-//! stays visible for as long as the server runs.
-
 use std::{
     collections::HashMap,
     sync::{
@@ -333,7 +324,6 @@ mod tests {
         assert_eq!(entries[0].station.as_deref(), Some("AB1234"));
         assert_eq!(entries[0].kind, "adsb");
 
-        // Dropping the sender closes the broadcast, which is the writer's exit signal.
         drop(tx);
         writer.await.expect("writer exits cleanly");
     }
@@ -448,8 +438,6 @@ mod tests {
         assert_eq!(orphaned.node, None);
     }
 
-    /// A batch larger than the channel capacity must be counted as lost, never dropped
-    /// silently ().
     #[tokio::test]
     async fn overrunning_the_broadcast_counts_the_loss() {
         let store = Arc::new(Store::open(None).expect("store"));

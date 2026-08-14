@@ -1,9 +1,3 @@
-//! What distinguishes one linear entry from another, as data ( §3.3): the point
-//! table, the amplitude pulse, the oversampling, an optional per-symbol rotation and an optional
-//! quadrature stagger. Nothing else. A `match` on a standard inside [`super`] is a defect, and
-//! the four axes below are what make that achievable — BPSK, 1024-QAM, π/2-BPSK, OQPSK and
-//! π/4-DQPSK differ only in these values.
-
 use std::fmt;
 
 use crate::constellation::Constellation;
@@ -207,7 +201,6 @@ mod tests {
                 .unwrap_err(),
             LinearError::OffsetNeedsEvenSps(5)
         );
-        // Without the stagger an odd sps is perfectly fine.
         assert!(
             LinearParams::new(tables::qam_square(4).unwrap(), rrc(5), 5)
                 .unwrap()

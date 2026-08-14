@@ -1,9 +1,3 @@
-// The control kit (, §11). One place so every strip, panel and popover in the UI is
-// built from the same parts — a control that needs a look not in here is a missing entry, not a
-// local class string.
-//
-// `pointer-coarse:min-h-10` on every interactive class is the target floor: compact density
-// buys space by trimming padding, never hit area.
 
 const INTERACTIVE =
   "inline-flex items-center gap-1.5 rounded-[3px] transition-colors duration-100 " +
@@ -14,7 +8,6 @@ export const BTN =
   `${INTERACTIVE} h-7 border border-line-strong bg-panel-2 px-2.5 text-xs text-ink ` +
   "hover:border-accent hover:text-accent";
 
-/** The single most likely next action in a view. Exactly one per view (). */
 export const BTN_PRIMARY =
   `${INTERACTIVE} h-7 border border-accent bg-accent px-3 text-xs font-medium text-bg ` +
   "hover:brightness-110";
@@ -40,10 +33,6 @@ export const FIELD =
   `${INTERACTIVE} h-7 min-w-0 border border-line-strong bg-panel-2 px-2 font-mono text-xs ` +
   "text-ink placeholder:text-ink-faint hover:border-accent-dim";
 
-/** A label beside its control, in the silkscreen voice () — the typography is on
- * the label itself so a bare text child is styled without a wrapper. The 8px gap against the
- * 20px between groups keeps the 2x proximity ratio that makes the pairing readable without a
- * box. */
 export const LABEL =
   "inline-flex items-center gap-2 whitespace-nowrap font-mono text-[10px] tracking-[0.09em] " +
   "uppercase text-ink-faint";
@@ -57,12 +46,8 @@ export const CHIP =
   "inline-flex h-7 items-center gap-1.5 rounded-[3px] border border-line bg-panel-2 px-2 " +
   "font-mono text-xs text-ink";
 
-/** Elevation 3. The only place in the UI that casts a shadow (). */
 export const SURFACE = "rounded-md border border-line-strong bg-panel-3 shadow-pop";
 
-/** A control drawn *on* the plot, where the chrome palette does not reach: inside that
- * rectangle the colormap owns hue, so the toolbar separates by luminance alone ().
- * The legend typography is inlined rather than nested, so the hover state can carry the colour. */
 export function plotButton(on: boolean): string {
   return (
     `${INTERACTIVE} h-6 border border-transparent px-1.5 font-mono text-[10px] tracking-[0.09em] uppercase ` +

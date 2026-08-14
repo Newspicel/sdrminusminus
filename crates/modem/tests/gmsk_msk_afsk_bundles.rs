@@ -1,52 +1,3 @@
-//! §5 bundles for three discriminator-tier CPM catalog rows ( §6 CPM rows 2–4):
-//! **GMSK/GFSK** (BT ∈ {0.3, 0.5}, h = ½), **MSK** (the LREC(1) h = ½ case), and
-//! **audio-domain AFSK** (Bell-202-like 1200/2200 Hz at 1200 baud, real-valued input through
-//! both of the engine's [`RealDetector`] options). Every chain is `cpm::CpmMod` →
-//! calibrated `ber::impair` channel → `cpm::CpmDemod` — the library's own modulator drives
-//! its own demodulator (§1.2), and no protocol is attached (the bundles gate the *entries*).
-//!
-//! The chains themselves live in `ber::catalog` — one definition, shared with
-//! `cargo xtask ber` — and this file is their §5 bundle: the committed artifacts in
-//! `baselines/cpm/`, written by the `--ignored` full-measurement tests in `--release` and
-//! guarded by the always-run smoke tests here, exactly the `dmr_baseline.rs` pattern:
-//!
-//! - `gmsk_bt03_datalike_awgn.json`, `gmsk_bt05_datalike_awgn.json`, `msk_awgn.json`,
-//!   `afsk_filterbank_awgn.json`, `afsk_discriminator_awgn.json` — committed reference BER
-//!   curves (§4.1 commit-and-guard: no closed form exists for partial-response CPM through a
-//!   discriminator).
-//! - `gmsk_datalike_limits.json`, `msk_limits.json`, `afsk_limits.json` — §4.3 resistance
-//!   tables at each entry's reference configuration, under the *default* criterion (these
-//!   chains reach 1e-3 cleanly, unlike the phase-0 DMR chain that needed an override). GMSK
-//!   additionally carries the burst rows — AIS, its flagship consumer, is a burst mode —
-//!   measured through the calibrated [`BurstModel`] with per-burst [`KnownSymbols`] anchoring
-//!   (§3.4).
-//! - `gmsk_bt03_awgn.json`, `gmsk_bt05_awgn.json`, `gmsk_limits.json` — the GMSK entry's
-//!   *pre-fix* generation, measured with an alternating acquisition preamble before that
-//!   pattern was found sitting in the Gaussian pulse's spectral null. Historical: never
-//!   regenerated (§8), still reproduced from `catalog::gmsk::alternating_link`, which is what
-//!   keeps the framing's effect a measured number in both directions — no sensitivity
-//!   (`the_acquisition_framing_moved_no_sensitivity`), a monotone waterfall gained
-//!   (`gmsk_committed_curves_fall_monotonically`), and two resistance rows lost
-//!   (`gmsk_alternating_steady_limits_still_reproduce_the_historical_table`).
-//! - `gmsk_perf.json`, `msk_perf.json`, `afsk_perf.json` — §4.2 throughput baselines.
-//!
-//! The receive front ends and framings are `ber::catalog`'s to state; what is measured *here*
-//! are the comparisons between them.
-//!
-//! **Sanity comparisons, measured on the committed curves** (gates in the test bodies):
-//! GMSK BT = 0.5's partial-response cost over plain MSK at BER 1e-3
-//! (`gmsk_bt05_sits_near_msk_at_1e3`); the MLSE tier's gain over the discriminator tier it
-//! merges against (`the_mlse_tier_beats_the_discriminator_tier_it_merges_against`); what the
-//! acquisition framing moved, per BT (`the_acquisition_framing_moved_no_sensitivity`); and the
-//! two AFSK detectors against each other, which puts
-//! the tone filterbank **2.1 dB ahead** of the analytic discriminator at 1e-3 and makes it the
-//! entry's tier-1 reference (`afsk_filterbank_is_the_tier_one_reference`).
-//!
-//! Everything is seeded; committed numbers were measured in `--release` and reproduce
-//! bit-for-bit on one host. Curve labels state the overhead accounting: preamble, sync and
-//! tail symbols are charged to Eb (per-information-bit accounting, §4.1); TDMA dead time is
-//! excluded automatically by the noise model measuring the carved waveform's energy.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -76,15 +27,11 @@ fn baseline_path(stem: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{stem}.json"))
 }
 
-// --- Probe budgets ----------------------------------------------------------------------------
-
 /// Axis-probe budget for the limits searches: 100 errors resolves pass/fail around the 1e-2
 /// criterion unambiguously (a failing probe collects them in a few thousand bits; a passing
 /// probe runs to the cap at ~1e-4 and reads far below the limit).
 const PROBE_ERRORS: u64 = 100;
 const PROBE_CAP: u64 = 30_000;
-
-// --- Limits tables ----------------------------------------------------------------------------
 
 fn axis_row(
     axis: &str,
@@ -109,7 +56,6 @@ fn probe(link: &Link, spec: &ChannelSpec, op_db: f64, seed: u64) -> f64 {
     limits::measure_ber(link, spec, op_db, seed, PROBE_ERRORS, PROBE_CAP)
 }
 
-/// The four tracking axes every entry measures (§4.3), on the entry's steady link.
 fn steady_axis_rows(link: &Link, rate: f64, op_db: f64, seed: u64) -> Vec<LimitRow> {
     vec![
         axis_row("static CFO", "Hz", 3_000.0, 25.0, |hz| {
@@ -147,9 +93,6 @@ fn steady_axis_rows(link: &Link, rate: f64, op_db: f64, seed: u64) -> Vec<LimitR
     ]
 }
 
-/// The GMSK burst rows (§4.3 burst survival; AIS is burst). Each axis varies the recipe
-/// itself, so every probe rebuilds the link — the searched value reshapes the transmitter
-/// and the accounting together, not just an impairment knob.
 fn gmsk_burst_axis_rows(op_db: f64, seed: u64) -> Vec<LimitRow> {
     vec![
         axis_row("dead time", "symbols", 1_024.0, 16.0, |off| {
@@ -158,8 +101,6 @@ fn gmsk_burst_axis_rows(op_db: f64, seed: u64) -> Vec<LimitRow> {
             let link = recipe.link("dead-time probe");
             probe(&link, &recipe.channel(), op_db, seed)
         }),
-        // "Minimum burst length" spelled so higher stays better for the comparator: payload
-        // symbols removable from the 128-symbol burst; min burst = 24-symbol sync + rest.
         axis_row(
             "burst shortening",
             "payload symbols removed (of 128)",
@@ -172,8 +113,6 @@ fn gmsk_burst_axis_rows(op_db: f64, seed: u64) -> Vec<LimitRow> {
                 probe(&link, &recipe.channel(), op_db, seed)
             },
         ),
-        // Attenuation of alternate bursts: the decay-limited direction of the level tracker,
-        // recovered (or not) within each burst's own sync via the known-symbol hook.
         axis_row(
             "level step",
             "dB attenuation of alternate bursts",
@@ -189,13 +128,9 @@ fn gmsk_burst_axis_rows(op_db: f64, seed: u64) -> Vec<LimitRow> {
     ]
 }
 
-/// Operating point off a committed (or freshly measured) sensitivity curve: the §4.3 default,
-/// sensitivity(1e-3) + 3 dB.
 fn operating_point(curve: &Curve) -> f64 {
     limits::ebn0_at_ber(curve, 1e-3).expect("the grid must bracket BER 1e-3") + 3.0
 }
-
-// --- Always-run harness canaries --------------------------------------------------------------
 
 /// A chain defect (alignment, sign, level scale) is loud before any statistics: near-clean
 /// channels, one trial each, essentially error-free.
@@ -231,8 +166,6 @@ fn every_chain_round_trips_near_clean_at_high_ebn0() {
         assert!(ber < 3e-3, "{name} floor {ber} at 30 dB Eb/N0");
     }
 }
-
-// --- Always-run smoke guards of the committed curves ------------------------------------------
 
 /// Smoke tier of a registered curve: the measurement's own smoke prefix, re-measured with the
 /// measurement's own seed and budgets. Everything comes from the registry rather than from
@@ -284,11 +217,6 @@ fn afsk_curves_match_committed_baselines() {
     smoke(afsk::DISCRIMINATOR_AWGN);
 }
 
-/// The GMSK entry's pre-fix generation, still reproduced from its own chain
-/// ([`gmsk::alternating_link`]). A historical artifact is never regenerated (§8), but one whose
-/// chain has been deleted cannot be *checked* either — and then the framing gain below is a
-/// comparison against a number nobody can reproduce. This is the same two-generation
-/// discipline `dmr_baseline.rs` holds the phase-0 and phase-3 DMR chains to.
 #[test]
 fn gmsk_alternating_curves_still_reproduce_the_historical_baselines() {
     for (bt, grid, seed, stem) in [
@@ -322,8 +250,6 @@ fn gmsk_alternating_curves_still_reproduce_the_historical_baselines() {
     }
 }
 
-// --- The task-stated sanity comparisons -------------------------------------------------------
-
 /// Partial response costs little at BT = 0.5: the committed GMSK BT = 0.5 curve sits near
 /// plain MSK at BER 1e-3 (same h, same front lowpass, same framing — the comparison reads
 /// the frequency pulse alone). **Measured: +1.37 dB.** That is past the coherent-tier
@@ -342,24 +268,6 @@ fn gmsk_bt05_sits_near_msk_at_1e3() {
     );
 }
 
-/// The §5 item 2 rule for a second detection tier: it merges only against a *measured* gain
-/// over the tier that gated the entry. Both BTs are compared on their committed curves at BER
-/// 1e-3, each tier at its own best receive filter — the discriminator's measured compromise
-/// (an unmatched BT = 0.5 Gaussian at BT = 0.3), the trellis's matched filter — because the
-/// question a tier answers is "what is the best this entry can be detected", not "what happens
-/// through one fixed front end".
-///
-/// **Measured: BT = 0.3 gains 8.15 dB (20.95 → 12.80 dB at 1e-3), BT = 0.5 gains 1.95 dB.** The
-/// asymmetry is the whole argument for the tier: at BT = 0.5 the pulse spreads a symbol over 3
-/// taps and a slicer loses little, while at BT = 0.3 it spreads over 5 and the eye a slicer
-/// needs is simply not open — which is why GSM never detected BT = 0.3 symbol-by-symbol either.
-/// The gates sit a little under each measured number, so an improvement on either side cannot
-/// fail them and a regression in the tier cannot hide.
-///
-/// Both numbers are now a *detector* comparison and nothing else: the two tiers share a
-/// transmitter (`catalog::gmsk`'s `both_tiers_transmit_the_same_waveform`). They were measured
-/// across a framing difference before, and removing it left the 8.15 dB where it was — see
-/// [`the_acquisition_framing_moved_no_sensitivity`].
 #[test]
 fn the_mlse_tier_beats_the_discriminator_tier_it_merges_against() {
     for (bt, mlse_curve, disc_curve, floor) in [
@@ -368,7 +276,6 @@ fn the_mlse_tier_beats_the_discriminator_tier_it_merges_against() {
     ] {
         let mlse = sweep::load_json(&baseline_path(mlse_curve)).unwrap();
         let disc = sweep::load_json(&baseline_path(disc_curve)).unwrap();
-        // Negative penalty = the trellis needs that many dB less than the slicer.
         let gain = -sweep::penalty_db_vs_curve(&mlse, &disc, 1e-3);
         println!("GMSK BT={bt}: MLSE gains {gain:+.3} dB over the discriminator at BER 1e-3");
         assert!(
@@ -379,26 +286,6 @@ fn the_mlse_tier_beats_the_discriminator_tier_it_merges_against() {
     }
 }
 
-/// What the acquisition framing was worth in sensitivity, measured rather than assumed across
-/// the two generations of the *same* discriminator chain — and the answer is **nothing**:
-/// BT = 0.3 sits at 20.95 dB in both, BT = 0.5 moves 13.96 → 13.99 dB, which is inside the
-/// crossings' counting noise.
-///
-/// That result is the point of the re-measurement, not a disappointment in it. The reasoning
-/// that motivated the rename — the alternating pattern sits in the Gaussian pulse's
-/// symbol-response null, so at BT = 0.3 acquisition arrives 18 dB under the payload — is
-/// correct about the *preamble* and wrong about the *waterfall*: a discriminator + slicer
-/// re-acquires on the payload it is handed, so the deficit never reached the 1e-3 crossing. It
-/// reached the curve's *shape* instead, and only there
-/// ([`gmsk_committed_curves_fall_monotonically`]).
-///
-/// What the rename actually bought is the thing §5 item 2 needs: the two tiers now share a
-/// transmitter by construction, so the MLSE gain below reads the detector and nothing else.
-/// Before, the tier row was framed data-like and the row it merged against was framed
-/// alternating — the headline was a detector gain measured across a framing change, and it
-/// took this measurement to show the framing term in it was zero. The gate holds that to the
-/// counting noise, so a future framing change that *does* move sensitivity cannot pass here
-/// quietly.
 #[test]
 fn the_acquisition_framing_moved_no_sensitivity() {
     for (bt, current, historical) in [
@@ -474,8 +361,6 @@ fn afsk_filterbank_is_the_tier_one_reference() {
          longer holds"
     );
 }
-
-// --- Always-run smoke guards of the limits tables ---------------------------------------------
 
 /// One-sided row comparison with the committed table: moving better is never a failure; a
 /// vanished row or a changed unit/criterion is.
@@ -652,8 +537,6 @@ fn afsk_axis_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
     ]
 }
 
-// --- Level-1 E2E (§4.4): payload in equals payload out at a stated margin ---------------------
-
 /// +6 dB over the committed 1e-3 sensitivity: residual BER is off the bottom of the measured
 /// waterfall (≲1e-7), so a handful of payloads carries ≪1 expected errors and the fixed seed
 /// makes the outcome a fact of the entry.
@@ -711,8 +594,6 @@ fn afsk_loops_back_clean_at_margin_through_both_detectors() {
         0x0e2e_afd1,
     );
 }
-
-// --- §4.2 perf baselines (same #[ignore] writer pattern as ber::perf) -------------------------
 
 /// Warmed-up throughput of one entry's steady-state `process` path, per the ber::perf
 /// convention: two warm-up calls so the buffers hold their steady capacity, then the
@@ -946,12 +827,6 @@ fn compare_afsk_perf_baseline() {
     compare_perf(afsk::PERF, &measured_afsk_perf());
 }
 
-// --- Full re-measurement (nightly; regenerates the committed artifacts) -----------------------
-
-/// Writes the curve when its artifact is missing; asserts point-by-point reproduction when it
-/// exists (same seeds and budgets make each point a reproduction of the committed one; the
-/// ratio allowance absorbs cross-host float drift, nothing else). A superseding chain gets a
-/// NEW artifact name — committed files are never regenerated in place ( §8).
 fn remeasure_curve(link: &Link, template: &ChannelSpec, grid: &[f64], seed: u64, name: &str) {
     let curve = sweep::sweep_ber(link, template, grid, seed, FULL_ERRORS, FULL_CAP);
     for p in &curve.points {
@@ -1136,8 +1011,6 @@ fn measure_afsk_limits_full() {
     table.rows = afsk_axis_rows(&link, op_db, afsk::FILTERBANK_SEED ^ 0xbe5);
     write_or_check_limits(&table, afsk::LIMITS);
 }
-
-// --- Exploration (never asserted; chooses the sweep grids) ------------------------------------
 
 /// Where the MLSE tier's residual high-SNR errors sit, kept because it is the measurement
 /// behind the committed BT = 0.3 curve's shallow tail. Errors arrive as *runs* of two to four

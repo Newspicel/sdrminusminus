@@ -1,10 +1,3 @@
-//! Machinery every [`ChannelTx`](crate::ChannelTx) shares: the backlog a modulator queues on the
-//! control plane, and the envelope a keyed burst rises and falls through.
-//!
-//! What a mode does with a queued item is its own business — audio samples, analytic samples,
-//! line bits — so the queue is generic over what it holds and only owns the bound. The envelope
-//! is the same for every mode, because splatter is.
-
 use std::{collections::VecDeque, f64::consts::PI};
 
 use crate::ChannelError;
@@ -19,10 +12,6 @@ const RAMP_MS: f64 = 2.0;
 /// and saying so beats growing without bound.
 pub(crate) const MAX_QUEUE_S: f64 = 5.0;
 
-/// A modulator's pending payload, bounded by how long it would take to radiate.
-///
-/// `submit` is the control plane, so queueing allocates here and [`generate`](crate::ChannelTx::generate)
-/// only pops.
 pub(crate) struct TxQueue<T> {
     /// Type id of the owning mode, for the refusal message.
     mode: &'static str,

@@ -16,7 +16,6 @@ describe("LossTracker", () => {
     const t = new LossTracker(MAX_GAP);
     t.next(0n);
     t.next(960n);
-    // Two packets lost: the delta is three packet durations.
     expect(t.next(3_840n)).toEqual({ kind: "gap", frames: 1_920 });
     // The clock is intact afterwards.
     expect(t.next(4_800n)).toEqual({ kind: "continuous" });
@@ -26,7 +25,6 @@ describe("LossTracker", () => {
     const t = new LossTracker(MAX_GAP);
     t.next(0n);
     t.next(960n);
-    // The hole is still measured — it is the count the operator sees as audio that never came.
     expect(t.next(960n + 960n + 20_000n)).toEqual({ kind: "reset", frames: 20_000 });
     expect(t.next(960n + 960n + 20_000n + 960n)).toEqual({ kind: "continuous" });
   });
@@ -44,9 +42,7 @@ describe("LossTracker", () => {
   it("adopts a smaller delta when the first delta was itself a loss gap", () => {
     const t = new LossTracker(MAX_GAP);
     t.next(0n);
-    // First observed delta spans a lost packet: 1920 is provisionally the duration.
     expect(t.next(1_920n)).toEqual({ kind: "continuous" });
-    // A true back-to-back pair corrects it downward.
     expect(t.next(2_880n)).toEqual({ kind: "continuous" });
     expect(t.next(3_840n)).toEqual({ kind: "continuous" });
     expect(t.next(5_760n)).toEqual({ kind: "gap", frames: 960 });

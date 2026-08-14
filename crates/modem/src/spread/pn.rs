@@ -1,28 +1,3 @@
-//! Spreading sequences as data ( §3.3, the rule that makes cross-QAM a table rather
-//! than a match arm, applied to the chip domain): a [`PnSequence`] is a list of ±1 chips, and the
-//! correlator in [`dsss`](super::dsss) never asks which family produced it.
-//!
-//! Two families are generated here because two properties are wanted and no one sequence has
-//! both:
-//!
-//! - **Barker words** ([`PnSequence::barker`]) have the best *aperiodic* autocorrelation any
-//!   binary sequence of their length can: every off-peak sidelobe is at most 1 in magnitude. That
-//!   is the property an acquisition search reads — a receiver hunting a burst correlates a
-//!   partial, unaligned window, not a full period — which is why 802.11b spreads its 1 and 2
-//!   Mbit/s rates with the length-11 word rather than something longer.
-//! - **Maximal-length sequences** ([`PnSequence::maximal_length`]) have the best *periodic*
-//!   autocorrelation: exactly −1 at every nonzero shift, flat by construction rather than by
-//!   search, at every length 2^k − 1. That is what a continuously-keyed spread link reads, and it
-//!   is the only family that scales — Barker words are conjectured not to exist past 13.
-//!
-//! Both properties are asserted by test over every length this module generates, which is what
-//! makes them the module's specification rather than its folklore.
-//!
-//! **Chips are ±1 reals.** A complex spreading code (the QPSK-spread family) would be a
-//! different table with the same interface; nothing here forbids one, and the correlator is
-//! written against `f32` chips so adding it later touches this file only. The catalog's entries
-//! spread bipolar, which is what DSSS means in every standard §6 names.
-
 use std::fmt;
 
 /// Why a sequence was refused. Construction is setup-time, so this is a `Result`: a bad
@@ -90,10 +65,6 @@ const PRIMITIVE_TAPS: [u32; (MAX_LFSR_DEGREE - 1) as usize] = [
     0b0110100000000001, // x¹⁶ + x¹⁴ + x¹³ + x¹¹ + 1
 ];
 
-/// The Barker words, longest first. Length 11 is written in IEEE 802.11's own order (§18.4.6.3),
-/// which is the negated reverse of the textbook word — both are Barker, since negation and
-/// reversal preserve an aperiodic autocorrelation's magnitudes, and the standard's ordering is
-/// the one a reader will be comparing against.
 const BARKER: [(usize, &[i8]); 7] = [
     (13, &[1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1]),
     (11, &[1, -1, 1, 1, -1, 1, 1, 1, -1, -1, -1]),
@@ -112,11 +83,6 @@ pub struct PnSequence {
 }
 
 impl PnSequence {
-    /// From an explicit ±1 chip list — the arbitrary-table constructor (§3.1: "arbitrary PN +
-    /// correlator").
-    ///
-    /// # Errors
-    /// [`PnError::Empty`], [`PnError::NotBipolar`].
     pub fn from_chips(chips: &[i8]) -> Result<Self, PnError> {
         if chips.is_empty() {
             return Err(PnError::Empty);
@@ -163,7 +129,6 @@ impl PnSequence {
         let mut state = mask;
         let mut chips = Vec::with_capacity(period);
         for _ in 0..period {
-            // The output is the register's low bit; feedback is the parity of the tapped stages.
             let out = state & 1;
             chips.push(if out == 0 { 1.0 } else { -1.0 });
             let feedback = (state & taps).count_ones() & 1;
@@ -189,10 +154,6 @@ impl PnSequence {
         self.chips.is_empty()
     }
 
-    /// The spreading factor's processing gain in dB, `10·log₁₀(N)` —  §6's stated
-    /// reference for this entry. It is the ratio by which despreading improves the
-    /// signal-to-interference ratio against interference narrow compared with the chip rate, and
-    /// `tests/spread.rs` measures it against exactly this number rather than quoting it.
     #[must_use]
     pub fn processing_gain_db(&self) -> f64 {
         10.0 * (self.len() as f64).log10()
@@ -265,8 +226,6 @@ mod tests {
         );
     }
 
-    /// 802.11b's word, chip for chip (§18.4.6.3), and its relation to the textbook one: the
-    /// standard's is the negated reverse, which is why both are Barker.
     #[test]
     fn barker11_is_the_802_11_ordering() {
         let pn = PnSequence::barker(11).unwrap();
@@ -297,8 +256,6 @@ mod tests {
                     "degree {degree}: periodic ACF {side} at shift {shift}"
                 );
             }
-            // Balance follows from the same property and is what makes the sequence spectrally
-            // flat: one more −1 than +1 over a period.
             let sum: f64 = pn.chips().iter().map(|&c| f64::from(c)).sum();
             assert!((sum + 1.0).abs() < 1e-9, "degree {degree} sum {sum}");
         }

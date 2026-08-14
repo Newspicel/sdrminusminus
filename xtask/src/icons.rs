@@ -1,15 +1,4 @@
 //! `cargo xtask icons` — every icon this repo ships, rendered from `assets/icon.svg`.
-//!
-//! One drawing, many containers. The web favicon, the mdBook favicon and the desktop bundle's
-//! macOS/Windows/Linux icons are all rasterisations of the same file, so the mark cannot drift
-//! between the tab, the Dock and the installer. Outputs are committed — CI has no SVG
-//! rasteriser and release day must not need one — so run this after touching the source and
-//! commit what it writes.
-//!
-//! The two container formats are written here rather than shelled out to `iconutil` (macOS
-//! only) or ImageMagick (not installed anywhere in CI): both are a header and a table of PNG
-//! blobs, which is less code than making a build depend on a tool.
-
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -64,7 +53,6 @@ pub fn icons(root: &Path) -> Result<()> {
     }
 
     let pngs = [
-        // Tauri resolves the window icon and the Linux bundle icons out of this set by name.
         ("apps/desktop/icons/32x32.png", 32),
         ("apps/desktop/icons/128x128.png", 128),
         ("apps/desktop/icons/128x128@2x.png", 256),
@@ -184,7 +172,6 @@ fn dib(pixmap: &tiny_skia::Pixmap) -> Vec<u8> {
             out.extend_from_slice(&[pixel.blue(), pixel.green(), pixel.red(), pixel.alpha()]);
         }
     }
-    // Mask rows are padded to four bytes; the 32-bit pixel rows above are aligned already.
     out.resize(
         out.len() + width.div_ceil(8).next_multiple_of(4) * height,
         0,
@@ -246,7 +233,6 @@ mod tests {
     fn renders_a_square_png_of_the_asked_size() {
         let png = render(&tree(), 32, 1.0).expect("render");
         assert_eq!(&png[1..4], b"PNG");
-        // IHDR width and height, the first fields after the 8-byte signature and chunk header.
         assert_eq!(be32(&png, 16), 32);
         assert_eq!(be32(&png, 20), 32);
     }
@@ -272,7 +258,6 @@ mod tests {
                 assert_eq!(be32(&ico, at + 16), size, "PNG entry is that size");
                 continue;
             }
-            // BITMAPINFOHEADER: its own size, the width, and a height covering image + mask.
             assert_eq!(le32(&ico, at), 40, "{size}px entry is a DIB");
             assert_eq!(le32(&ico, at + 4), size, "{size}px DIB width");
             assert_eq!(le32(&ico, at + 8), size * 2, "{size}px DIB height and mask");
@@ -290,8 +275,6 @@ mod tests {
 
     #[test]
     fn dib_rows_are_bottom_up_bgra() {
-        // The mark's plate is opaque and its corners are not, which is the whole shape of the
-        // encoding: a top-down writer or an RGBA one puts the wrong bytes in both places.
         let pixmap = raster(&tree(), 32, 1.0).expect("raster");
         let dib = dib(&pixmap);
         let at = |row: usize, column: usize| 40 + ((31 - row) * 32 + column) * 4;
@@ -299,7 +282,6 @@ mod tests {
         let corner = &dib[at(0, 0)..at(0, 0) + 4];
         assert_eq!(corner[3], 0, "the top-left corner is outside the plate");
 
-        // The plate's own colour, straight from the source: #141210, written B, G, R.
         let middle = &dib[at(16, 3)..at(16, 3) + 4];
         assert_eq!(middle, [0x10, 0x12, 0x14, 0xff], "plate pixel, BGRA");
     }
@@ -315,7 +297,6 @@ mod tests {
             assert_eq!(&icns[at..at + 4], kind, "chunk order");
             let len = be32(&icns, at + 4) as usize;
             assert_eq!(&icns[at + 9..at + 12], b"PNG", "chunk carries a PNG");
-            // The @2x types name a point size; the payload is the pixel size.
             assert_eq!(be32(&icns, at + 8 + 16), size, "chunk pixel size");
             at += len;
         }

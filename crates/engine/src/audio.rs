@@ -1,11 +1,3 @@
-//! Per-channel Opus encode (): a dedicated thread per channel turns the gated 48 kHz
-//! PCM broadcast into 20 ms Opus packets on its own broadcast stream. The thread exits
-//! when every PCM sender is gone (channel removed / set stopped); removal joins it.
-//!
-//! Channel layout travels with the PCM rather than being fixed at construction: WFM stereo is
-//! a params patch, which reaches the live pipeline as a settings command and not as a rebuild,
-//! so the encoder has to be able to change layout under a running stream.
-
 use std::{sync::Arc, thread::JoinHandle};
 
 use sdrmm_channels::AUDIO_RATE;
@@ -13,8 +5,6 @@ use tokio::sync::broadcast::{self, error::RecvError};
 
 use crate::EngineError;
 
-/// 20 ms at the fixed 48 kHz channel audio rate (), counted in sample frames — a
-/// stereo frame holds twice as many `f32`s.
 pub const OPUS_FRAME_SAMPLES: usize = 960;
 const MONO_BITRATE_BPS: i32 = 64_000;
 /// Stereo carries a second, largely correlated channel: half again the mono rate is what
@@ -22,8 +12,6 @@ const MONO_BITRATE_BPS: i32 = 64_000;
 const STEREO_BITRATE_BPS: i32 = 96_000;
 /// libopus's recommended packet buffer; any single 20 ms frame fits.
 const MAX_PACKET_BYTES: usize = 4000;
-/// PCM blocks arrive at drain cadence (~25 ms each); 32 buffers ~0.8 s of encoder stall
-/// before the drop-oldest contract kicks in ().
 pub(crate) const PCM_CHANNEL_CAP: usize = 32;
 pub(crate) const AUDIO_CHANNEL_CAP: usize = 64;
 
@@ -76,9 +64,6 @@ impl Encoder {
     }
 }
 
-/// Build the encoder control-side so construction errors surface to the caller, then hand it
-/// to a dedicated thread — Opus encode must never run on the DSP thread ().
-/// `channels` is the layout the channel starts in; the thread follows it from there.
 pub(crate) fn spawn_encoder(
     channels: u8,
     pcm_rx: broadcast::Receiver<PcmBlock>,
@@ -98,7 +83,6 @@ fn encode_loop(
     encoder: &mut Encoder,
 ) {
     let mut pending: Vec<f32> = Vec::new();
-    // Stream position of `pending[0]`, in sample frames; every packet timestamp derives from it.
     let mut pending_start: u64 = 0;
     let mut packet = [0u8; MAX_PACKET_BYTES];
     let mut seq: u32 = 0;
@@ -152,7 +136,6 @@ fn encode_loop(
                         .encode_float(&pending[..frame_samples], &mut packet)
                     {
                         Ok(len) => {
-                            // send() only errors with no subscribers — nobody listening is fine.
                             let _ = audio_tx.send(AudioPacket {
                                 seq,
                                 timestamp: pending_start,
@@ -169,9 +152,6 @@ fn encode_loop(
                     pending_start += OPUS_FRAME_SAMPLES as u64;
                 }
             }
-            // Drop-oldest is the UI-stream contract (): a stalled encoder skips PCM
-            // rather than stalling the DSP thread. The next block's stamp resyncs the
-            // timeline; the stale partial frame goes now.
             Err(RecvError::Lagged(skipped)) => {
                 pending.clear();
                 tracing::debug!(skipped, "audio encoder lagged; oldest pcm dropped");

@@ -1,21 +1,3 @@
-//! §5 measurement bundle for the four spread-spectrum entries ( §7 phase 7): committed
-//! BER curves for direct sequence, CCK, chirp spreading and hopping; the processing gain measured
-//! against `10·log₁₀(chips/symbol)`; the §4.3 limits tables; and level-1 E2E loopbacks.
-//!
-//! The chains live in `ber::catalog::spread`; the committed artifacts live in `baselines/spread/`.
-//!
-//! **What the phase is about, in one sentence each.** Under AWGN a spreader is transparent, so the
-//! direct-sequence and hopping rows are held to their own constellation's closed form and any dB
-//! they sit from it is framing. What spreading buys shows up on the *interference* axes instead —
-//! measured on the correlator in `spread::dsss`, where §7's `10·log₁₀(chips/symbol)` is the
-//! assertion, and reported here as the committed jammer rows plus the gap between the two
-//! quantities (`the_jammer_rows_move_less_than_the_processing_gain_and_the_catalog_says_so`).
-//! CCK's chips buy rate rather than rejection, and the trade is committed as a pair of
-//! numbers against the direct-sequence row on the identical chip rate. And chirp spreading turns
-//! out to be the third member of an identity phase 5 measured twice — M cyclic shifts of one
-//! sweep are the same signalling set as M tones or M slots — so it answers to the exact
-//! noncoherent orthogonal oracle at `M = 2^SF` rather than to a committed reference.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -122,8 +104,6 @@ fn css_sf12_link() -> Link {
     css_link(12)
 }
 
-// --- Always-run harness gates ----------------------------------------------------------------
-
 /// Every chain has a floor, and it is below anything a curve measures: a defect in the framing,
 /// the acquisition or the bit packing shows up here rather than as a mysterious tolerance failure
 /// three tests later.
@@ -222,23 +202,6 @@ fn every_oracle_row_sits_on_its_own_closed_form() {
     }
 }
 
-/// **The processing gain, and what a BER threshold does and does not read.**
-///
-///  §7 phase 7 asks for the gain measured against `10·log₁₀(chips/symbol)`, and it is —
-/// directly, on the correlator, in `spread::dsss`: at a stated C/I the length-31 code collects
-/// `10·log10(31/11) = 4.50 dB` less interference than Barker-11, measured, and against an
-/// unspread system of the same data rate each code collects `10·log₁₀(N)` less.
-///
-/// **The committed limits rows do not move by that number, and the gap is the finding.** They
-/// read the Eb/N0 at which BER crosses 1e-2 under a narrowband jammer, and that threshold moves
-/// by about 0.9 dB where the collected interference power moves by 4.5. A mean interference power
-/// and a BER threshold are not the same quantity: a tone's despread contribution is a
-/// *coherent* vector of near-constant magnitude across a whole burst rather than an independent
-/// draw per symbol, so the error rate is set by how often that vector lands near the decision
-/// boundary — and the rest of the burst, being pushed the *other* way, contributes almost
-/// nothing to compensate. What the rows are for is the entry's own resistance number; what the
-/// gain is for is the comparison, and the two are reported separately rather than one being
-/// quoted as the other.
 #[test]
 fn the_jammer_rows_move_less_than_the_processing_gain_and_the_catalog_says_so() {
     let jammer = |stem: &str| {
@@ -299,8 +262,6 @@ fn cck_buys_rate_and_is_still_ahead_of_the_direct_sequence_row() {
         "the two CCK rates sit {} dB apart",
         cck4 - cck8
     );
-    // The rate itself, which is the whole reason the codebook exists: eleven times the bits per
-    // chip period.
     let barker_bits_per_chip = 1.0f64 / 11.0;
     let cck_bits_per_chip = 8.0f64 / 8.0;
     assert!((cck_bits_per_chip / barker_bits_per_chip - 11.0).abs() < 1e-12);
@@ -321,8 +282,6 @@ fn sensitivity_improves_with_the_spreading_factor() {
         (1.0..3.0).contains(&total),
         "SF12 sits {total} dB below SF7, where the closed form predicts about 1.9"
     );
-    // What it costs: a symbol 32 times as long for 12 bits instead of 7, so the same message takes
-    // 18.7 times the air time. The sensitivity is bought with time, and the catalog says so.
     let air_time = f64::from(1 << 12) / f64::from(1 << 7) * 7.0 / 12.0;
     assert!((air_time - 18.667).abs() < 1e-2);
 }
@@ -339,21 +298,6 @@ fn hopping_costs_nothing_over_the_entry_it_carries() {
     );
 }
 
-/// **What hopping buys, and the limit an uncoded link puts on it.**
-///
-/// A narrowband interferer parked on one channel reaches only the dwells that land there — `1/C`
-/// of them, exactly — where the same interferer on an unhopped link reaches the whole burst. That
-/// exposure is the framework's deliverable and it is asserted as a fraction, since it is a
-/// property of the schedule and not a statistic.
-///
-/// **Turning it into link margin is what an uncoded chain cannot do**, and the committed tables
-/// say so: both entries carry the same parked interferer at the same absolute frequency, and the
-/// hopped one tolerates barely a fraction of a dB more. The arithmetic is unavoidable — with a
-/// third of the dwells destroyed the average BER is already 0.17, far past the §4.3 failure
-/// floor, so the hopping entry fails at very nearly the level that destroys those dwells at all.
-/// What recovers the other two thirds is coding and interleaving *across hops*, which is channel
-/// coding and lives beside the FEC in `sdrmm-dsp` rather than here ( §1.1) — the same
-/// conclusion, and for the same reason, that phase 6 reached about a nulled subcarrier.
 #[test]
 fn a_parked_jammer_reaches_only_its_own_share_of_a_hopped_burst() {
     let sequence = hop_sequence(11);
@@ -393,8 +337,6 @@ fn a_parked_jammer_reaches_only_its_own_share_of_a_hopped_burst() {
     );
 }
 
-// --- Level-1 E2E (§4.4) ------------------------------------------------------------------------
-
 /// A short version of a committed chain, so a loopback is a property test rather than a sweep.
 fn loopback_at_margin(mut link: Link, stem: &str, margin_db: f64, seed: u64) {
     let payloads = Payloads::new(seed, 8, link.bits_per_trial);
@@ -432,14 +374,10 @@ fn css_loops_back_clean_at_6db_margin() {
     loopback_at_margin(css_link(12), CSS_SF12_AWGN, 6.0, 0x0_e5cc);
 }
 
-/// The plan's own phase-7 acceptance, in its own words: "payload survives a hopping channel with
-/// the sequencer known".
 #[test]
 fn the_payload_survives_a_hopping_channel_with_the_sequencer_known() {
     loopback_at_margin(fhss_link(), FHSS_AWGN, 6.0, 0x0_e5f4);
 }
-
-// --- Limits tables (§4.3) ----------------------------------------------------------------------
 
 const PROBE_ERRORS: u64 = 120;
 const PROBE_BITS: u64 = 30_000;
@@ -529,9 +467,6 @@ fn shifted_jammer_row(axis: &str, ber_at: impl Fn(f64) -> f64) -> LimitRow {
 /// block code.
 fn chip_domain_rows(link: &Link, op_db: f64, seed: u64, profile_grid: &[f64]) -> Vec<LimitRow> {
     vec![
-        // A burst is read through one fitted phase, so what a carrier offset costs is the turn it
-        // accumulates across the payload — the entry's own statement about its geometry, and in
-        // family with the linear engine's coherent rows for the same reason.
         axis_row("static CFO", "Hz", 20_000.0, 5.0, |hz| {
             probe(
                 link,
@@ -540,9 +475,6 @@ fn chip_domain_rows(link: &Link, op_db: f64, seed: u64, profile_grid: &[f64]) ->
                 seed,
             )
         }),
-        // One phase for a 2.1 ms burst, so a drift's cost is the offset it has walked by the last
-        // symbol — the CFO row divided by the burst duration, which is where the bracket comes
-        // from.
         axis_row("frequency drift", "Hz/s", 1e6, 200.0, |hz_s| {
             probe(
                 link,
@@ -561,8 +493,6 @@ fn chip_domain_rows(link: &Link, op_db: f64, seed: u64, profile_grid: &[f64]) ->
                 seed,
             )
         }),
-        // The search covers whole samples only, so a fractional offset is the residual this row
-        // measures — a quarter of a chip is a quarter of a sample here.
         axis_row(
             "static timing offset",
             "samples",
@@ -594,9 +524,6 @@ fn chip_domain_rows(link: &Link, op_db: f64, seed: u64, profile_grid: &[f64]) ->
                 seed,
             )
         }),
-        // The hop plan's centre channel is baseband, which is where this entry always sits — so
-        // this row is the same interferer the hopping table prices, reaching all of this burst
-        // and a third of a hopped one.
         shifted_jammer_row("parked jammer J/C", |jc_db| {
             limits::measure_ber(
                 link,
@@ -666,8 +593,6 @@ fn css_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
                 )
             },
         ),
-        // A noncoherent detector reads magnitudes, so the front-end axes that ruin a coherent
-        // entry cost it very little — the same structural result the PPM envelope tier recorded.
         axis_row("IQ gain", "dB", 6.0, 0.05, |db| {
             probe(
                 link,
@@ -704,8 +629,6 @@ fn jammer_only_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
 
 fn hopping_rows(link: &Link, op_db: f64, seed: u64) -> Vec<LimitRow> {
     let sequence = hop_sequence(11);
-    // A jammer parked on the plan's centre channel — which is baseband, where the unhopped entry
-    // always sits, so both tables price the *same* interferer at the same absolute frequency.
     let offset = sequence.offset_cycles(HOP_CHANNELS / 2);
     vec![
         shifted_jammer_row("parked jammer J/C", |jc_db| {
@@ -808,11 +731,6 @@ fn fhss_limits_rows_match_committed_table() {
     );
 }
 
-/// The chirp entry's carrier row read against its own explanation: a chirp cannot tell a delay
-/// from a frequency offset, so the preamble-bin estimate removes both together and the entry
-/// tolerates a carrier offset a fraction of its own bandwidth wide — orders past what the
-/// chip-domain entries beside it manage, and a property of the waveform rather than of this
-/// implementation.
 #[test]
 fn the_chirp_entry_absorbs_a_carrier_offset_the_chip_entries_cannot() {
     let row = |stem: &str, axis: &str| {
@@ -826,8 +744,6 @@ fn the_chirp_entry_absorbs_a_carrier_offset_the_chip_entries_cannot() {
     };
     let chirp = row(CSS_LIMITS, "static CFO");
     let chips = row(DSSS_LIMITS, "static CFO");
-    // Stated relative to each entry's own occupied bandwidth, which is the only comparison the
-    // two geometries admit: 125 kHz against 11 MHz.
     let chirp_fraction = chirp / CSS_BANDWIDTH;
     let chip_fraction = chips / CHIP_SAMPLE_RATE;
     assert!(
@@ -835,8 +751,6 @@ fn the_chirp_entry_absorbs_a_carrier_offset_the_chip_entries_cannot() {
         "the chirp row is {chirp_fraction} of its bandwidth against the chip row's {chip_fraction}"
     );
 }
-
-// --- Full re-measurement (nightly; regenerates the committed artifacts) ------------------------
 
 fn remeasure_curve(link: &Link, grid: &[f64], seed: u64, name: &str) -> Curve {
     let curve = sweep::sweep_ber(

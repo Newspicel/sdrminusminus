@@ -1,7 +1,3 @@
-//! AWGN — the impairment every curve in the harness is plotted against, so its calibration is
-//! the one everything else inherits ( §4.1: the BPSK-vs-erfc gate reads *this*
-//! sigma).
-
 use num_complex::Complex;
 
 use super::{Impairment, signal_energy};
@@ -23,22 +19,6 @@ pub fn sigma_for_ebn0(signal_energy: f64, info_bits: u64, ebn0_db: f64) -> f64 {
     (n0 / 2.0).sqrt()
 }
 
-/// Per-component noise sigma for a stated *channel* SNR — the accounting an analog entry uses
-/// ( §5 item 4), where there are no bits and Eb/N0 therefore says nothing.
-///
-/// The reference every closed form in [`theory`](crate::ber::theory) is stated against is
-/// `SNR_c = P_R / (N0·W)`: received power over the noise in one *message* bandwidth. Complex
-/// white noise of per-component variance σ² carries power `2σ²` spread over the whole sampled
-/// band — one cycle per sample wide — so `N0 = 2σ²` per cycle/sample, the noise inside a
-/// message bandwidth of `W` cycles/sample is `2σ²·W`, and `σ² = P_R / (2·SNR_c·W)`.
-///
-/// No sample rate appears, exactly as in [`sigma_for_ebn0`]: `bandwidth` is in cycles per
-/// sample and an entry's physical reading follows from its own rate.
-///
-/// # Panics
-/// If `bandwidth` is not a positive finite number. A release build has to refuse it too: the
-/// sigma it would otherwise produce is infinite or NaN, and every sample drawn from it is a
-/// measurement silently destroyed rather than a failure reported (§8).
 #[must_use]
 pub fn sigma_for_channel_snr(mean_power: f64, bandwidth: f64, snr_db: f64) -> f64 {
     assert!(
@@ -154,7 +134,6 @@ mod tests {
     fn ebn0_derivation_on_round_numbers() {
         let sigma = sigma_for_ebn0(1000.0, 1000, 0.0);
         assert!((sigma * sigma - 0.5).abs() < 1e-12);
-        // +3.0103 dB (a factor of exactly 2) halves N0.
         let sigma3 = sigma_for_ebn0(1000.0, 1000, 10.0 * 2f64.log10());
         assert!((sigma3 * sigma3 - 0.25).abs() < 1e-12);
     }
@@ -165,11 +144,9 @@ mod tests {
     #[test]
     fn channel_snr_derivation_and_applied_level() {
         assert!((sigma_for_channel_snr(1.0, 0.25, 0.0).powi(2) - 2.0).abs() < 1e-12);
-        // +10 dB is a factor of ten less noise.
         assert!((sigma_for_channel_snr(1.0, 0.25, 10.0).powi(2) - 0.2).abs() < 1e-12);
         let mut x = vec![Complex::new(1.0f32, 0.0); 300_000];
         Awgn::for_channel_snr(6.0, 0.1).apply(&mut x, &mut Rng::new(0xa17));
-        // The signal is real, so Q carries noise alone and reads σ² directly.
         let measured = x
             .iter()
             .map(|s| f64::from(s.im) * f64::from(s.im))

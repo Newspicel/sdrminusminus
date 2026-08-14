@@ -1,21 +1,3 @@
-//! §5 measurement bundle for every linear catalog entry ( §7 phase 4 accept): the
-//! committed BER curves, the §4.3 limits tables, the perf baselines and the level-1 E2E loopbacks.
-//! The chains under measurement live in `ber::catalog::{ask, psk, qam}` on the shared
-//! `ber::catalog::linear` substrate; the committed artifacts live in `baselines/linear/`.
-//!
-//! **What each class of gate here is for.**
-//!
-//! - *Always-run:* a noiseless round trip of every registered chain (a defect in alignment, sign,
-//!   rotation schedule or differential pairing is loud before any statistics), and the smoke tier
-//!   of every committed curve — its first three grid points, re-measured at the committed seed and
-//!   budget, so a grid *prefix* reproduces the committed points exactly.
-//! - *Reference gates:* every closed-form row is held to its oracle across its whole grid; the
-//!   exotic geometries are held to the table-driven union bound. These run on the full sweep.
-//! - *Tier gates (§5 item 2):* the second detector of an entry is measured against the first, and
-//!   the margin is committed. Three of them: coherent OOK over envelope OOK, feedforward timing
-//!   over tracking timing on 16-QAM, and π/4-DQPSK coherent over π/4-DQPSK differential.
-//! - *Regeneration:* `#[ignore]`d, run in release to rewrite the committed artifacts.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -64,11 +46,6 @@ fn linear_measurements() -> Vec<&'static Measurement> {
         .collect()
 }
 
-// --- Always-run harness gates ----------------------------------------------------------------
-
-/// The phase's headline structural claim, asserted as a count: every linear row of §6 has a
-/// registered, committed measurement. A row that quietly lost its runner would still pass every
-/// other gate in this file.
 #[test]
 fn every_linear_row_is_registered_and_committed() {
     let entries = linear_entries();
@@ -182,11 +159,6 @@ fn every_committed_point_is_above_the_error_floor() {
     }
 }
 
-// --- Reference gates (§4.1) --------------------------------------------------------------------
-
-/// Every committed curve against its §4.1 reference: the closed forms for the regular families,
-/// the table-driven union bound for the geometries that have none. Read off the *committed*
-/// artifact rather than a fresh sweep, so this gate is fast and states what was reviewed.
 #[test]
 fn every_committed_curve_sits_at_its_reference() {
     let mut checked = 0usize;
@@ -206,8 +178,6 @@ fn every_committed_curve_sits_at_its_reference() {
         "only {checked} rows carry a closed-form or table-driven reference"
     );
 }
-
-// --- Tier gates (§5 item 2) --------------------------------------------------------------------
 
 /// Eb/N0 a committed curve crosses `ber` at.
 fn crossing(stem: &str, ber: f64) -> f64 {
@@ -244,11 +214,6 @@ fn feedforward_timing_beats_the_tracking_loop_by_its_committed_margin() {
     );
 }
 
-/// π/4-DQPSK coherent against π/4-DQPSK differential — the acceptance  §7 phase 4 states
-/// in as many words ("coherent beats differential by the measured, recorded margin"). Measured
-/// 1.76 dB at 1e-3, not the asymptotic 3: differential detection's penalty grows toward 3 dB only
-/// deep in the tail, and this tier pays a little of it back for the 8th-power detector its
-/// rotation forces (see `catalog::psk`'s `pi2_bpsk_link` docs for why the order is 8).
 #[test]
 fn coherent_pi4_dqpsk_beats_the_differential_tier_by_its_committed_margin() {
     let coherent = crossing(catalog::psk::PI4_DQPSK_COHERENT_AWGN, 1e-3);
@@ -312,8 +277,6 @@ fn the_differential_family_pays_its_documented_penalty() {
     }
 }
 
-// --- Level-1 E2E (§4.4) -------------------------------------------------------------------------
-
 /// Margin above each entry's own measured 1e-3 sensitivity at which its loopback must be perfect.
 /// 8 dB rather than the CPM rows' 6: these payloads are 4096 symbols, so a trial carries up to
 /// 40 960 bits and the residual BER has to be that much smaller for `residual × bits ≪ 1`.
@@ -353,8 +316,6 @@ fn every_entry_loops_back_clean_at_its_stated_margin() {
     }
 }
 
-// --- §4.3 limits tables ---------------------------------------------------------------------------
-
 /// Probe budget per axis point: enough to separate the failure floor from the operating BER,
 /// cheap enough that a ~16-probe bisection stays fast.
 const PROBE_ERRORS: u64 = 200;
@@ -391,16 +352,6 @@ fn axis_row(
     )
 }
 
-/// The §4.3 axis rows every linear entry reports, at the entry's own operating point.
-///
-/// Two axes here that the CPM tables do not carry, because they are the *linear* failure modes: IQ
-/// gain and phase imbalance distort a constellation without touching a discriminator's output at
-/// all.
-///
-/// Search tolerances are tight — 0.2 Hz on CFO, 1 ppm on the clock — for a reason found by
-/// measurement: at 20 ppm resolution the 16-QAM clock row bisected to exactly 0, which reads as
-/// "tolerates nothing" when the truth was "tolerates less than the search could see". A limits
-/// table's zeros have to be real.
 fn axis_rows(link: &Link, op_db: f64, clean: &Curve) -> Vec<LimitRow> {
     let penalty = limits::penalty_criterion(clean, op_db, 1.0)
         .expect("the clean sweep must cover the operating point minus 1 dB");
@@ -558,8 +509,6 @@ fn limits_tables_match_committed() {
     }
 }
 
-// --- §4.2 perf baselines -------------------------------------------------------------------------
-
 /// Warmed-up throughput of one chain's steady-state `process` path, per the `ber::perf`
 /// convention: two warm-up calls so the buffers hold their steady capacity, then the measured
 /// iterations. The signal is the entry's own modulator output, so the number is what a channel
@@ -620,7 +569,6 @@ fn measured_coherent_perf() -> Vec<PerfBaseline> {
             2_048,
         ));
     }
-    // The tracking tier at one density, so the two timing tiers' costs subtract directly.
     let params = linear::params(tables::qam_square(16), 0.0, false);
     let mut demod = LinearDemod::new(
         &params,
@@ -723,8 +671,6 @@ fn compare_perf_baselines() {
     compare_perf_baseline(catalog::psk::PSK_PERF, &measured_coherent_perf());
     compare_perf_baseline(catalog::ask::ASK_PERF, &measured_envelope_perf());
 }
-
-// --- Regeneration -------------------------------------------------------------------------------
 
 fn write_curve(m: &Measurement) {
     let link = (m.link)();

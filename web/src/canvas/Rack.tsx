@@ -1,11 +1,3 @@
-// The operate view (CANVAS §5): pinned faces on a snapping grid. Zero pan, zero zoom, no wires
-// — operating wants alignment, density and muscle memory, and a second free canvas would just
-// be the patch view with its wires hidden.
-//
-// Three gestures, all in whole cells: the header drags a face (dropping it on another trades
-// their places), an edge drags the boundary it shares with its neighbour so one grows as the
-// other shrinks, and the corner resizes freely into whatever room there is. The arithmetic is
-// `graph.ts`'s — this file is pointers and grips.
 import { memo, useCallback, useRef, useState } from "react";
 
 import type { PatchNode, RackLayout } from "../lib/types";
@@ -50,8 +42,6 @@ export function Rack() {
       const dx = Math.round((event.clientX - active.originX) / cell.w);
       const dy = Math.round((event.clientY - active.originY) / cell.h);
       const next = applyGesture(active, dx, dy);
-      // A pointer moves far more often than it crosses a cell boundary, and every one of these
-      // re-renders every face in the rack.
       setPreview((current) => (current !== null && sameRack(current, next) ? current : next));
     },
     [cellSize],
@@ -71,9 +61,6 @@ export function Rack() {
       if (dx === 0 && dy === 0) {
         return;
       }
-      // One write per gesture, not one per pointer move (CANVAS §4), and it is re-derived from
-      // the stored rack rather than replayed from the preview: another client may have moved a
-      // face while this drag was in flight, and their arrangement is the one to build on.
       workspace.edit((snapshot) => ({
         ...snapshot,
         rack: applyGesture({ ...active, base: snapshot.rack ?? {} }, dx, dy),

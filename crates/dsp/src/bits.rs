@@ -1,8 +1,3 @@
-//! Bit-level plumbing shared by the framed decoders ( "correlators", §13 phase 2):
-//! NRZI/differential decoding, HDLC deframing, multiplicative scrambling and sync-word
-//! correlation. Everything here is per-bit and allocation-free except the frame vector
-//! [`HdlcDeframer`] hands out.
-
 /// NRZI line decode: a 0 bit is a transition, a 1 bit is no transition (AX.25, AIS).
 ///
 /// The line has no absolute polarity, so the very first output is relative to an assumed
@@ -104,7 +99,6 @@ impl HdlcDeframer {
                 self.append(bit);
                 None
             }
-            // A zero after five ones was inserted by the transmitter and is never data.
             5 => {
                 self.ones = if bit { 6 } else { 0 };
                 None
@@ -409,7 +403,6 @@ mod tests {
 
     #[test]
     fn nrzi_decodes_hand_encoded_levels() {
-        // 1 holds the level, 0 toggles it, starting low.
         let levels = [false, true, true, true, false, true, true];
         let mut nrzi = NrziDecoder::new();
         let bits: Vec<bool> = levels.iter().map(|&l| nrzi.decode(l)).collect();
@@ -451,7 +444,6 @@ mod tests {
 
     #[test]
     fn hdlc_unstuffs_long_runs_of_ones() {
-        // 0xff then 0x03 is ten consecutive ones LSB-first — two stuffed zeros to remove.
         let payload = [0xffu8, 0x03, 0x7f];
         let bits = hdlc_frame(&payload);
         assert!(
@@ -544,7 +536,6 @@ mod tests {
         let mut rx = Descrambler::g3ruh();
         let out: Vec<bool> = channel.iter().map(|&b| rx.push(b)).collect();
         let errors: Vec<usize> = (0..data.len()).filter(|&i| out[i] != data[i]).collect();
-        // x^17 + x^12 + 1: the bit itself, then 12 and 17 bits later.
         assert_eq!(errors, vec![flip, flip + 12, flip + 17]);
     }
 
@@ -622,7 +613,6 @@ mod tests {
         assert_eq!(pack_lsb(&bits), [0x85]);
         assert_eq!(pack_lsb(&bits)[0], reverse_byte(pack_msb(&bits)[0]));
 
-        // A partial byte is zero-padded at the unused end.
         assert_eq!(pack_msb(&[true; 3]), [0xe0]);
         assert_eq!(pack_lsb(&[true; 3]), [0x07]);
         assert!(pack_msb(&[]).is_empty());

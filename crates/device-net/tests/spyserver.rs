@@ -3,10 +3,6 @@
 //! so its helpers panic. Clippy exempts `#[test]` functions from this by config, but not
 //! the free functions and closures a fake server is built out of.
 //! The SpyServer backend against a fake server (: no hardware in CI, ever).
-//!
-//! What only a socket can show: the handshake, the capability set read off it, the settings the
-//! server observes, message framing against a body split across reads, and the reconnect.
-
 mod common;
 
 use std::{
@@ -122,7 +118,6 @@ fn fake_spyserver(behaviour: Behaviour) -> (FakeServer, Observed) {
     let observed: Observed = Arc::new(Mutex::new(HashMap::new()));
     let recorder = observed.clone();
     let server = FakeServer::spawn(move |mut stream: TcpStream, nth| {
-        // The client's hello: a command header and a body it is free to size.
         let mut header = [0u8; 8];
         if stream.read_exact(&mut header).is_err() {
             return;
@@ -174,7 +169,6 @@ fn fake_spyserver(behaviour: Behaviour) -> (FakeServer, Observed) {
             }
         });
 
-        // 64 samples per message, all at the same level so a test can name what it expects.
         let body: Vec<u8> = std::iter::repeat_n(SENT.to_le_bytes(), 128)
             .flatten()
             .collect();

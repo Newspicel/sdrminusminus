@@ -1,40 +1,3 @@
-//! Pulse-shape design ( §3.1 `pulse/`) — the one place a pulse shape is defined.
-//! Modulators, matched filters and `testgen` all draw their taps from here, which is what keeps
-//! a modulator and its demodulator matched to the *same* pulse instead of two implementations
-//! that drift apart (§1.2). Where `sdrmm_dsp` already designs a shape (`design_rrc`,
-//! `design_gaussian`), the constructor here wraps and re-normalises it — never re-derives the
-//! closed form — and a bit-identity test pins the wrap (§1 minimal duplication).
-//!
-//! **Design is cold path.** Constructors allocate freely and compute in `f64`; taps are
-//! designed once at engine construction and only *consumed* by the hot path. The §4.2
-//! zero-allocation gate applies to `process()`, not to this module.
-//!
-//! **Two normalisations, explicit at every call site.** A tap vector answers one of two
-//! questions, and the two differ by a factor no test downstream of an Eb/N0 sweep would ever
-//! localise to the pulse, so [`Norm`] forces the caller to say which one it means:
-//!
-//! - [`Norm::Energy`], `Σ h[n]² = 1` — the crate-root convention for linear-modulation pulses
-//!   and matched filters: a transmitted symbol's energy is its constellation point's squared
-//!   magnitude, and the matched-filter cascade peaks at exactly 1, so every Eb/N0 in
-//!   [`crate::ber`] means the same thing across entries.
-//! - [`Norm::Area`], `Σ h[n] = 1` — unit DC gain, `sdrmm_dsp`'s convention for `design_rrc` and
-//!   `design_gaussian`: a filter that preserves the level of what it filters (what a
-//!   discriminator-fed level estimate relies on), and the CPM frequency-pulse convention — with
-//!   unit area, the phase pulse [`phase_pulse`] reaches q = ½, fixing the per-symbol phase step
-//!   at π·h (see `cpm.rs`).
-//!
-//! **Two sampling grids**, matching what each family of shapes is for:
-//!
-//! - Infinite-support Nyquist pulses (RC, RRC, the Gaussian premod filter) are truncated,
-//!   *centred* designs with an odd tap count and a true centre tap — `sdrmm_dsp::fir`'s
-//!   convention, kept so the wrapped designs pass through untouched under [`Norm::Area`].
-//! - Finite-support pulses (rect, half-sine, LREC, LRC and the composed Gaussian frequency
-//!   pulse) cover exactly their `[0, L·T]` support. The closed-support family samples at
-//!   interval midpoints, `t = (k + ½)/sps` — symmetric for any tap count, no wasted zero
-//!   endpoint taps, and the Riemann sum a frequency pulse's integral wants.
-//!
-//! Design math is `f64` throughout; taps are `f32` (CLAUDE.md: f32 signals, f64 design math).
-
 mod cpm;
 mod nyquist;
 
@@ -56,9 +19,6 @@ pub enum Norm {
     Area,
 }
 
-/// Scales a designed `f64` shape to the requested normalisation and rounds to `f32` once, at
-/// the very end — one rounding step, so both normalisations of a shape are exact scalings of
-/// each other.
 fn normalise(mut h: Vec<f64>, norm: Norm) -> Vec<f32> {
     let scale = match norm {
         Norm::Energy => h.iter().map(|v| v * v).sum::<f64>().sqrt().recip(),
@@ -76,9 +36,6 @@ fn normalise(mut h: Vec<f64>, norm: Norm) -> Vec<f32> {
     h.into_iter().map(|v| v as f32).collect()
 }
 
-/// Re-normalises taps that arrive from an `sdrmm_dsp::fir::design_*` function, which all
-/// normalise to unit DC gain. Under [`Norm::Area`] the taps pass through *untouched* — that is
-/// what makes the constructor provably a wrap and not a fork, pinned by bit-identity tests.
 fn renorm_designed(taps: Vec<f32>, norm: Norm) -> Vec<f32> {
     match norm {
         Norm::Area => taps,
@@ -98,9 +55,6 @@ mod tests {
 
     type Entry = (&'static str, Box<dyn Fn(Norm) -> Vec<f32>>);
 
-    /// Every public pulse at representative parameters, integer and fractional sps both —
-    /// the §7 phase-2 acceptance assertions run over this table, so a pulse added without
-    /// joining it is a review catch, not a silent gap.
     fn catalog() -> Vec<Entry> {
         vec![
             ("rect", Box::new(|n| rect(8.0, n))),
@@ -148,7 +102,6 @@ mod tests {
             let e = build(Norm::Energy);
             let a = build(Norm::Area);
             assert_eq!(e.len(), a.len(), "{name}");
-            // The shared ratio is read off the largest tap for numeric headroom.
             let peak = e
                 .iter()
                 .enumerate()

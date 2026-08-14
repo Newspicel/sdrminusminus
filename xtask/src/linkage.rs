@@ -1,20 +1,4 @@
 //! Does a built macOS artifact still find every library it loads?
-//!
-//! A Mach-O file records each dependency as a path the loader resolves at launch, and nothing
-//! in a build goes red when one of them points somewhere only the build machine has. 0.1.2
-//! shipped that way: the linker was given the whole pinned Soapy environment as a search path,
-//! `libc` asks for `-liconv` on Apple targets, and the app bound to conda's
-//! `@rpath/libiconv.2.dylib` rather than the SDK's `/usr/lib/libiconv.2.dylib`. The bundle
-//! carried no libiconv, so every macOS install — fresh or updated — died before its first
-//! instruction with "Library not loaded". The staging check passed: the files it looks for were
-//! all there. It is what the binaries *ask for* that nobody was reading.
-//!
-//! macOS only, and deliberately so. The loader's search rules are in the file here — `@rpath`,
-//! `@loader_path`, `@executable_path` — so "will this launch on a machine that is not this one"
-//! is answerable from the artifact alone. An ELF's are in the system it lands on, and a Linux
-//! package names its dependencies for the package manager to resolve, so the same walk over a
-//! `.deb` would report every system library as missing.
-
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -149,9 +133,6 @@ fn resolve(
         }
         return Err(tried);
     }
-    // An absolute path outside the shared cache is a failure even when the file is right there:
-    // it is right there *here*. That is how a bundle linked against Homebrew passes every local
-    // test and launches nowhere else.
     if dependency.starts_with('/') {
         return Err(vec![PathBuf::from(dependency)]);
     }
@@ -220,8 +201,6 @@ impl Image {
             if let Some(name) = line.strip_prefix("cmd ") {
                 command = name.trim();
             } else if let Some(value) = line.strip_prefix("name ") {
-                // LC_ID_DYLIB carries a `name` too — the image's own install name, which is not
-                // something it loads.
                 if matches!(
                     command,
                     "LC_LOAD_DYLIB" | "LC_LOAD_WEAK_DYLIB" | "LC_REEXPORT_DYLIB"

@@ -1,21 +1,3 @@
-//! The patch graph — the workspace drawn as nodes and wires (CANVAS §1, §4).
-//!
-//! A workspace stores a [`PatchGraph`] and a [`RackLayout`]: every radio, demodulator, decoder,
-//! map and sink is a node, an edge names which existing stream () a node consumes, and the
-//! rack holds the faces being operated. This is *our* model, never the canvas library's
-//! serialization — templates author workspaces in Rust and a React Flow major must not invalidate a
-//! stored workspace (CANVAS §4, the same rule the M6 layout tree followed).
-//!
-//! The graph is control plane only (CANVAS §2). It is a description the server validates and
-//! applies through the existing command queue; no wire is a data path in itself and the DSP plane
-//! () never sees it.
-//!
-//! Two things it deliberately does *not* store. Settings: a channel node names its *type*, and
-//! the live settings stay where they already live (`ChannelSettings` on the engine's channel), so
-//! turning a squelch knob is not a workspace write. And bindings: which engine device set or
-//! channel a node is currently driving is recomputed per run from durable identity, because
-//! engine ids are allocated per run and reused (, the M6 rule).
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -35,14 +17,6 @@ pub const MAX_NODE_ID_LEN: usize = 64;
 /// so a corrupt write cannot park a node where no camera will find it.
 pub const MAX_COORD: f32 = 100_000.0;
 pub const MAX_NODE_SIZE: f32 = 10_000.0;
-/// Rack grid. Cells are whole units of a fixed grid (CANVAS §5: alignment and muscle memory, no
-/// camera), so a rack that does not fit is a smaller rack, never a zoomed one.
-///
-/// Twelve by eight, not the twenty-four squared it shipped as: the cell is the unit of every
-/// gesture, and a cell too small to aim at is a drag that lands one short. CANVAS §5 already
-/// named the remedy for a rack that feels cramped — bigger cells. A rack stored against the old
-/// grid is re-laid out client-side (`pruneRack`) rather than migrated: the slots are an
-/// arrangement, not data.
 pub const RACK_COLS: u16 = 12;
 pub const RACK_ROWS: u16 = 8;
 /// Bounds a stored port string, not live hardware: validation is pure over the stored graph, so
@@ -80,13 +54,6 @@ pub fn port_stream(base: &str, name: &str) -> Option<u32> {
     Some(n - 1)
 }
 
-/// What a wire carries. Hue encodes this and only this (), so the set stays small
-/// and every member is something the engine actually moves today — with one named exception,
-/// [`PortType::Tx`], which is reserved and unwireable until transmit exists ().
-///
-/// `iq-tap` (decimated channel IQ) and `position` (GPS) stay absent for the reason that exception
-/// does *not* apply to them: the channel analyzer is  Phase 2 and the GPS source Phase 4,
-/// so a port for either would be a wire that dangles with nothing reserving it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PortType {
@@ -98,9 +65,6 @@ pub enum PortType {
     Events,
     /// Scanned pictures, one raster per field (`VIDEO_GRAY` on the wire,  ATV).
     Video,
-    /// Tuning ownership, not a stream: a scanner sweeps the radio it is wired into, and client
-    /// retunes on that radio are refused while it does (). The wire *is* the ownership,
-    /// which is what makes "which radio has this sweep taken over" a thing you can see.
     Control,
     /// Complex baseband to be transmitted at the device rate.
     ///
@@ -218,8 +182,6 @@ pub struct PortSpec {
     pub condition: PortCondition,
     #[serde(default, skip_serializing_if = "is_once")]
     pub repeat: PortRepeat,
-    /// Why this port refuses everything, for the ports that do. The client renders what the
-    /// server describes (), and a port with no wire and no explanation reads as broken.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
@@ -288,8 +250,6 @@ impl PortSpec {
     }
 }
 
-/// The band a node's header strip carries (CANVAS §6): what the operator is looking at before
-/// they read the label.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeCategory {
@@ -300,16 +260,6 @@ pub enum NodeCategory {
     Sink,
 }
 
-/// A device named by durable identity (CANVAS §3), never by an engine or probe id: those are
-/// allocated per run and reused, so a stored engine id would silently bind a node to whichever
-/// radio opened first — the kind of failure that looks like a working panel.
-///
-/// `key` is the tie-break CANVAS §3 does not name. It normally matters only when there is no
-/// serial: the virtual backend's key is `siggen` or the stem of a recording, both durable, and
-/// without it a patch could not say *which* capture it plays. It is also retained when a backend
-/// deliberately exposes several durable addresses for one serial, such as the RSPduo's SDRplay
-/// operating modes. Variant keys use the `serial@variant` form; every other key is omitted when
-/// there is a serial, which keeps a transient USB index from overriding it on ordinary radios.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceRef {
     /// Driver id, matching [`DeviceInfo::driver`]: `"rtlsdr"`, `"hackrf"`, `"soapy"`, `"virtual"`.
@@ -358,11 +308,6 @@ impl DeviceRef {
     }
 }
 
-/// A device node's payload: the radio it names, or nothing yet.
-///
-/// Unbound is a first-class state, not an error — it is the empty node a fresh workspace starts on,
-/// and it renders the device picker. Bound-but-absent is the other one: controls disabled,
-/// wires kept, never silently rebound (CANVAS §3).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -377,12 +322,6 @@ pub struct ChannelNode {
     pub channel_type: String,
 }
 
-/// What a node is. Adjacently tagged like [`crate::ChannelParams`], so the generated TypeScript
-/// is a union the client can exhaustively switch on.
-///
-/// The catalog is deliberately shorter than CANVAS §1's table: the GPS source, the UDP sink and
-/// the WAV audio-file sink need server features that do not exist ( Phase 2/4), and a
-/// node whose backend is unbuilt is a face that can only apologise.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum NodeBody {
@@ -407,9 +346,6 @@ pub enum NodeBody {
     Recorder,
     /// CSV/JSON export of the stored decoder log.
     Export,
-    /// Frequency scanner. Its edge runs *into* the device it drives, because it is ownership and
-    /// not consumption: a running scan owns that set's centre frequency and client retunes are
-    /// refused while it does ().
     Scanner,
 }
 
@@ -627,7 +563,6 @@ pub struct PatchEdge {
     pub to: PortRef,
 }
 
-/// The workspace as a graph (CANVAS §1).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PatchGraph {
     pub nodes: Vec<PatchNode>,
@@ -653,16 +588,12 @@ pub struct RackSlot {
     pub cell: RackCell,
 }
 
-/// The operate view: faces on a snapping grid, no pan, no zoom, no wires (CANVAS §5).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct RackLayout {
     #[serde(default)]
     pub slots: Vec<RackSlot>,
 }
 
-/// Why a graph was refused. Structural and semantic checks both land here so the server has one
-/// rejection point; `Display` is written out rather than derived because this crate carries no
-/// error-derive dependency ().
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatchError {
     TooManyNodes,
@@ -762,10 +693,6 @@ impl PatchGraph {
             .map(|edge| edge.to.node.as_str())
     }
 
-    /// Channel nodes taking IQ from `device_node`, in stored order, with the stream each takes.
-    /// This order is the binding order (CANVAS §3): the n-th node of a type binds the n-th engine
-    /// channel of that type — within a stream, or two channels on different streams of one radio
-    /// would swap settings.
     pub fn channels_of<'a>(
         &'a self,
         device_node: &'a str,
@@ -1192,8 +1119,6 @@ mod tests {
         );
     }
 
-    /// A channel has exactly one IQ input: two devices into one channel is refused until
-    /// `CoherentArray` exists (CANVAS §1, ).
     #[test]
     fn a_single_input_takes_one_wire_and_an_output_fans_out() {
         let mut two_devices = workspace();
@@ -1209,7 +1134,6 @@ mod tests {
             }))
         );
 
-        // The same device feeding a scope, a channel and a recorder is the point of the model.
         let mut fanned = workspace();
         fanned.nodes.push(node("rec", NodeBody::Recorder));
         fanned.edges.push(edge(("dev", "iq"), ("rec", "iq")));
@@ -1236,15 +1160,6 @@ mod tests {
         );
     }
 
-    /// No workspace can be drawn that feeds itself. The proof is over the *kinds*: "some output of
-    /// kind A can reach some input of kind B" is read off the port table, and that graph — self
-    /// edges included, since one would mean two nodes of a kind could feed each other — has to be
-    /// acyclic. Stronger than the per-kind assertions it replaces, and it does not have to be
-    /// rewritten each time a kind grows a port.
-    ///
-    /// It stops being the whole proof the day something emits [`PortType::Tx`]: bench loopback is
-    /// a named use of  and is device → channel → modulator → device by design, so cycle
-    /// checking moves to the instance level then. That nothing emits it today is pinned below.
     #[test]
     fn the_port_table_admits_no_cycle() {
         let catalog = PatchCatalog::build();
@@ -1262,7 +1177,6 @@ mod tests {
             .flat_map(|a| (0..catalog.nodes.len()).map(move |b| (a, b)))
             .filter(|&(a, b)| reaches(&catalog.nodes[a], &catalog.nodes[b]))
             .collect();
-        // Kahn: drop any kind nothing still open can reach, until nothing more can be dropped.
         let mut open: Vec<usize> = (0..catalog.nodes.len()).collect();
         while let Some(at) = open
             .iter()
@@ -1280,9 +1194,6 @@ mod tests {
         );
     }
 
-    /// The transmit gate at this layer (). The device node reserves the input transmit
-    /// will arrive on, and *nothing in this build emits that type* — so no edge into it validates,
-    /// and the reservation cannot quietly become a path to a keyed radio.
     #[test]
     fn the_reserved_transmit_input_can_take_no_wire() {
         let catalog = PatchCatalog::build();
@@ -1340,7 +1251,6 @@ mod tests {
         // is a receiver until it says otherwise.
         assert!(!transmit.applies_to(None), "no radio bound");
 
-        // Its neighbours are unconditional, or a radio out of reach would lose its IQ with it.
         for port in ports_for("device")
             .into_iter()
             .filter(|port| port.port_type != PortType::Tx)
@@ -1466,7 +1376,6 @@ mod tests {
             serial: Some("00000002".to_owned()),
             ..hardware.clone()
         }));
-        // Same radio on a different USB port: the key moved, the serial did not.
         assert!(by_serial.matches(&DeviceInfo {
             key: "3".to_owned(),
             ..hardware.clone()
@@ -1595,8 +1504,6 @@ mod tests {
             "a single-stream radio keeps the table it always had"
         );
 
-        // Every expanded port is the base socket at another name: same type, side and arity,
-        // and concrete (`Once`) so nothing expands it again.
         let expanded =
             device.ports_with(Some(PortBacking::Device(&capabilities(Duplex::Full, 2, 2))));
         for port in &expanded {
@@ -1671,8 +1578,6 @@ mod tests {
         );
     }
 
-    /// Edge cases §10.2: a radio reporting 0 rx streams still has the one IQ port every stored
-    /// wire names; a count past `MAX_STREAMS` would draw ports no wire could validly reach.
     #[test]
     fn a_zero_or_outsize_stream_count_is_clamped() {
         let device = NodeBody::Device(DeviceNode::default());
@@ -1692,8 +1597,6 @@ mod tests {
         assert_eq!(outsize.last().map(String::as_str), Some("iq16"));
     }
 
-    /// §4: validation is pure and runs over the whole snapshot on every write, so a stored
-    /// `iq3` must resolve with no device backing — refusing it would refuse every later write.
     #[test]
     fn validation_resolves_the_bounded_stream_family() {
         let mut streamed = workspace();
@@ -1729,16 +1632,13 @@ mod tests {
         );
     }
 
-    /// §4: two edges into `dev.iq2` and `dev.iq3` are two distinct ports, not one port twice.
     #[test]
     fn arity_is_checked_per_resolved_stream_port() {
-        // One stream fans out to a scope and a channel, exactly as stream 0 always has.
         let mut fanned = workspace();
         fanned.edges[0] = edge(("dev", "iq2"), ("scope", "iq"));
         fanned.edges[1] = edge(("dev", "iq2"), ("ch", "iq"));
         fanned.validate().expect("a stream fans out");
 
-        // Two different streams into one single-wire input are still two wires into it.
         let mut crossed = workspace();
         crossed.edges.push(edge(("dev", "iq3"), ("scope", "iq")));
         assert_eq!(
@@ -1760,7 +1660,6 @@ mod tests {
             }))
         );
 
-        // A resolved stream port still sits on the side its base does.
         let mut backwards = workspace();
         backwards.edges = vec![edge(("ch", "audio"), ("dev", "iq2"))];
         assert_eq!(

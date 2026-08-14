@@ -1,6 +1,3 @@
-//! REST request/response bodies (). Defined once here; TS is generated, never
-//! hand-written (CLAUDE.md non-negotiable #1).
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -10,7 +7,6 @@ use crate::{
     device::{DeviceInfo, DeviceSettings},
 };
 
-/// `GET /api/devices` — discovered hardware across all drivers ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DevicesResponse {
     pub devices: Vec<DeviceInfo>,
@@ -34,7 +30,6 @@ pub struct CreateChannelRequest {
     pub settings: ChannelSettings,
 }
 
-/// The channel types this server build offers, driving the "add channel" UI ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelTypesResponse {
     pub types: Vec<ChannelDescriptor>,
@@ -48,12 +43,6 @@ pub struct ChannelTypesResponse {
 /// there is nothing to say which of a patch's radios it was meant for.
 pub const PRESET_SNAPSHOT_VERSION: u32 = 2;
 
-/// The stored body of a preset: where every radio a workspace draws was tuned, and what hung off
-/// them ().
-///
-/// A preset is workspace-wide because a workspace is: an operator who saved "the morning airband
-/// bench" means every radio on it, and a per-device preset made that several saves that could be
-/// restored in the wrong order or half-applied. Applying one is one gesture over the whole patch.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct PresetSnapshot {
     /// [`PRESET_SNAPSHOT_VERSION`] at the time of writing.
@@ -92,7 +81,6 @@ pub struct CreatePresetRequest {
     pub name: String,
 }
 
-/// A stored frequency bookmark ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Bookmark {
     pub id: i64,
@@ -222,14 +210,6 @@ pub struct DecoderLogEntry {
     pub at: String,
     pub device_set: u32,
     pub channel: u32,
-    /// [`crate::PatchNode::id`] of the channel node this frame came from, resolved against the
-    /// active workspace when the row was written. This is the row's durable identity: `channel`
-    /// above is an engine id, allocated per run and reused (CANVAS §3), so it names this frame's
-    /// origin only for as long as that run lasted.
-    ///
-    /// Absent on rows written before the log recorded it, and on rows written while the channel
-    /// was not bound to any node — a channel created outside a workspace, or one the binding had
-    /// not caught up with yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node: Option<String>,
     /// [`crate::DecoderEvent::kind`] of `event`.
@@ -277,40 +257,8 @@ pub struct DecoderLogQuery {
     /// Restrict to one device set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_set: Option<u32>,
-    /// Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated
-    /// (`channel:a1b2,channel:c3d4`).
-    ///
-    /// This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export
-    /// node shows the decoders wired into it, and "wired into it" is a *set of channels*, which
-    /// neither `kind` nor `device_set` can name. The node id is the durable half of that — engine
-    /// channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
-    /// hand a node another node's history after a restart.
-    ///
-    /// Read against the *active* workspace, which is the one whose canvas drew the scope. A node
-    /// id is unique only within a workspace — templates author theirs as slugs and
-    /// [`crate::WorkspaceSnapshot::merge_patch`] deduplicates only inside the workspace it merges
-    /// into — so ids alone would let two workspaces built from the same template read each
-    /// other's history. Rows written before the server recorded the workspace answer to no id.
-    ///
-    /// Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
-    /// channel, and *both* empty means none, so a node with nothing wired in matches nothing
-    /// rather than everything.
-    ///
-    /// A node id containing a comma cannot be named here. Nothing generates one — ids are
-    /// `kind:uuid` from the client and slugs from the templates — and the fallback below still
-    /// reaches such a node's rows for the run they were written in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nodes: Option<String>,
-    /// Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
-    /// (`0:1,0:2`), matched only against rows whose `node` is null *and* that this server run
-    /// wrote.
-    ///
-    /// Two kinds of row have none. Rows written before the log recorded one, and rows written in
-    /// the window between a channel starting to decode and the workspace binding catching up with
-    /// it. Both are attributable only by the coordinates they *do* carry, and only for the run
-    /// that wrote them — engine channel ids are allocated per run and reused (CANVAS §3), so `0:1`
-    /// names a different decoder in every run that had one. Hence the run bound, and hence this
-    /// being the fallback rather than the filter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sources: Option<String>,
     /// Only entries at or after this RFC3339 timestamp.
@@ -419,7 +367,6 @@ pub struct TemplateInfo {
     pub name: String,
     /// One line for the gallery card.
     pub description: String,
-    /// The "what am I looking at" text shown once it is applied ().
     pub explainer: String,
     pub center_hz: f64,
     pub sample_rate: f64,
@@ -429,10 +376,6 @@ pub struct TemplateInfo {
     /// cannot reach instead of failing on apply.
     pub min_freq_hz: f64,
     pub max_freq_hz: f64,
-    /// The patch the template draws into the active workspace (CANVAS §8 phase ④): a receiver,
-    /// the channels above, their wiring and the faces to operate them. Its channel nodes are the
-    /// `channels` list in order, so the n-th node binds the n-th channel the apply creates. A
-    /// template that names no patch leaves the workspace alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub patch: Option<crate::patch::PatchGraph>,
     /// Which direction the radio has to have. Every built-in template receives; the field is
@@ -440,10 +383,6 @@ pub struct TemplateInfo {
     /// transmit template must not be offered on a receiver the day one exists.
     #[serde(default = "receive")]
     pub direction: crate::device::Direction,
-    /// Whether `sample_rate` is the only rate that works, rather than a starting point. ADS-B
-    /// fills its whole 2 MHz channel, so a resampled one decodes nothing () — a radio
-    /// whose rate menu misses 2 Msps cannot run it at all, while an FM template is happy at
-    /// anything wide enough.
     #[serde(default)]
     pub exact_rate: bool,
     /// Devices this template can actually run on, as `driver:key` handles — the server's answer,
@@ -598,7 +537,6 @@ mod tests {
                 channels: vec![(0, 1), (2, 13)],
             }))
         );
-        // Either half alone is a scope; the other simply matches nothing.
         assert_eq!(
             scoped(Some("ch0"), None).scope(),
             Ok(Some(LogScope {

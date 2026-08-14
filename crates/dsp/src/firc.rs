@@ -1,7 +1,3 @@
-//! Complex-coefficient FIR (): a real lowpass prototype modulated to an arbitrary
-//! center frequency. Unlike a real filter, the response is one-sided — the SSB band-selection
-//! primitive (USB keeps positive frequencies, LSB negative).
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -60,7 +56,6 @@ mod tests {
 
     #[test]
     fn usb_filter_passes_positive_and_rejects_negative() {
-        // USB selection at 48 kHz: lowpass ±2.4 kHz shifted up by 2.4 kHz → passband 0…4.8 kHz.
         let lp = design_lowpass(257, 0.05);
         let mut usb = FirC::from_lowpass(&lp, 0.05);
         let mut out = Vec::new();

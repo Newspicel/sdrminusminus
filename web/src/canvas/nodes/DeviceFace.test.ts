@@ -47,15 +47,11 @@ describe("refLabel", () => {
     );
   });
 
-  // A serial-less singleton is a legal reference (CANVAS §3), and it must still read as a radio
-  // rather than as an empty separator.
   it("falls back to the backend alone", () => {
     expect(refLabel({ backend: "hackrf" })).toBe("hackrf");
   });
 });
 
-// Which dials a device face draws is the radio's `per_stream` declaration, not its stream
-// count: a coherent array shares one tuner by definition, so even four lanes get one dial.
 describe("tunerDials", () => {
   it("draws exactly one unlabelled dial for a single-stream radio", () => {
     const set = deviceSet({ settings: { center_hz: 100_000_000 } });
@@ -81,17 +77,12 @@ describe("tunerDials", () => {
         streams: [{ stream: 1, center_hz: 433_920_000 }],
       },
     });
-    // Stream 0 has no override, so its dial shows the radio-wide centre it falls back to. It is
-    // labelled `iq1`, not the bare `iq` it is stored as: above an `iq2`, an unnumbered dial reads
-    // as the radio's rather than as the first lane's.
     expect(tunerDials(set)).toEqual([
       { stream: 0, port: "iq1", hz: 100_000_000 },
       { stream: 1, port: "iq2", hz: 433_920_000 },
     ]);
   });
 
-  // A one-lane radio that happens to declare per-stream tuning has nothing to distinguish, and a
-  // lone dial labelled IQ reads as if some other one were the radio's.
   it("leaves a single-lane radio's dial unnamed even where tuning is per-stream", () => {
     const set = deviceSet({
       capabilities: capabilities({ rx_streams: 1, per_stream: { tuning: true } }),

@@ -1,9 +1,3 @@
-// The live picture from a video channel (: ATV), rendered as the lower half of that
-// channel's node face — the same place a decoder's output goes (CANVAS §8 phase ③).
-//
-// Pictures bypass React state entirely and go straight to the canvas (: high-rate streams
-// never touch TanStack Query). Only the readout — geometry and whether anything is arriving at
-// all — is state, and it changes at a human rate rather than a field rate.
 import { useEffect, useRef, useState } from "react";
 import type { VideoFrame } from "../lib/frame";
 import { videoHub } from "../lib/video";

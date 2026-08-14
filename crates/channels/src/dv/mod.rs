@@ -1,20 +1,5 @@
 //! Digital-voice decoders ( wave 3): DMR, D-Star, System Fusion, NXDN, P25 Phase 1,
 //! dPMR and M17.
-//!
-//! Every mode produces 48 kHz mono PCM through the channel audio plane: AMBE+2 for DMR, NXDN,
-//! dPMR and YSF V/D, IMBE for P25 and YSF Voice FR, first-generation AMBE for D-Star, and
-//! Codec2 3200/1600 for M17. Carrier-specific framing stays in each state machine; codec state,
-//! concealment and 8 kHz resampling live in the shared vocoder adapter.
-//!
-//! Six of the seven share a front end — the four-level CPFSK entry of the modulation library
-//! ([`sdrmm_modem::cpm`]), at 4800 or 2400 symbols per second — and differ only in the values
-//! they put in its parameters ([`c4fm_params`]) plus their sync patterns, framing and error
-//! coding. D-Star is the exception: it is two-level GMSK and demodulates like AIS does.
-//!
-//! Each mode is a module here with its own `type_id`, because they occupy different bandwidths
-//! and an operator picks a mode by name. They all emit the same [`DvFrame`](sdrmm_wire::DvFrame)
-//! so one panel, one log filter and (later) one trunking follower serve all of them.
-
 pub(crate) mod dmr;
 pub(crate) mod dpmr;
 pub(crate) mod dstar;
@@ -55,10 +40,6 @@ pub(crate) const RRC_SPAN: usize = 8;
 /// the front end's own estimates rather than the last transmitter's correction.
 const ANCHOR_TIMEOUT_SYMBOLS: u32 = 4_800;
 
-/// The symbol table every four-level mode here shares (ETSI TS 102 361-1 §4.2.2, and the same
-/// in TIA-102 and the M17 spec): dibit 00 → +1, 01 → +3, 10 → −1, 11 → −3. Under this table a
-/// symbol *index* is the dibit itself, which is what lets the sync registers below hold sliced
-/// indices directly.
 pub(crate) fn dibit_mapping() -> Mapping {
     Mapping::new(vec![1.0, 3.0, -1.0, -3.0])
 }
@@ -269,11 +250,6 @@ pub(crate) mod testutil {
         let mut out = ChannelOutputs::default();
         let mut frames = Vec::new();
         let mut audio = Vec::new();
-        // A receiver meets a transmission on a channel it was already listening to, and what
-        // it hears until then is its own noise — the same level the generators put under their
-        // signals. The 4FSK front end measures its carrier-detect floor from exactly this, and
-        // a generator handing it silence, or a carrier, from the first sample would be testing
-        // a channel no receiver ever sees.
         let quiet = crate::testutil::complex_noise(0x1157, 0.01, 4 * INPUT_RATE_HZ as usize / 10);
         chan.process(&quiet, &mut out);
         out.reset();

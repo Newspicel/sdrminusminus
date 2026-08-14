@@ -1,7 +1,3 @@
-// Dial arithmetic (). All of it is integer-Hz maths on a place-value view of the
-// tuned frequency, kept out of the component so the component only routes events.
-//
-// A "place" is a power of ten in Hz: place 6 is the megahertz digit, place 0 the hertz digit.
 import type { Capabilities } from "../lib/types";
 
 /** Below this the dial would show fewer than four MHz digits and jump width as the radio is
@@ -78,9 +74,6 @@ export function setDialDigit(hz: number, place: number, digit: number, range: Ra
   return clamp(whole + (digit - current) * unit, range);
 }
 
-/** Free-text entry (). A unit suffix always wins; a bare number is megahertz,
- * which is how a frequency is spoken. Returns null for anything it cannot read, so the caller
- * can leave the draft on screen rather than tuning somewhere unintended. */
 export function parseFrequency(text: string): number | null {
   // Longest-first so `Hz` is read as hertz rather than as an `h` followed by a stray `z`.
   const match = /^\s*([0-9]*[.,]?[0-9]+)\s*(ghz|mhz|khz|hz|g|m|k|h)?\s*$/i.exec(text);

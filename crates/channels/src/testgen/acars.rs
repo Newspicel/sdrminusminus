@@ -1,10 +1,3 @@
-//! ACARS reference modulator (): an ARINC 618 block → odd-parity characters and a
-//! CRC-16 → MSK at 2400 bit/s → amplitude modulation onto a carrier at complex baseband.
-//!
-//! The field layout is written out here from the standard rather than shared with the decoder:
-//! a block laid out by the same code that parses it would round-trip through any offset error
-//! the two happened to agree on.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -21,7 +14,6 @@ const ETX: u8 = 0x03;
 const ETB: u8 = 0x17;
 const DEL: u8 = 0x7F;
 
-/// Bit-synchronisation characters that precede the sync pair on the air (ARINC 618 §4.3.1).
 const BSYNC: [u8; 2] = *b"+*";
 
 /// Alternating bits ahead of the block, so the receiver's bit clock and matched filter have
@@ -48,7 +40,6 @@ pub struct Block<'a> {
     pub more: bool,
 }
 
-/// Set the high bit where needed to give a 7-bit character odd parity (ARINC 618 §4.2).
 #[must_use]
 pub fn odd_parity(byte: u8) -> u8 {
     if (byte & 0x7F).count_ones().is_multiple_of(2) {

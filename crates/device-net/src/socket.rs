@@ -1,18 +1,5 @@
 //! The transport both network backends stream over: one TCP connection, shared by the control
 //! thread that writes commands into it and the capture thread that drains samples out of it.
-//!
-//! `std::net::TcpStream` is what makes that sharing safe without a lock on the read path — `Read`
-//! and `Write` are implemented for `&TcpStream`, so an `Arc<TcpStream>` gives both threads what
-//! they need, and `shutdown` from a third (the capture supervisor's stop handle) unblocks a read
-//! that is parked in the kernel. A `Mutex<TcpStream>` could not do that: the lock would be held
-//! *by* the blocked reader.
-//!
-//! Nothing here knows a protocol. Framing is each backend's ([`crate::rtltcp`] takes the socket
-//! as a byte stream, [`crate::spyserver`] as a message stream); what is here is the part that is
-//! identical and easy to get subtly wrong — the read timeout that keeps the supervisor responsive
-//! to its stop flag, the buffer reuse that keeps the capture thread out of the allocator, and the
-//! one place a failure reason is recorded so [`CaptureStream::failure`] can report it.
-
 use std::{
     io::{ErrorKind, Read as _, Write as _},
     net::{Shutdown, TcpStream},

@@ -1,6 +1,3 @@
-// The one-of-many control (). A native `<select>` draws its list in OS chrome, which
-// ignores the palette and cannot carry the silkscreen voice; this renders the list in the same
-// elevation-3 surface every other menu uses, from the same `segment()` parts.
 import { Select as Primitive } from "@base-ui/react/select";
 import { FIELD, type Options, SURFACE, segment } from "./controls";
 

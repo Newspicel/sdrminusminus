@@ -1,15 +1,6 @@
 //! The steady-frame substrate the GMSK, MSK and AFSK entries share: one geometry, one
 //! alignment rule, one receive front end, so a difference between two of those curves reads
 //! the modulation and nothing else.
-//!
-//! **The RF front end is part of the measurement.** GMSK and MSK run behind the *same*
-//! 127-tap ±6 kHz channel-selection lowpass at 48 kHz; without one a discriminator eats the
-//! full sample rate as noise and the waterfall shifts several dB right (the phase-0 DMR
-//! baseline's finding), and keeping it identical across the two entries is what makes the
-//! GMSK-vs-MSK comparison read the frequency pulse alone. AFSK needs none — both audio
-//! detectors are inherently band-selective — so it supplies its own chain and reuses only
-//! the framing below.
-
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
 
@@ -272,7 +263,6 @@ mod tests {
     /// response, which is why that entry cannot be framed with the alternating pattern.
     #[test]
     fn alternating_filler_collapses_through_a_partial_response() {
-        // The BT = 0.3 symbol-spaced response (see `catalog::gmsk`).
         let response = [0.014f32, 0.220, 0.532, 0.220, 0.014];
         let level = |s: u8| if s == 1 { 1.0f32 } else { -1.0 };
         let convolve = |symbols: &[u8]| -> f32 {

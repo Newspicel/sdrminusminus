@@ -1,9 +1,3 @@
-// The channel node's face (CANVAS §1): where the channel sits in its radio's passband and the
-// settings its mode owns. The face is the whole control surface; there is no dialog behind it.
-//
-// Settings and nothing else. What the channel *produces* is read at the end of a wire — audio in
-// a speaker, decoded state in a readout, decoded frames in a log, a picture in a video node — so
-// the face says which of its outputs reach nowhere rather than quietly showing them here.
 import { ChannelControls } from "../../components/ChannelControls";
 import { channelHasAudio, channelHasVideo, rateMismatch } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
@@ -16,7 +10,6 @@ import { FaceBody, NodeShell } from "./NodeShell";
 
 export function ChannelFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
-  // The node registry mounts this face for channel nodes only; the guard is what narrows `data`.
   if (node.kind !== "channel") {
     return null;
   }
@@ -26,8 +19,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const name = descriptor?.name ?? typeId.toUpperCase();
   const set = deviceSetOf(workspace, node.id);
   const channel = workspace.channels.get(node.id) ?? null;
-  // Wired and bound are different states: a wire to a radio that is unplugged is kept, and the
-  // face says which of the two is missing rather than offering a fix that cannot work (CANVAS §3).
   const source = iqSourceOf(workspace.graph, node.id);
   const wired = source !== null;
   // Where the channel actually is: *its lane's* centre plus the offset — on a radio whose
@@ -111,13 +102,6 @@ function unwiredOutputs(
   return missing;
 }
 
-/**
- * The one refusal an operator meets by accident, so it answers "why" and not just "no", and
- * offers a rate *this* radio actually has: a decoder that reads the device's own samples runs
- * over a range of rates (), and the nearest one inside it is a click away. Naming a
- * number the receiver cannot produce is how "set it to 2.000 MHz" became a dead end on every
- * RTL-SDR, whose nearest rate is 2.048.
- */
 function RateMismatch({
   name,
   set,
@@ -184,10 +168,6 @@ function bindingLabel(wired: boolean, open: boolean): string {
   return open ? "not created" : "radio absent";
 }
 
-/** No engine channel behind the node — which of three things is missing. Apply is offered
- * whenever a radio is wired: it opens an attached radio and creates the channel, and for a
- * radio that is not there it changes nothing, since the patch keeps the wire either way
- * (CANVAS §3). */
 function Unbound({ wired, open, onApply }: { wired: boolean; open: boolean; onApply: () => void }) {
   return (
     <div className="flex flex-col items-start gap-2 p-3">

@@ -1,19 +1,3 @@
-//! The measured chains behind the `CATALOG.md` rows, and the registry `cargo xtask ber`
-//! dispatches on ( §3.1: "`cargo xtask ber <entry>` → CSV/JSON").
-//!
-//! A catalog entry's chain is not test scaffolding: it *is* the definition of what the
-//! committed curve measures — the framing, the front end, the alignment rule, the Eb
-//! accounting. Two copies of that definition is two entries wearing one name, so it lives here
-//! once and both consumers read it: the crate's own gate tests in `tests/`, and the command
-//! that lands a curve on disk for a human to look at. [`reference`](super::reference) holds the
-//! same thing for the phase-0 calibration link, which is why that entry's chain was never
-//! duplicated in the first place.
-//!
-//! What a registered [`Measurement`] carries is exactly what it takes to reproduce a committed
-//! artifact: the link, the grid, the seed, the error budget, and the §4.1 reference the curve
-//! is judged against. Nothing here decides *policy* — the tolerances are the ones the crate's
-//! own gates apply, restated in one place instead of two.
-
 pub mod afsk;
 pub mod analog;
 pub mod ask;
@@ -69,7 +53,6 @@ pub struct Tier {
     pub max_trial_bits: u64,
 }
 
-/// What a measured curve is judged against (§4.1).
 #[derive(Clone, Copy, Debug)]
 pub enum Reference {
     /// Commit-and-guard: no closed form describes the chain, so the committed artifact is the
@@ -150,10 +133,6 @@ impl Measurement {
         format!("{BASELINE_DIR}/{}.json", self.stem)
     }
 
-    /// The §4.1 judgement of a freshly measured curve against this measurement's reference,
-    /// as `(what it was compared with, the measured gap in dB, the tolerance)`. `None` for a
-    /// commit-and-guard row, whose only reference is the committed artifact itself — see
-    /// [`drift_db`](Self::drift_db).
     #[must_use]
     pub fn reference_gap(&self, curve: &Curve) -> Option<(String, f64, f64)> {
         let grid = curve.points.first()?.ebn0_db;
@@ -213,17 +192,12 @@ pub struct Entry {
     pub measurements: &'static [Measurement],
 }
 
-/// The phase-0 calibration entry: the harness's own reference link against the exact closed
-/// form (§4.1). Its committed curve is the one every later measurement's trust rests on.
 const BPSK_IDEAL: &[Measurement] = &[Measurement {
     stem: "bpsk_ideal_awgn",
     link: super::reference::ideal_bpsk,
     full: Tier {
         grid: &[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
         seed: 0x5eed,
-        // Above the 100-error floor by two orders on purpose: at the shallow low-SNR
-        // log-slope a 100-error point's horizontal confidence interval is wider than the
-        // 0.2 dB being judged (the budget discussion on `reference`'s gate tests).
         min_errors: 10_000,
         max_trial_bits: 50_000_000,
     },

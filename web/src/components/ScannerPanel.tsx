@@ -1,6 +1,3 @@
-// Frequency scanner controls ( P2, M5). Live progress comes from the `ScannerUpdate`
-// WS event via the scanner store, never from polling; the state snapshot is what says whether
-// a scan exists at all.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { STATE_KEY, startScan, stopScan } from "../lib/api";
@@ -100,8 +97,6 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
       ) : (
         <>
           {ranges.map((range, i) => (
-            // The editor rows have no identity of their own; the index is the identity.
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional by definition
             <div key={i} className="flex flex-wrap items-center gap-2">
               <input
                 className={`${FIELD} w-24`}

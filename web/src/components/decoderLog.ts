@@ -183,7 +183,6 @@ export function collectLive(
       }
     }
   }
-  // oxlint-disable-next-line unicorn/no-array-sort
   records.sort((a, b) => timeMs(b.at) - timeMs(a.at));
   return records.length > cap ? records.slice(0, cap) : records;
 }
@@ -215,7 +214,6 @@ export function buildRows(
     }
   }
   rows.push(...stored);
-  // oxlint-disable-next-line unicorn/no-array-sort
   rows.sort((a, b) => timeMs(b.at) - timeMs(a.at));
   return rows;
 }
@@ -248,8 +246,6 @@ export function liveRow(record: DecodedRecord): LogRow {
     live: true,
     event: record.event,
   };
-  // A live frame has no id; its content is its identity, which is also what makes it a duplicate
-  // of a stored row once the log has caught up.
   row.key = `live:${signature(row)}`;
   return row;
 }
@@ -367,7 +363,6 @@ export function eventStation(event: DecoderEvent): string | null {
       }
       return f.data === "" ? null : f.data;
     }
-    // Who keyed up, by whichever name the mode addresses them.
     case "dv":
       return (
         event.data.source_call ?? (event.data.source == null ? null : String(event.data.source))
@@ -412,8 +407,6 @@ export function kindOptions(entries: readonly DecoderLogEntry[]): string[] {
   return [...DECODER_KINDS, ...[...extra].sort()];
 }
 
-/** Gaps are never hidden (): `lost` is what this browser's WS connection missed,
- * `dropped` what never reached the log server-side. `null` when nothing was lost. */
 export function droppedNotice(lost: number, dropped: number): string | null {
   if (lost <= 0 && dropped <= 0) {
     return null;

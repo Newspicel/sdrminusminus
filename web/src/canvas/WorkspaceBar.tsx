@@ -1,10 +1,3 @@
-// The one row of chrome above the workspace, in three groups: what this is (the wordmark and the
-// workspace it is showing), how it is being looked at (patch or rack), and what can be added to
-// it. The library and the theme sit at the far end, where nothing an operator reaches for mid-
-// listen has to travel past them.
-//
-// Everything that *is* a node lives on the canvas — this bar deliberately holds no radio
-// controls, because the device node is where a radio is operated now (CANVAS §1).
 import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";

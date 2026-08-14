@@ -1,13 +1,3 @@
-//! The audio-domain FSK / AFSK catalog entry ( §6 CPM row 5): Bell-202-like
-//! 1200/2200 Hz at 1200 baud, real-valued input through both of the engine's [`RealDetector`]
-//! options.
-//!
-//! No channel-selection lowpass: both detectors are inherently band-selective, so the detector
-//! *is* the front end and the two options are measured against each other on equal terms —
-//! which is what makes the tier-1 choice (`afsk_filterbank_is_the_tier_one_reference`) a
-//! measurement rather than a preference. The rect frequency pulse is full response, so the
-//! entry keeps the alternating acquisition preamble (see [`framing::alternating_symbols`]).
-
 use sdrmm_dsp::Nco;
 
 use super::{
@@ -22,8 +12,6 @@ use crate::{
     cpm::{CpmDemod, CpmParams, Mapping, RealDetector, TIMING_BW_BURST},
     pulse::{self, Norm},
 };
-
-// --- The entry's reference configuration ------------------------------------------------------
 
 /// Bell-202 tones at 1200 baud, processed at 12 kHz audio (10 sps — the rate an APRS-in-NFM
 /// audio tap resamples to). Mark sits *below* the 1700 Hz centre, so its level is −1 and the
@@ -73,8 +61,6 @@ pub fn rx(detector: RealDetector) -> Vec<f32> {
         RealDetector::Discriminator { .. } => pulse::rect(SPS, Norm::Area),
     }
 }
-
-// --- Framing ----------------------------------------------------------------------------------
 
 /// AFSK trials are shorter-framed than the RF entries': the audio detectors lock in tens of
 /// symbols (the demod unit tests align within 80), so 64 preamble symbols suffice. The unique
@@ -163,8 +149,6 @@ pub fn discriminator_link() -> Link {
         discriminator(),
     )
 }
-
-// --- Committed sweep parameters ----------------------------------------------------------------
 
 /// One grid for both detectors: the tier-1 comparison is only a comparison if the two curves
 /// are measured at the same points.

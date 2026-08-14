@@ -93,17 +93,13 @@ describe("JitterBuffer", () => {
     jb.push(ramp(1, 5));
     expect(readMono(jb, 4).out).toEqual([1, 2, 3, 4]);
 
-    // Partial fill: real samples then silence, then buffering until target again.
     expect(readMono(jb, 4)).toEqual({ ok: true, out: [5, 0, 0, 0] });
     expect(readMono(jb, 4)).toEqual({ ok: false, out: [0, 0, 0, 0] });
-    // The pre-buffer was demonstrably too small for this stream: hold more next time.
     expect(jb.targetDepth).toBe(6);
 
     jb.push(ramp(6, 5));
     expect(readMono(jb, 4)).toEqual({ ok: false, out: [0, 0, 0, 0] });
     jb.push(ramp(11, 1));
-    // Resumed a hair slow to rebuild the headroom the underrun cost: contiguous audio from
-    // where playback stopped, resampled rather than spliced.
     const resumed = readMono(jb, 4).out;
     expect(resumed[0]).toBe(6);
     expect(resumed[3]).toBeCloseTo(9, 1);
@@ -124,7 +120,6 @@ describe("JitterBuffer", () => {
     readMono(jb, 5);
     expect(jb.targetDepth).toBe(6);
 
-    // relaxAfter is 1200 frames of underrun-free playback for a 4-frame floor.
     let next = 1;
     for (let i = 0; i < 320; i++) {
       jb.push(ramp(next, 4));
@@ -149,8 +144,6 @@ describe("JitterBuffer", () => {
     const jb = new JitterBuffer(2, 8, 1);
     jb.push(ramp(1, 6));
     jb.push(ramp(7, 6));
-    // All 6 old samples dropped (target is 2, the new chunk alone exceeds it): depth resumes
-    // at the chunk size, not parked at the 8-sample cap.
     expect(jb.buffered).toBe(6);
     expect(readMono(jb, 6).out).toEqual([7, 8, 9, 10, 11, 12]);
   });
@@ -165,23 +158,17 @@ describe("JitterBuffer", () => {
 
   it("sheds sustained backlog by playing imperceptibly fast, never by discarding audio", () => {
     const jb = new JitterBuffer(100, 1000, 1);
-    // A burst parked the depth at 2.5x target: inflow equals outflow from here, so only the
-    // drift correction can bring it back down.
     jb.push(ramp(1, 250));
     const { maxStep } = stream(jb, 50, 1_000, 251);
 
     expect(jb.buffered).toBeLessThan(200);
     expect(jb.buffered).toBeGreaterThan(50);
-    // The ramp is contiguous throughout: a discarded chunk would show as a jump, and the
-    // resampling itself never advances by more than the 1.004 rate cap.
     expect(maxStep).toBeLessThan(1.01);
   });
 
   it("rebuilds headroom by playing imperceptibly slow when the depth sits under target", () => {
     const jb = new JitterBuffer(100, 1000, 1);
     jb.push(ramp(1, 100));
-    // Half the target of depth, held there by equal inflow and outflow until the correction
-    // walks it back up.
     readMono(jb, 50);
     const { maxStep } = stream(jb, 50, 1_000, 101);
 
@@ -193,35 +180,26 @@ describe("JitterBuffer", () => {
     const jb = new JitterBuffer(100, 1000, 1);
     jb.push(ramp(1, 600));
     stream(jb, 50, 60, 601);
-    // 6x target is latency, not jitter headroom, and 0.4 % would need minutes to shed it.
     expect(jb.buffered).toBeLessThan(150);
   });
 
   it("rides out a producer clock 0.1 % fast for three minutes, discarding nothing", () => {
     const jb = new JitterBuffer(4_800, 48_000, 1);
     const { maxStep } = drift(jb, 1_000, 180);
-    // A fixed-rate reader would have accumulated ~8600 frames of backlog by now and shed it in
-    // one audible splice; the correction parks the depth just above target instead.
     expect(jb.buffered).toBeLessThan(2 * 4_800);
     expect(maxStep).toBeLessThan(1.01);
-    // The target only grows on an underrun, so an untouched floor means playback never starved.
     expect(jb.targetDepth).toBe(4_800);
   });
 
   it("rides out a producer clock 0.1 % slow for three minutes without starving", () => {
     const jb = new JitterBuffer(4_800, 48_000, 1);
     const { maxStep } = drift(jb, -1_000, 180);
-    // The same backlog in the other direction: a fixed-rate reader would have run dry twice.
     expect(jb.buffered).toBeGreaterThan(0.5 * 4_800);
     expect(maxStep).toBeLessThan(1.01);
     expect(jb.targetDepth).toBe(4_800);
   });
 
   it("still works when rebuilt from its own source, as the worklet rebuilds it", () => {
-    // worklet.ts ships this class to the audio thread as `JitterBuffer.toString()`, where
-    // module scope does not exist: anything it referenced from outside its own body — an
-    // import, a module constant, a static of its own — would be a ReferenceError there.
-    // oxlint-disable-next-line typescript/no-implied-eval -- evaluating that source is precisely what is under test.
     const rebuild = new Function(`"use strict"; return (${JitterBuffer.toString()});`);
     const Rebuilt = rebuild() as typeof JitterBuffer;
 
@@ -255,15 +233,12 @@ describe("JitterBuffer", () => {
     jb.push(ramp(1, 2));
     const resumed = readMono(jb, 2);
     expect(resumed.ok).toBe(true);
-    // Rebuffering leaves the depth average below target, so playback resumes a hair slow:
-    // sample-exact on the first frame, fractionally behind on the next.
     expect(resumed.out[0]).toBe(1);
     expect(resumed.out[1]).toBeCloseTo(2, 2);
   });
 
   it("deinterleaves stereo frames into one output per channel", () => {
     const jb = new JitterBuffer(2, 8, 2);
-    // Left counts up, right counts down: a swapped or shifted lane is visible in the values.
     jb.push(Float32Array.from([1, -1, 2, -2, 3, -3]));
     expect(jb.buffered).toBe(3);
     expect(read(jb, 3, 2).out).toEqual([

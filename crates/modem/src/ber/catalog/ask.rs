@@ -1,22 +1,3 @@
-//! The amplitude catalog entry ( §6, linear row 1): M-PAM, unipolar M-ASK and OOK, on
-//! both the coherent and the noncoherent envelope tier.
-//!
-//! **Three tables, not one, because they are three different modulations.** [`pam`] is bipolar —
-//! a transmitter that *inverts* its carrier — and it is the best of the three per unit energy.
-//! [`ask`] is unipolar, keying the carrier between levels that all sit on one side of the origin,
-//! which spends energy on a DC term that carries nothing; that is the price of not needing a
-//! phase reference at the transmitter. [`ook`] is that family's M = 2 member, and the one two
-//! repo channels actually use.
-//!
-//! **Two tiers, and the boundary between them is measured.** The envelope tier needs no carrier
-//! recovery at all, which is what morse and a keyed ISM remote have. What it costs is the fold:
-//! `|·|` on a linearly-shaped waveform rectifies the pulse's negative lobes, and on a multilevel
-//! unipolar stream that leaves an additive self-noise flat across the levels (measured in
-//! `linear::envelope`). At OOK's half-full-scale margin that costs a fraction of a dB; at 4-ASK's
-//! third-of-a-mean margin it is an error floor. So OOK is committed on both tiers and the
-//! multilevel rows only on the coherent one — which is the honest reading of where each tier
-//! belongs, not a gap in the bundle.
-
 use crate::{
     ber::{
         catalog::{
@@ -36,7 +17,6 @@ use crate::{
 /// decisions a 2- or 4-level real table makes are reliable well below its own sensitivity.
 pub const ASK_LOOP_BW: f64 = 0.01;
 
-/// Coherent OOK — the tier the envelope row below is measured against (§5 item 2).
 #[must_use]
 pub fn ook_coherent_link() -> Link {
     coherent_link(
@@ -113,8 +93,6 @@ pub fn ask4_link() -> Link {
         },
     )
 }
-
-// --- Committed sweep parameters ----------------------------------------------------------------
 
 pub const OOK_COHERENT_GRID: &[f64] = &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
 pub const OOK_ENVELOPE_GRID: &[f64] = &[8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0];

@@ -1,9 +1,6 @@
 //! Pure translation between the wire capability model and what an rtl_tcp server will accept:
 //! the tuner tables the greeting's one byte selects, and the state that is the only account of
 //! what the remote dongle is set to.
-//!
-//! No I/O, so every mapping is unit-testable against a fabricated greeting.
-
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
     Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, GainStage, GainValue, Range,
@@ -137,8 +134,6 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
             range,
         }],
         antennas: vec!["RX".to_string()],
-        // The R82xx IF filter is continuous from the caller's side and osmocom's rtl_tcp has no
-        // command for it at all.
         bandwidths: Vec::new(),
         extra: extra_settings(),
         ppm: true,
@@ -189,13 +184,6 @@ pub(crate) enum GainMode {
     Manual(i32),
 }
 
-/// Everything the remote dongle has been told.
-///
-/// It is also the *only* account of what the dongle is set to: rtl_tcp acknowledges nothing and
-/// reads nothing back, so what this backend reports through `settings()` is what it asked for,
-/// which is what makes this type the state rather than a cache of one. It doubles as the
-/// reconnect script — a dropped connection is re-dialled into a dongle at its power-on defaults,
-/// and [`Remote::replay`] is what puts it back where the operator left it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Remote {
     sample_rate: u32,
@@ -404,9 +392,6 @@ pub(crate) fn validate(
         }
     }
 
-    // One knob, two names: the tuner's gain mode and its value are the same control, so an
-    // explicit `agc` decides the mode and a bare gain value means manual — which is what the
-    // remote's `rtlsdr_set_tuner_gain` would do with it anyway.
     let gain = match (agc, requested_gain) {
         (Some(true), _) => Some(GainMode::Auto),
         (_, Some(tenths)) => Some(GainMode::Manual(tenths)),

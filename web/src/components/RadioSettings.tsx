@@ -1,7 +1,3 @@
-// Capability-driven receiver controls (): everything renders from `Capabilities` +
-// `DeviceSettings` alone, so a new device setting needs zero frontend work. One row per setting,
-// everything the dial is not — the same rows serve the device node's face (CANVAS §1) and the
-// M6 radio popover, because a receiver has one set of controls, not one per surface.
 import { useEffect, useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
 import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";

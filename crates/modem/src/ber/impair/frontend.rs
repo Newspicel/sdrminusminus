@@ -202,8 +202,6 @@ mod tests {
             y.iter().map(|s| f64::from(s.re)).sum::<f64>() / n,
             y.iter().map(|s| f64::from(s.im)).sum::<f64>() / n,
         );
-        // The white input's own sample mean is ~N(0, 1/√N) per component; 200k samples put
-        // that at ~0.2% of RMS, well under the 1% gate.
         let err = (mean / reference - applied).norm();
         assert!(
             err < 0.01,
@@ -250,8 +248,6 @@ mod tests {
     #[test]
     fn quantiser_sqnr_matches_six_db_per_bit() {
         let bits = 8;
-        // A constant-modulus tone has RMS equal to its amplitude, so 0 dB of headroom puts
-        // full scale exactly at the component sine's peak — the textbook SQNR condition.
         let x = tone(0.123_456_7, 100_000);
         let mut y = x.clone();
         Quantiser::new(bits, 0.0).apply(&mut y, &mut Rng::new(0));

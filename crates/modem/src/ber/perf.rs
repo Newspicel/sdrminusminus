@@ -1,22 +1,3 @@
-//! The performance scaffold ( §4.2). Three instruments behind one contract: every
-//! engine commits a throughput baseline, the nightly fails a run that loses more than
-//! [`REGRESSION_FRACTION`] of it, and the steady-state `process()` path is proven — not
-//! promised — to allocate nothing, by counting every allocation the thread makes.
-//!
-//! Wall-clock time is allowed here and nowhere else in the harness: throughput is a property
-//! of the machine, and the determinism rule (see [`super`]) governs signal content, never how
-//! long the silicon took. What keeps a wall-clock number honest is the baseline protocol
-//! instead — measured in release on a stated host, committed as JSON, and compared only on
-//! that host, because an arm64 laptop's Msamples/s says nothing about an x86 runner's.
-//!
-//! The zero-allocation convention for hot paths: warm the object up until its buffers hold
-//! their steady-state capacity (two full blocks — streaming stages carry an inter-block
-//! remainder, so the block after the first is the first whose buffer must fit remainder plus
-//! block), then wrap one more call in [`assert_no_alloc`]. The counting is per binary:
-//! `#[global_allocator]` binds when a *binary* is linked, so this library cannot install the
-//! counter on behalf of the test binaries that link it — each one declares its own
-//! [`CountingAlloc`], and [`measure_allocs`] refuses to believe a binary that forgot.
-
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
@@ -28,9 +9,6 @@ use num_complex::Complex;
 use sdrmm_dsp::{RealDecimator, design_rrc};
 use serde::{Deserialize, Serialize};
 
-/// Fraction of committed throughput a bench may lose before [`compare_perf`] fails the run
-/// (§4.2: the nightly fails on >10% regression; a per-entry override needs a justification
-/// in the commit that makes it).
 pub const REGRESSION_FRACTION: f64 = 0.10;
 
 thread_local! {
@@ -52,20 +30,6 @@ fn thread_allocs() -> u64 {
     THREAD_ALLOCS.try_with(Cell::get).unwrap_or(0)
 }
 
-/// The system allocator with a per-thread allocation counter in front — the instrument behind
-/// §4.2's "zero steady-state allocations, asserted". Install one at the root of a test
-/// binary:
-///
-/// ```text
-/// #[global_allocator]
-/// static ALLOC: sdrmm_modem::ber::perf::CountingAlloc = sdrmm_modem::ber::perf::CountingAlloc::new();
-/// ```
-///
-/// Each binary installs its own instance because `#[global_allocator]` is resolved per
-/// binary: this crate's test binary declares one for itself, and every future crate's test
-/// binary that asserts zero-alloc declares another. Deallocations are not counted — a hot
-/// path is gated on *acquiring* memory, and a free implies an acquisition somewhere that the
-/// counter already saw.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CountingAlloc;
 
@@ -77,7 +41,6 @@ impl CountingAlloc {
 }
 
 // SAFETY: every method forwards verbatim to `System`, whose contract the caller already
-// carries; the counter touches no allocator state.
 unsafe impl GlobalAlloc for CountingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         count_one();
@@ -122,12 +85,6 @@ pub fn measure_allocs(f: impl FnOnce()) -> u64 {
     thread_allocs() - before
 }
 
-/// The hot-path gate (§4.2): after warm-up, one steady-state call must allocate nothing.
-/// `label` names the path in the failure, because "1 allocation" is only actionable with a
-/// culprit attached.
-///
-/// # Panics
-/// If `f` allocated, or if the counting allocator is not installed (see [`measure_allocs`]).
 pub fn assert_no_alloc(label: &str, f: impl FnOnce()) {
     let allocs = measure_allocs(f);
     assert_eq!(
@@ -153,12 +110,6 @@ pub fn measure_throughput(iters: u64, samples_per_iter: u64, mut f: impl FnMut()
     (iters as f64) * (samples_per_iter as f64) / elapsed / 1e6
 }
 
-/// One engine configuration's committed performance number (§4.2). `bench` matches the
-/// criterion bench id; `config` states the measured configuration in words; `host` is the
-/// coarse `arch-os` pair from [`host_id`] — enough to refuse a cross-machine comparison, free
-/// of hostname lookups that would differ per developer laptop. `realtime_factor` is
-/// throughput over the entry's required processing rate: how many channels of this type one
-/// core sustains.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PerfBaseline {
     pub bench: String,
@@ -200,15 +151,6 @@ pub struct PerfChange {
     pub change_fraction: f64,
 }
 
-/// The §4.2 regression gate: every committed bench, matched by name *and* config (a number
-/// measured at another configuration is a different number), against its measured throughput.
-/// `Ok` carries every change so improvements are reported, not just tolerated; `Err` carries
-/// the benches that lost more than `regression_fraction` (default [`REGRESSION_FRACTION`]).
-/// Measured benches with no committed counterpart pass silently — they are committed when the
-/// baseline is next rewritten.
-///
-/// # Errors
-/// The regressed entries, worst offenders included, when any committed bench fails the gate.
 pub fn compare_perf(
     measured: &[PerfBaseline],
     committed: &[PerfBaseline],
@@ -405,11 +347,6 @@ mod tests {
         );
     }
 
-    /// §4.2's zero-alloc gate on the shared timing stack. Two warm-up blocks, per the
-    /// module-level convention: streaming stages carry an inter-block remainder, so the second
-    /// block is the first whose buffers must fit remainder plus block, and only after it has
-    /// the capacity envelope stopped growing. The engines that compose it carry their own —
-    /// `cpm::demod`'s tests gate both input domains.
     #[test]
     fn symbol_sync_steady_state_allocates_nothing() {
         let iq = shaped_bpsk_iq(4_096, 8.0, 0x0dd5);
@@ -426,17 +363,8 @@ mod tests {
         );
     }
 
-    /// Reference processing rate the real-time factor divides by (§4.2): the input sample rate
-    /// the entry consumes in its named configuration — `SymbolSync` at 8 samples per symbol of
-    /// a 4800 baud channel eats 38.4 kHz.
     const SYMBOL_SYNC_RATE_HZ: f64 = 8.0 * 4_800.0;
 
-    /// Committed rows whose chain no longer exists. `fsk4_dmr_48k` measured `Fsk4Demod`, which
-    /// phase 3 deleted when the `cpm` engine replaced it ( §7). A committed
-    /// measurement is never regenerated or edited (§8), so the number stays in the file as the
-    /// pre-migration reference the migration was judged against — but nothing can measure it
-    /// again, and neither the writer nor the gate may treat that as a change. The engine that
-    /// replaced it carries its own baseline, `baselines/cpm/mfsk_perf.json`.
     const RETIRED: [&str; 1] = ["fsk4_dmr_48k"];
 
     fn measured_baselines() -> Vec<PerfBaseline> {

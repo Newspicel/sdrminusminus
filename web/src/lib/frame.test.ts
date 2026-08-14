@@ -1,5 +1,3 @@
-// Buffers are built by hand per the layout documented in `crates/wire/src/frame.rs`, so a
-// drift between the Rust encoder and this decoder fails here, not in the browser.
 import { describe, expect, it } from "vitest";
 import {
   decodeAudio,
@@ -139,8 +137,6 @@ describe("decodeVideo", () => {
     expect(Array.from(frame?.luma ?? [])).toEqual(Array.from(luma));
   });
 
-  // A canvas sized from the header and filled from a short payload would draw whatever the
-  // buffer happened to hold, so the geometry and the payload have to agree or nothing is drawn.
   it("rejects a payload that is shorter than its geometry, and an empty one", () => {
     const luma = new Uint8Array(8 * 4);
     expect(decodeVideo(videoBuffer(8, 4, luma).slice(0, 20 + 31))).toBeNull();

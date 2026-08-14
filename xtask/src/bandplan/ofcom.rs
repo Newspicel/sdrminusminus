@@ -1,11 +1,4 @@
 //! The UK Frequency Allocation Table, from Ofcom's own JSON.
-//!
-//! The easy source, and the one that shows what the others are being parsed *into*: it already
-//! has a row id, a primary/secondary flag, frequencies in Hz, and footnote text keyed by row.
-//!
-//! Source: <https://static.ofcom.org.uk/static/spectrum/data/fatMapping.json>, published as open
-//! data via data.gov.uk under a permissive grant carried in the document itself.
-
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
@@ -87,8 +80,6 @@ pub(super) fn parse(input: &str) -> Result<Vec<Row>> {
         // block nothing can be drawn in.
         .filter(|band| band.uf > band.lf)
         .map(|band| Row {
-            // Secondary is the exception and the flag carries real meaning: a secondary service
-            // has to accept interference from every primary one.
             primary: band.cat != "s",
             reference: Some(band.id.clone()),
             notes: notes_for(&band.id, &doc.footnotes),

@@ -1,7 +1,3 @@
-//! `sdrmm-server` — the axum app as a *library* (, §10): `router()` builds the whole
-//! HTTP+WS surface over a shared [`Engine`], and `serve()` binds it. The Tauri desktop app and
-//! the headless binary both consume this crate, so there is exactly one server implementation.
-
 use std::{
     net::SocketAddr,
     path::PathBuf,
@@ -24,8 +20,6 @@ use utoipa_swagger_ui::SwaggerUi;
 /// without going through [`serve`], starts the same prober.
 pub const HOTPLUG_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Buffered pre-serialized decoder frames. Matches the engine's own fan-out depth: a client
-/// that falls further behind than this loses frames and is told how many ().
 const DECODED_TEXT_CAP: usize = 1024;
 
 mod assets;
@@ -50,7 +44,6 @@ pub use store::{Store, StoreError};
 pub struct ServerOptions {
     /// Relax CORS for the Vite dev origin ( dev mode).
     pub dev_cors: bool,
-    /// Optional shared token (). `None` is the default LAN-trusted posture.
     pub token: Option<String>,
 }
 
@@ -82,17 +75,9 @@ pub(crate) struct AppState {
     /// ADS-B traffic this is hundreds of frames a second, and serializing byte-identical JSON
     /// per socket multiplied the cost by the number of browsers watching.
     pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
-    /// The recent past of every identified station, so a client that connects late is handed what
-    /// it missed instead of an empty map (). In memory only — the answer is worthless
-    /// after a restart, and the decoder log is what persists.
     pub(crate) tracks: Arc<tracks::Tracks>,
     /// Live WebSocket connections, reported by `GET /api/clients`.
     pub clients: Arc<std::sync::atomic::AtomicU32>,
-    /// Node ids whose saved settings the last workspace switch could not apply — a rate locked by
-    /// a live recording is how it happens. Those radios are running the *previous* workspace's
-    /// settings, so `workspace::capture` skips them: writing them back would replace the tuning
-    /// this workspace had saved with someone else's, which is the one loss the feature exists to
-    /// prevent. Rewritten by every reconcile, so a switch that succeeds clears it.
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
@@ -118,13 +103,9 @@ impl AppState {
     }
 }
 
-/// Server configuration (, §12).
 #[derive(Clone, Debug)]
 pub struct Config {
     pub bind: SocketAddr,
-    /// SQLite database for presets/bookmarks/recordings index (); `None` = in-memory.
-    /// The recordings *directory* is not configured here: the [`Engine`] owns it
-    /// (`Engine::new(recordings_dir)`), so REST and the playback probe share one source.
     pub db_path: Option<PathBuf>,
     pub options: ServerOptions,
 }
@@ -147,10 +128,6 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
     api
 }
 
-/// Build the full axum app: REST + WebSocket + Swagger UI + embedded SPA, over `engine` and
-/// `store`, and start the decoder-log writer that feeds `GET /api/decoderlog` ().
-/// The writer is left running until `engine` is dropped; [`serve`] ties it to its handle
-/// instead.
 pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Router {
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(options.token.as_deref());
@@ -187,15 +164,6 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Write
         ))
         .fallback(assets::static_handler)
         .with_state(state)
-        // Gzip on the way out. The band plan is what forced it — a resolved region is over a
-        // megabyte of repetitive JSON and compresses about seventeen to one — but every JSON
-        // response here is the same shape of text, and the binary frame streams go over the
-        // WebSocket, which this does not touch.
-        //
-        // Recording downloads are the exception: I/Q floats barely compress, so gzipping one
-        // burns a core to save nothing, and — worse — compressing a response drops its
-        // `Content-Length`, which is exactly the header that gives a multi-gigabyte download
-        // a progress bar and an honest truncation check.
         .layer(
             tower_http::compression::CompressionLayer::new().compress_when(
                 tower_http::compression::predicate::DefaultPredicate::new()
@@ -302,8 +270,6 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
         None => tracing::info!("no token configured: LAN-trusted, unauthenticated ()"),
     }
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
-    // Before the first probe a client can see: a network receiver a stored workspace names is
-    // discoverable by nobody, and this is what puts it back in the device list.
     workspace::adopt_named_devices(&engine, &store);
     let mut state = AppState::new(engine, Arc::new(store));
     state.auth = auth::Auth::new(config.options.token.as_deref());
@@ -339,14 +305,10 @@ mod tests {
 
     use super::*;
 
-    /// Hermetic engine: virtual driver only — `Engine::new()` would register the Soapy driver,
-    /// whose probe enumerates live system modules (: no hardware in CI, ever).
     fn test_router() -> Router {
         test_router_with_store().0
     }
 
-    /// Same, but keeping a handle on the store so tests can plant snapshots the REST surface
-    /// cannot produce (e.g. a preset whose channels are invalid at its own rate).
     fn test_router_with_store() -> (Router, Arc<Store>) {
         let (router, state) = test_router_with_state();
         (router, state.store.clone())
@@ -453,8 +415,6 @@ mod tests {
         serde_json::from_slice(&body).expect("json")
     }
 
-    /// OpenAPI snapshot (): the REST paths must be present, and the WS-only enums must
-    /// be force-registered as schema components () or the generated TS client loses them.
     #[test]
     fn openapi_registers_paths_and_ws_schemas() {
         let spec = openapi().to_pretty_json().expect("serialize");
@@ -482,13 +442,11 @@ mod tests {
         ] {
             assert!(spec.contains(path), "missing path {path}");
         }
-        // Force-registered WS message enums.
         assert!(spec.contains("ServerEvent"), "ServerEvent schema missing");
         assert!(
             spec.contains("ClientCommand"),
             "ClientCommand schema missing"
         );
-        // Path-referenced DTOs the generated client needs as named schemas.
         for schema in [
             "ChannelParams",
             "ChannelSettings",
@@ -607,7 +565,6 @@ mod tests {
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
 
-        // Well-formed body the engine rejects: offset outside the ±1.024 MHz passband.
         let (status, _) = request(
             app.clone(),
             "PATCH",
@@ -680,7 +637,6 @@ mod tests {
         assert_eq!(listed[0].name, "2m");
         assert_eq!(listed[0].devices, 1);
 
-        // Move the radio off the preset, then ask for it back.
         let (status, _) = request(
             app.clone(),
             "PATCH",
@@ -847,7 +803,6 @@ mod tests {
     async fn extractor_rejections_return_api_error_body() {
         let app = test_router();
 
-        // Malformed JSON syntax → 400.
         let (status, body) =
             request(app.clone(), "POST", "/api/devicesets", Some("{not json")).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -855,7 +810,6 @@ mod tests {
         assert_eq!(err.error, "invalid request body");
         assert!(err.detail.is_some());
 
-        // Well-formed JSON that misses the schema → 422.
         let (status, body) = request(
             app.clone(),
             "POST",
@@ -867,7 +821,6 @@ mod tests {
         let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
         assert_eq!(err.error, "invalid request body");
 
-        // Unparseable path parameter → 400.
         let (status, body) = request(app, "DELETE", "/api/devicesets/abc", None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
@@ -878,7 +831,6 @@ mod tests {
         PresetSnapshot {
             version: sdrmm_wire::PRESET_SNAPSHOT_VERSION,
             devices: vec![sdrmm_wire::PresetDevice {
-                // The device node of `virtual_snapshot`, which is what these tests bring up.
                 node: "device".to_string(),
                 device_id: "virtual:siggen".to_string(),
                 settings: DeviceSettings {
@@ -908,7 +860,6 @@ mod tests {
         let workspace = put_active_workspace(&app, &virtual_snapshot("siggen", &[])).await;
         apply(&app, workspace).await;
         let ds = get_state(&app).await.device_sets[0].id;
-        // Valid at the default 2.048 Msps, far outside the preset's ±125 kHz passband.
         let (status, _) = request(
             app.clone(),
             "POST",
@@ -989,7 +940,6 @@ mod tests {
             "nothing was applied to this radio, and the report says which radios were: {err:?}"
         );
 
-        // Untouched: the original channel and the original rate are both still there.
         let snap = get_state(&app).await;
         let set = snap
             .device_sets
@@ -1124,7 +1074,6 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let playback = serde_json::from_slice::<CreatedId>(&body).expect("json").id;
 
-        // The recording is 100 MHz at 2.048 Msps; ADS-B needs 1090 MHz at exactly 2 Msps.
         let (status, body) = request(
             app.clone(),
             "POST",
@@ -1139,7 +1088,6 @@ mod tests {
             String::from_utf8_lossy(&body)
         );
 
-        // Nothing was torn down on the way to that answer.
         let set = get_state(&app)
             .await
             .device_sets
@@ -1342,7 +1290,6 @@ mod tests {
         assert_eq!(&body[..4], b"RIFF");
         assert_eq!(&body[8..12], b"WAVE");
         assert_eq!(&body[12..16], b"fmt ");
-        // WAVE_FORMAT_IEEE_FLOAT, two channels, at the set's 2.048 Msps.
         assert_eq!(u16::from_le_bytes([body[20], body[21]]), 3);
         assert_eq!(u16::from_le_bytes([body[22], body[23]]), 2);
         assert_eq!(
@@ -1519,7 +1466,6 @@ mod tests {
             .parse::<jiff::Timestamp>()
             .expect("rfc3339");
 
-        // Disk is the source of truth: a vanished pair is pruned on the next list.
         std::fs::remove_file(sdrmm_recorder::meta_path(&stem)).expect("remove meta");
         std::fs::remove_file(sdrmm_recorder::data_path(&stem)).expect("remove data");
         assert!(list_recordings(&app).await.is_empty());
@@ -1567,7 +1513,6 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
 
-        // A missing set is a 404 even while recording is disabled: 404 beats 400.
         let (status, _) = record(&app, 999, "start").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
 
@@ -1653,7 +1598,6 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
 
-        // So is an unparseable query value, which never reaches the store.
         let (status, body) = request(app, "GET", "/api/decoderlog?limit=lots", None).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let err: ApiError = serde_json::from_slice(&body).expect("ApiError body");
@@ -1720,7 +1664,6 @@ mod tests {
             lines.next(),
             Some("at,device_set,channel,kind,freq_hz,station,summary,event")
         );
-        // `limit` is a list-view concern: an export always covers the whole filter.
         assert_eq!(csv.split_terminator("\r\n").count(), 4);
         // RFC4180: a field with a comma and a quote is quoted, with the quotes doubled.
         assert!(
@@ -1808,7 +1751,6 @@ mod tests {
         let (status, _) = request(app.clone(), "GET", "/api/state?token=s3cret", None).await;
         assert_eq!(status, StatusCode::OK);
 
-        // The SPA shell is what asks for the token, so it can never be behind it.
         let (status, _) = request(app, "GET", "/", None).await;
         assert_ne!(status, StatusCode::UNAUTHORIZED);
     }
@@ -1846,8 +1788,6 @@ mod tests {
                     .uri("/mcp")
                     .header("content-type", "application/json")
                     .header("accept", "application/json, text/event-stream")
-                    // rmcp's DNS-rebinding guard reads the Host header; every real HTTP/1.1
-                    // client sends one, but a `oneshot` request has to say so explicitly.
                     .header("host", "sdrmm.local:8080")
                     .header("authorization", "Bearer s3cret")
                     .body(Body::from(call))
@@ -1905,7 +1845,6 @@ mod tests {
         );
         let allocation = &plan.lanes[0];
         assert!(!allocation.overlay);
-        // A frequency an operator would actually ask about: the airband over Germany.
         let block = allocation
             .blocks
             .iter()
@@ -1998,8 +1937,6 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
-    /// A template also draws its patch into the active workspace (CANVAS §8 phase ④): the workspace
-    /// is the other half of "apply", and re-applying must replace that block, never stack copies.
     #[tokio::test]
     async fn applying_a_template_merges_its_patch_into_the_active_workspace() {
         let app = test_router();
@@ -2078,7 +2015,6 @@ mod tests {
     #[tokio::test]
     async fn applying_a_workspace_opens_its_radio_and_adds_its_channels_once() {
         let app = test_router();
-        // A workspace naming the virtual radio, with two channels and a speaker.
         let snapshot = virtual_snapshot("siggen", &[("nfm", "nfm", "iq"), ("am", "am", "iq")]);
         let workspace = put_active_workspace(&app, &snapshot).await;
 
@@ -2128,8 +2064,6 @@ mod tests {
         assert!(get_state(&app).await.device_sets.is_empty());
     }
 
-    /// The palette is backend-driven (): the canvas builds its "add node" menu and its
-    /// drag-time rules from this, so its shape is a contract.
     #[tokio::test]
     async fn the_patch_catalog_describes_the_node_palette() {
         let app = test_router();
@@ -2381,10 +2315,8 @@ mod tests {
             String::from_utf8_lossy(&body)
         );
 
-        // What the autosave task does once the settings stop moving.
         workspace::save_active(&state).expect("capture the workspace");
 
-        // Restart: same database, a new engine that has never seen a device set.
         let restarted = state_over(state.store.clone());
         let (app, writer) = router_with_state(restarted, &ServerOptions::default());
         writer.detach();
@@ -2478,7 +2410,6 @@ mod tests {
         apply(&app, workspace).await;
         assert_eq!(get_state(&app).await.device_sets.len(), 1);
 
-        // An empty bench: it names no radio at all.
         let (status, body) = request(
             app.clone(),
             "POST",
@@ -2578,7 +2509,6 @@ mod tests {
         assert_eq!(status, StatusCode::NO_CONTENT);
         workspace::save_active(&state).expect("capture the workspace");
 
-        // The radio goes away, and the workspace is captured again with nothing bound.
         let (status, _) = request(
             app.clone(),
             "DELETE",
@@ -2627,7 +2557,6 @@ mod tests {
         );
         workspace::save_active(&state).expect("capture the workspace");
 
-        // Restart: same database, an engine that has never seen the radio.
         let restarted = state_over(state.store.clone());
         let (app, writer) = router_with_state(restarted, &ServerOptions::default());
         writer.detach();
@@ -2640,9 +2569,6 @@ mod tests {
         assert_eq!(set.settings.streams[0].center_hz, Some(433_920_000.0));
     }
 
-    /// The wire names the lane (): `iq4` is stream 3, and apply must put the channel
-    /// there — and a second apply must find it there via the (type, stream) claim, or every
-    /// reload would stack a copy on the lane it checked.
     #[tokio::test]
     async fn applying_a_workspace_lands_each_channel_on_the_stream_its_wire_names() {
         let app = test_router();
@@ -2723,7 +2649,6 @@ mod tests {
         }
         workspace::save_active(&state).expect("capture the workspace");
 
-        // Restart: same database, an engine that has never seen the radio.
         let restarted = state_over(state.store.clone());
         let (app, writer) = router_with_state(restarted, &ServerOptions::default());
         writer.detach();
@@ -2759,7 +2684,6 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
 
-        // So is a stop with nothing running.
         let (status, _) = request(
             app.clone(),
             "POST",
@@ -2769,7 +2693,6 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
 
-        // A threshold no signal reaches: the scan sweeps for the whole test and never holds.
         let start = r#"{"action":"start","settings":{"ranges":[{"start_hz":99000000.0,"stop_hz":101000000.0,"step_hz":100000.0}],"threshold_db":100.0,"dwell_ms":40}}"#;
         let (status, body) = request(
             app.clone(),

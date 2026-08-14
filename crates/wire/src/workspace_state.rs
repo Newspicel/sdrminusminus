@@ -1,21 +1,3 @@
-//! The workspace's *settings*, as opposed to its shape (, §10).
-//!
-//! A [`crate::WorkspaceSnapshot`] says which radios a workspace names and what hangs off them; it
-//! deliberately says nothing about where they are tuned, because a node names a device by durable
-//! identity and settings belong to the engine's live device set. That split is why applying a
-//! workspace used to hand every channel back at `ChannelParams::default_for`, with the operator's
-//! offsets and squelch gone — the topology survived a restart and the tuning did not.
-//!
-//! This is the other half: one row per workspace, keyed by *node id*, holding the last settings
-//! the server saw on the device set and channels each node was bound to. Node ids are stored in
-//! the graph and therefore durable, which the engine's per-run device-set and channel ids are not
-//! (module docs of [`crate::workspace`]).
-//!
-//! It is server-owned and written from the engine's own snapshot, never by a client, which is what
-//! keeps it off the workspace row: the canvas re-persists its layout on every arrangement gesture
-//! under a revision check, and a second writer on that row would turn "the operator nudged a node
-//! while the dial was moving" into a 409.
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -46,9 +28,6 @@ pub struct WorkspaceDevice {
     pub channels: Vec<WorkspaceChannel>,
 }
 
-/// One channel node's settings. `settings.params` also carries the channel's *type*, which is not
-/// the same thing as the node's declared [`crate::ChannelNode::channel_type`]: a mode changed in
-/// place on a live channel () replaces the params without touching the node that drew it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceChannel {
     /// [`crate::PatchNode::id`] of the channel node these settings belong to.

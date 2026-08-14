@@ -1,18 +1,3 @@
-//! §4.2 performance baselines for the phase-8 analog entries, and the steady-state
-//! zero-allocation gates on their receive paths.
-//!
-//! Five benches, one per detector shape, because that is where the cost differences are: an
-//! envelope detector is a magnitude per sample, a synchronous one is a loop, a sideband receiver
-//! is a *complex* band filter where the double-sideband ones need only a real-tap one, and the
-//! angle detectors are an argument per sample with a wide Carson filter in front of them.
-//!
-//! **Every receiver here is dominated by its filters, not by its detector**, and the benches are
-//! written to say so. Five rows run at [`CHANNEL_TAPS`] — the length `channels` actually
-//! configures — because real-time factor is a claim about a deployed channel; a sixth runs the
-//! *acceptance* configuration at [`TAPS`], where a filter sharp enough to hold the entry to its
-//! closed form costs an order of throughput and buys nothing a listener hears. Both numbers are
-//! committed, and neither is quoted as the other.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use num_complex::Complex;
@@ -151,8 +136,6 @@ fn measured_baselines() -> Vec<PerfBaseline> {
     let mut sink = Vec::with_capacity(BLOCK);
     let wfm_msps = throughput(400, &wfm_wave, |wave| wide.process(wave, &mut sink));
 
-    // The acceptance configuration, priced against the deployed one: the same detector behind
-    // filters eight times as long.
     let sharp = am_at(AmMode::FullCarrier { depth: 0.8 }, TAPS);
     let sharp_wave = am_waveform(&sharp);
     let mut sharp_demod = AmDemod::new(&sharp, &AmRx::new(AmDetector::Envelope));
@@ -219,10 +202,6 @@ fn path(stem: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{stem}.json"))
 }
 
-// --- Zero-allocation gates (§4.2) --------------------------------------------------------------
-
-/// The envelope path: band filter, magnitude, DC block, audio filter. Two warm-up calls per the
-/// §4.2 convention, then one steady-state call must acquire no memory.
 #[test]
 fn the_am_envelope_path_allocates_nothing() {
     let params = voice_am(AmMode::FullCarrier { depth: 0.8 });
@@ -331,8 +310,6 @@ fn the_modulators_allocate_nothing() {
     assert_no_alloc("AngleMod::process", || modulator.process(&audio, &mut sink));
 }
 
-// --- The committed baseline (§4.2) ---------------------------------------------------------------
-
 #[test]
 #[ignore = "rewrites the committed baseline; run explicitly in release on the reference host"]
 fn write_analog_perf_baseline() {
@@ -341,7 +318,6 @@ fn write_analog_perf_baseline() {
     }
     let path = path(AM_STEM);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    // Measured once: a second run would commit one set of numbers and print another.
     let measured = measured_baselines();
     save_baselines(&path, &measured).unwrap();
     for row in &measured {

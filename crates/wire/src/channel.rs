@@ -1,10 +1,6 @@
-//! Channel model. Typed per-channel settings (): each demod owns a params struct
-//! here, tagged into [`ChannelParams`] so the client gets a discriminated union.
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Static description of a channel type, surfaced to drive the "add channel" UI ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelDescriptor {
     /// Stable type id, e.g. `"nfm"`, `"am"`, `"ssb"`, `"wfm"`.
@@ -30,11 +26,6 @@ pub struct ChannelDescriptor {
     /// that predates the video transport.
     #[serde(default)]
     pub has_video: bool,
-    /// The type occupies its whole channel rate, so it runs only with the device tuned to
-    /// exactly `input_rate_hz` — a resampling DDC has no guard band left to give it ().
-    /// Reported so the canvas can refuse the wire where the operator draws it, naming the rate
-    /// that works, instead of letting the engine reject it after the fact. Defaults to `false`,
-    /// which is every type that leaves a guard band.
     #[serde(default)]
     pub exact_rate_only: bool,
     /// Set when the channel is handed the device's **own** samples — mixed to its offset, never
@@ -46,10 +37,6 @@ pub struct ChannelDescriptor {
     /// meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_rate_max_hz: Option<f64>,
-    /// The type ships a modulator as well as a demodulator, so a transmit channel of it can be
-    /// built (). Says only that the waveform exists — whether it may ever reach an
-    /// antenna is the authorized-use gate's question, and that gate has not been built.
-    /// Defaults to `false`, which is every receive-only type.
     #[serde(default)]
     pub can_transmit: bool,
 }
@@ -111,10 +98,6 @@ fn default_stereo() -> bool {
     true
 }
 
-/// What an NFM channel does about the subaudible signalling under the voice ().
-/// CTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating
-/// under it at 134.4 bit/s. Both are how a repeater tells its own users apart from the
-/// co-channel traffic 50 km away.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum NfmToneMode {
@@ -478,9 +461,6 @@ impl Default for AcarsParams {
     }
 }
 
-/// How a sub-GHz device keys its carrier (). The two need different front ends —
-/// an envelope detector versus a discriminator — but produce the same pulse-width stream, so
-/// everything above the detector is shared.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SubghzModulation {

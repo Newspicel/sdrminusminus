@@ -1,23 +1,5 @@
 //! ACARS decoder ( P2): MSK at 2400 bit/s amplitude-modulated onto a VHF carrier,
 //! carrying the character-oriented ARINC 618 block format.
-//!
-//! Chain ( §3.5): envelope detect the AM (the data rides on the carrier's amplitude,
-//! so the magnitude *is* the audio) → the library's audio-domain CPM engine
-//! ([`CpmDemod::real`], analytic discriminator about the 1800 Hz subcarrier) → byte framing.
-//! The AM stage is this protocol's and stays here; everything the modem knows about the
-//! waveform — MSK is 2-level CPFSK with a rect pulse at h = 2·600/2400 = ½ — is
-//! [`CpmParams`] data.
-//!
-//! MSK at h = 0.5 means the bit is carried by the instantaneous frequency alone, so a
-//! discriminator recovers it without a phase reference — and the sideband the receiver happens
-//! to be on cannot break the decode, because a mirrored spectrum simply inverts every bit and
-//! the sync byte is recognised in both polarities (the same trick `acarsdec` uses).
-//!
-//! Every block is checked twice over: odd parity on each character *and* the ARINC 618
-//! CRC-16 across the whole block. Nothing is repaired — a block that fails either test is
-//! dropped, because an ACARS message is free text and a plausible-looking wrong one is worse
-//! than a missing one.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -51,8 +33,6 @@ const ETB_DATA: u8 = ETB & 0x7F;
 /// Acknowledgement field value meaning "not acknowledged".
 const NAK: u8 = 0x15;
 
-/// Shortest legal block: mode, seven address characters, ack, two label characters, block id
-/// and the block-start character (ARINC 618 §4.3).
 const MIN_BLOCK: usize = 13;
 /// Longest block ARINC 618 permits, plus the terminator. Anything beyond this is a decoder
 /// that lost the framing, not a message.
@@ -139,9 +119,6 @@ impl ChannelRx for AcarsChannel {
         check_params(params(&settings)?)?;
         let rate = ctx.input_rate;
         let sps = rate / BAUD;
-        // Natural 2-level order puts bit 1 at level +1 — the tone above the centre, which is
-        // where MSK keys a 1 (ARINC 618 §4.2). The framer's polarity hunt would absorb a swap,
-        // but the table should state the standard, not lean on the recovery.
         let cpm = CpmParams::from_deviation(
             Mapping::natural(2),
             DEVIATION_HZ,
@@ -149,8 +126,6 @@ impl ChannelRx for AcarsChannel {
             pulse::rect(sps, Norm::Area),
             sps,
         );
-        // Discriminator tier: the full-symbol rect is the matched receive filter, since the
-        // analytic discriminator has no integration of its own.
         let demod = CpmDemod::real(
             &cpm,
             &pulse::rect(sps, Norm::Area),
@@ -409,9 +384,6 @@ mod tests {
             settings(ChannelParams::Acars(AcarsParams::default())),
         )
         .unwrap();
-        // A receiver hears its own noise floor before anyone transmits; the modem's carrier
-        // gate measures that quiet before it lets the loops learn, so every test starts the
-        // channel the way the engine's stream does — one second of a dead channel.
         let mut out = ChannelOutputs::default();
         chan.process(&complex_noise(0x0b5e_11e5, 0.01, RATE as usize), &mut out);
         assert!(out.events.is_empty(), "the dead channel decoded something");

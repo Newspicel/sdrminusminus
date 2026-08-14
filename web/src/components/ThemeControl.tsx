@@ -1,7 +1,3 @@
-// Theme picker (). One icon that walks auto → dark → light, because the bar is for
-// operating a radio and three permanent segments spent a fifth of it on a choice made twice a
-// year. The glyph is the state, and the label says both where you are and what a press does —
-// which is the guess a bare cycling icon would otherwise leave.
 import { nextTheme, setTheme, type ThemeChoice, useTheme } from "../lib/theme";
 import { ICON_BTN } from "./controls";
 

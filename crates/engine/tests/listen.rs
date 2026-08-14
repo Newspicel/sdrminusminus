@@ -1,8 +1,4 @@
-//! Engine e2e (): virtual siggen → DDC channel → demod → squelch → Opus, asserted
-//! on the decoded audio. Real-time paced by the virtual device, so waits are generous.
-
 // Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
-// `#[cfg(test)]` items, which an integration-test crate's helpers are not.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -120,8 +116,6 @@ async fn wfm_channel_demodulates_the_test_carrier_in_stereo() {
     let channels = settle_then_collect_second(&mut rx).await;
     assert_eq!(channels.len(), 2, "wfm defaults to a two-channel stream");
     assert_tone_dominates(&channels);
-    // Opus is lossy and codes the two channels jointly, so "the same programme" is a level
-    // match, not bit equality: anything above a fraction of a percent is a real difference.
     let difference: Vec<f32> = channels[0]
         .iter()
         .zip(&channels[1])
@@ -161,7 +155,6 @@ async fn wfm_stereo_toggle_changes_the_layout_of_the_live_stream() {
     );
 
     engine.patch_channel(ds, ch, wfm(false)).unwrap();
-    // The command applies between blocks, so a few stereo packets are still in flight.
     let mut waited = 0;
     while collect_packets(&mut rx, 1).await[0].channels != 1 {
         waited += 1;

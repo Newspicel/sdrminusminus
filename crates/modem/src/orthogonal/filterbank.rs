@@ -1,28 +1,8 @@
 //! The tone filterbank: M matched filters, one per tone, read as energies.
-//!
-//! Each filter is the symbol-long correlation `Σₙ x[at+n]·e^{−j2πfₖn}` — the matched filter of
-//! tone k over one symbol, with the window's own start as phase reference. The reference phase
-//! is thrown away by taking `|·|²`, which is exactly what makes the detector *noncoherent*: no
-//! carrier recovery, no phase to lose, and the price is the ~1 dB (at high SNR, more at low)
-//! that separates the noncoherent orthogonal closed form from the coherent one.
-//!
-//! **Normalisation is a contract, not a convenience.** The sum is divided by the window length
-//! so that a noise-only bin's energy has mean N0 and a bin carrying a unit-amplitude tone reads
-//! the symbol energy Eₛ. That is precisely the model
-//! [`energy_llrs`](crate::constellation::demap::energy_llrs) documents, so this bank's output
-//! feeds the crate's one demapper as a true LLR rather than a confidence — the difference the
-//! [`Llr`](crate::soft::Llr)/[`SoftBit`](crate::soft::SoftBit) split exists to keep honest.
-//!
-//! Cost is M multiply-accumulates per input sample per evaluated offset. At the alphabet sizes
-//! the catalog measures (M ≤ 8) that is cheaper than the FFT it would take to beat it, and it
-//! costs nothing in accuracy at a tone plan whose spacing need not land on an FFT bin.
-
 use num_complex::Complex;
 
 use super::params::MfskParams;
 
-/// M symbol-long tone correlators over one tone plan. Construction designs the reference
-/// phasors; evaluation allocates nothing.
 #[derive(Clone, Debug)]
 pub struct ToneBank {
     m: usize,
@@ -64,16 +44,6 @@ impl ToneBank {
         self.window
     }
 
-    /// Per-tone energies of the symbol starting at sample `at`, written into `out`. Samples past
-    /// the end of `samples` read as zero, so a truncated burst scores low rather than panicking
-    /// — the sweep runner's rule that lost bits are errors, never fewer trials.
-    ///
-    /// Accumulation is `f64` (f32 signals, f64 accounting): a symbol at a high sample rate can
-    /// span thousands of samples — FT8's is 1920 — and an f32 accumulator would lose the small
-    /// residual that separates two nearly equal bins.
-    ///
-    /// # Panics
-    /// If `out.len() != m`.
     pub fn energies(&self, samples: &[Complex<f32>], at: usize, out: &mut [f32]) {
         assert_eq!(out.len(), self.m, "one energy per tone");
         for (k, slot) in out.iter_mut().enumerate() {
@@ -114,7 +84,6 @@ mod tests {
         for k in 0..8u8 {
             let wave = tone(&params, k, 4);
             bank.energies(&wave, 0, &mut energies);
-            // Unit-amplitude tone, 16 samples: Es = Σ|x|² = 16.
             assert!(
                 (energies[k as usize] - 16.0).abs() < 1e-3,
                 "tone {k}: {energies:?}"

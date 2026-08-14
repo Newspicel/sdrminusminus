@@ -1,36 +1,8 @@
-//! The filters an analog receiver is built out of, and the one design routine the asymmetric
-//! ones need.
-//!
-//! Three of them, and each earns its place by being *part of the measurement* rather than
-//! decoration:
-//!
-//! - **The predetection band** ([`BandFilter`]). Every closed form in [`theory`] reads the
-//!   noise in a stated bandwidth, and an analog detector is nonlinear: a magnitude, an argument
-//!   or a product folds whatever noise reaches it down into the audio band, so noise outside
-//!   the transmitted band is not merely harmless, it is *counted twice*. The IF filter a real
-//!   receiver has is what makes the oracle apply, which is why the engines carry one instead of
-//!   assuming their input was cleaned somewhere else.
-//! - **The Hilbert transformer** ([`design_hilbert`]). The quadrature half of a single-sideband
-//!   exciter, and deliberately the *other* method from the receiver's band filter, so that
-//!   neither can hide the other's error (the arrangement `channels::ssb` already used and this
-//!   module inherits).
-//! - **The vestigial slope** ([`design_vestigial`]). A vestigial-sideband filter is not a band
-//!   filter with one edge moved: what makes VSB detectable without distortion is that its two
-//!   skirts *add to a constant* across the carrier, so the sideband energy a receiver loses on
-//!   one side it regains on the other. That is a complementary-symmetry condition on the
-//!   response, checked by test here rather than asserted in prose.
-//!
-//! Everything is stated in cycles per sample, the crate's rate-free convention (crate root):
-//! an entry's physical numbers follow from its own sample rate, and no filter here knows one.
-
 use std::f64::consts::PI;
 
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, FirC, design_lowpass};
 
-/// Largest band-filter length the engines will design. A guard on a parameter, not a tuning
-/// knob: taps are `O(n)` per sample on the hot path and a four-figure filter is a mistake being
-/// made somewhere upstream, not a design choice.
 pub const MAX_TAPS: usize = 1_023;
 
 /// A complex band filter ahead of a detector — the receiver's IF selectivity, stated by its
@@ -146,18 +118,6 @@ impl Delay {
     }
 }
 
-/// A complex FIR from an arbitrary frequency response — the designer the asymmetric filters
-/// need, since a real prototype modulated to a centre frequency can only produce a band whose
-/// two skirts are mirror images.
-///
-/// The impulse response is the inverse transform of `response` evaluated by midpoint rule over
-/// a grid `oversample` times finer than the tap count, then symmetric-Blackman windowed. A
-/// quadrature rather than an FFT because this runs once at construction and the grid density
-/// is then free: at 16× the response's own detail the truncation error is far below the
-/// window's own sidelobes, and the arithmetic reads as the definition it is.
-///
-/// # Panics
-/// If `taps` is below 3 or above [`MAX_TAPS`].
 #[must_use]
 pub fn design_from_response(
     taps: usize,
@@ -177,8 +137,6 @@ pub fn design_from_response(
             let offset = k as f64 - centre;
             let mut acc = Complex::new(0.0, 0.0);
             for g in 0..grid {
-                // Midpoint of the g-th cell of [-½, ½): no endpoint is evaluated twice, and a
-                // response with a jump at ±½ contributes its two sides symmetrically.
                 let f = (g as f64 + 0.5) / grid as f64 - 0.5;
                 acc += response(f) * Complex::from_polar(1.0, 2.0 * PI * f * offset);
             }
@@ -188,9 +146,6 @@ pub fn design_from_response(
         .collect()
 }
 
-/// Symmetric Blackman — the window `sdrmm_dsp`'s own filter designs use, restated here because
-/// the crate exports only the *periodic* Hann meant for spectral analysis, and a filter
-/// designed against a periodic window is asymmetric by one sample.
 fn blackman(taps: usize) -> Vec<f64> {
     let n = (taps - 1) as f64;
     (0..taps)
@@ -324,8 +279,6 @@ mod tests {
         }
     }
 
-    /// The band passes what it says it passes and stops what it says it stops, measured on
-    /// complex tones through the built runner rather than on the design.
     #[test]
     fn an_offset_band_passes_its_own_side_only() {
         let mut band = BandFilter {
@@ -368,7 +321,6 @@ mod tests {
                 "magnitude at {f}: {}",
                 h.norm()
             );
-            // The linear-phase delay of taps/2 is removed before the quadrature is read.
             let delay = Complex::from_polar(1.0, 2.0 * PI * f * ((taps.len() - 1) / 2) as f64);
             let turn = (h * delay).arg();
             assert!(
@@ -382,7 +334,6 @@ mod tests {
                 mirror.arg()
             );
         }
-        // Every even tap is exactly zero, which is what makes the in-phase path a bare delay.
         for (k, &t) in taps.iter().enumerate() {
             if (k as isize - 64) % 2 == 0 {
                 assert_eq!(t, 0.0, "tap {k}");
@@ -390,9 +341,6 @@ mod tests {
         }
     }
 
-    /// The vestigial slope's reason for existing: skirts that add to one across the carrier.
-    /// Asserted on the *designed* filter, not on the ideal response it was drawn from, since
-    /// windowing is exactly what could break it.
     #[test]
     fn the_vestigial_skirts_add_to_a_constant() {
         let taps = design_vestigial(257, 0.01, 0.1);
@@ -408,8 +356,6 @@ mod tests {
         assert!(at(0.2).abs() < 0.02, "stopband {}", at(0.2));
     }
 
-    /// The designer reproduces a response a real prototype can also produce — the check that
-    /// the quadrature and the windowing agree with `sdrmm_dsp`'s own lowpass design.
     #[test]
     fn the_designer_reproduces_a_plain_lowpass() {
         let designed = design_from_response(65, 16, |f| {

@@ -1,18 +1,5 @@
 //! D-Star decoder: GMSK at 4800 bit/s in 6.25 kHz — the one two-level mode of the seven, so it
 //! demodulates the way AIS does rather than through the four-level front end.
-//!
-//! A transmission opens with a header the receiver almost never gets to read: it is sent once,
-//! convolutionally coded, interleaved and scrambled, and a receiver that joins late has missed
-//! it. D-Star's answer is to send it again — every voice frame carries three bytes of slow
-//! data, and the header is repeated through that channel over twenty frames. This decoder reads
-//! the slow data, which means it recovers the callsigns of a call it joined in the middle, and
-//! the text message that rides in the same channel.
-//!
-//! Slow data is scrambled with the fixed sequence 0x70 0x4F 0x93 and framed as a type nibble
-//! and a length, in pairs of frames (six bytes at a time). The reassembled header is checked
-//! against its own CRC-16 before any callsign reaches the log. The other 72 bits of every frame
-//! feed D-Star's first-generation AMBE 3,600 × 2,400 decoder and the shared 48 kHz audio path.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -84,9 +71,6 @@ pub struct DstarChannel {
     soft: Vec<f32>,
 }
 
-/// The D-Star waveform as `cpm/` entry data ( §3.3): M = 2, h = ½ converted from the
-/// ±1200 Hz deviation at 4800 baud, Gaussian frequency pulse at BT 0.5. `Mapping::natural(2)`
-/// puts the +1200 Hz tone at index 1, level +1 — the wire's `true` bit.
 fn cpm_params(sps: f64) -> CpmParams {
     CpmParams::from_deviation(
         Mapping::natural(2),
@@ -127,11 +111,6 @@ impl ChannelRx for DstarChannel {
         let sps = ctx.input_rate / BAUD;
         let cpm = cpm_params(sps);
         Ok(Self {
-            // Area norm: the level estimates rely on the receive filter's unit DC gain, and
-            // the taps are `design_gaussian`'s output bit for bit. Burst timing bandwidth:
-            // the mode is push-to-talk keyed, so the clock must acquire in the 64-bit
-            // lead-in a transmitter opens with, and the gate coasts it through the dead
-            // time between transmissions.
             demod: CpmDemod::new(
                 &cpm,
                 &pulse::gaussian(sps, BT, MATCHED_SPAN, Norm::Area),
@@ -159,7 +138,6 @@ impl ChannelRx for DstarChannel {
         self.soft.clear();
         self.demod.process(iq, &mut self.soft);
         for &symbol in &self.soft {
-            // Index 1 is the +1 level, the +1200 Hz mark tone: the wire's `true` bit.
             self.decoder.push(self.slicer.slice(symbol) == 1, out);
         }
     }
@@ -284,7 +262,6 @@ impl Decoder {
                 }
             }
             TYPE_TEXT => {
-                // Four characters per packet, at the offset the low nibble names.
                 let slot = usize::from(packet[0] & 0x03) * 5;
                 for (i, &byte) in packet[1..5].iter().enumerate() {
                     if slot + i < self.text.len() {
@@ -310,7 +287,6 @@ impl Decoder {
             (!text.is_empty()).then_some(text)
         };
         let source = call(27, CALLSIGN_LEN);
-        // The same call, sent every second for the length of the transmission.
         if self.reported == source && source.is_some() {
             return None;
         }

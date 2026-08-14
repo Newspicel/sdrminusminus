@@ -1,17 +1,6 @@
 //! The DMR measurement chain's shared pieces — transmit-side framing constants, the receive
 //! front end as production runs it, and the searched-alignment idiom — shared so
 //! `dmr_soft_gain.rs` measures the *same* chain `dmr_baseline.rs` commits curves for.
-//!
-//! Phase 3 moved the front end onto the modulation library's CPM engine: the chain here is
-//! `testgen` C4FM (now `CpmMod`) → DMR channel-selection filter → `CpmDemod` with DMR's
-//! parameters as data ([`dmr_entry`]), exactly the construction `dv/dmr.rs` runs. The phase-0
-//! `Fsk4Demod` artifacts (`baselines/dmr/dmr_steady_uncoded.json`, `dmr_burst_uncoded.json`,
-//! `dmr_limits.json`, `dmr_bptc_*.json`) stay committed untouched as the pre-migration
-//! reference; the new chain's measurements live alongside as `*_cpm.json`, and
-//! `dmr_baseline.rs` holds the two generations to  §7's migration rule (within
-//! 0.5 dB, limits no worse).
-
-// Each integration-test binary compiles its own copy of this module and uses a subset of it.
 #![allow(dead_code)]
 
 use std::path::PathBuf;
@@ -32,8 +21,6 @@ pub const DEVIATION_HZ: f64 = 1_944.0;
 pub const RRC_ALPHA: f64 = 0.2;
 pub const RRC_SPAN: usize = 8;
 
-/// DMR BS-sourced voice sync (ETSI TS 102 361-1 §9.1.1) — the unique word both chains align
-/// on and the burst chain anchors levels to, as the decoder itself does.
 pub const UW: u64 = 0x755F_D7DF_75F7;
 pub const UW_SYMBOLS: usize = 24;
 

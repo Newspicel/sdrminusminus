@@ -1,9 +1,3 @@
-// App shell (, CANVAS §1). Owns the WebSocket, turns `StateChanged` events into
-// TanStack Query invalidations (the only invalidation path — no polling), and frames the
-// workspace in one row of chrome above the patch or the rack.
-//
-// There is no device bar and no tab bar any more: identity is spatial (). Which radio
-// you are operating is the node you are looking at, and the wires leaving it.
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -65,8 +59,6 @@ export function App() {
   const workspace = useWorkspace();
   const { applyPatch, cachedSettings } = useDevicePatch();
   const { applyEdit } = useChannelPatch();
-  // A fresh `[]` every render would defeat every downstream memo, and the binding passes below
-  // are the hot ones — they run over the whole patch.
   const deviceSets = useMemo(() => state.data?.device_sets ?? [], [state.data?.device_sets]);
 
   useEffect(() => {
@@ -81,11 +73,7 @@ export function App() {
       }
       up = now;
     };
-    // Decoder frames bypass TanStack Query entirely (): under ADS-B traffic they arrive
-    // hundreds a second, so they go straight into the batched store. The action identity is
-    // stable, so this listener never needs re-registering.
     s.addEventListener(useDecodedStore.getState().observe);
-    // Scanner progress is its own high-rate event for the same reason ().
     s.addEventListener(useScannerStore.getState().observe);
     // Spectrum and video are refcounted — per device set and per channel — so several faces
     // watching the same thing share one stream instead of replacing each other's.
@@ -114,8 +102,6 @@ export function App() {
           invalidateScope(queryClient, event.data.scope);
           break;
         case "Error":
-          // The wire carries no coordinates: the audio engine claims errors answering its
-          // in-flight subscribes; the rest land in the toast stack.
           if (!audioEngine.claimServerError(event.data.message)) {
             pushToast(event.data.message);
           }
@@ -137,12 +123,8 @@ export function App() {
     () => snapshot?.graph ?? { nodes: [], edges: [] },
     [snapshot?.graph],
   );
-  // A patch that names radios which are not attached is normal (CANVAS §3) — but a patch whose
-  // channels the engine refused is a workspace that is not doing what it draws, so it is said out
-  // loud rather than left to be noticed.
   useEffect(() => {
     for (const refusal of workspace.applied?.refused ?? []) {
-      // Named the way the operator named it: a node id is a uuid nobody reads.
       const node = graph.nodes.find((candidate) => candidate.id === refusal.node);
       const what =
         node?.label ?? (node?.kind === "channel" ? node.data.channel_type.toUpperCase() : "node");
@@ -180,8 +162,6 @@ export function App() {
     [devices],
   );
   useEffect(() => {
-    // Before the first state answer there is nothing authoritative to reconcile against, and an
-    // empty list would read as "everything is gone".
     if (state.data !== undefined) {
       audioEngine.retain(reachable);
     }
@@ -243,9 +223,6 @@ export function App() {
       if (next === undefined || selected === null) {
         return;
       }
-      // Both halves, or the node and its channel disagree: the engine keeps the channel's id
-      // across a type change, but the *node* names the type (CANVAS §4), so a patch left saying
-      // `nfm` would unbind this face and the next apply would add a second channel for it.
       applyEdit(selectedSet.id, selectedChannel.id, { params: { type: next, settings: {} } });
       workspace.save((current) => ({
         ...current,
@@ -367,7 +344,6 @@ export function App() {
   );
 }
 
-// : each `StateChanged` scope maps to exactly the query keys it invalidates.
 function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
   switch (scope.scope) {
     case "all":
@@ -393,7 +369,6 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       void queryClient.invalidateQueries({ queryKey: RECORDINGS_KEY });
       break;
     case "workspaces":
-      // Covers the list and every open workspace: the workspace queries are keyed under this prefix.
       void queryClient.invalidateQueries({ queryKey: WORKSPACES_KEY });
       break;
     case "decoder_log":

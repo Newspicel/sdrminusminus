@@ -1,12 +1,4 @@
 //! The capture thread every backend runs, and the flag that stops it.
-//!
-//! Four backends had four copies of the same fifteen lines — spawn a named thread, hand it an
-//! `AtomicBool`, refuse a second start, clear the flag and join on stop — and the copies had
-//! already drifted (one checked the flag to decide whether it was streaming, another checked the
-//! join handle, and they disagree if a spawn fails). One copy, here.
-//!
-//! No I/O and no device knowledge: this owns the thread, not what runs on it.
-
 use std::{
     sync::{
         Arc,

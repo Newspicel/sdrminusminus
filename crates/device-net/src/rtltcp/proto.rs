@@ -1,14 +1,6 @@
 //! The rtl_tcp wire protocol, as osmocom's `rtl_tcp.c` defines it: a twelve-byte greeting, then
 //! raw interleaved 8-bit IQ forever, with five-byte commands travelling the other way on the same
 //! socket.
-//!
-//! Two properties shape everything built on this. It is **write-only** — no command is
-//! acknowledged, no setting can be read back, and the server's only way to report a refusal is to
-//! keep streaming as if nothing happened. And it is **positional**: the parameter is four bytes of
-//! meaning that depends entirely on the command byte. Both are why this module is a pure
-//! translation with no I/O in it, and why the settings this backend reports are what it *asked*
-//! for, said plainly, rather than a reading of the radio.
-
 use sdrmm_device::DeviceError;
 
 /// rtl_tcp's registered port, and what an operator who typed only a host means.
@@ -90,15 +82,6 @@ impl Greeting {
     }
 }
 
-/// The commands this backend sends, with the byte osmocom's `command_worker` switches on.
-///
-/// The rest of the protocol's range is deliberately absent, on the same rule the in-tree RTL-SDR
-/// driver follows: a control that is not programmed is not advertised. The IF-stage gains and the
-/// two crystal frequencies are settings this backend does not model; the test-mode counter would
-/// replace the samples with a ramp; and direct sampling and offset tuning move the reachable
-/// frequency range out from under the capability set that was reported when the device opened,
-/// which the wire model has no way to say. Those two are the "direct sampling" feature, not a
-/// checkbox to bolt on here.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(u8)]
 pub(crate) enum Command {

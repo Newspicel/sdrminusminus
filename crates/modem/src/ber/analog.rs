@@ -1,34 +1,3 @@
-//! The analog measurement class ( §5 item 4: *"analog entries use SINAD/THD vs input
-//! SNR instead of BER"*) — the same four-part regime as every other entry, with one substitution
-//! at its root.
-//!
-//! **What replaces the bit.** A BER curve counts a discrete outcome, so its x-axis is Eb/N0 and
-//! its y-axis is a probability. An analog entry has no outcomes to count: what arrives is a
-//! waveform, and the question is how much of it is the message. So the x-axis becomes the
-//! *channel* SNR — received power over the noise in one message bandwidth, the reference every
-//! closed form in [`theory`](super::theory) is stated against and the one
-//! [`Awgn::for_channel_snr`] applies — and the y-axis becomes **SINAD**: total output power over
-//! everything in it that is not the fundamental. Distortion is inside the denominator on purpose;
-//! a detector that trades noise for harmonics has not improved, and a signal-to-noise ratio that
-//! could not see the trade would let it.
-//!
-//! **Everything else is unchanged.** Seeds name realisations, curves are committed as JSON,
-//! comparators are one-sided and loud when they cannot answer, and the acceptance is an oracle
-//! wherever a closed form exists — which for the analog entries is everywhere above threshold,
-//! since [`theory`](super::theory)'s figures of merit are exact there. What no closed form
-//! describes is the *knee*: below its threshold an envelope detector's nonlinearity starts
-//! suppressing the message and a discriminator's clicks arrive in bursts, and both fall off the
-//! straight line. That knee is the analog entries' one committed-and-guarded quantity, and it is
-//! recorded as a number — the SNR at which the measured curve first falls a stated distance
-//! below its own oracle.
-//!
-//! **Why the tone is snapped to a bin.** The fundamental is read by direct correlation rather
-//! than by an FFT with a window, which is exact only when the analysis window holds a whole
-//! number of tone periods — otherwise the leakage of the fundamental into its neighbours lands
-//! in the denominator and reads as distortion that is not there. [`TonePlan`] makes that
-//! structural: it snaps the requested frequency to the nearest exact bin of the window it will
-//! be analysed in, so no measurement can be taken at a frequency the analysis cannot resolve.
-
 use std::{f64::consts::TAU, fs, io, path::Path};
 
 use num_complex::Complex;
@@ -39,8 +8,6 @@ use super::{
     rng::Rng,
     sweep::point_seed,
 };
-
-// --- The tone and its analysis ----------------------------------------------------------------
 
 /// A test tone and the window it will be analysed in, with the frequency snapped to an exact
 /// bin of that window (see the module docs).
@@ -54,10 +21,6 @@ pub struct TonePlan {
 }
 
 impl TonePlan {
-    /// The plan closest to `freq_hint` (cycles/sample) that the window can resolve exactly.
-    ///
-    /// # Panics
-    /// If the window is empty, or the hint does not land on at least one whole cycle inside it.
     #[must_use]
     pub fn new(freq_hint: f64, window: usize) -> Self {
         assert!(window > 1, "an analysis window needs at least two samples");
@@ -121,9 +84,6 @@ impl ToneAnalysis {
         10.0 * (self.ac_power / residual).log10()
     }
 
-    /// Total harmonic distortion as a fraction of the fundamental's amplitude — the second
-    /// half of the §5 item 4 pair, and the one that separates a detector's own nonlinearity
-    /// from the channel's noise.
     #[must_use]
     pub fn thd(&self) -> f64 {
         if self.fundamental_power <= 0.0 {
@@ -133,12 +93,6 @@ impl ToneAnalysis {
     }
 }
 
-/// Reads one window: DC removed, the fundamental and its harmonics correlated out at their
-/// exact frequencies, everything else left in the denominator.
-///
-/// Correlation rather than a windowed transform, and exact for the reason [`TonePlan`] exists:
-/// at a whole number of cycles the complex exponentials at `k·freq` are mutually orthogonal
-/// over the window, so each amplitude is read without leakage from any other.
 #[must_use]
 pub fn analyse_tone(audio: &[f32], freq: f64) -> ToneAnalysis {
     let n = audio.len();
@@ -181,8 +135,6 @@ pub fn analyse_tone(audio: &[f32], freq: f64) -> ToneAnalysis {
         harmonic_power,
     }
 }
-
-// --- The link ---------------------------------------------------------------------------------
 
 /// Audio to complex baseband — the analog counterpart of [`ModulateFn`](super::sweep::ModulateFn).
 pub type ModulateAudioFn = Box<dyn Fn(&[f32]) -> Vec<Complex<f32>>>;
@@ -245,11 +197,6 @@ pub fn measure_tone(
     (analyse_tone(&out[start..end], link.tone.freq), end - start)
 }
 
-// --- The committed curve ----------------------------------------------------------------------
-
-/// One measured point of a SINAD curve. `thd_percent` rides along because §5 item 4 asks for
-/// both and because a point whose SINAD is distortion-limited rather than noise-limited is
-/// unreadable without it.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SinadPoint {
     pub snr_db: f64,
@@ -257,7 +204,6 @@ pub struct SinadPoint {
     pub thd_percent: f64,
 }
 
-/// A measured SINAD curve — the committed artifact behind an analog entry's §4.1 correctness.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SinadCurve {
     pub label: String,
@@ -350,7 +296,6 @@ pub fn save_csv(curve: &SinadCurve, path: &Path) -> io::Result<()> {
     fs::write(path, text)
 }
 
-// --- Comparators ------------------------------------------------------------------------------
 //
 // Vertical, in dB, and that is not a departure from the BER comparators' horizontal rule but
 // the same rule where the curve is a straight line of unit slope: above threshold SINAD is the
@@ -362,9 +307,6 @@ pub fn save_csv(curve: &SinadCurve, path: &Path) -> io::Result<()> {
 // Failure stays loud: a comparison that cannot be made returns +∞ and fails any `< tolerance`
 // gate rather than passing it vacuously.
 
-/// Worst amount by which a measured curve falls below a closed-form oracle over `[lo, hi]`, in
-/// dB. Positive is a loss; a measurement *above* its oracle past the noise is a harness defect,
-/// so the sign is kept and gates take `.abs()` where they mean both directions.
 pub fn worst_shortfall_db(
     measured: &SinadCurve,
     oracle: impl Fn(f64) -> f64,
@@ -439,10 +381,6 @@ pub fn worst_shortfall_db_vs_curve(
     worst
 }
 
-/// The channel SNR at which `curve` first reaches `sinad_db`, by linear interpolation — the
-/// analog sensitivity (§4.3 row one under its documented override). Both axes are dB and the
-/// relation above threshold is a straight line, so linear interpolation is the honest one here
-/// exactly as log-BER interpolation is there. `None` when the swept span never reaches it.
 #[must_use]
 pub fn snr_at_sinad(curve: &SinadCurve, sinad_db: f64) -> Option<f64> {
     for pair in curve.points.windows(2) {
@@ -497,7 +435,6 @@ mod tests {
         assert!(analysis.thd() < 1e-5, "thd {}", analysis.thd());
         assert!(analysis.sinad_db() > 90.0, "sinad {}", analysis.sinad_db());
 
-        // A 10 % second harmonic is 10 % THD, and −20 dB of distortion is 20.04 dB of SINAD.
         let second = tone(2.0 * plan.freq, 0.05, plan.window);
         let distorted: Vec<f32> = pure.iter().zip(&second).map(|(a, b)| a + b).collect();
         let analysis = analyse_tone(&distorted, plan.freq);
@@ -558,8 +495,6 @@ mod tests {
         let oracle = |snr| theory::analog_sinad_db(1.0, snr);
         assert!(worst_shortfall_db(&exact, oracle, 0.0, 20.0).abs() < 1e-9);
 
-        // A curve 0.5 dB down reads exactly 0.5 dB of shortfall, both against the oracle and
-        // against the unshifted curve.
         let mut down = exact.clone();
         for p in &mut down.points {
             p.sinad_db -= 0.5;
@@ -574,26 +509,20 @@ mod tests {
         // regress at, so the omission has to fail as loudly as a shift.
         let subset = synthetic(1.0, &[0.0, 10.0, 20.0]);
         assert!(worst_shortfall_db_vs_curve(&subset, &exact, 0.0, 20.0).is_infinite());
-        // Narrowing the span to the points it does carry is how a partial curve is compared.
         assert!(worst_shortfall_db_vs_curve(&subset, &exact, 10.0, 10.0).abs() < 1e-9);
-        // Nor is an empty span.
         assert!(worst_shortfall_db(&exact, oracle, 40.0, 50.0).is_infinite());
     }
 
-    /// The two §4.3 reads on an analog curve: the SNR for a stated SINAD, and the knee where
-    /// the measurement leaves its oracle.
     #[test]
     fn sensitivity_and_threshold_are_read_off_the_curve() {
         let grid = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0];
         let mut curve = synthetic(1.0, &grid);
-        // 12 dB SINAD on a unity figure of merit is 12 dB of channel SNR.
         let snr = snr_at_sinad(&curve, 12.0).unwrap();
         assert!((snr - 12.0).abs() < 1e-9, "sensitivity {snr}");
         assert!(snr_at_sinad(&curve, 30.0).is_none());
 
         let oracle = |snr| theory::analog_sinad_db(1.0, snr);
         assert!(threshold_db(&curve, oracle, 1.0).is_none());
-        // Bend the three lowest points down: the knee is the highest of them, read top-down.
         for p in curve.points.iter_mut().take(3) {
             p.sinad_db -= 4.0;
         }

@@ -1,9 +1,3 @@
-// The chrome every node face sits in (CANVAS §6): a category strip, a title row, the ports, and
-// the face itself. Faces render their instrument and nothing else — the shell owns identity,
-// wiring and the pin.
-//
-// Hue carries the port's data type and only that, and every colour is paired with a shape, so
-// the graph reads for a colourblind operator by marker alone ().
 import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
 import { createContext, type ReactNode, useContext } from "react";
@@ -25,29 +19,12 @@ import {
 } from "../graph";
 import { closeEngineObjects } from "../remove";
 
-/**
- * Where a face is being rendered. Ports and the resizer are React Flow parts and throw outside
- * its provider, and the rack has neither — it is a grid with no wires (CANVAS §5) — so the
- * surface is what decides whether the shell draws them.
- */
 const Surface = createContext<"canvas" | "rack">("rack");
 
 export function CanvasSurface({ children }: { children: ReactNode }) {
   return <Surface value="canvas">{children}</Surface>;
 }
 
-/**
- * Whether this face owns the pointer and the wheel, or the camera does — a window has to be
- * clicked before its controls answer, which is the rule the desktop already taught everyone.
- *
- * The camera keeps the wheel over every *other* face, so scrolling across the patch is never
- * blocked by whatever the pointer happens to be over; a click makes a face the active one and
- * hands it its own gestures (the dial's wheel, the plot's zoom, the map's pan). Instruments read
- * this to stay inert until then: without it a wheel over an unselected scope would zoom the
- * spectrum *and* pan the patch at once.
- *
- * The rack has no camera, so a face there is always active (CANVAS §5).
- */
 const Active = createContext(true);
 
 export function useFaceActive(): boolean {
@@ -70,14 +47,10 @@ const PORT_SHAPE: Record<PortType, string> = {
   iq: "rounded-full",
   audio: "[clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]",
   events: "rounded-[1px]",
-  // A triangle standing on its base — a picture is scanned top to bottom, and the shape has to
-  // read apart from `control`'s arrowhead, which lies on its side and points.
   video: "[clip-path:polygon(50%_0,100%_100%,0_100%)]",
   // An arrowhead, because control is the one wire that carries an instruction rather than a
   // stream: it points at the radio it drives.
   control: "[clip-path:polygon(0_0,100%_50%,0_100%)]",
-  // The same substance as `iq` going the other way, so the same circle — left hollow, because
-  // nothing fills it yet ().
   tx: "rounded-full",
 };
 
@@ -122,8 +95,6 @@ export function NodeShell({
   const pinned = isPinned(workspace.rack, node.id);
   const selected = workspace.selected === node.id;
   const active = surface === "rack" || selected;
-  // The floor follows the port count: a multi-stream radio stacks an output per stream, and a
-  // face shrunk past its lowest port clips the handle a wire needs.
   const minimum = nodeMinSize(node.kind, ports);
 
   return (
@@ -262,9 +233,6 @@ function PortHandle({
         type={out ? "source" : "target"}
         position={out ? Position.Right : Position.Left}
         style={{ top: offset }}
-        // Hue alone never says what a wire carries (). A port that refuses everything
-        // carries the server's reason for it — the operator finds out by pointing at it, not by
-        // dragging a wire at it.
         title={description}
         aria-label={`${out ? "output" : "input"} ${description}`}
         className={`!size-2.5 ${PORT_PAINT[port.port_type]} ${PORT_SHAPE[port.port_type]}`}

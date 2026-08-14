@@ -1,31 +1,3 @@
-//! Angle modulation — frequency and phase — and the two detectors each is read with
-//! ( §6: *"FM (narrow/wide) / PM — discriminator; PLL"*).
-//!
-//! One engine, because FM and PM are one waveform read through different scalings: a constant
-//! envelope carrying the message in its argument, either as the argument itself
-//! ([`AngleKind::Pm`]) or as that argument's derivative ([`AngleKind::Fm`]). What the engine
-//! parameterises is which, and by how much.
-//!
-//! **Bandwidth becomes sensitivity, quadratically.** [`fm_fom`](crate::ber::theory::fm_fom) is
-//! `3β²P̄`: a broadcast FM signal spending 75 kHz of deviation on a 15 kHz message gains
-//! **15.7 dB** over its own channel SNR, while a 12.5 kHz voice channel at 2.5 kHz deviation
-//! gains only 0.18 dB — and against full-carrier AM, which *loses* 6.15 dB at broadcast depth,
-//! the two are 21.9 and 6.3 dB ahead. That is the entry's headline and its whole reason for
-//! existing at two deviations rather than one.
-//!
-//! **What no closed form describes is the threshold.** Below it the discriminator's output is
-//! not noisy but *impulsive*: when the noise vector wins, the received phasor encircles the
-//! origin and the argument jumps a whole turn — a click, worth vastly more than the smooth
-//! noise around it, and worth more the wider the deviation. So the entry's committed curves
-//! knee, the wideband row knees *first* despite being the more sensitive one above it, and both
-//! numbers are recorded as thresholds rather than smoothed into a tolerance.
-//!
-//! **The PLL tier exists to move that knee.** A discriminator is memoryless and takes its
-//! argument from one sample pair, so it clicks whenever the instantaneous noise wins; a loop
-//! carries a phase estimate that noise has to move, so it stays on the signal a few dB further
-//! down. Above threshold the two are the same number — which is exactly the shape of the
-//! envelope-versus-synchronous comparison in [`am`](super::am), and for the same reason.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -135,7 +107,6 @@ impl AngleMod {
     }
 }
 
-/// The two detection tiers (§5 item 2).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AngleDetector {
     /// Memoryless: `arg(x[n]·conj(x[n−1]))` for FM, `arg(x[n])` for PM. Tier 1 everywhere,

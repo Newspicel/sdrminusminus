@@ -1,13 +1,3 @@
-//! `latest.json` — the static manifest the Tauri updater polls ().
-//!
-//! Built from the `.sig` files the bundler emits beside each updater artifact rather than from
-//! a list of expected names: the signature is what the client verifies, so a platform whose
-//! signature never reached the release has nothing to offer and must not appear here.
-//!
-//! Every rule below is strict on purpose. This file is what decides whether an installed client
-//! sees a release at all, and both failure modes are silent from CI's point of view — an
-//! unrecognised artifact name would drop a platform, and a duplicate would pick one at random.
-
 use std::{
     collections::{BTreeMap, btree_map::Entry},
     path::{Path, PathBuf},
@@ -128,7 +118,6 @@ fn build(sigs: &[(String, String)], version: &str, base_url: &str) -> Result<Man
         let Some((platform, rank)) = classify(&file)? else {
             continue;
         };
-        // The bundler writes the signature with a trailing newline; the client compares it raw.
         let candidate = Candidate {
             rank,
             file,
@@ -238,7 +227,6 @@ mod tests {
         let manifest = build(&release(), "1.2.3", &format!("{BASE}/")).unwrap();
         let linux = &manifest.platforms["linux-x86_64"];
         assert_eq!(linux.url, format!("{BASE}/sdr--_1.2.3_amd64.AppImage"));
-        // Trimmed: a trailing newline in the .sig would fail verification on the client.
         assert_eq!(linux.signature, "sig-of-sdr--_1.2.3_amd64.AppImage");
     }
 

@@ -1,21 +1,4 @@
 //! NXDN decoder: 4FSK in 6.25 kHz at 2400 symbols per second, or 12.5 kHz at 4800.
-//!
-//! Every frame opens with a 20-bit frame sync word and a 16-bit link information channel. The
-//! LICH says what the frame is — a control channel, a traffic channel, whether it is inbound or
-//! outbound, and whether the voice slots have been stolen for signalling — and carries an odd
-//! parity bit that this decoder checks before believing any of it.
-//!
-//! One parity bit is not a check noise fails often: a chance sync match carries a valid LICH
-//! half the time. What noise cannot do is hold the frame cadence — so a frame is reported only
-//! once the *next* sync word lands a whole number of frames later, which costs the report one
-//! frame of latency and a transmission's last frame its confirmation, and costs a noise-only
-//! channel everything.
-//!
-//! The physical PN9 randomiser is removed across the complete post-sync frame. LICH steal
-//! options then select the EHR traffic slots, whose four AMBE+2 frames are carrier-deinterleaved
-//! and decoded. Addresses remain one layer further in, behind the SACCH/FACCH convolutional
-//! code; signalling therefore reports frame shape and direction while audio is complete.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -210,9 +193,6 @@ impl Decoder {
             return;
         }
         if self.hunting && self.window.sync_distance(FSW, FSW_BITS) <= SYNC_TOLERANCE {
-            // No transmitter puts a sync word mid-frame: while a held frame's cadence is
-            // still running, a match there is noise that happened to look like one, and
-            // following it would throw away the frame the real sync is about to confirm.
             if let Some(held) = &self.held
                 && self.clock < held.at + FRAME_SYMBOLS - 1
             {
@@ -247,7 +227,6 @@ impl Decoder {
 
     fn frame(&mut self) -> Option<(DvFrame, Vec<[bool; 72]>)> {
         self.window.bits(0, POST_FSW_SYMBOLS, &mut self.bits);
-        // NXDN's x^9+x^5+1 physical randomiser inverts the high bit of selected dibits.
         let mut register = 0xE4u16;
         for symbol in 0..POST_FSW_SYMBOLS {
             let pn = register & 1 != 0;
@@ -255,8 +234,6 @@ impl Decoder {
             register = register >> 1 | feedback << 8;
             self.bits[symbol * 2] ^= pn;
         }
-        // RF channel type, functional channel type, option, direction, then odd parity over
-        // the seven bits before it. The information is the high bit of each LICH dibit.
         let information: Vec<bool> = (0..LICH_SYMBOLS).map(|i| self.bits[i * 2]).collect();
         if information.iter().filter(|b| **b).count() % 2 == 0 {
             return None;
@@ -266,7 +243,6 @@ impl Decoder {
         let outbound = information[6];
 
         let kind = match functional {
-            // A non-superframe SACCH opens or closes a transmission; the rest are traffic.
             0 => DvFrameKind::Header,
             1 => DvFrameKind::Data,
             _ if rf_channel == 0 => DvFrameKind::Control,

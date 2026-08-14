@@ -1,20 +1,3 @@
-//! When a capture should restart its stream in place, and when it should give up and let the
-//! engine tear the device down ().
-//!
-//! Recovery is two tiers. Tier 1 lives inside a backend's capture loop: the pipe faulted but the
-//! device never left the bus, so re-arming the stream costs about 3 ms on the RTL-SDR that was
-//! measured. Tier 2 is the engine's existing fault path — `RxSink::fail` → fault drainer →
-//! `CaptureRuntime::stop`, which drops the device on purpose — and costs about 9 s. The engine's
-//! path is one-shot and destructive by design, so tier 1 has to happen *before* `fail` fires,
-//! which is why this policy is driven from the capture loop and not from above it.
-//!
-//! The policy is device-agnostic and lives here so it is written once; the restart *primitive*
-//! is device-specific and stays in each backend, because reinitialisation differs (the
-//! RTL2832U's endpoint FIFO reset, the HackRF's transceiver mode). This type is pure: no I/O, no
-//! clock, no device.
-//!
-//! `device-virtual` deliberately gets none of this — it has no transport that can stall.
-
 use std::time::Duration;
 
 /// How long a stream may deliver nothing at all before the capture loop treats it as failed.

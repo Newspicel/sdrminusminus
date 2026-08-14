@@ -1,33 +1,10 @@
-//! Workspaces — the persisted workspace (, CANVAS §4). A workspace holds one patch graph
-//! and one rack layout, and exactly one workspace is active server-side, so every client that
-//! opens the workspace sees the same setup.
-//!
-//! The graph is *our* model, not the canvas library's serialization: templates author workspaces in
-//! Rust (CANVAS §8 phase ④), the server is the source of truth for type definitions (),
-//! and a React Flow major must not invalidate stored workspaces. The shape lives in
-//! [`crate::patch`]; this module is the stored row around it.
-//!
-//! What a stored node may name changed at M7 and the reason did not: engine ids are allocated per
-//! run and reused, so a node names a *device* by durable identity ([`crate::DeviceRef`]) and
-//! never a device set. The M6 rule that a panel could name no radio at all is retired — spatial
-//! identity is the point of the canvas () — but nothing per-run is stored to buy it.
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::patch::{DeviceRef, NodeBody, PatchError, PatchGraph, PatchNode, Position, RackLayout};
 
-/// Shape version of a stored [`WorkspaceSnapshot`]. A build refuses to *write back* a snapshot it
-/// did not itself produce: a workspace is re-persisted on every arrangement gesture, so a downgrade
-/// would silently rewrite a newer one with whatever this build understood of it.
-///
-/// Version 2 is the canvas (M7). Version 1 was the tabs-and-dockview tree; stored v1 rows do not
-/// migrate (CANVAS §8 phase ⑤: a clean reset, recorded rather than converted, because the new
-/// model cannot express a dock layout and nobody would want it to).
 pub const WORKSPACE_SNAPSHOT_VERSION: u32 = 2;
 
-/// Bound on every user-visible name here: a workspace is picked by name in the switcher and a
-/// node by its label on the canvas, so an unbounded string is a layout bug, not a feature.
 pub const MAX_NAME_LEN: usize = 64;
 
 /// Vertical gap between an existing workspace and a patch merged under it, in canvas units.
@@ -47,8 +24,6 @@ pub struct WorkspaceSnapshot {
     /// [`WORKSPACE_SNAPSHOT_VERSION`] at the time of writing.
     pub version: u32,
     pub graph: PatchGraph,
-    /// Faces pinned to the operate view. May be empty — the canvas alone is a complete UI
-    /// (CANVAS §5).
     #[serde(default)]
     pub rack: RackLayout,
     #[serde(default)]
@@ -60,21 +35,11 @@ pub struct WorkspaceSnapshot {
 /// carry a document in this field.
 pub const MAX_REGION_ID_LEN: usize = 32;
 
-/// Choices that belong to the workspace rather than to a node on it or to the browser looking at
-/// it.
-///
-/// The band plan is the whole of it today. It lives here because which plan is in force is a
-/// property of the bench the patch describes — an aviation workspace and a marine one read
-/// different tables of the same air — and because the ruler is drawn on the scope faces the
-/// workspace itself draws. It was per-browser until M7 (`web/src/lib/bandRegion.ts`), which meant
-/// two operators on one server saw two different rulers over one signal.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceSettings {
     /// [`crate::BandRegion::id`], or `None` to follow the server's default for this install.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub band_region: Option<String>,
-    /// Whether scope faces draw the band ruler. Absent means drawn: the plan is the reason the
-    /// region is stored at all, so a snapshot that predates this field opts in.
     #[serde(default = "default_band_ruler")]
     pub band_ruler: bool,
 }
@@ -92,9 +57,6 @@ impl Default for WorkspaceSettings {
     }
 }
 
-/// Why a snapshot was refused. Structural only — the checks are pure, so they run in `wire` and
-/// the server has one rejection point instead of scattered guards. `Display` is written out
-/// rather than derived because this crate carries no error-derive dependency ().
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorkspaceError {
     Version(u32),
@@ -204,17 +166,7 @@ impl WorkspaceSnapshot {
         Self::new(graph, RackLayout::default())
     }
 
-    /// Merge an authored patch (a template, CANVAS §8 phase ④) into this workspace.
-    ///
-    /// Node ids are namespaced by `prefix` and the prefix's previous nodes are removed first, so
-    /// applying a template twice replaces its own block instead of stacking copies — the same
-    /// contract M6's `upsert_tab` had. A device node in the patch binds to `device`: if the
-    /// workspace already has a node for that radio the patch wires into *it* rather than drawing a
-    /// second box for one device.
     pub fn merge_patch(&mut self, patch: &PatchGraph, prefix: &str, device: Option<&DeviceRef>) {
-        // Where the prefix's nodes were, so a re-apply puts them back in the same place. Node
-        // order is binding order (CANVAS §3), so appending them instead would renumber which
-        // face drives which channel whenever a template is re-applied over another one's.
         let at = self.remove_prefixed(prefix);
 
         let existing_device = device.and_then(|want| {
@@ -240,8 +192,6 @@ impl WorkspaceSnapshot {
             let id = format!("{prefix}{}", node.id);
             mapped.push((node.id.clone(), id.clone()));
             let body = match (&node.body, device) {
-                // An authored patch leaves its device unbound; applying it to a radio is what
-                // names one.
                 (NodeBody::Device(d), Some(want)) if d.device.is_none() => {
                     NodeBody::Device(crate::patch::DeviceNode {
                         device: Some(want.clone()),
@@ -285,7 +235,6 @@ impl WorkspaceSnapshot {
                     port: edge.to.port.clone(),
                 },
             };
-            // Reusing a device node can reproduce a wire the workspace already has.
             if !self.graph.edges.contains(&mapped_edge) {
                 self.graph.edges.push(mapped_edge);
             }
@@ -393,8 +342,6 @@ pub struct UpdateWorkspaceRequest {
     pub snapshot: Option<WorkspaceSnapshot>,
 }
 
-/// One device node now driving an engine device set (CANVAS §3). Bindings are recomputed per run
-/// and never stored.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PatchBinding {
     pub node: String,
@@ -415,11 +362,8 @@ pub struct PatchApplyReport {
     pub opened: u32,
     /// Channels created by this call.
     pub created: u32,
-    /// Device nodes whose radio is not attached; they render disconnected (CANVAS §3).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub absent: Vec<String>,
-    /// Nodes apply could not satisfy, with the reason — a wideband channel on a device running
-    /// at the wrong rate is the common one (). Reported, never silently skipped.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<PatchRefusal>,
 }
@@ -515,13 +459,10 @@ mod tests {
         let back: WorkspaceSnapshot = serde_json::from_value(json).unwrap();
         assert_eq!(back, snap);
 
-        // A snapshot from a peer that omits the rack entirely still reads.
         let bare: WorkspaceSnapshot =
             serde_json::from_str(r#"{"version":2,"graph":{"nodes":[]}}"#).unwrap();
         assert!(bare.rack.slots.is_empty());
         assert!(bare.graph.edges.is_empty());
-        // …and follows the server's default region with the ruler drawn, which is what every
-        // workspace stored before the band plan became a workspace setting was doing.
         assert_eq!(bare.settings.band_region, None);
         assert!(bare.settings.band_ruler);
     }
@@ -597,7 +538,6 @@ mod tests {
             merged.position.y >= MERGE_GAP,
             "a merged patch lands under the workspace, not on it"
         );
-        // Templates name the bare `iq`, which is and stays stream 0.
         assert_eq!(
             snap.graph
                 .channels_of("template:airband:dev")

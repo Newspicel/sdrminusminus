@@ -1,35 +1,3 @@
-//! The one random source every harness run draws from ( §4.1: fixed seeds
-//! everywhere).
-//!
-//! Reproducibility is a harness invariant, not a convenience: a committed curve or limits
-//! table that cannot be regenerated bit-for-bit from its stated seed is a bug in the harness.
-//! That rules out every ambient source — OS entropy differs per run, `std`'s hasher seeds
-//! differ per process, and an external RNG crate could change its stream between versions
-//! without this crate noticing. So the generator is written here, once, and its stream is part
-//! of the harness contract.
-//!
-//! The algorithm is xoshiro256++ (Blackman & Vigna, public domain). Quality matters as much as
-//! determinism: a sweep resolving BER 1e-5 consumes ~1e7 noise samples per point, and a
-//! generator with lattice structure or short-range correlation at that depth would put its own
-//! artefacts into the measured curve — the harness would be reading the generator, not the
-//! channel. xoshiro256++ passes BigCrush and PractRand at scales far beyond any sweep here,
-//! with a 2^256−1 period, and costs a handful of integer ops per draw — nothing for the
-//! throughput measurements in `perf` to notice.
-//!
-//! Seeding goes through SplitMix64 (Steele, Lea & Flood; public domain) so a run is named by a
-//! single u64. xoshiro forbids the all-zero state, and nearby seeds handed to it directly would
-//! start in nearby states; one SplitMix64 pass per state word escapes zero for every seed and
-//! makes seed and seed+1 unrelated streams — sweeps may number their runs 0, 1, 2, … and still
-//! get independent noise.
-//!
-//! The integer stream is exact on every platform. The floating-point derivations stay that way
-//! because they use only IEEE-754 correctly-rounded operations (`*`, `/`, `+`, `sqrt`) plus
-//! `ln`, whose platform libms agree to well under an ulp — orders of magnitude below anything a
-//! BER count can resolve.
-
-/// Seeded deterministic generator for Monte-Carlo BER work. Cheap to [`Clone`]: a forked copy
-/// replays the identical stream from the fork point, which is how a sweep reruns one point of
-/// a curve without regenerating everything before it.
 #[derive(Clone, Debug)]
 pub struct Rng {
     state: [u64; 4],

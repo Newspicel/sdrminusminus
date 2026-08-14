@@ -1,11 +1,3 @@
-// Pure operations on the stored patch graph (CANVAS §1, §4). No React, no React Flow: the
-// canvas maps this model onto the library's nodes and edges, never the other way round, so a
-// library major cannot reach the stored workspace.
-//
-// The connection rules are enforced twice on purpose — here at drag time, so the operator is
-// told where they are looking, and again by the server, which is the one that decides. They are
-// not written twice: the port table comes from `GET /api/patch/catalog` and the channel
-// specifics from `GET /api/channeltypes`, both generated from `crates/wire/src/patch.rs`.
 
 import { rateMismatch } from "../components/channelSettings";
 import type {
@@ -38,7 +30,6 @@ export function nodeOf(graph: PatchGraph, id: string): PatchNode | undefined {
   return graph.nodes.find((node) => node.id === id);
 }
 
-// ── stream port families ──────────────────────────────────────────────────────────────────
 //
 // A multi-stream radio has one IQ output per receive stream. The three rules below are
 // `crates/wire/src/patch.rs`'s `MAX_STREAMS` / `stream_port` / `port_stream`, mirrored so the
@@ -221,11 +212,6 @@ export function edgeKey(edge: PatchEdge): string {
   return `${edge.from.node}.${edge.from.port}->${edge.to.node}.${edge.to.port}`;
 }
 
-/**
- * Why this wire cannot be drawn, or `null` if it can. The reason is the message the operator
- * sees on the edge (CANVAS §1: "an invalid wire is refused with the reason where the operator
- * is looking"), so it names the fix wherever there is one.
- */
 export function connectionRefusal(
   context: GraphContext,
   graph: PatchGraph,
@@ -267,16 +253,6 @@ export function connectionRefusal(
   return null;
 }
 
-/**
- * What is wrong with a wire that was allowed to exist (CANVAS §1: the rate rule "surfaces on the
- * wire … a visible wire error, not a buried log line"). A rate is one setting away, so it is not
- * a reason to refuse the connection — the operator meant to put ADS-B on that radio, and the
- * answer is to change the rate, not to pretend the two cannot be joined.
- *
- * The rule itself is the server's (), read off the descriptor rather than re-derived:
- * a decoder that reads the radio's own samples names the range it runs over, and a mode that
- * fills its whole channel names the one rate a resampling DDC could deliver.
- */
 export function edgeWarning(
   context: GraphContext,
   graph: PatchGraph,
@@ -305,16 +281,7 @@ function mhz(hz: number): string {
   return (hz / 1e6).toFixed(3);
 }
 
-// ── how big a face is ─────────────────────────────────────────────────────────────────────
 
-/**
- * The size a face opens at, per kind. Width is always given; **height only for the kinds whose
- * content is a viewport** (a plot, a map, a table) — everything else is left to measure itself,
- * so a node is exactly as tall as what it draws and nothing inside it scrolls (CANVAS §1: the
- * face is the whole control surface, and a control you have to scroll to find is hidden).
- *
- * A stored `size` always wins: it only exists once the operator has resized the node by hand.
- */
 export const NODE_SIZE: Record<NodeKind, { w: number; h?: number }> = {
   device: { w: 360 },
   channel: { w: 380 },
@@ -467,15 +434,7 @@ function migrateGraph(graph: PatchGraph): PatchGraph {
   return { ...graph, edges: migrated };
 }
 
-// ── the rack ──────────────────────────────────────────────────────────────────────────────
 
-/**
- * The rack grid (CANVAS §5). Twelve by eight, not the twenty-four squared it shipped as: cells
- * are the unit of every gesture, and a cell an operator cannot aim at is a drag that lands one
- * short. §5 already named the remedy for a rack that feels cramped — bigger cells — and this is
- * it. A face pinned at the default takes a quarter of the rack, so four tile it and nothing has
- * to be resized before it can be read.
- */
 export const RACK_COLS = 12;
 export const RACK_ROWS = 8;
 export const RACK_DEFAULT = { w: 6, h: 4 } as const;

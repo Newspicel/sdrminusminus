@@ -1,14 +1,3 @@
-//! §5 measurement bundle for the noncoherent orthogonal M-FSK entry ( §7 phase 5
-//! accept: "noncoherent M-FSK matches theory"): committed BER curves for M ∈ {2, 4, 8} against
-//! the *exact* closed form, the §4.3 limits table at the M = 4 reference configuration, and the
-//! level-1 E2E loopbacks. The chains under measurement live in `ber::catalog::orthogonal`; the
-//! committed artifacts live in `baselines/orthogonal/` and regress here.
-//!
-//! Why this entry is oracle-matched where the CPM engine's M-ary row is commit-and-guard: a
-//! filterbank *is* the detector the closed form describes (M envelope detectors on M orthogonal
-//! signals), so there is no modelling gap to document as an offset — only the chain's stated
-//! framing overhead, which the tolerance below covers.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -42,10 +31,6 @@ fn oracle(m: u32) -> impl Fn(f64) -> f64 {
     move |db| theory::mfsk_noncoherent_ber(m, db)
 }
 
-// --- Always-run harness gates ----------------------------------------------------------------
-
-/// A chain defect (alignment, tone plan, bit packing) is loud before statistics: with nearly no
-/// noise every alphabet sits at zero errors.
 #[test]
 fn all_three_chains_round_trip_clean_at_high_ebn0() {
     for (link, name) in [
@@ -110,10 +95,6 @@ fn every_committed_curve_sits_on_the_exact_closed_form() {
     }
 }
 
-/// Orthogonal signalling's defining property, as an ordering of the committed curves: spending
-/// bandwidth on a wider alphabet buys energy efficiency, so the 1e-3 sensitivity must *fall*
-/// with M. An entry that got its tone plan or its Eb accounting wrong would order these the
-/// other way and still pass a per-curve tolerance.
 #[test]
 fn sensitivity_improves_with_the_alphabet() {
     let sensitivity = |stem: &str| {
@@ -128,13 +109,6 @@ fn sensitivity_improves_with_the_alphabet() {
     assert!(m8 < m4 - 0.5, "M=4 {m4} dB, M=8 {m8} dB");
 }
 
-// --- Level-1 E2E ( §4.4) -----------------------------------------------------------
-
-/// The §5 item-7 property: payloads survive bit-for-bit at a stated margin over the entry's own
-/// measured 1e-3 sensitivity (read off the committed curve, so the margin tightens if the
-/// detector improves). This entry has no error floor of its own — no loop to lose lock, no
-/// residual jitter — so +6 dB, where the closed form puts the residual BER below 1e-8, leaves
-/// far under one expected error across the trial bits.
 fn loopback_at_margin(mut link: Link, curve_name: &str, margin_db: f64, seed: u64) {
     let sensitivity = limits::ebn0_at_ber(&load_curve(curve_name), 1e-3)
         .expect("committed curve must bracket BER 1e-3");
@@ -157,8 +131,6 @@ fn mfsk4_loops_back_clean_at_6db_margin() {
 fn mfsk8_loops_back_clean_at_6db_margin() {
     loopback_at_margin(link_sized(8, 256), M8_AWGN, 6.0, 0x8e5c);
 }
-
-// --- Limits table (§4.3, M = 4 reference configuration) --------------------------------------
 
 /// One seeded probe at the operating point. 150 errors separates a passing probe from the 1e-2
 /// limit unambiguously; the cap bounds a probe that fails hard.
@@ -191,9 +163,6 @@ const PROFILE_CAP: u64 = 600_000;
 
 fn measure_rows(link: &Link, op_db: f64) -> Vec<LimitRow> {
     vec![
-        // A noncoherent bank tracks nothing, so its carrier tolerance is set by the tone plan
-        // itself: the axis runs to a whole tone spacing (4800 Hz), where an offset has moved
-        // every tone onto its neighbour's filter.
         axis_row("static CFO", "Hz", 4_800.0, 25.0, |hz| {
             probe(
                 link,
@@ -279,8 +248,6 @@ fn mfsk4_limits_rows_match_committed_table() {
     assert!(faults.is_empty(), "limits regressions: {faults:#?}");
 }
 
-// --- Full re-measurement (nightly; regenerates the committed artifacts) ----------------------
-
 fn remeasure_curve(link: &Link, grid: &[f64], seed: u64, name: &str) -> Curve {
     let curve = sweep::sweep_ber(
         link,
@@ -357,9 +324,6 @@ fn measure_mfsk8_full() {
     measure_full(&mfsk8_link(), M8_GRID, M8_SEED, M8_AWGN, 8);
 }
 
-/// The full §4.3 table. The sensitivity sweep is parameter-identical to the committed M = 4
-/// curve (same link, grid, seed, budgets), so the smoke tier reads the operating point off the
-/// committed table while the curve smoke test guards the underlying number.
 #[test]
 #[ignore = "full limits run; run in release to (re)generate the committed table"]
 fn measure_mfsk4_limits_full() {
@@ -396,8 +360,6 @@ fn measure_mfsk4_limits_full() {
         println!("baseline created at {}", path.display());
     }
 }
-
-// --- Exploration (never asserted; kept ignored for grid bracketing) --------------------------
 
 #[test]
 #[ignore = "prints coarse curves to choose sweep grids; asserts nothing"]

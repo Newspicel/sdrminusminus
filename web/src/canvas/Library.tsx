@@ -34,24 +34,12 @@ export function Library() {
   const workspace = useWorkspaceContext();
   const placeNode = useNodePlacement();
   const [tab, setTab] = useState<Tab>("templates");
-  // The radio a section that acts on *one* of them means: the selected device node, falling back
-  // to the only one drawn. Applying a template to the wrong radio is not recoverable by undo, so
-  // with several drawn and none selected there is no target at all — the section says so rather
-  // than silently picking the first.
-  //
-  // "One radio to mean" counts the radios *this patch names*, not every set the engine has open:
-  // applying a patch never closes anything (CANVAS §4), so a workspace with nothing drawn on it
-  // still sits beside whatever the last one left running.
   const selected =
     workspace.selected === null ? null : (workspace.devices.get(workspace.selected) ?? null);
   const drawn = [...workspace.devices.values()];
   const only = drawn.length === 1 ? (drawn[0] ?? null) : null;
   const active = selected ?? only;
 
-  /** Draw a recording onto the canvas as the source it already is: a device node bound to the
-   * `virtual:file:` playback device. Apply is what opens it, so a recording that has since been
-   * deleted lands in the apply report's `absent` list and renders as a disconnected node —
-   * CANVAS §3's bound-but-absent, which is the honest state for a file that is not there. */
   const openRecording = (recording: RecordingInfo): void => {
     const device = refFromDeviceId(recording.device_id);
     if (device === null) {

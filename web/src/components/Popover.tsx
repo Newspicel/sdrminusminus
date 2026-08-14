@@ -1,11 +1,3 @@
-// The one non-modal overlay in the UI (). Settings clusters and menus live here
-// rather than in a bar row: they are consulted, not watched, and a row spent on them is a row
-// the plot does not get.
-//
-// Base UI owns dismissal (Esc, outside press, focus back on the trigger) and the nesting
-// bookkeeping a portalled child popup needs — a `Select` opened inside a popover is outside its
-// DOM subtree, so an outside-press rule written by hand would close the popover under the
-// pointer.
 import { Popover as Primitive } from "@base-ui/react/popover";
 import type { ReactNode } from "react";
 import { useState } from "react";

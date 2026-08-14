@@ -1,11 +1,3 @@
-//! Per-device-set runtime (): one [`Lane`] per receive stream — the capture thread
-//! pushes that stream's IQ into an SPSC ring; a DSP thread drains it, runs the spectrum tap
-//! and the hosted channels, and broadcasts snapshots plus per-channel PCM. No locks and no
-//! steady-state allocation on the DSP hot path beyond the one documented per-block snapshot
-//! hand-off (see [`ChannelHost::process`]) — device settings arrive via an [`ArcSwap`]
-//! snapshot, channel changes via a per-lane command queue drained between blocks, output
-//! leaves via broadcast channels.
-
 use std::{
     sync::{
         Arc, Mutex,
@@ -37,7 +29,6 @@ use crate::{
 
 /// FFT size for the spectrum tap (: 1k–64k configurable; M0 fixes one size).
 const FFT_SIZE: usize = 4096;
-/// Internal spectrum cadence; per-client fps throttling happens downstream ().
 const TARGET_FPS: f64 = 30.0;
 /// Ring depth in samples (~0.5 s at 2.4 Msps) — absorbs scheduling jitter before overrun.
 pub(crate) const RING_CAPACITY: usize = 1 << 20;
@@ -48,8 +39,6 @@ const DEFAULT_DB_RANGE: f32 = 80.0;
 const SQUELCH_HYSTERESIS_DB: f32 = 6.0;
 const SQUELCH_HOLD_S: f32 = 0.1;
 
-/// One computed spectrum, broadcast to all subscribers of a device set. `db` is the full
-/// DC-centered FFT; each subscriber decimates/quantizes to its own bin count ().
 #[derive(Clone, Debug)]
 pub struct SpectrumSnapshot {
     pub seq: u32,
@@ -60,15 +49,12 @@ pub struct SpectrumSnapshot {
     pub db: Arc<[f32]>,
 }
 
-/// Live DSP-plane metadata the DSP thread reads per drain (never per sample).
 #[derive(Clone, Copy)]
 pub struct DspMeta {
     pub center_hz: f64,
     pub sample_rate: f64,
 }
 
-/// A decoder frame as it leaves the DSP plane, before the control plane stamps wall-clock
-/// time onto it (the DSP thread never formats time).
 pub(crate) struct RawDecoded {
     pub(crate) device_set: u32,
     pub(crate) channel: u32,
@@ -77,9 +63,6 @@ pub(crate) struct RawDecoded {
     pub(crate) event: DecoderEvent,
 }
 
-/// The DSP plane's outlet for decoder frames. The queue is bounded, so a stalled control
-/// plane costs frames rather than blocking the DSP thread — and every loss is counted and
-/// surfaced (: bounded queue, never silent loss).
 #[derive(Clone)]
 pub(crate) struct DecodedSink {
     tx: mpsc::SyncSender<RawDecoded>,
@@ -266,7 +249,6 @@ impl ChannelHost {
         } else {
             0
         };
-        // send() only errors with no receivers (encoder mid-teardown) — expected and fine.
         if open {
             self.outputs.reset();
             self.rx.process(&self.filtered, &mut self.outputs);
@@ -303,8 +285,6 @@ impl ChannelHost {
                 self.rx.process(&self.gated, &mut self.outputs);
                 self.publish_frames(center_hz, video_pos);
             }
-            // A closed gate still emits (zeroed) audio so client jitter buffers stay alive;
-            // silence travels as a bare frame count, so this path allocates nothing.
             self.zero_carry += self.filtered.len() as f64 * self.pcm_per_input;
             let zeros = self.zero_carry as usize;
             if zeros > 0 {
@@ -322,9 +302,6 @@ impl ChannelHost {
         }
     }
 
-    /// Hand whatever the channel just produced — decoder frames and pictures — to the control
-    /// plane. Shared by both squelch branches so a mode that produces both, and is fed silence
-    /// through a closed gate, cannot have half its output dropped by the next `reset`.
     fn publish_frames(&mut self, center_hz: f64, video_pos: u64) {
         // Decoder frames are rare (a handful per second even under ADS-B traffic) and a picture
         // is one `Arc` fifty times a second, so draining owned output here costs the same
@@ -357,8 +334,6 @@ impl ChannelHost {
                     self.filter = filter;
                     self.params = settings.params.clone();
                 }
-                // The control plane validated these settings before queueing them; landing
-                // here means an engine bug, so shout instead of dropping the failure.
                 Err(e) => {
                     tracing::error!(error = %e, "validated channel filter rejected on dsp thread");
                 }
@@ -378,8 +353,6 @@ impl ChannelHost {
     }
 }
 
-/// Control-plane → DSP-thread channel operations (: settings via command queue,
-/// applied between blocks). Handling MAY allocate — these are rare control events.
 pub(crate) enum DspCommand {
     AddChannel {
         id: u32,
@@ -447,15 +420,9 @@ impl CaptureRuntime {
         settings: &DeviceSettings,
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
-        // A radio reporting zero rx streams still gets one lane, or its device set would
-        // have no spectrum and no channel host at all (); the MAX_STREAMS ceiling
-        // bounds the thread count against a buggy backend, whose own sink-count check then
-        // refuses the mismatch.
         let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
         let per_stream = device.capabilities().per_stream;
         let sample_rate = crate::sample_rate_of(settings);
-        // One radio, one death: whichever lane's capture fails first reports for the whole
-        // device, and the remaining sinks' reports collapse into the spent one-shot.
         let fatal: Arc<Mutex<Option<FatalReport>>> = Arc::new(Mutex::new(Some(Box::new(on_fatal))));
 
         let mut sinks: Vec<RxSink> = Vec::with_capacity(lane_count);
@@ -550,10 +517,6 @@ impl CaptureRuntime {
             .map(|lane| lane.spectrum_tx.subscribe())
     }
 
-    /// Clones of every lane's DSP command queue, in stream order, for the engine's
-    /// control-plane state: channel commands must be queued while the engine `inner` lock is
-    /// held (see `DeviceSetState::cmd_txs`), which a method on the mutex-guarded runtime
-    /// cannot offer.
     pub(crate) fn command_senders(&self) -> Vec<mpsc::Sender<DspCommand>> {
         self.lanes.iter().map(|lane| lane.cmd_tx.clone()).collect()
     }
@@ -567,12 +530,6 @@ impl CaptureRuntime {
             .collect()
     }
 
-    /// Push the resolved tuning to every lane's DSP meta. One radio still has one clock, so
-    /// the sample rate is shared — but each lane's centre is resolved through
-    /// [`DeviceSettings::for_stream`]: channel offsets are relative to the lane's centre, so
-    /// pushing one shared centre would make a per-stream retune invisible to the DSP plane,
-    /// which then decodes (and stamps decoder frames with) the wrong frequency while looking
-    /// fine.
     pub fn set_meta(&self, settings: &DeviceSettings) {
         let sample_rate = crate::sample_rate_of(settings);
         for (stream, lane) in self.lanes.iter().enumerate() {
@@ -623,9 +580,6 @@ impl Drop for CaptureRuntime {
     }
 }
 
-/// The DSP thread body (): drain commands, then drain the ring through the hosted
-/// channels and a rolling FFT window emitting a spectrum every `hop` samples. `hop` derives
-/// from the live sample rate, so cadence stays ~`TARGET_FPS` regardless of tuning.
 fn dsp_loop(
     consumer: &mut rtrb::Consumer<Complex<f32>>,
     commands: &mpsc::Receiver<DspCommand>,
@@ -648,9 +602,6 @@ fn dsp_loop(
 
     while !stop.load(Ordering::Acquire) {
         drain_commands(commands, &mut channels, &mut tap);
-        // Ring overruns advance the sample clock too: `timestamp` stays aligned with real
-        // capture time across drops instead of silently compressing it ( sample-count
-        // timestamps; the control plane surfaces the same counter as `DeviceSet.overruns`).
         let dropped = overruns.load(Ordering::Relaxed);
         total += dropped - dropped_seen;
         dropped_seen = dropped;
@@ -667,10 +618,6 @@ fn dsp_loop(
         };
         let (a, b) = chunk.as_slices();
         for slice in [a, b] {
-            // `total` is the stream position of `slice[0]` here — the per-sample advance
-            // below runs within this same iteration. A failed push disarms the tap: the
-            // fault is already in the recording's shared state, and a lossless recording
-            // must never continue with silent holes ().
             if tap
                 .as_ref()
                 .is_some_and(|t| !t.push(slice, total, snapshot.center_hz))
@@ -695,7 +642,6 @@ fn dsp_loop(
                     }
                     analyzer.power_db(&window, &mut db);
                     seq = seq.wrapping_add(1);
-                    // send() only errors when there are no receivers — expected and fine.
                     let _ = tx.send(SpectrumSnapshot {
                         seq,
                         timestamp: total,
@@ -718,7 +664,6 @@ fn drain_commands(
     while let Ok(cmd) = commands.try_recv() {
         match cmd {
             DspCommand::AddChannel { id, host } => {
-                // Swap-rebuilds send Remove first, but tolerate a duplicate add anyway.
                 channels.retain(|(existing, _)| *existing != id);
                 channels.push((id, host));
             }
@@ -727,10 +672,6 @@ fn drain_commands(
                 if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
                     host.ddc.set_offset(offset_hz);
                     host.offset_hz = offset_hz;
-                    // The channel is now listening to a different signal; anything it accreted
-                    // about the previous one has to go (`ChannelRx::retuned`). The control
-                    // plane sends no `ApplySettings` for an offset-only patch, so this is the
-                    // only place a decoder learns it moved.
                     host.rx.retuned();
                 } else {
                     // Benign: the patch raced a removal; the removal already won.
@@ -750,7 +691,6 @@ fn drain_commands(
     }
 }
 
-/// The default adaptive dB window for a snapshot: `[peak - DEFAULT_DB_RANGE, peak]` ().
 #[must_use]
 pub fn adaptive_db_window(db: &[f32]) -> (f32, f32) {
     let peak = db.iter().copied().fold(f32::NEG_INFINITY, f32::max);
@@ -940,7 +880,6 @@ mod tests {
         for chunk in input.chunks(BLOCK) {
             host.process(chunk, 0.0);
         }
-        // Swap in a fresh host the way a device rate change does.
         let mut host = ChannelHost::build(RATE, &settings, sinks(pcm_tx, pos), DecodedSink::null())
             .expect("rebuilt host");
         for chunk in input.chunks(BLOCK) {

@@ -1,9 +1,4 @@
 //! Morse/CW decoder ( P2): envelope detection with adaptive element timing.
-//!
-//! The host has already applied the CW filter at `MorseParams::bandwidth_hz`, so the tone
-//! arrives near DC and its magnitude is the key line. Smoothing it and slicing it against a
-//! tracked noise floor turns the stream into mark/gap runs; everything above that is timing.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -16,17 +11,6 @@ use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, 
 
 const CHANNEL_TAPS: usize = 257;
 
-/// **Why this decoder does not run the library's envelope tier** ( §7 phase 4). Hand-sent
-/// CW has no symbol clock at all: an element's length is the operator's, the ratio of dot to dash
-/// is only nominally 1:3, and the decoder's whole job is to infer the timing from what it hears.
-/// `sdrmm_modem::linear::EnvelopeDemod` is symbol-synchronous by construction — it needs an
-/// oversampling and emits one amplitude per symbol period — so what the library's OOK row and this
-/// front end share is the modulation and the adaptive threshold, not the chain. The committed OOK
-/// bundle characterises magnitude detection of a *clocked* keyed carrier; asynchronous keying is a
-/// different receiver, and this is it.
-///
-/// Envelope smoothing: long enough to average the noise inside the CW filter, far shorter than
-/// the ~15 ms dot of the fastest speed this decoder tracks.
 const ENV_ATTACK_S: f64 = 2e-3;
 const ENV_RELEASE_S: f64 = 2e-3;
 /// Runs shorter than this are slicer chatter, not elements, and are merged into their
@@ -82,9 +66,6 @@ const fn code(pattern: &str) -> u16 {
     key
 }
 
-/// International Morse (ITU-R M.1677-1 §1 and §2). The prosigns AR and BT share their element
-/// runs with `+` and `=` and are reported as those glyphs, the conventional rendering; SK has
-/// no punctuation twin, so it is reported as its letter run.
 static TABLE: &[(u16, &str)] = &[
     (code(".-"), "A"),
     (code("-..."), "B"),
@@ -368,7 +349,6 @@ impl MorseChannel {
         }
         self.text.push_str(decoded);
         self.reset_character();
-        // Every string the table yields is ASCII, so byte length is the character count.
         if self.text.len() >= MAX_CHUNK_CHARS {
             self.flush(out);
         }
@@ -567,7 +547,6 @@ mod tests {
 
     #[test]
     fn fixed_speed_tolerates_sloppy_sending() {
-        // The operator states 20 wpm and sends 20% off it in both directions.
         for actual in [16.0, 24.0] {
             let mut chan = channel(Some(20.0));
             let (text, wpm) = decode_ragged(&mut chan, &burst(CALL, actual, 0.0));
@@ -603,7 +582,6 @@ mod tests {
 
     #[test]
     fn word_gaps_become_single_spaces_and_letter_gaps_do_not() {
-        // "IT" and "EE" are the pairs a mistimed letter gap would fuse or split.
         assert_eq!(
             decode(&mut channel(None), &burst("EE E", 18.0, 0.0)),
             "EE E"
@@ -612,7 +590,6 @@ mod tests {
 
     #[test]
     fn unknown_element_runs_are_reported_not_dropped() {
-        // Nine dots at single-dot spacing: one element run, longer than any table entry.
         let dot = (1.2 * RATE / 20.0) as usize;
         let mut env = Vec::new();
         for i in 0..9 {

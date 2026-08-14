@@ -2,17 +2,6 @@
 //! order, built from a [`ChannelSpec`]. The sweep and limits runners hold a spec, set exactly
 //! one axis (or a named composite profile), and hand the built channel a clean modulator
 //! output — so "the CFO limits row" and "the CFO impairment" cannot mean different things.
-//!
-//! The canonical order is the signal path's own: burst keying (the transmitter), multipath
-//! (propagation), CFO → drift → phase noise (the receive LO), sample-clock error → timing
-//! offset → jitter (the ADC clock), IQ imbalance → DC (the analog front end), then
-//! interference, clipping, quantisation, and AWGN last — noise referenced to the waveform
-//! that actually reaches the detector, which is what makes a stated Eb/N0 true after every
-//! other stage has reshaped the signal. Interference enters after the front-end stages only
-//! because its level is stated as C/I at the detector; the difference is measurable solely
-//! through the front end's own distortion of the interferer, which is far below every
-//! tolerance this module calibrates.
-
 use num_complex::Complex;
 
 use super::{

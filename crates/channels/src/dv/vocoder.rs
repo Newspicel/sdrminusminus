@@ -1,9 +1,4 @@
 //! Vocoder adapters shared by the digital-voice air interfaces.
-//!
-//! AMBE+2 and IMBE produce one 20 ms / 8 kHz block per frame; Codec2 produces either two
-//! 20 ms blocks (3,200 bit/s) or one 40 ms block (1,600 bit/s). This module owns the common
-//! conversion onto the application's 48 kHz mono plane, including encrypted-frame silence.
-
 use std::{
     alloc::{Layout, handle_alloc_error},
     ffi::c_void,
@@ -101,7 +96,6 @@ impl PcmOutput {
 
     fn append_f32(&mut self, pcm: &[f32], out: &mut ChannelOutputs) {
         self.pcm_8k.clear();
-        // mbelib's floating-point synthesis uses the i16 numeric scale.
         self.pcm_8k.extend(
             pcm.iter()
                 .map(|&sample| Complex::new(sample / 32_768.0, 0.0)),

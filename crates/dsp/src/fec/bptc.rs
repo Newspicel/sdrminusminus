@@ -1,34 +1,6 @@
 //! The DMR block product turbo codes (ETSI TS 102 361-1 B.2): a rectangle of bits with a
 //! Hamming code along every row *and* every column, interleaved across the burst so a fade
 //! that destroys a run of bits leaves at most one error in each codeword.
-//!
-//! Two shapes are in use and both live here because they differ only in their dimensions and
-//! their row code:
-//!
-//! * [`Bptc196`] — 196 bits either side of a data burst's sync, carrying 96 bits of signalling
-//!   (a link control, a CSBK, a data header). 13 rows of Hamming(15,11,3), 15 columns of
-//!   Hamming(13,9,3).
-//! * [`Bptc128`] — the 128 bits a voice superframe carries its embedded link control in, four
-//!   bursts at a time, carrying 77. 8 rows of Hamming(16,11,4), 16 columns of even parity.
-//!
-//! Decoding alternates row and column passes: a repair in one direction changes the syndromes
-//! in the other, which is what lets the product code correct patterns neither code could alone.
-//!
-//! Both blocks also decode soft input (`decode_soft`): Chase-2 over every component codeword —
-//! try sign flips of the least-reliable positions, hard-decode each trial, keep the valid
-//! codeword nearest in analog distance — iterated between rows and columns like the hard
-//! passes, with the winner's signs imposed on the soft rectangle so each direction learns from
-//! the other. Measured over 400 AWGN-corrupted BPSK [`Bptc196`] blocks per point (unit
-//! symbols, noise deviation σ), blocks lost at σ = {0.70, 0.65, 0.60, 0.55, 0.50}:
-//! hard {357, 298, 228, 144, 68}, soft {116, 51, 20, 5, 1}.
-//!
-//! Pyndiah's extrinsic update (blend the metric gap to the best competitor into the soft value
-//! instead of just flipping signs; α = ½, β = 16) was measured against this and dropped: it
-//! lost only {10, 1, 0, 0, 0} blocks on the same points — a real further gain — but it also
-//! converged 16–43 % of pure-noise blocks into confident codewords where sign-flip converges
-//! 0.1 % and the hard decoder 0.01 %. These blocks feed signalling whose only guard beyond
-//! this point is a 16-bit check; rejection is not a property this decoder may trade away.
-
 use super::{block::ParityCode, conv::Soft};
 
 /// Passes over the rectangle before giving up. Each pass can only reduce the number of bad
@@ -170,9 +142,6 @@ impl Bptc196 {
             *slot = coded[a * 181 % Self::CODED_BITS];
         }
         let received: [bool; Self::CODED_BITS] = std::array::from_fn(|i| matrix[i] > 0);
-        // Unlike the hard passes, every one of the 13 rows and 15 columns is searched: the
-        // parity-on-parity rows and columns are XORs of information rows/columns and therefore
-        // valid component codewords themselves, and their soft values carry evidence too.
         for _ in 0..MAX_PASSES {
             let mut changed = false;
             for c in 0..15 {
@@ -194,8 +163,6 @@ impl Bptc196 {
                 break;
             }
         }
-        // The hard passes verify the fixed point is a codeword and mop up the few leftovers
-        // the Chase iterations were still short of — but no more than that (MAX_SETTLE_REPAIRS).
         let mut hard: [bool; Self::CODED_BITS] = std::array::from_fn(|i| matrix[i] > 0);
         if Self::settle(&mut hard).is_none_or(|repairs| repairs > MAX_SETTLE_REPAIRS) {
             return None;
@@ -330,8 +297,6 @@ impl Bptc128 {
             matrix[Self::transpose(a)] = s;
         }
         let received: [bool; Self::CODED_BITS] = std::array::from_fn(|i| matrix[i] > 0);
-        // All eight rows are searched: the parity row is the XOR of the seven information
-        // rows and therefore a valid Hamming(16,11) codeword itself.
         for _ in 0..MAX_PASSES {
             let mut changed = false;
             for r in 0..8 {
@@ -540,7 +505,6 @@ mod tests {
     fn bptc196_soft_recovers_a_rectangle_hard_decode_cannot() {
         let data: [bool; 96] = pattern(31);
         let mut coded = soften(&Bptc196::encode(&data));
-        // Matrix corners (rows 2 and 5, columns 3 and 7) mapped back through the interleaver.
         for m in [34usize, 38, 79, 83] {
             let a = m * 181 % 196;
             coded[a] = if coded[a] > 0 { -8 } else { 8 };

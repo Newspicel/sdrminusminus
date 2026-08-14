@@ -1,17 +1,5 @@
 //! The reference M-PPM transmitter: one keyed slot per symbol, rendered onto a sample grid the
 //! slot boundaries need not agree with.
-//!
-//! PPM's pulse *is* a rect over one slot — [`crate::pulse::rect`] at the slot's width, which
-//! [`slot_taps`] returns and the tests pin this renderer against. What the renderer adds is the
-//! case a tap vector cannot express: a slot boundary that falls inside a sample. There the
-//! output sample carries the partial amplitude a receiver's own decimation chain would hand it,
-//! obtained by rendering at [`OVERSAMPLE`]× and integrating over each output sample's aperture.
-//! At an integer `samples_per_slot` and phase 0 the two coincide exactly, which is the identity
-//! `an_integer_rate_renders_the_rect_pulse_exactly` asserts.
-//!
-//! Design and rendering are cold path (a test-signal generator, `tx.rs`'s source): they allocate
-//! freely. The §4.2 zero-allocation gate binds the demodulator.
-
 use num_complex::Complex;
 
 use crate::pulse::{self, Norm};
@@ -181,7 +169,6 @@ mod tests {
     #[test]
     fn a_boundary_inside_a_sample_reads_partial_amplitude() {
         let rendered = render(&[true, false], 2.0, 0.5);
-        // Slot 0 spans samples 0.5..2.5: sample 0 is half lit, samples 1 half, sample 2 half.
         assert!((rendered[0] - 0.5).abs() < 1e-6, "{rendered:?}");
         assert!((rendered[1] - 1.0).abs() < 1e-6, "{rendered:?}");
         assert!((rendered[2] - 0.5).abs() < 1e-6, "{rendered:?}");
@@ -218,7 +205,6 @@ mod tests {
             .filter(|(_, s)| s.re > 0.5)
             .map(|(i, _)| i)
             .collect();
-        // Slots 2, 4 and 11 of 12, two samples each.
         assert_eq!(lit, vec![4, 5, 8, 9, 22, 23]);
     }
 }

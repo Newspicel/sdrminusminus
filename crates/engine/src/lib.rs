@@ -1,10 +1,3 @@
-//! `sdrmm-engine` — the flowgraph runtime (, §7). Owns the authoritative device-set
-//! state, hosts each device set's capture + DSP threads plus per-channel Opus encoders and
-//! an optional SigMF recording writer (see [`recording`]), and pushes `StateChanged` events,
-//! spectrum snapshots, and audio packets outward. The control
-//! plane (this facade) uses a mutex; the DSP plane (see [`runtime`]) is lock-free and never
-//! shares mutable state with it directly — channel changes cross over via a command queue.
-
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
@@ -56,11 +49,7 @@ const SOAPY_PRIORITY: u8 = 20;
 #[cfg(feature = "net-client")]
 const NET_PRIORITY: u8 = 30;
 const EVENT_CHANNEL_CAP: usize = 256;
-/// Decoder frames buffered between the DSP plane and the stamping pump. Deep enough to
-/// absorb an ADS-B burst; overflow is counted and reported, never silently swallowed.
 const DECODED_QUEUE_CAP: usize = 4096;
-/// Fan-out depth for stamped decoder records. Consumers that fall behind lag the broadcast
-/// (drop-oldest) rather than stalling the pump — the UI path is lossy by design ().
 const DECODED_CHANNEL_CAP: usize = 1024;
 /// Fallbacks for devices that report no tuning/rate; mirrored wherever settings are read.
 const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
@@ -100,8 +89,6 @@ pub enum EngineError {
     DeviceSetNotFound(u32),
     #[error("channel {0} not found in device set {1}")]
     ChannelNotFound(u32, u32),
-    /// A stream index past the device's lane count — a bad request naming the count, never a
-    /// panic and never a silent fallback to stream 0 ().
     #[error("stream {stream} is out of range: this device has {streams} rx streams")]
     StreamOutOfRange { stream: u32, streams: u32 },
     #[error(transparent)]
@@ -168,11 +155,6 @@ fn descriptor_for(params: &ChannelParams) -> Result<ChannelDescriptor, EngineErr
         .ok_or_else(|| ChannelError::UnknownType(type_id.to_owned()).into())
 }
 
-/// A channel's occupied band must fit inside the device passband and its DDC must decimate
-/// (never interpolate); non-finite knobs are rejected before they can reach the DSP plane.
-/// The band comes from the configured params ([`sdrmm_channels::occupied_band`]), not the
-/// descriptor nominal — the nominal would pass configs (wide NFM, SSB's one-sided band)
-/// whose real occupancy sticks out past Nyquist and silently truncates the audio.
 fn validate_channel(
     descriptor: &ChannelDescriptor,
     settings: &ChannelSettings,
@@ -260,12 +242,6 @@ fn tuner_reaches(capabilities: &Capabilities, hz: f64) -> bool {
             .any(|r| hz >= r.min && hz <= r.max)
 }
 
-/// Refuse a per-stream delta the capability cannot honour — an entry for a stream the radio
-/// lacks, or for a setting it does not scope per-stream — before any device I/O ().
-/// The backends refuse the same things through the shared [`check_stream_settings`], but the
-/// refusal must come back as the engine's bad request naming the problem, not as an apply
-/// failure after other fields already reached the device. The range check mirrors the
-/// radio-wide dial's: a per-stream tuner is still this tuner.
 fn validate_streams(
     capabilities: &Capabilities,
     delta: &DeviceSettings,
@@ -328,8 +304,6 @@ impl ChannelMedia {
     }
 }
 
-/// Control-plane handle to a live recording: the writer thread plus the shared state the
-/// DSP tap and the writer update, projected into `DeviceSet.recording`.
 struct RecordingState {
     /// Stem file name (no directory, no `.sigmf-*` suffix) — what clients display.
     file: String,
@@ -341,8 +315,6 @@ struct RecordingState {
     stem: PathBuf,
     shared: Arc<RecordingShared>,
     writer: JoinHandle<()>,
-    /// `DeviceSet.overruns` when the recording armed; the difference is the drops the
-    /// recording spans (loss upstream of the DSP plane, ).
     overruns_at_start: u64,
     /// Counter/fault values already surfaced to clients; the hotplug tick diffs against them.
     samples_seen: u64,
@@ -369,8 +341,6 @@ impl RecordingState {
     }
 }
 
-/// Per-device-set control-plane state plus its running capture (). The runtime owns the
-/// device and DSP thread; the rest is the serializable projection sent to clients.
 struct DeviceSetState {
     info: DeviceInfo,
     capabilities: Capabilities,
@@ -392,14 +362,6 @@ struct DeviceSetState {
     /// the reverse ordering of the recording guard in the patch pre-validation. Cleared by
     /// [`RatePatchGuard`] on every patch exit path.
     rate_patches: u32,
-    /// Clones of the runtime's per-stream DSP command queues, index = stream. Channel
-    /// commands go through these while holding the engine `inner` lock with this set's entry
-    /// present — that ordering is what keeps DSP-plane channel membership consistent with
-    /// control-plane state (a removal or swap can never interleave into a stale rebuild and
-    /// re-add a deleted channel, which would strand a live PCM sender and hang the encoder
-    /// join). `mpsc` sends never block, so sending under `inner` is safe; the
-    /// never-hold-both rule below concerns only the `runtime` mutex, which these sends never
-    /// touch.
     cmd_txs: Vec<mpsc::Sender<DspCommand>>,
     /// Per-lane capture-ring drop counters shared with the runtime, index = stream;
     /// readable without its lock so snapshots never wait on a wedged device.
@@ -411,10 +373,6 @@ struct DeviceSetState {
     /// reads it on every emit and must never wait on a device lock, and a pause has to land
     /// while the capture thread is mid-block.
     playback: Option<Arc<PlaybackShared>>,
-    /// Control-plane mutex around the runtime: device I/O (`apply`, `stop`) happens under it,
-    /// never under the engine-wide `inner` lock, so a wedged device stalls only its own set.
-    /// Never hold `inner` and this lock at once — clone the `Arc` under `inner`, drop `inner`,
-    /// then lock. The DSP hot path never touches this mutex.
     runtime: Arc<Mutex<CaptureRuntime>>,
 }
 
@@ -423,9 +381,6 @@ impl DeviceSetState {
         let overruns = self.overruns_total();
         DeviceSet {
             id,
-            // Identity only: the radio is open, so `capabilities` below is what it actually
-            // reports, and the probe-time profile beside it would be a second answer to the
-            // same question.
             device: self.info.identity(),
             capabilities: self.capabilities.clone(),
             settings: self.settings.clone(),
@@ -445,7 +400,6 @@ impl DeviceSetState {
         self.cmd_txs.len() as u32
     }
 
-    /// `Ok(())` iff `stream` addresses one of this set's lanes.
     fn check_stream(&self, stream: u32) -> Result<(), EngineError> {
         if stream < self.rx_streams() {
             Ok(())
@@ -546,11 +500,9 @@ pub struct Engine {
     fault_tx: mpsc::Sender<(u32, DeviceError)>,
     /// Cloned into every hosted channel's [`DecodedSink`]; the pump holds the receiver.
     decoded_tx: mpsc::SyncSender<RawDecoded>,
-    /// Frames the DSP plane could not hand over because [`DECODED_QUEUE_CAP`] was full.
     decoded_dropped: Arc<AtomicU64>,
     /// Stamped decoder records, fanned out to the WS hub and the decoder-log writer.
     decoded_tx_out: broadcast::Sender<DecodedRecord>,
-    /// Where `start_recording` writes SigMF pairs; `None` disables recording ().
     recordings_dir: Option<PathBuf>,
 }
 
@@ -588,9 +540,6 @@ impl Engine {
         engine
     }
 
-    /// Stamp decoder frames with wall-clock time and fan them out (). Runs off the
-    /// DSP thread so no decoder ever formats a timestamp on the hot path. Holds a `Weak`,
-    /// and exits once every sink sender is gone (engine dropped, DSP threads joined).
     fn spawn_decoded_pump(self: &Arc<Self>, decoded_rx: mpsc::Receiver<RawDecoded>) {
         let weak = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
@@ -599,12 +548,7 @@ impl Engine {
                 let mut lost_seen = 0u64;
                 while let Ok(raw) = decoded_rx.recv() {
                     let Some(engine) = weak.upgrade() else { return };
-                    // Fixed nanosecond precision, not `Timestamp::to_string()`: that trims
-                    // trailing fractional zeros, so `12:00:00.5Z` sorts before `12:00:00Z`.
-                    // The log's index is a text comparison over exactly this string, and the
-                    // live record a client sees must be byte-identical to the stored one.
                     let at = format!("{:.9}", jiff::Timestamp::now());
-                    // send() only errors with no subscribers — the common headless case.
                     let _ = engine.decoded_tx_out.send(DecodedRecord {
                         device_set: raw.device_set,
                         channel: raw.channel,
@@ -628,8 +572,6 @@ impl Engine {
         }
     }
 
-    /// Subscribe to stamped decoder frames (). Lossy by design: a subscriber that
-    /// falls behind lags the broadcast rather than stalling the DSP plane.
     #[must_use]
     pub fn subscribe_decoded(&self) -> broadcast::Receiver<DecodedRecord> {
         self.decoded_tx_out.subscribe()
@@ -672,7 +614,6 @@ impl Engine {
                 }
             });
         if let Err(e) = spawned {
-            // Without the drainer, device faults would be lost; say so loudly.
             tracing::error!("failed to spawn fault drainer: {e}");
         }
     }
@@ -848,7 +789,6 @@ impl Engine {
                 })
                 .map(|(id, _)| *id)
                 .collect();
-            // A faulted set whose device is attached again is the replug case ( M5).
             let returned = inner
                 .device_sets
                 .iter()
@@ -921,19 +861,9 @@ impl Engine {
         };
         let capabilities = device.capabilities().clone();
         let playback = device.playback();
-        // A reconnect is a create followed by a patch, and it projects state the same way
-        // both of those do: the fresh device's own settings as the base, the stored ones
-        // merged over them. Reading `device.settings()` alone would depend on every backend
-        // reflecting `apply` back into its own state, which the trait does not require.
-        // Same rule as `patch_device`: the configuration being restored, with whatever the
-        // reopened device actually reports laid over it.
         let mut settings = stored_settings.clone();
         settings.merge_from(&device.settings().clone());
         let rate = sample_rate_of(&settings);
-        // A fault from the *fresh* capture that lands before the swap below would be applied
-        // to a set that is still `Error` and then overwritten by the swap — leaving a dead
-        // capture advertised as Running forever. The gate parks such a fault until the swap
-        // has finished, and the normal fault path takes over from there.
         let gate = Arc::new(Mutex::new(FaultGate::Pending(None)));
         let fault_tx = self.fault_tx.clone();
         let handler_gate = gate.clone();
@@ -968,7 +898,6 @@ impl Engine {
                 return;
             };
             if state.status != DeviceSetStatus::Error {
-                // Something already revived or replaced the set; drop the spare device.
                 drop(inner);
                 lock_runtime(&runtime).stop();
                 return;
@@ -995,8 +924,6 @@ impl Engine {
             state.settings = settings;
             state.status = DeviceSetStatus::Running;
             state.error = None;
-            // The reopened device brought a fresh transport; the old handle belongs to a
-            // capture that is being torn down and would report a frozen position forever.
             state.playback = playback;
             let rebuilds: Vec<RebuildEntry> = state
                 .channels
@@ -1136,7 +1063,6 @@ impl Engine {
         };
         let fault_tx = self.fault_tx.clone();
         let started = CaptureRuntime::start(device, &settings, move |err| {
-            // Unbounded send: the dying capture thread never blocks on the control plane.
             let _ = fault_tx.send((id, err));
         });
         let runtime = match started {
@@ -1321,8 +1247,6 @@ impl Engine {
         };
         let (settings, rate, rebuilds) = {
             let mut inner = self.lock();
-            // The set may have been removed while `apply` ran; its runtime was stopped by
-            // `remove_device_set`, so just report the removal.
             let state = inner
                 .device_sets
                 .get_mut(&ds)
@@ -1432,16 +1356,13 @@ impl Engine {
                 });
             let mut inner = self.lock();
             let Some(state) = inner.device_sets.get_mut(&ds) else {
-                // The set was removed while building; that removal owns all teardown.
                 return;
             };
             let current_rate = sample_rate_of(&state.settings);
             let Some(info) = state.channels.iter().find(|c| c.id == id) else {
-                // The channel was removed while building — nothing to swap.
                 return;
             };
             if current_rate != built_rate || info.settings != settings {
-                // The snapshot went stale (another patch landed); rebuild against it.
                 settings = info.settings.clone();
                 built_rate = current_rate;
                 continue;
@@ -1675,8 +1596,6 @@ impl Engine {
                 need_host = true;
                 continue;
             }
-            // A patch never moves a channel between streams; the lane is the one the channel
-            // was created on.
             let stream = info.stream;
             let prev = std::mem::replace(&mut info.settings, settings.clone());
             match host {
@@ -1844,10 +1763,6 @@ impl Engine {
                 });
                 return Ok(());
             };
-            // The set moved while the files were opened (removed, faulted, rate patched, or
-            // a concurrent start won): closing the tap finalizes the empty attempt, whose
-            // files — exclusively this attempt's, by the create_new stem claim — are then
-            // discarded before re-evaluating against fresh state.
             drop(tap);
             join_recording_writer(writer);
             for path in [meta_path(&stem), data_path(&stem)] {
@@ -1865,10 +1780,6 @@ impl Engine {
         }
     }
 
-    /// Stop a live recording, join its writer, and hand back the finalized pair for indexing
-    /// (). The join happens outside `inner`; the `StopRecording` queued in the same
-    /// critical section as the take guarantees the DSP-side tap drops (or the whole runtime
-    /// stopped, dropping tap and queue together), so the join cannot hang.
     pub fn stop_recording(&self, ds: u32) -> Result<FinalizedRecording, EngineError> {
         let (recording, overruns) = {
             let mut inner = self.lock();
@@ -1992,11 +1903,6 @@ impl Engine {
                     "the device set is not running".to_string(),
                 ));
             }
-            // A scan drives the radio-wide dial. Where tuning is per-stream that dial is only
-            // the default for lanes without an override (), so a sweep would drag
-            // every unpinned lane along and skip the pinned ones — there is no whole-radio
-            // tuning for the scan to own. Refuse rather than silently sweep every lane
-            // ().
             if state.capabilities.per_stream.tuning {
                 return Err(EngineError::Scan(
                     "this radio tunes each receive stream independently, so a sweep of the \
@@ -2711,8 +2617,6 @@ mod tests {
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                     let offset = SIGNAL_HZ - center;
-                    // Outside the passband the receiver hears nothing at all — the mirror of
-                    // a real tuner, and what makes an inactive target read as inactive.
                     if offset.abs() >= SIGNAL_RATE_HZ / 2.0 {
                         block.fill(Complex::new(0.0, 0.0));
                     } else {
@@ -3113,8 +3017,6 @@ mod tests {
         );
     }
 
-    /// Hermetic engine: virtual driver only. `Engine::new()` registers the Soapy driver, whose
-    /// probe enumerates live system modules — forbidden in tests (: no hardware in CI).
     fn virtual_engine() -> Arc<Engine> {
         let mut registry = DeviceRegistry::new();
         registry.register(VIRTUAL_PRIORITY, Box::new(VirtualDriver::new()));
@@ -3200,7 +3102,6 @@ mod tests {
     async fn add_channel_rejects_out_of_passband_offset() {
         let engine = virtual_engine();
         let ds = engine.create_device_set("virtual:siggen").unwrap();
-        // Default rate 2.048 Msps → ±1.024 MHz passband.
         let err = engine
             .add_channel(ds, 0, nfm_settings(1_100_000.0))
             .unwrap_err();
@@ -3379,7 +3280,6 @@ mod tests {
         assert_eq!(reader.meta().global.sample_rate, Some(2_048_000.0));
         assert_eq!(reader.meta().captures[0].frequency, Some(100_000_000.0));
 
-        // The finalized pair is immediately probeable as a playback device.
         let playback_id = format!("virtual:file:{}", finalized.stem.display());
         assert!(engine.probe_devices().iter().any(|d| d.id() == playback_id));
         engine.remove_device_set(ds).unwrap();
@@ -3574,7 +3474,6 @@ mod tests {
         assert_eq!(snap.device_sets[0].settings.sample_rate, Some(2_400_000.0));
         assert!(snap.device_sets[0].recording.is_none());
 
-        // Once the patch merged, recording works again — at the new rate.
         engine.start_recording(ds, 0).unwrap();
         let finalized = engine.stop_recording(ds).unwrap();
         let reader = sdrmm_recorder::SigmfReader::open(&finalized.stem).unwrap();
@@ -3650,8 +3549,6 @@ mod tests {
         engine.start_recording(ds, 0).unwrap();
         wait_for_recorded_samples(&engine, ds, 1).await;
 
-        // No portable way to make a live writer's disk I/O fail on demand; inject through
-        // the same shared cell `write_loop` reports into.
         {
             let mut inner = engine.lock();
             let state = inner.device_sets.get_mut(&ds).unwrap();
@@ -3737,11 +3634,8 @@ mod tests {
             }),
         };
 
-        // USB at +120 kHz occupies +120.1…+130 kHz — past the +125 kHz Nyquist edge even
-        // though the descriptor-nominal ±1.5 kHz check would pass it.
         let err = engine.add_channel(ds, 0, usb(120_000.0)).unwrap_err();
         assert!(err.is_bad_request(), "expected bad request, got {err}");
-        // A 25 kHz NFM at +118 kHz reaches +130.5 kHz.
         let err = engine.add_channel(ds, 0, wide_nfm(118_000.0)).unwrap_err();
         assert!(err.is_bad_request(), "expected bad request, got {err}");
         assert!(engine.snapshot().device_sets[0].channels.is_empty());
@@ -3816,7 +3710,6 @@ mod tests {
             }
         }
 
-        // The device is attached again; the next probe tick is what notices.
         die.store(false, Ordering::SeqCst);
         let mut known = None;
         let mut missing_once = HashSet::new();
@@ -4047,7 +3940,6 @@ mod tests {
         let (scanner, center_hz, offset_hz) = held;
         assert_eq!(scanner.current_hz, SIGNAL_HZ);
         assert!(scanner.hits >= 1);
-        // The hold channel follows the hit, so its audio is the signal the scan stopped on.
         assert!(
             (center_hz + offset_hz - SIGNAL_HZ).abs() < 1.0,
             "hold channel parked at {} Hz, carrier at {SIGNAL_HZ} Hz",
@@ -4061,7 +3953,6 @@ mod tests {
             "double stop must be an error"
         );
         assert!(engine.snapshot().device_sets[0].scanner.is_none());
-        // The tuning is the client's again once the scan lets go.
         engine
             .patch_device(
                 ds,

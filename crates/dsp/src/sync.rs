@@ -1,6 +1,3 @@
-//! Symbol timing recovery (): a Gardner detector driving a Farrow parabolic
-//! interpolator for complex baseband, and a zero-crossing bit clock for real sliced baseband.
-
 use std::f64::consts::{FRAC_1_SQRT_2, TAU};
 
 use num_complex::Complex;
@@ -115,7 +112,6 @@ impl SymbolSync {
 
     fn run(&mut self, input: &[Complex<f32>], out: &mut Vec<Complex<f32>>, hold: bool) {
         self.buf.extend_from_slice(input);
-        // The interpolator reads one sample below and two above the instant.
         while self.pos + 3 <= self.consumed + self.buf.len() {
             let base = self.pos - self.consumed;
             let y = farrow(&self.buf[base - 1..base + 3], self.frac as f32);
@@ -151,7 +147,6 @@ impl SymbolSync {
         self.sps = self.nominal_sps;
         self.free_run_sps = self.nominal_sps;
         self.step = self.nominal_sps;
-        // The first instant is the earliest one the interpolator has history for.
         self.pos = 1;
         self.frac = 0.0;
         self.consumed = 0;
@@ -196,9 +191,6 @@ impl SymbolSync {
             self.step = self.sps;
             return;
         }
-        // A ±A transition through a Nyquist pulse crosses zero with slope πA per symbol, so
-        // Re{(x[k] − x[k−1])·conj(x_mid)} ≈ 2π·A²·τ. Dividing by 2π times the symbol energy
-        // reads τ off directly in symbol periods, at any signal amplitude.
         let raw = ((symbol - self.prev_symbol) * self.mid.conj()).re;
         let err = f64::from(raw) / (f64::from(0.5 * (before + after)) * TAU);
         // Non-finite input must free-run too, not poison the accumulator.
@@ -218,15 +210,6 @@ impl SymbolSync {
     }
 }
 
-/// Piecewise-parabolic interpolation at `mu` in [0, 1) between `w[1]` and `w[2]`.
-///
-/// Public because it is the workspace's one fractional-delay kernel ( §3.2: one
-/// Farrow). [`SymbolSync`] drives it from a tracking loop; a feedforward timing estimator drives
-/// the same four taps from a computed offset, and the two must interpolate identically or a
-/// comparison between the tiers would read the interpolator instead of the estimator.
-///
-/// # Panics
-/// If `w` is shorter than four samples.
 #[must_use]
 pub fn farrow(w: &[Complex<f32>], mu: f32) -> Complex<f32> {
     let curvature = w[3] - w[2] - w[1] + w[0];
@@ -312,8 +295,6 @@ impl BitSync {
     }
 
     pub fn reset(&mut self) {
-        // Half a bit of phase: with no crossings yet, a stream that starts on a bit boundary
-        // still gets sliced at the centre of its first bit.
         self.phase = 0.5;
         self.positive = false;
         self.primed = false;
@@ -434,7 +415,6 @@ mod tests {
             "sps estimate {} did not converge on {TRUE_SPS}",
             sync.sps()
         );
-        // First instant at sample 1, last one needs three samples of lookahead.
         let ideal = ((signal.len() - 4) as f64 / TRUE_SPS).floor() as i64;
         assert!(
             (out.len() as i64 - ideal).abs() <= 2,

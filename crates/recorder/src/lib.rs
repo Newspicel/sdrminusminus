@@ -1,13 +1,6 @@
 //! `sdrmm-recorder` — SigMF v1.2.6 IO (: this crate only reads and writes SigMF
 //! pairs; the recording tap lives in the engine, playback in `device-virtual`). One
 //! recording is `<stem>.sigmf-meta` + `<stem>.sigmf-data`, mono-channel `cf32_le`.
-//!
-//! Crash-safe finalize contract (: files on disk are the source of truth): while a
-//! recording streams, only a `<stem>.sigmf-meta.tmp` breadcrumb exists;
-//! [`SigmfWriter::finalize`] writes the real meta and removes the breadcrumb. Everything
-//! that lists recordings keys on the final `.sigmf-meta` (see [`scan_stems`]), so an
-//! in-progress or crashed recording is never listed or played.
-
 mod export;
 
 use std::{
@@ -22,8 +15,6 @@ use serde::{Deserialize, Serialize};
 
 /// SigMF specification version written into `core:version`.
 pub const SIGMF_VERSION: &str = "1.2.6";
-/// The only datatype this build writes or reads: interleaved little-endian complex f32,
-/// matching the engine's internal sample format end-to-end ().
 pub const DATATYPE_CF32_LE: &str = "cf32_le";
 /// Bytes per `cf32_le` sample (two little-endian `f32`).
 pub const BYTES_PER_SAMPLE: u64 = 8;
@@ -162,7 +153,6 @@ pub(crate) fn read_meta(stem: &Path) -> Result<SigmfMeta, SigmfError> {
 pub fn scan_stems(dir: &Path) -> Result<Vec<PathBuf>, SigmfError> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
-        // The recordings dir is created lazily on first record; absent means none yet.
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(err) => return Err(err.into()),
     };
@@ -190,11 +180,6 @@ pub struct SigmfWriter {
 }
 
 impl SigmfWriter {
-    /// Open `<stem>.sigmf-data` for streaming and drop the `.sigmf-meta.tmp` breadcrumb.
-    /// The breadcrumb goes first so a stray data file always has its explanation on disk.
-    /// Both files are opened `create_new`, so the stem claim is atomic: a taken stem fails
-    /// with [`SigmfError::StemTaken`] instead of truncating another writer's live files,
-    /// and a failed attempt removes only the breadcrumb it created itself.
     pub fn create(
         stem: &Path,
         sample_rate: f64,
@@ -582,7 +567,6 @@ mod tests {
         writer.write_block(&tone).unwrap();
         writer.finalize().unwrap();
 
-        // Torn mid-sample: 50 whole samples plus 3 stray bytes.
         let data = fs::OpenOptions::new()
             .write(true)
             .open(data_path(&stem))

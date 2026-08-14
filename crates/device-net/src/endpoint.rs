@@ -1,11 +1,5 @@
 //! The address half of a network receiver: parsing what an operator typed into the one canonical
 //! form every layer above has to agree on, and dialling it.
-//!
-//! Canonical matters more here than it looks. The endpoint *is* the device key, so it is what a
-//! probe reports, what a stored workspace binds by, and what the engine's hotplug tick compares a
-//! running device set against — and a set whose id drifted from the probe list by a defaulted port
-//! or an upper-case hostname is faulted as "device disappeared" while it is streaming perfectly.
-
 use std::{
     fmt,
     net::{TcpStream, ToSocketAddrs},
@@ -14,9 +8,6 @@ use std::{
 
 use sdrmm_device::DeviceError;
 
-/// How long a dial may take before the endpoint counts as unreachable. Long enough to cross a
-/// congested Wi-Fi link, short enough that a typo'd address does not hold the control plane's
-/// blocking task for the TCP stack's own two-minute default.
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A host and port, in the one spelling that round-trips through a device id.
@@ -50,7 +41,6 @@ impl Endpoint {
                     None => return Err(refused("expected :port after ]")),
                 }
             }
-            // A bare IPv6 literal has several colons and no port; anything else splits on the last.
             None if key.matches(':').count() > 1 => (key, None),
             None => match key.split_once(':') {
                 Some((host, port)) => (host, Some(port)),

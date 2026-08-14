@@ -15,9 +15,6 @@ export const DEFAULT_RANGE: RangeInput = {
   stepKhz: "12.5",
 };
 
-/** Parse the editor into wire ranges, or explain the first thing that is wrong. Frequencies
- * are entered in MHz and steps in kHz because that is how band plans are written; the wire is
- * always Hz. */
 export function parseRanges(inputs: readonly RangeInput[]): { ranges: ScanRange[] } | string {
   const ranges: ScanRange[] = [];
   for (const [i, input] of inputs.entries()) {
@@ -84,10 +81,6 @@ export function holdCandidates(set: DeviceSet | null): readonly ChannelInfo[] {
   return set?.channels ?? [];
 }
 
-/** Why this radio cannot be scanned, or `null`. A sweep owns the whole radio's tuning, and a
- * radio whose streams tune independently has no such thing to own — the server refuses the
- * start (), and the panel says so up front instead of surfacing a raw 400 after the
- * click. */
 export function scanRefusal(set: DeviceSet | null): string | null {
   return set?.capabilities.per_stream?.tuning === true
     ? "This radio tunes each receive stream independently, so a sweep has no single tuning to drive."

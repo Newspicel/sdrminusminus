@@ -1,28 +1,4 @@
 //! The OFDM receiver: acquire, estimate, equalise, track, demap.
-//!
-//! The chain the catalog row names, in the order it runs:
-//!
-//! 1. [`PreambleSync`] places the frame and measures the carrier offset (`sync`).
-//! 2. The known training gives a least-squares channel estimate and — from the same repeats —
-//!    the noise variance the LLRs need (`equalize`).
-//! 3. Every data symbol is read as: de-rotate by the measured offset, drop the prefix, transform,
-//!    divide by the estimate, remove the residual phase the pilots fitted, demap.
-//!
-//! What is *not* here is as deliberate as what is. There is no channel tracking across symbols
-//! beyond the pilots' line — a burst this short sees a static channel, and the limits table's
-//! multipath rows say what that assumption costs. There is no second receive path for the DMT
-//! domain: the Hermitian flag is a transmitter property, and this receiver reads the map it was
-//! given, which is the lower half of the spectrum either way.
-//!
-//! **The transform window starts at the end of the cyclic prefix.** That places it at the far
-//! edge of the interval where the channel's response is still circular, which is the choice that
-//! maximises delay-spread tolerance — the whole prefix — at the cost of any *late* sampling
-//! slack. It is the right trade here because the sampling instant only ever walks *early* under
-//! a positive clock error (a fast receive clock reads the burst sooner and sooner), and because
-//! an early window inside the prefix is not an error at all: a cyclic shift is a phase ramp
-//! across the band, which is exactly what the pilot tracker's slope term removes. The committed
-//! sample-clock row is bounded by the prefix for this reason and not by the pilots.
-
 use std::sync::Arc;
 
 use num_complex::Complex;
@@ -54,12 +30,6 @@ use crate::{
 /// sample late.
 pub const DEFAULT_BACKOFF: usize = 4;
 
-/// One OFDM receiver over one parameter set. Construction designs the transform, the training
-/// references and every buffer; the receive path allocates nothing.
-///
-/// `Clone` for the reason [`OfdmMod`](super::OfdmMod) is: a chain clones a configured receiver
-/// per trial rather than rebuilding one, so no trial inherits the previous trial's acquisition
-/// and none of them pays for a transform plan.
 #[derive(Clone)]
 pub struct OfdmDemod {
     params: OfdmParams,
@@ -123,13 +93,6 @@ impl OfdmDemod {
         }
     }
 
-    /// Selects the channel estimator (§5 item 2: the comb tier is a separate merge, measured
-    /// against the long-training tier).
-    ///
-    /// # Panics
-    /// If [`ChannelEstimator::ShortComb`] is asked of a preamble whose short training is shorter
-    /// than two transform lengths — there would be nothing to average, and an estimator that
-    /// silently reused one window would read its own noise twice.
     #[must_use]
     pub fn with_estimator(mut self, estimator: ChannelEstimator) -> Self {
         if estimator == ChannelEstimator::ShortComb {
@@ -226,11 +189,6 @@ impl OfdmDemod {
         self.channel.finish(self.params.map(), noise_var, 0.0);
     }
 
-    /// One data symbol's equalised points, written into `out` (one per data subcarrier). The hot
-    /// path: no allocation, no branch on the configuration beyond the pilot fit.
-    ///
-    /// # Panics
-    /// If `out.len()` is not the data-subcarrier count.
     pub fn symbol(&mut self, x: &[Complex<f32>], symbol: usize, out: &mut [Complex<f32>]) {
         assert_eq!(
             out.len(),
@@ -250,16 +208,6 @@ impl OfdmDemod {
         }
     }
 
-    /// Per-bit LLRs of one symbol's equalised points, through the crate's one demapper.
-    ///
-    /// The per-subcarrier noise variance is what makes these true LLRs rather than confidences:
-    /// after the one tap a faded bin carries `N0/|H|²`, so its bits arrive *less* believable, and
-    /// a FEC stage below is told so. Handing one flat variance to the whole band would be the
-    /// mis-scale the harness's genie-LLR bound measures at +0.23 dB on a 10× error.
-    ///
-    /// # Panics
-    /// If `points` is not one symbol's worth, or `out` is not `points.len() ·
-    /// bits_per_symbol` long.
     pub fn llrs(&self, points: &[Complex<f32>], table: &Constellation, out: &mut [Llr]) {
         let bits = table.bits_per_symbol();
         assert_eq!(points.len(), self.params.data_subcarriers());
@@ -649,7 +597,6 @@ mod tests {
         let params = OfdmParams::wifi_like();
         let table = table();
         let mut demod = OfdmDemod::new(params.clone());
-        // A hand-set channel: the first data subcarrier faded 12 dB, every other one unity.
         let mut truth = vec![Complex::new(1.0f32, 0.0); params.map().occupied().len()];
         let faded = params
             .map()
@@ -678,7 +625,6 @@ mod tests {
             confidence(0),
             confidence(1)
         );
-        // Sign convention (crate root): positive is a logical 1, matching the hard slice.
         let label = table.hard_slice(points[1]);
         for bit in 0..bits {
             let llr = llrs[bits + bit].0;
@@ -704,8 +650,6 @@ mod tests {
         let mut acquiring = OfdmDemod::new(params.clone());
         let a = decode(&mut acquiring, &wave);
 
-        // Told the timing exactly, so it takes no backoff: with the channel given there is
-        // nothing to absorb the cyclic shift one would introduce.
         let mut genie = OfdmDemod::new(params.clone())
             .with_pilot_tracking(false)
             .with_window_backoff(0);

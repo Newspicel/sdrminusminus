@@ -77,8 +77,6 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
 
   const query = toQuery(filter, wires);
   const log = useQuery(decoderLogQuery(query));
-  // Nothing is wired in, so nothing can arrive: staying off the store's 10 Hz flush costs an
-  // empty node no re-renders at all.
   const frames = useDecodedStore((s) => (wires.sources === "" ? NO_FRAMES : s.frames));
   const lost = useDecodedStore((s) => s.lost);
   const wired = useMemo(() => sourceSet(wires.sources), [wires.sources]);

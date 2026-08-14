@@ -1,53 +1,3 @@
-//! DMR chain baselines, phase 3 ( §7): the chain measured here is the migrated one —
-//! `testgen` C4FM on the library's `CpmMod`, the DMR channel-selection filter, and `CpmDemod`
-//! with DMR's parameters as data, exactly as `dv/dmr.rs` constructs it. Its committed
-//! artifacts are the `*_cpm.json` files in `baselines/dmr/` and regress here:
-//!
-//! - `dmr_steady_uncoded_cpm.json` — continuously-keyed dibit BER curve at the front end's
-//!   burst timing operating point (`TIMING_BW_BURST`), the configuration the production TDMA
-//!   channel actually runs and the one whose 88-symbol acquisition budget the phase-0 framing
-//!   was built around.
-//! - `dmr_burst_uncoded_cpm.json` — the same chain through the calibrated `impair::BurstModel`
-//!   TDMA carving (132 content symbols of every 288, full pulse tails, one-symbol ramps,
-//!   receiver noise floor 40 dB down in the gaps), levels re-anchored per burst through the
-//!   §3.4 known-symbol hook (`KnownSymbols`), exactly the decoder's own correction.
-//! - `dmr_limits_cpm.json` — §4.3 resistance table on the same two chains, same axes, same
-//!   documented criterion as phase 0 so every row is comparable one-to-one.
-//!
-//! **The phase-0 artifacts stay committed untouched** (`dmr_steady_uncoded.json`,
-//! `dmr_burst_uncoded.json`, `dmr_limits.json`) as the pre-migration reference, and
-//! [`the_new_chain_meets_the_phase0_reference`] holds the two generations to the §7 migration
-//! rule: every point within 0.5 dB of phase 0 or better, limits rows no more than 20% worse.
-//!
-//! **Where the phase-0 finding went.** The old chain's loudest defect — on continuous random
-//! 4FSK the timing loop wanders into a ~1e-2 dibit-BER floor past ~2000 symbols — is a
-//! property of the 0.015 cy/sym burst timing bandwidth (Gardner self-noise integrating), not
-//! of the engine: the committed steady curve keeps that operating point (a TDMA receiver needs
-//! its 88-symbol acquisition and its 23 000 ppm clock pull-in, and its gate freezes the loop
-//! through every gap before wander accumulates), so a floor remains — measured 6.3e-3 at the
-//! top of the grid against phase 0's 9.2e-3, the improvement being the engine's corrected
-//! level tracking, with every waterfall point 0.0–0.4 dB better than phase 0 and the burst
-//! curve 0.8–1.1 dB better past its cliff. At the entry's *continuous* operating point
-//! (`TIMING_BW_CONTINUOUS`, per-entry data) the floor is gone outright:
-//! [`a_continuous_stream_at_the_continuous_operating_point_beats_the_phase0_floor`] measured
-//! 0 errors over 18 000 post-acquisition symbols through the full production filter chain,
-//! where phase 0 committed ~1e-2 — the channel-level restatement of the engine's own
-//! committed 20k-symbol test.
-//!
-//! Alignment is never assumed: each chain locates the DMR BS voice sync in its own sliced
-//! output (the searched-alignment idiom, payload-blind), and the burst chain re-anchors per
-//! burst — position against slip, levels via the known-symbol hook.
-//!
-//! Warm-up differs per chain on purpose. The steady chain is met the way a continuously keyed
-//! carrier is: the demodulator has heard 0.2 s of quiet receiver noise (no channel noise), so
-//! its gate holds open through the signal whatever the swept Eb/N0. The burst chain instead
-//! carries 0.25 s of dead air *inside* the waveform, ahead of the first burst, so the AWGN
-//! axis covers it and the gate measures its floor from the channel it will actually gate —
-//! without that, dead-time behaviour at low Eb/N0 would be measured with the gate blinded.
-//!
-//! Committed numbers were measured in `--release` (the curve labels say so); every run is
-//! seeded, so re-measurement with unchanged code reproduces them bit-for-bit on one host.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -92,8 +42,6 @@ fn slice_all(symbols: &[f32]) -> Vec<u8> {
     symbols.iter().map(|&s| entry.mapping().slice(s)).collect()
 }
 
-// --- Steady-state chain ----------------------------------------------------------------------
-
 const STEADY_BITS: usize = 4096;
 
 fn steady_link() -> Link {
@@ -124,8 +72,6 @@ fn steady_link() -> Link {
         }),
     }
 }
-
-// --- Burst (TDMA) chain ----------------------------------------------------------------------
 
 /// One parameterisation of the DMR-shaped burst chain. The defaults are DMR's own numbers:
 /// 132 content symbols (24 sync + 108 payload) in every 288, i.e. 156 symbols dead — the
@@ -247,9 +193,6 @@ impl BurstRecipe {
             let at = find_uw(&sliced, lo, hi, &uw);
             if let Some(at) = at {
                 delay = at.saturating_sub(expect);
-                // The decoder's own trick: the burst's sync knows the levels better than any
-                // loop can. Pattern element i pairs with the measured symbol i periods back
-                // from the sync's last symbol.
                 let measured: Vec<f32> = (0..UW_SYMBOLS)
                     .map(|i| symbols[at + UW_SYMBOLS - 1 - i])
                     .collect();
@@ -278,8 +221,6 @@ fn burst_link() -> Link {
     )
 }
 
-// --- Committed artifacts ---------------------------------------------------------------------
-
 /// Sweep grids covering each chain's waterfall *and* its error floor — the floor is part of
 /// the committed picture, and phase 0's grid is kept so the two generations' points pair.
 const STEADY_GRID: [f64; 15] = [
@@ -299,20 +240,11 @@ const BURST_SEED: u64 = 0x0d5b;
 const FULL_ERRORS: u64 = 3_000;
 const FULL_CAP: u64 = 8_000_000;
 
-// --- Limits table ----------------------------------------------------------------------------
-
-/// Documented §4.3 criterion override for this entry, kept verbatim from phase 0 so every row
-/// of the new table compares one-to-one against the committed phase-0 row (the comparator
-/// refuses rows whose criterion differs). The override is still earned: at the burst timing
-/// operating point the steady chain's continuous-mode floor sits near 1e-2, above the 1e-3
-/// the default criterion hangs everything off.
 const DMR_FAILURE_BER: f64 = 3e-2;
 const DMR_MARGIN_DB: f64 = 6.0;
 const DMR_CRITERION: &str = "BER <= 3e-2 at sensitivity(3e-2) + 6 dB \
     (documented 4.3 override: the chain's continuous-mode floor sits above the 1e-3 default)";
 
-/// Only `limit()` feeds the search; the rows carry [`DMR_CRITERION`] instead of the
-/// enum's label, which names the default operating point this entry cannot state.
 fn dmr_search_criterion() -> Criterion {
     Criterion::MaxPenalty {
         penalty_db: 0.0,
@@ -393,8 +325,6 @@ fn burst_axis_rows(op_db: f64) -> Vec<LimitRow> {
             let link = recipe.link("dead-time probe");
             probe(&link, &recipe.channel(), op_db)
         }),
-        // "Minimum burst length" spelled so higher stays better for the comparator: the
-        // symbols removable from the 108-payload burst; min burst = 24-symbol sync + rest.
         axis_row(
             "burst shortening",
             "payload symbols removed (of 108)",
@@ -407,8 +337,6 @@ fn burst_axis_rows(op_db: f64) -> Vec<LimitRow> {
                 probe(&link, &recipe.channel(), op_db)
             },
         ),
-        // Attenuation of alternate bursts: the decay-limited direction of the level tracker,
-        // recovered (or not) within the burst's own 24-symbol sync via the known-symbol hook.
         axis_row(
             "level step",
             "dB attenuation of alternate bursts",
@@ -443,8 +371,6 @@ fn measure_limits() -> LimitsTable {
     table.rows.extend(burst_axis_rows(op_db));
     table
 }
-
-// --- Always-run regression gates -------------------------------------------------------------
 
 /// A harness defect (alignment, sign, level scale) is loud before any statistics: with
 /// almost no noise, one trial of each chain must sit on the chain's own residual floor. That
@@ -509,19 +435,12 @@ fn a_continuous_stream_at_the_continuous_operating_point_beats_the_phase0_floor(
     );
 }
 
-/// The §7 migration rule, asserted on the committed artifacts of both generations: every new
-/// steady and burst point within 0.5 dB of the phase-0 curve *or better*, and every limits row
-/// no more than 20% worse. This is the one place the phase-0 files are load-bearing after the
-/// migration — they are the reference this comparison documents, and the printout is the
-/// committed record of what the migration bought.
 #[test]
 fn the_new_chain_meets_the_phase0_reference() {
     for (old_name, new_name, waterfall_bers) in [
         (
             "dmr_steady_uncoded.json",
             "dmr_steady_uncoded_cpm.json",
-            // BERs both grids bracket, spanning the waterfall from its shoulder to the floor's
-            // onset; the floor itself has no horizontal read.
             &[1e-1, 7e-2, 5e-2, 3.5e-2][..],
         ),
         (
@@ -606,8 +525,6 @@ fn burst_curve_matches_committed_baseline() {
 #[test]
 fn limits_rows_match_committed_table() {
     let committed = limits::load_json(&baseline_path("dmr_limits_cpm.json")).unwrap();
-    // The table's sensitivity sweep is parameter-identical to the committed steady curve, so
-    // the operating point reads off that artifact without a resweep.
     let steady_curve = sweep::load_json(&baseline_path("dmr_steady_uncoded_cpm.json")).unwrap();
     let op_db = dmr_operating_point(&steady_curve);
     let steady = steady_link();
@@ -636,8 +553,6 @@ fn limits_rows_match_committed_table() {
     assert!(faults.is_empty(), "limits regressions: {faults:#?}");
 }
 
-// --- Level-2 E2E ( §4.4) -----------------------------------------------------------
-
 /// A complete synthetic call from the existing testgen builders, through the impair channel
 /// at a healthy margin, into the actual `DmrChannel`. The dead-air lead is inside the waveform
 /// so the AWGN covers it and the front end's gate measures the operational floor, as in the
@@ -653,7 +568,6 @@ fn synthetic_call_decodes_through_an_impaired_channel() {
     let call = tg::dmr::Call::default();
     let mut wave = vec![Complex::default(); (RATE * 0.25) as usize];
     wave.extend(tg::dmr::transmission(&call, RATE));
-    // Header + 6 voice bursts + terminator = 8 bursts of 264 bits.
     let info_bits = 8 * 264;
     let channel = ChannelSpec::default()
         .awgn(Awgn::for_ebn0(15.0, info_bits))
@@ -708,8 +622,6 @@ fn synthetic_call_decodes_through_an_impaired_channel() {
     assert_eq!(terminator.source, Some(call.source));
 }
 
-// --- Full re-measurement (nightly; regenerates the committed artifacts) ----------------------
-
 fn remeasure_curve(link: &Link, template: &ChannelSpec, grid: &[f64], seed: u64, name: &str) {
     let curve = sweep::sweep_ber(link, template, grid, seed, FULL_ERRORS, FULL_CAP);
     for p in &curve.points {
@@ -723,11 +635,6 @@ fn remeasure_curve(link: &Link, template: &ChannelSpec, grid: &[f64], seed: u64,
     }
     let path = baseline_path(name);
     if path.exists() {
-        // Point-by-point in rate, not horizontally: the committed curve is non-monotone
-        // around its floor (module docs), and a horizontal read against a non-monotone curve
-        // is nonzero even for the identical curve. Same seeds and budgets make each point a
-        // reproduction of the committed one; the ratio allowance is for float drift across
-        // hosts, nothing else.
         let committed: Curve = sweep::load_json(&path).unwrap();
         assert_eq!(
             curve.points.len(),
@@ -800,8 +707,6 @@ fn measure_dmr_limits_full() {
         println!("baseline created at {}", path.display());
     }
 }
-
-// --- Exploration (never asserted; kept ignored for bracket work) -----------------------------
 
 #[test]
 #[ignore = "prints coarse curves to choose sweep grids; asserts nothing"]

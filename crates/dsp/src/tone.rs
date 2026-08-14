@@ -1,7 +1,3 @@
-//! Tone and envelope detection (): the single-bin detectors behind AFSK/CTCSS/Selcall,
-//! plus the envelope follower and adaptive keying slicer a CW decoder runs on. All state is
-//! per-sample and allocation-free — safe on the DSP thread.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -402,8 +398,6 @@ mod tests {
 
     #[test]
     fn bell202_tones_separate_by_more_than_20_db() {
-        // A 48-sample window at 48 kHz spaces the bins 1 kHz apart — exactly the mark/space
-        // split — so each detector sits on the other tone's null.
         let window = 48;
         for (tone, other) in [(MARK_HZ, SPACE_HZ), (SPACE_HZ, MARK_HZ)] {
             let matched = correlate(tone, tone, window);
@@ -424,7 +418,6 @@ mod tests {
         for &s in &x[..200_000] {
             aged.push(s);
         }
-        // A fresh correlator holds the identical window once it has seen `window` samples.
         let mut fresh = ToneCorrelator::new(RATE, MARK_HZ, window);
         let (mut a, mut b) = (0.0, 0.0);
         for &s in &x[200_000..] {
@@ -506,9 +499,7 @@ mod tests {
         let mut start = 0;
         for (i, &(on, dots)) in pattern.iter().enumerate() {
             let len = dots * DOT;
-            // Skip the leading element: the trackers are still seeding on the noise floor.
             if i > 0 {
-                // Judge the middle half of the element, clear of both edges.
                 let steady = &keys[start + len / 4..start + 3 * len / 4];
                 let wrong = steady.iter().filter(|&&k| k != on).count();
                 assert_eq!(

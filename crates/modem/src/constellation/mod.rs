@@ -1,15 +1,3 @@
-//! Constellations as tables ( §3.3): a point set is *data* — complex points plus
-//! per-point bit labels — never match arms. Every linear and orthogonal entry demaps through
-//! the one generic demapper in [`demap`], and the exotic tables in [`tables`] (cross-QAM,
-//! star-QAM, non-uniform QAM, APSK) exist precisely to prove nothing special-cases "the"
-//! constellation. This module therefore contains no specific standard's table: the
-//! PAM/PSK/QAM/APSK generators are *functions returning* [`Constellation`], not new types.
-//!
-//! Construction normalises the table to mean symbol energy Es = 1 (the crate-root pulse
-//! convention's counterpart: with unit-energy pulses and Es = 1, an Eb/N0 in `ber` means the
-//! same thing for every entry). Callers hand in whatever integer grid is convenient — ±1/±3
-//! for PAM, ring radii for APSK — and the stored table is the scaled one.
-
 pub mod demap;
 pub mod tables;
 
@@ -176,8 +164,6 @@ impl Constellation {
 mod tests {
     use super::*;
 
-    /// Gray-labelled 4-PAM on the real axis, handed in as the ±1/±3 integer grid. The one
-    /// specific table these tests use, and it lives here, not in the library (§3.3).
     fn gray_4pam() -> Constellation {
         Constellation::from_points(
             vec![
@@ -201,7 +187,6 @@ mod tests {
             .sum::<f64>()
             / c.len() as f64;
         assert!((power - 1.0).abs() < 1e-6, "mean Es {power}");
-        // ±1/±3 with mean Es 5 scales by 1/√5.
         let a = 5f64.sqrt().recip();
         assert!((f64::from(c.points()[3].re) - 3.0 * a).abs() < 1e-7);
         assert_eq!(c.bits_per_symbol(), 2);
@@ -226,7 +211,6 @@ mod tests {
     #[test]
     fn hard_slice_picks_the_nearest_label() {
         let c = gray_4pam();
-        // Decision boundaries sit at 0 and ±2/√5 ≈ ±0.894.
         assert_eq!(c.hard_slice(Complex::new(-2.0, 0.0)), 0b00);
         assert_eq!(c.hard_slice(Complex::new(-0.5, 0.1)), 0b01);
         assert_eq!(c.hard_slice(Complex::new(0.5, -0.1)), 0b11);

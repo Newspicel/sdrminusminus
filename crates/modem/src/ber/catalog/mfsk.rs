@@ -1,30 +1,3 @@
-//! The M-ary CPFSK catalog entry ( §6 CPM row 1): M ∈ {2, 4, 8} measured chains,
-//! shared by every consumer of the entry — the curve/limits/E2E tests, the perf baseline, and
-//! `cargo xtask ber mfsk` — so every committed artifact of the entry is taken on the *same*
-//! chain.
-//!
-//! One reference geometry for all three alphabets: 48 kHz, 4800 baud, 10 samples/symbol —
-//! the DMR-shaped numbers, so the M = 4 configuration doubles as the migration lane's
-//! engine-side reference. Everything that differs between M ∈ {2, 4, 8} is `CpmParams` data
-//! plus two receiver choices stated per entry (the §4.1 "metric definitions are explicit"
-//! rule):
-//!
-//! - **A pre-detector channel-selection lowpass.** A discriminator eats its whole input
-//!   bandwidth as noise; without selection the curve measures the missing filter, not the
-//!   entry (the phase-0 DMR chain's docs put the unfiltered shift near 6 dB). The one-sided
-//!   cutoff is set per alphabet at outer deviation + (1+α)·baud/2, rounded up: ±4.8 kHz
-//!   (M=2), ±6 kHz (M=4, the 12.5 kHz-channel figure), ±9.6 kHz (M=8).
-//! - **The timing bandwidth**, per-entry data with two measured operating points
-//!   (`cpm` module docs): the steady chains run `TIMING_BW_CONTINUOUS` — holding the
-//!   continuous 2k+-symbol trials the old `Fsk4Demod` floored on is the entry's headline —
-//!   and the TDMA chain behind the §4.3 burst rows runs `TIMING_BW_BURST`.
-//!
-//! Eb accounting: per information bit (payload bits only), with the preamble/sync overhead
-//! *energy* charged to Eb exactly as the phase-0 DMR baselines charge theirs — the labels say
-//! so. Alignment is searched, never assumed (the `find_pattern` idiom from the DMR baseline),
-//! and the M = 8 chain carries its level scale on the §3.4 known-symbol hook, the measured
-//! boundary of blind normalisation at 8 levels (see `cpm::demod`'s `PEAK_SYMBOLS` docs).
-
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
 
@@ -86,8 +59,6 @@ pub fn mfsk2() -> Entry {
     }
 }
 
-/// The ETSI dibit table (TS 102 361-1 §4.2.2): 00 → +1, 01 → +3, 10 → −1, 11 → −3 — supplied
-/// as caller data, the axis the DMR probe exists to stress.
 pub fn dibit_mapping() -> Mapping {
     Mapping::new(vec![1.0, 3.0, -1.0, -3.0])
 }
@@ -109,8 +80,6 @@ pub fn mfsk4() -> Entry {
     }
 }
 
-/// The same M = 4 configuration at the burst timing bandwidth — the chain behind the §4.3
-/// burst-survival rows, where TDMA gating wants the wide loop (`TIMING_BW_BURST` docs).
 pub fn mfsk4_burst() -> Entry {
     Entry {
         timing_bw: TIMING_BW_BURST,
@@ -118,9 +87,6 @@ pub fn mfsk4_burst() -> Entry {
     }
 }
 
-/// M = 8 CPFSK at h = 0.3, natural odd-integer levels ±1..±7, rect pulse. No protocol behind
-/// it — 8-ary gates the engine's generality (§7 phase 3) — and its level scale rides the
-/// known-symbol hook, as §3.4 prescribes past blind normalisation's measured M ≤ 4 boundary.
 pub fn mfsk8() -> Entry {
     Entry {
         params: CpmParams::from_h(Mapping::natural(8), 0.3, pulse::rect(SPS, Norm::Area), SPS),
@@ -130,10 +96,6 @@ pub fn mfsk8() -> Entry {
     }
 }
 
-// --- Sync patterns ---------------------------------------------------------------------------
-
-/// The DMR BS voice sync's 24 dibits (ETSI TS 102 361-1 §9.1.1), oldest first — the M = 4
-/// chains align and anchor on the same word the protocol will.
 pub fn sync4() -> Vec<u8> {
     let bits: u64 = 0x755F_D7DF_75F7;
     (0..24)
@@ -156,8 +118,6 @@ pub const SYNC8: [u8; 16] = [7, 0, 5, 2, 6, 1, 4, 3, 0, 7, 3, 4, 1, 6, 2, 5];
 pub const M8_FRAME: usize = 128;
 pub const M8_PAYLOAD: usize = M8_FRAME - SYNC8.len();
 pub const M8_FRAMES: usize = 48;
-
-// --- Shared helpers --------------------------------------------------------------------------
 
 /// Steady-chain acquisition preamble: *data-like* fixed pseudo-random symbols, not the
 /// classic alternating outer levels. Measured on the M = 4 chain: an alternating preamble
@@ -266,8 +226,6 @@ pub fn modulate(entry: &Entry, symbols: &[u8]) -> Vec<Complex<f32>> {
     out
 }
 
-// --- Steady (continuous) links ---------------------------------------------------------------
-
 /// Payload symbols per steady trial: long enough that the continuous-mode claim is exercised
 /// (well past the ~2000 symbols where the phase-0 chain's wander floor set in), short enough
 /// that one trial stays a breath.
@@ -345,9 +303,6 @@ pub fn mfsk4_link() -> Link {
     mfsk4_link_sized(STEADY_PAYLOAD)
 }
 
-/// The M = 8 chain: framed known patterns, payload sliced through the §3.4 hook's per-frame
-/// least-squares correction — the designed level reference at 8 levels. The first frame's
-/// sync is searched wide; later frames only locally, tracking residual slip.
 pub fn mfsk8_link() -> Link {
     mfsk8_link_sized(M8_FRAMES)
 }
@@ -401,8 +356,6 @@ pub fn mfsk8_link_sized(frames: usize) -> Link {
     }
 }
 
-// --- Burst (TDMA) chain for the M = 4 limits rows --------------------------------------------
-
 /// Samples of dead air ahead of the first burst, so the gate's floor estimate (settle window
 /// 3840 samples at 10 sps) has measured the channel's true noise before any burst.
 pub const BURST_LEAD_SAMPLES: usize = 12_000;
@@ -411,9 +364,6 @@ pub const BURST_LEAD_SAMPLES: usize = 12_000;
 /// frame, cheap enough that a bisection stays fast.
 pub const BURST_FRAMES: usize = 6;
 
-/// One parameterisation of the DMR-shaped TDMA chain (24-sym sync + 108 payload symbols of
-/// every 288), carved by the calibrated [`BurstModel`]; the §4.3 burst axes vary one field
-/// each, reshaping transmitter and accounting together.
 #[derive(Clone, Copy)]
 pub struct BurstRecipe {
     pub payload_symbols: usize,
@@ -555,11 +505,6 @@ impl BurstRecipe {
     }
 }
 
-// --- Committed sweep parameters ----------------------------------------------------------------
-//
-// Grids cover each waterfall from its shoulder to past the 1e-4 crossing; chosen off the
-// ignored `probe_grids` run and then fixed — a committed point regenerates from (seed, index).
-
 pub const M2_GRID: &[f64] = &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
 pub const M4_GRID: &[f64] = &[
     6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0,
@@ -613,6 +558,4 @@ fn m2_theory_ber(ebn0_db: f64) -> f64 {
     crate::ber::theory::mfsk_noncoherent_ber(2, ebn0_db)
 }
 
-/// The entry's §4.2 performance baseline, shared with the DMR attachment (the M = 4
-/// configuration is that migration's engine-side reference).
 pub const PERF: &str = "cpm/mfsk_perf";

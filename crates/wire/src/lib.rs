@@ -1,11 +1,3 @@
-//! `sdrmm-wire` — the single source of truth for everything on the wire ().
-//!
-//! REST DTOs, WS message enums, device/channel/state models, and the binary frame layout
-//! all live here with `serde` + `utoipa::ToSchema` derives. TypeScript is generated from the
-//! OpenAPI these types produce; hand-writing a TS mirror of any of them is a review-blocking
-//! offense (CLAUDE.md non-negotiable #1). This crate has no internal dependencies so anything
-//! may use it.
-
 pub mod about;
 pub mod bandplan;
 pub mod channel;
@@ -421,7 +413,6 @@ mod contract_tests {
             "an absent capability is not a supported one"
         );
 
-        // And when it is declared it survives the trip, in both directions.
         for supported in [true, false] {
             let mut set = sample_device_set();
             set.capabilities.ppm = supported;
@@ -588,7 +579,6 @@ mod contract_tests {
             "stop"
         );
 
-        // A stop needs no body beyond the action.
         let stop: scan::ScanRequest = serde_json::from_str(r#"{"action":"stop"}"#).unwrap();
         assert_eq!(stop.settings, None);
     }

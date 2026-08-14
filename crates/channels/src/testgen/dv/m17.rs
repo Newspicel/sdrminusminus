@@ -116,7 +116,6 @@ fn lsf_bits(destination: &str, source: &str, stream_type: u16) -> Vec<bool> {
     let mut lsf = bits(callsign(destination), 48);
     lsf.extend(bits(callsign(source), 48));
     lsf.extend(bits(u64::from(stream_type), 16));
-    // 112 bits of metadata, which a plain voice call leaves empty.
     lsf.extend(std::iter::repeat_n(false, 112));
     let bytes: Vec<u8> = lsf
         .as_chunks::<8>()
@@ -130,7 +129,6 @@ fn lsf_bits(destination: &str, source: &str, stream_type: u16) -> Vec<bool> {
 
 fn link_setup(lsf: &[bool]) -> Vec<bool> {
     let mut lsf = lsf.to_vec();
-    // Four flush bits, then the rate-1/2 code and its puncturing pattern.
     lsf.extend([false; 4]);
     let mut coded = Vec::with_capacity(LSF_CODED_BITS);
     conv::encode(&lsf, &mut coded);
@@ -192,7 +190,6 @@ fn stream_frame(lsf: &[bool], number: u16, payload: &[u8; 16]) -> Vec<bool> {
     interleaved
 }
 
-/// Base-40 callsign encoding (M17 spec §2.3.1).
 fn callsign(call: &str) -> u64 {
     if call == "ALL" {
         return 0xFFFF_FFFF_FFFF;

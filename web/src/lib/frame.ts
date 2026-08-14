@@ -1,5 +1,3 @@
-// Binary WS frame decoder — the deliberate hand-synced counterpart to `crates/wire/src/frame.rs`
-// (). Keep the two in lockstep; all fields little-endian.
 
 export const PROTOCOL_VERSION = 1;
 export const FRAME_KIND_SPECTRUM = 0;
@@ -57,7 +55,6 @@ export function decodeSpectrum(buffer: ArrayBuffer): SpectrumFrame | null {
 export interface AudioFrame {
   streamId: number;
   seq: number;
-  /** 48 kHz-domain sample-frame count since the channel's audio started (). */
   timestamp: bigint;
   /** Layout of this packet: 1 = mono, 2 = stereo. A channel may switch between them. */
   chLayout: number;
@@ -85,7 +82,6 @@ export function decodeAudio(buffer: ArrayBuffer): AudioFrame | null {
 export interface VideoFrame {
   streamId: number;
   seq: number;
-  /** Channel-rate sample count when the picture completed (). */
   timestamp: bigint;
   width: number;
   height: number;

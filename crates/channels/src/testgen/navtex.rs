@@ -1,10 +1,3 @@
-//! NAVTEX / SITOR-B reference modulator (): text → CCIR 476 characters → the mode-B
-//! slot interleave → 100 baud FSK at complex baseband, symmetric about DC.
-//!
-//! The interleave is the part worth stating plainly, because it is what the decoder's FEC
-//! depends on: DX copies land in even slots, and each RX copy follows its DX five slots later,
-//! so four other characters separate them on the air (ITU-R M.625 §2).
-
 use num_complex::Complex;
 use sdrmm_modem::cpm::CpmMod;
 
@@ -73,9 +66,6 @@ pub fn bits(slots: &[u8]) -> Vec<bool> {
     out
 }
 
-/// Key `bits` as continuous-phase FSK — mark at `+85 Hz`, space at `−85 Hz` — through the
-/// library's own modulator, built from the decoder's exact entry data ( §1.2: the
-/// two cannot drift apart).
 #[must_use]
 pub fn modulate(bits: &[bool], rate: f64) -> Vec<Complex<f32>> {
     let symbols: Vec<u8> = bits.iter().map(|&bit| u8::from(bit)).collect();
@@ -122,7 +112,6 @@ mod tests {
             assert_eq!(stream[base + 2 * k], code, "dx copy {k}");
             assert_eq!(stream[base + 2 * k + FEC_SLOTS], code, "rx copy {k}");
         }
-        // Everything before the data is the alternating phasing signal.
         assert_eq!(stream[..base], [REP, ALPHA, REP, ALPHA]);
     }
 

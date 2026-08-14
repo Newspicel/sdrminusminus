@@ -188,7 +188,6 @@ mod tests {
             let mut x = ones(n);
             applied.apply(&mut x, &mut rng);
             let mut phi = 0.0f64;
-            // First sample carries φ=0 by construction; the increments walk from there.
             sum_sq += arg_increments(&x)
                 .iter()
                 .map(|d| {

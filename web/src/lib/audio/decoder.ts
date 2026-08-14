@@ -1,6 +1,3 @@
-// Opus packet decoding (): WebCodecs `AudioDecoder` when the platform supports the
-// exact stream config, else the "opus-decoder" WASM build (the likely WKWebView/Tauri path).
-// Both paths emit interleaved Float32 PCM at 48 kHz, in the channel count they were built for.
 import { SAMPLE_RATE } from "./worklet";
 
 export interface OpusPacketDecoder {
@@ -67,8 +64,6 @@ function createWebCodecsDecoder(
   const decoder = new AudioDecoder({
     output: (data) => {
       try {
-        // Planar copy per plane, then interleave here: `copyTo`'s conversion to interleaved
-        // f32 is not implemented consistently across engines, planar always is.
         const pcm = new Float32Array(data.numberOfFrames * channels);
         const plane = new Float32Array(data.numberOfFrames);
         for (let c = 0; c < channels; c++) {
@@ -91,7 +86,6 @@ function createWebCodecsDecoder(
       if (decoder.state !== "configured" || decoder.decodeQueueSize > MAX_DECODE_QUEUE) {
         return false;
       }
-      // Every Opus packet is independently submittable, so "key" is always correct.
       decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: timestampUs, data: packet }));
       return true;
     },
@@ -110,7 +104,6 @@ async function createWasmDecoder(
 ): Promise<OpusPacketDecoder> {
   // Dynamic import so the WASM payload is only fetched when WebCodecs can't do Opus.
   const { OpusDecoder } = await import("opus-decoder");
-  // RFC 7845 §5.1.1 channel mapping family 0: one stream, coupled for stereo.
   const decoder = new OpusDecoder({
     channels,
     streamCount: 1,
@@ -134,8 +127,6 @@ async function createWasmDecoder(
         if (samplesDecoded <= 0) {
           return false;
         }
-        // The decoder owns its planar buffers, so the interleave doubles as the copy the
-        // worklet transfer needs.
         const pcm = new Float32Array(samplesDecoded * channels);
         for (let c = 0; c < channels; c++) {
           const plane = channelData[c];

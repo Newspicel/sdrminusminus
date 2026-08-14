@@ -1,31 +1,3 @@
-//! The M-PPM catalog entry ( §6, pulse-position row): M ∈ {2, 4} measured chains on
-//! both detector tiers, shared by every consumer — the curve/limits/E2E tests, the perf
-//! baselines, and `cargo xtask ber ppm`.
-//!
-//! Reference geometry: **1 Mslot/s at 8 Msps, 8 samples per slot**. The slot rate is Mode S's
-//! (0.5 µs slots, so the M = 2 row is that waveform's alphabet at a bit rate of 1 Mbit/s), and
-//! the oversampling is the one thing deliberately *unlike* the attachment: `channels::adsb`
-//! runs the same tier at ~1 sample per slot because that is what a 2 Msps radio hands it, and a
-//! curve taken there would measure the sampling, not the modulation. The fractional-rate and
-//! sub-sample-phase behaviour that case needs is measured separately, as a property rather than
-//! a curve (`crates/modem/tests/ppm.rs`).
-//!
-//! Two tiers, one chain (§5 item 2 — later tiers are measured against the first):
-//!
-//! - **Matched filter** (tier 1): the slot's samples integrated, then squared. M orthogonal
-//!   equal-energy signals under envelope detection is exactly the closed form
-//!   [`theory::mfsk_noncoherent_ber`] describes, so this tier is oracle-matched rather than
-//!   commit-and-guard — the same acceptance the orthogonal M-FSK entry gets, from the same
-//!   formula, which is the point: PPM and M-FSK are one signalling set wearing two waveforms.
-//! - **Envelope** (tier 2): the slot's magnitudes summed, the statistic a receiver scanning a
-//!   wideband stream for bursts already has. No closed form describes it — every sample brings
-//!   its own rectified noise mean — so it is committed-and-guarded, and its measured distance
-//!   behind tier 1 is the number that justifies Mode S paying it.
-//!
-//! Eb accounting: per information bit, with the 2-symbol lead-in and the 24-symbol unique word
-//! charged to Eb exactly as every other entry charges its framing (0.05 dB at the committed
-//! payload length), as the labels say.
-
 use num_complex::Complex;
 
 use super::{
@@ -89,10 +61,6 @@ pub fn demod(m: usize, payload_symbols: usize, detector: SlotDetector) -> PpmDem
     )
 }
 
-/// One (alphabet, tier) chain as a payload-to-payload [`Link`]: filler + unique word + payload
-/// through [`PpmMod`], the frame's position *searched* rather than assumed — the engine's own
-/// feedforward sub-slot estimate and its §3.4 known-symbol alignment — payload read off the
-/// slot argmax.
 #[must_use]
 pub fn link_sized(m: usize, payload_symbols: usize, detector: SlotDetector) -> Link {
     let bits_per_symbol = m.trailing_zeros() as usize;
@@ -118,9 +86,6 @@ pub fn link_sized(m: usize, payload_symbols: usize, detector: SlotDetector) -> L
             modulate(m, &symbols)
         }),
         demodulate: Box::new(move |wave| {
-            // Nothing has told the receiver where the frame starts: the sub-slot phase comes
-            // from the concentration estimate over the lead-in and the word, and the slot
-            // position from the word itself.
             let scan_slots = (LEAD + word.len()) * m;
             let offset = receiver.estimate_offset(wave, 0, scan_slots);
             let tail = wave.get(offset..).unwrap_or(&[]);
@@ -156,8 +121,6 @@ pub fn ppm2_envelope_link() -> Link {
 pub fn ppm4_matched_link() -> Link {
     link_sized(4, PAYLOAD_SYMBOLS, SlotDetector::MatchedFilter)
 }
-
-// --- Committed sweep parameters ----------------------------------------------------------------
 
 pub const M2_GRID: &[f64] = &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0];
 pub const M4_GRID: &[f64] = &[5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];

@@ -1,16 +1,3 @@
-//! The reference linear transmitter: table lookup, per-symbol rotation, optional quadrature
-//! stagger, pulse shaping, complex baseband out. This is *the* modulator behind every linear
-//! catalog entry — `testgen` builds the demodulator's test signals from it and `tx.rs` drives it
-//! as a signal generator, so modulator and demodulator can never drift apart ( §1.2).
-//!
-//! Energy accounting, stated once: the table is mean-Es = 1 and the pulse is unit energy, so a
-//! block of n symbols carries n units of energy up to the pulse cascade's cross-terms — which is
-//! exactly what makes an Eb/N0 set from measured waveform energy the textbook one. The stagger
-//! does not disturb it (delaying one rail moves no energy) and neither does the rotation.
-//!
-//! Design is cold path: constructors allocate freely. The §4.2 zero-allocation gate binds the
-//! demodulator's `process()`, not a test-signal generator.
-
 use num_complex::Complex;
 
 use super::params::LinearParams;
@@ -60,8 +47,6 @@ impl LinearMod {
         if self.params.rotation_rad() == 0.0 {
             return p;
         }
-        // The rotation is taken modulo a turn before it becomes an f32 phasor: `k` reaches
-        // millions of symbols in a sweep, and k·π/4 in f32 would lose its low bits long before.
         let theta = (k as f64 * self.params.rotation_rad()) % std::f64::consts::TAU;
         p * Complex::new(theta.cos() as f32, theta.sin() as f32)
     }
@@ -73,8 +58,6 @@ impl LinearMod {
         let sps = self.params.sps();
         let pulse = self.params.pulse();
         let stagger = self.params.stagger_samples();
-        // Room for every new symbol's whole pulse plus the stagger, added onto what is already
-        // held back from previous calls.
         let span = labels.len() * sps + pulse.len() + stagger;
         if self.tail.len() < span {
             self.tail.resize(span, Complex::new(0.0, 0.0));
@@ -90,7 +73,6 @@ impl LinearMod {
             }
         }
         self.symbols_in += labels.len() as u64;
-        // Everything before the newest symbol's pulse start is complete and may be emitted.
         let complete = labels.len() * sps;
         out.extend_from_slice(&self.tail[..complete]);
         self.tail.drain(..complete);
@@ -193,7 +175,6 @@ mod tests {
     #[test]
     fn the_stagger_delays_the_quadrature_rail_by_half_a_symbol() {
         let p = params(4).with_offset(true).unwrap();
-        // Label 0b11 is the (+, +) corner of Gray 4-QAM: both rails carry a positive pulse.
         let wave = LinearMod::transmission(&p, &[0b11]);
         let peak = |f: fn(&Complex<f32>) -> f32| {
             wave.iter()
@@ -203,7 +184,6 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(peak(|s| s.im) - peak(|s| s.re), SPS / 2);
-        // Unstaggered, the two peaks coincide.
         let aligned = LinearMod::transmission(&params(4), &[0b11]);
         let peak_a = |f: fn(&Complex<f32>) -> f32| {
             aligned
@@ -228,7 +208,6 @@ mod tests {
         let plain = LinearMod::transmission(&params(4), &labels);
         let staggered = LinearMod::transmission(&params(4).with_offset(true).unwrap(), &labels);
         let near_origin = |w: &[Complex<f32>], frac: f64| {
-            // Skip a whole pulse span at each end, where the envelope is legitimately small.
             let inner = &w[8 * SPS..w.len() - 8 * SPS];
             let rms = (signal_energy(inner) / inner.len() as f64).sqrt();
             inner
@@ -237,8 +216,6 @@ mod tests {
                 .count() as f64
                 / inner.len() as f64
         };
-        // At a fifth of the RMS envelope: QPSK spends 2.2 % of its trajectory there, OQPSK
-        // 0.05 %. At a tenth, QPSK still spends 0.7 % and OQPSK never arrives at all.
         let (a, b) = (near_origin(&plain, 0.2), near_origin(&staggered, 0.2));
         assert!(a > 0.02, "QPSK spends only {a} of its time near the origin");
         assert!(b * 20.0 < a, "OQPSK {b} vs QPSK {a}");

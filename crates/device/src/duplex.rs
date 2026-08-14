@@ -1,17 +1,3 @@
-//! Which directions a radio can run, and which of them are running now ().
-//!
-//! Every backend needs the same arbitration and every backend would otherwise hand-roll it: the
-//! HackRF's single transceiver selects one data path at a time, an RTL-SDR has no transmitter at
-//! all, and a USRP-class radio runs both at once. That is three rules, not three
-//! implementations, so [`DuplexState`] owns them for all of them.
-//!
-//! Pure: no I/O, no device, no clock. The *mechanics* of pointing a radio one way stay in its
-//! backend, because they differ; deciding whether it is allowed to does not.
-//!
-//! [`Duplex`] and [`Direction`] themselves live in `sdrmm-wire`: what a radio *is* is something
-//! the device picker, a workspace template and the canvas all have to see, and a shape the
-//! client renders belongs on the wire (). Only the arbitration is here.
-
 use sdrmm_wire::{Direction, Duplex};
 
 use crate::DeviceError;

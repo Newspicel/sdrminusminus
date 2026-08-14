@@ -29,7 +29,6 @@ describe("dialPlaces", () => {
   it("never renders fewer than four megahertz digits", () => {
     expect(dialPlaces(2.4e9)).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
     expect(dialPlaces(1.7e9)).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]);
-    // An RTL dongle tops out below a gigahertz; the readout keeps its width anyway.
     expect(dialPlaces(1.766e9)).toHaveLength(10);
     expect(dialPlaces(30e6)).toEqual([8, 7, 6, 5, 4, 3, 2, 1, 0]);
   });
@@ -47,15 +46,12 @@ describe("dialDigits", () => {
   });
 
   it("marks only the zeros left of the first significant digit", () => {
-    // 88.5 MHz on a dial that reaches 1.766 GHz: the GHz and 100 MHz places are faint, and
-    // every zero to the right of the first `8` is a real digit.
     const digits = dialDigits(88_500_000, dialPlaces(1.766e9));
     expect(digits.filter((d) => d.leading).map((d) => d.place)).toEqual([9, 8]);
   });
 
   it("keeps the last megahertz digit lit below 1 MHz", () => {
     const digits = dialDigits(198_000, dialPlaces(30e6));
-    // places 8,7 are faint; place 6 stays lit so `0.198 000` reads as a frequency.
     expect(digits.slice(0, 3).map((d) => d.leading)).toEqual([true, true, false]);
   });
 });

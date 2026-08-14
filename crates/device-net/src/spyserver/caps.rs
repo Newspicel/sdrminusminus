@@ -215,8 +215,6 @@ pub(crate) fn validate(
     check_stream_settings(delta, caps)?;
     let mut next = current;
     let mut batch: Vec<(Setting, u32)> = Vec::new();
-    // The server computes nothing for itself: the gain it applies before quantising depends on the
-    // decimation, the tuner gain and the format, so any of the three moving means telling it again.
     let mut rescale = false;
 
     if let Some(rate) = delta.sample_rate {
@@ -476,7 +474,6 @@ mod tests {
             remote,
         )
         .expect("a gain index");
-        // One decimation stage (3 dB) plus the 8 indices of tuner gain left on the table.
         assert!(batch.contains(&(Setting::IqDigitalGain, 11)), "{batch:?}");
     }
 

@@ -1,11 +1,3 @@
-//! Decoder output types (: "decoder output events … typed JSON", §13 Phase 2).
-//!
-//! Every wave-1 decoder emits one variant of [`DecoderEvent`]; the engine wraps it in a
-//! [`DecodedRecord`] with the coordinates the DSP plane cannot know (wall-clock time) and
-//! pushes it to clients as `ServerEvent::Decoded` and to the decoder-log database ().
-//! One definition per decoder here is what makes the log table, the CSV export, the map, and
-//! the React panels share a single shape.
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -281,7 +273,6 @@ pub struct AcarsMessage {
     pub more: bool,
 }
 
-/// What a decoded sub-GHz burst turned out to be ().
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SubghzEncoding {
@@ -327,10 +318,6 @@ pub struct SubghzFrame {
     pub timings_us: Vec<u32>,
 }
 
-/// Subaudible signalling heard under an NFM channel's voice ().
-///
-/// Emitted only when the picture changes. Both CTCSS and DCS run for the whole of a
-/// transmission, so an event per block would be the same event forty times a second.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ToneSquelchStatus {
     /// The CTCSS tone present, in Hz.
@@ -398,7 +385,6 @@ pub enum DvFrameKind {
     Data,
 }
 
-/// Manufacturer feature set carried by DMR FID and P25 MFID fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Vendor {
@@ -445,14 +431,6 @@ pub struct DvSlotActivity {
     pub destination_hash: Option<u8>,
 }
 
-/// One decoded digital-voice frame — the metadata of a call. Audio travels through the channel's
-/// PCM output rather than inside this event.
-///
-/// Every digital-voice mode decodes its AMBE, AMBE+2, IMBE or Codec2 payload to the channel PCM
-/// plane. This event carries the signalling around that audio — who keyed up, on which
-/// talkgroup, over which repeater, with what encryption. Fields are `Option` because which of
-/// them exist is a property of the mode and frame: a D-Star header has callsigns and no
-/// talkgroup, a DMR voice header the reverse.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DvFrame {
     pub mode: DvMode,
@@ -464,10 +442,8 @@ pub struct DvFrame {
     /// NXDN/dPMR RAN or colour code, P25 NAC, YSF has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color_code: Option<u16>,
-    /// Vendor selected by a DMR feature-set ID or P25 manufacturer ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vendor: Option<Vendor>,
-    /// Raw DMR FID or P25 MFID. One manufacturer may own several feature sets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manufacturer_id: Option<u8>,
     /// True for a talkgroup call, false for a call addressed to one radio.
@@ -572,9 +548,6 @@ impl DvFrame {
     }
 }
 
-/// Typed decoder output (). Adjacently tagged so the generated TypeScript is a
-/// discriminated union on `kind` that panels can exhaustively `switch` on, and so the log
-/// database can index on `kind` without parsing the blob.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum DecoderEvent {
@@ -770,8 +743,6 @@ impl DecoderEvent {
         }
     }
 
-    /// `(lat, lon)` when the event places something on the map (: ADS-B/AIS/APRS
-    /// share one map feature), so the client never re-derives per-decoder position rules.
     #[must_use]
     pub fn position(&self) -> Option<(f64, f64)> {
         let (lat, lon) = match self {
@@ -804,8 +775,6 @@ impl DecoderEvent {
                 .address
                 .map(|a| format!("{a:05X}"))
                 .or_else(|| (!f.data.is_empty()).then(|| f.data.clone())),
-            // Who keyed up, by whichever name the mode addresses them: a callsign where the
-            // mode has one, the radio ID where it does not.
             Self::Dv(f) => f
                 .source_call
                 .clone()
@@ -815,9 +784,6 @@ impl DecoderEvent {
     }
 }
 
-/// A decoder event with the coordinates the DSP plane cannot supply. The engine stamps `at`
-/// on the control plane (the DSP thread never formats time) and computes `freq_hz` from the
-/// device center plus the channel offset at the moment the frame was produced.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DecodedRecord {
     pub device_set: u32,
@@ -855,8 +821,6 @@ mod tests {
         assert_eq!(back, ev);
     }
 
-    /// `kind()` must equal the serialized tag for every variant, or the log's indexed column
-    /// and the client's union discriminator drift apart.
     #[test]
     fn kind_matches_the_serialized_tag() {
         for ev in [

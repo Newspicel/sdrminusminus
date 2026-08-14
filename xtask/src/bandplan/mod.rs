@@ -1,21 +1,3 @@
-//! `cargo xtask bandplan` — regenerate the frequency-allocation tables from the regulators'
-//! own publications ().
-//!
-//! The rule this exists to enforce: **nobody hand-types an allocation table.** A band plan
-//! transcribed by a person is wrong somewhere within a week of the regulator amending it, and
-//! nothing about it says which parts were checked. An importer's output is a reviewed diff
-//! against a named source document, and every row carries the identifier it had there.
-//!
-//! Structure, per source: `fetch` → `text` → [`parse`]. Only the last is interesting and only
-//! the last is tested, over committed excerpts in `fixtures/bandplan/` — so the parser tests
-//! need neither the network nor a PDF tool.
-//!
-//! Two external programs, both dev-only and neither in the build or the shipped binary:
-//! `curl` to fetch, and `pdftotext` (poppler) to turn the two PDF sources into text. That is the
-//! same posture as `pnpm` for the web build. Poppler's version is recorded in each generated
-//! document, because `-layout` output shifts between releases and a re-run that changes the
-//! table for that reason should be visible as such.
-
 use std::{fs, path::Path, process::Command};
 
 use anyhow::{Context, Result, bail};
@@ -25,9 +7,6 @@ mod bnetza;
 mod fcc;
 mod ofcom;
 
-/// One row as written to a layer document. Mirrors `sdrmm_server::bandplan::Entry`, which reads
-/// it back — the two are checked against each other by the server's own loader tests, and this
-/// crate cannot import that type because it is private to the server.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub(crate) struct Row {
     pub start_hz: f64,
@@ -230,7 +209,6 @@ fn pdftotext(path: &Path) -> Result<String> {
 /// from one where the regulator changed something.
 fn poppler_version() -> Option<String> {
     let out = Command::new("pdftotext").arg("-v").output().ok()?;
-    // pdftotext writes its banner to stderr.
     let text = String::from_utf8_lossy(&out.stderr);
     text.lines().next().map(|line| line.trim().to_string())
 }
@@ -454,7 +432,6 @@ mod tests {
             "other"
         );
         assert_eq!(unmapped, vec!["QUANTUM TELEPATHY"]);
-        // Reported once however often it recurs.
         service_of("QUANTUM TELEPATHY", &table, &mut unmapped);
         assert_eq!(unmapped.len(), 1);
     }

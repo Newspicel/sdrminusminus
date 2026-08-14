@@ -2,8 +2,6 @@
 
 use std::f32::consts::PI;
 
-/// Periodic Hann window of length `n` (denominator `n`, correct for FFT analysis where the
-/// window tiles seamlessly — as opposed to the symmetric `n-1` form used for filter design).
 #[must_use]
 pub fn hann(n: usize) -> Vec<f32> {
     if n == 0 {
@@ -32,14 +30,12 @@ mod tests {
     fn hann_endpoints_are_zero_and_center_is_one() {
         let w = hann(8);
         assert!(w[0].abs() < 1e-6);
-        // Periodic Hann peaks at the midpoint n/2.
         assert!((w[4] - 1.0).abs() < 1e-6);
     }
 
     #[test]
     fn hann_coherent_gain_is_half_n() {
         let w = hann(1024);
-        // sum(periodic Hann) == n/2 exactly.
         assert!((coherent_gain(&w) - 512.0).abs() < 1e-2);
     }
 }

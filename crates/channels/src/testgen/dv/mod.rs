@@ -1,14 +1,3 @@
-//! Reference modulators for the digital-voice decoders ().
-//!
-//! The shaping lives here and the framing lives in the per-mode submodules, because that is how
-//! the modes actually differ: they all put four levels on a carrier the same way, and then each
-//! spends its bits differently.
-//!
-//! What these generators do *not* produce is voice. Every mode's payload here is filler — the
-//! most decoders read only the signalling around it, so their generated bursts carry a
-//! deterministic pattern where a radio would carry AMBE or Codec2 frames. DMR's focused audio
-//! test supplies real encoded vocoder sockets through its transmitter's payload seam.
-
 pub mod dmr;
 pub mod dpmr;
 pub mod dstar;

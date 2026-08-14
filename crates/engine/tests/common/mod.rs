@@ -52,7 +52,6 @@ fn decode(packets: &[AudioPacket]) -> Vec<Vec<f32>> {
     let mut out = vec![Vec::with_capacity(packets.len() * OPUS_FRAME_SAMPLES); channels];
     let mut frame = vec![0.0f32; OPUS_FRAME_SAMPLES * channels];
     for packet in packets {
-        // Opus counts what it decoded in sample frames, whatever the layout.
         let frames = decoder
             .decode_float(&packet.opus, &mut frame, false)
             .expect("opus decode");

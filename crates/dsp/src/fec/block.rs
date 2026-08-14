@@ -1,21 +1,4 @@
 //! Block codes the digital-voice signalling layers are built from ( wave 3).
-//!
-//! Two families, both systematic — information bits first, parity after — because that is how
-//! every one of these codes is published and how the modes pack them on the wire:
-//!
-//! * [`ParityCode`], the Hamming family, written as one XOR mask per parity bit. The masks are
-//!   the specification's own tables (ETSI TS 102 361-1 B.3.11/B.3.12 for DMR, TIA-102.BAAA for
-//!   P25) rather than a derived parity-check matrix: the published codes are *particular*
-//!   Hamming codes among many equivalent ones, and only the published column order decodes a
-//!   real transmitter.
-//! * [`CyclicCode`], a shortened cyclic code plus an even-parity bit: DMR's Golay(20,8,8) slot
-//!   type (generator 0xC75, the binary Golay polynomial, shortened from (24,12,8)) and its
-//!   QR(16,7,6) EMB (generator 0x139, shortened from the extended quadratic-residue (18,9,6)).
-//!
-//! Decoding is exhaustive nearest-codeword search over the 2^k messages — 256 candidates for
-//! the Golay, 128 for the QR. That is the maximum-likelihood answer by construction, needs no
-//! syndrome table, and at one slot type per 30 ms burst costs nothing worth optimising.
-
 /// A systematic single-error-correcting code defined by one parity mask per check bit.
 ///
 /// Bit order is the specification's: `word[0..k]` are the information bits, `word[k..n]` the
@@ -64,14 +47,11 @@ impl ParityCode {
         ],
     };
 
-    /// Hamming(10,6,3) — one hexbit of a P25 link control or encryption sync word
-    /// (TIA-102.BAAA §7.3).
     pub const HAMMING_10_6: Self = Self {
         k: 6,
         parity: &[0b10_0111, 0b10_1011, 0b01_1101, 0b01_1110],
     };
 
-    /// Hamming(17,12,3) — the rows of a P25 confirmed-data block (TIA-102.BAAA §7.4).
     pub const HAMMING_17_12: Self = Self {
         k: 12,
         parity: &[
@@ -123,7 +103,6 @@ impl ParityCode {
         if syndrome == 0 {
             return Some(0);
         }
-        // A single parity bit disagreeing with the information is an error in that parity bit.
         if syndrome.count_ones() == 1 {
             let j = syndrome.trailing_zeros() as usize;
             word[self.k + j] = !word[self.k + j];
@@ -208,10 +187,6 @@ impl CyclicCode {
         correctable: 3,
     };
 
-    /// BCH(63,16,23) plus an even-parity bit — the 64-bit network identifier every P25 frame
-    /// opens with (TIA-102.BAAA §7.2). The generator is the product of the minimal polynomials
-    /// of α¹ to α²² over GF(64) with primitive polynomial `x⁶ + x + 1`, which is degree 47 and
-    /// so leaves exactly 16 information bits.
     pub const BCH_63_16: Self = Self {
         k: 16,
         parity: 47,

@@ -25,7 +25,6 @@ describe("fractionDigits", () => {
     expect(fractionDigits(50)).toBe(0);
     expect(fractionDigits(0.5)).toBe(1);
     expect(fractionDigits(0.05)).toBe(2);
-    // The ADS-B reference position: three digits would be kilometres of error.
     expect(fractionDigits(0.00001)).toBe(5);
   });
 

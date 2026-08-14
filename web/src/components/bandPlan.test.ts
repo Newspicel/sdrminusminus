@@ -22,7 +22,6 @@ function allocation(over: Partial<BandAllocation> & Pick<BandAllocation, "id">):
   };
 }
 
-/** Blocks index into the plan's allocation table, so a fixture has to build both together. */
 const POOL: BandAllocation[] = [];
 function block(startHz: number, stopHz: number, over: Partial<BandAllocation>): BandBlock {
   POOL.push(
@@ -100,7 +99,6 @@ const PLAN: BandPlan = {
 
 describe("spansIn", () => {
   it("clips a block that runs off both edges and says which edges are real", () => {
-    // A 1 MHz window entirely inside the 2 m band.
     const [span] = spansIn(PLAN, ALLOCATION, 144_500_000, 1_000_000);
     expect(span?.left).toBe(0);
     expect(span?.width).toBe(1);
@@ -119,7 +117,6 @@ describe("spansIn", () => {
 
   it("drops what the window does not reach, including a block that only touches its edge", () => {
     expect(spansIn(PLAN, ALLOCATION, 100_000_000, 1_000_000)).toEqual([]);
-    // The window ends exactly where 2 m begins: a half-open block starting there is not visible.
     expect(spansIn(PLAN, ALLOCATION, 143_000_000, 1_000_000)).toEqual([]);
   });
 
@@ -155,14 +152,10 @@ describe("identify", () => {
 
 describe("suggestedAt", () => {
   it("takes the most specific lane's mode, which is the whole point of the overlay", () => {
-    // 144.800 MHz: the allocation says "2 m amateur, NFM", the IARU plan says APRS. Reading the
-    // first lane instead of the last would tune the headline band and miss the sub-band —
-    // exactly the case the amateur overlay exists for.
     expect(suggestedAt(identify(PLAN, 144_800_000))?.type).toBe("aprs");
   });
 
   it("falls back through lanes that suggest nothing", () => {
-    // 145.5 MHz is in the FM-simplex segment, which carries no mode of its own.
     expect(suggestedAt(identify(PLAN, 145_500_000))?.type).toBe("nfm");
   });
 
@@ -185,7 +178,6 @@ describe("searchPlan", () => {
 
   it("resolves a query that reads as a frequency, and ranks it above a name match", () => {
     const hits = searchPlan(PLAN, "145.5");
-    // Both lanes cover it; the narrower band plan entry wins the tie between two frequency hits.
     expect(hits[0]?.allocation.name).toBe("2 m — FM simplex");
     expect(hits[1]?.allocation.name).toBe("2 m amateur");
   });

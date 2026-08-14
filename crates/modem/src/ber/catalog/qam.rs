@@ -1,24 +1,3 @@
-//! The quadrature-amplitude catalog entries ( §6, linear rows 6–10): square QAM from
-//! 16 to 1024, cross-QAM 32 and 128, star-QAM, DVB-T hierarchical QAM and DVB-S2 APSK.
-//!
-//! **These five rows are the same code.** That is not a remark, it is the acceptance: §3.3 says a
-//! code path that special-cases "the" constellation is a defect, and the way to prove it is to
-//! measure five geometries — a square grid, a grid with its corners removed, concentric rings,
-//! warped rails, and unequal ring populations — through one modulator, one demodulator and one
-//! demapper. Every difference between the rows below is a [`Constellation`](crate::constellation::Constellation)
-//! and a loop bandwidth.
-//!
-//! **The loop bandwidth is per-entry data and it is measured.** A decision-directed loop is only
-//! as good as its decisions, and a denser table's are worse: at the substrate's wide 0.01 the
-//! 256-QAM chain's waterfall walls at 3e-2, and at 0.001 it sits on theory. The rule the rows
-//! encode is one narrowing step per two bits.
-//!
-//! **The four exotic rows have no closed form**, and their reference is
-//! [`theory::NearestNeighbour`] read off the table itself: minimum distance, neighbour count and
-//! the labelling's own measured bits-per-error. It reproduces the closed forms it generalises
-//! within 2 % by 15 dB (asserted in `theory`), which makes it a real acceptance rather than a
-//! curve compared against itself — and the committed artifact guards the rest.
-
 use std::sync::LazyLock;
 
 use crate::{
@@ -73,8 +52,6 @@ pub fn qam1024_link() -> Link {
     square_link("1024-qam", 1024, LOOP_BW_1024)
 }
 
-/// 16-QAM on the **tracking** timing tier — the comparison that says what the feedforward
-/// estimator is worth on a burst (§5 item 2). Everything else about the chain is identical.
 #[must_use]
 pub fn qam16_tracked_link() -> Link {
     coherent_tracked_link(
@@ -93,8 +70,6 @@ pub fn qam16_tracked_link() -> Link {
         },
     )
 }
-
-// --- The exotic geometries ----------------------------------------------------------------------
 
 fn exotic_link(name: &str, table: Result<Constellation, ConstellationError>, loop_bw: f64) -> Link {
     coherent_link(
@@ -197,7 +172,6 @@ pub fn apsk32_link() -> Link {
     )
 }
 
-// --- Table-driven oracles -------------------------------------------------------------------------
 //
 // The exotic geometries have no closed form, so their reference is read off the table. Each is a
 // `LazyLock` because `Reference::Oracle` takes a plain `fn` pointer — deliberately, so a
@@ -261,8 +235,6 @@ fn qam256_ber(ebn0_db: f64) -> f64 {
 fn qam1024_ber(ebn0_db: f64) -> f64 {
     theory::mqam_ber(1024, ebn0_db)
 }
-
-// --- Committed sweep parameters ----------------------------------------------------------------
 
 pub const QAM16_GRID: &[f64] = &[8.0, 9.0, 10.0, 11.0, 12.0, 13.0];
 pub const QAM64_GRID: &[f64] = &[12.0, 13.0, 14.0, 15.0, 16.0, 17.0];

@@ -1,8 +1,3 @@
-//! The Nyquist amplitude-pulse pair for linear modulation: raised cosine and its root. Both
-//! are truncated infinite-support designs on the centred odd-tap grid (module docs), with
-//! `span` counted in symbols *each side* of the peak — `sdrmm_dsp::design_rrc`'s convention,
-//! inherited so the wrap below stays bit-identical under [`Norm::Area`].
-
 use sdrmm_dsp::design_rrc;
 
 use super::{Norm, normalise, renorm_designed};
@@ -34,15 +29,6 @@ pub fn raised_cosine(sps: f64, alpha: f64, span: usize, norm: Norm) -> Vec<f32> 
     normalise(h, norm)
 }
 
-/// Root-raised cosine — the half each end of a link applies so the *cascade* is the ISI-free
-/// [`raised_cosine`]. The catalog's workhorse: DMR/dPMR/NXDN C4FM use α = 0.2
-/// (ETSI TS 102 361-1, TIA-102.BAAA), TETRA π/4-DQPSK uses α = 0.35 (EN 300 392-2), M17 uses
-/// α = 0.5.
-///
-/// Wraps `sdrmm_dsp::design_rrc` (§1 minimal duplication): under [`Norm::Area`] the taps are
-/// its output bit for bit — the DC-gain normalisation live channels already rely on — and
-/// [`Norm::Energy`] rescales that same shape. `span` symbols each side, `2·span·sps` taps
-/// rounded up to odd.
 #[must_use]
 pub fn root_raised_cosine(sps: f64, alpha: f64, span: usize, norm: Norm) -> Vec<f32> {
     renorm_designed(design_rrc(sps, alpha, span), norm)
@@ -59,7 +45,6 @@ fn rc_pulse(t: f64, alpha: f64) -> f64 {
     sinc(t) * (std::f64::consts::PI * alpha * t).cos() / (1.0 - (2.0 * alpha * t).powi(2))
 }
 
-// Private in `sdrmm_dsp::fir`, so restated here; five lines, not a fork of design math.
 fn sinc(x: f64) -> f64 {
     if x.abs() < 1e-12 {
         1.0
@@ -82,8 +67,6 @@ mod tests {
         out
     }
 
-    /// The wrap is a wrap: same call, same bits. A reimplementation that merely agreed to a
-    /// tolerance would be exactly the fork §1 forbids.
     #[test]
     fn rrc_under_area_norm_is_bit_identical_to_design_rrc() {
         for (sps, alpha, span) in [(4.0, 0.2, 8), (8.0, 0.35, 6), (10.0, 0.5, 8)] {
@@ -95,13 +78,6 @@ mod tests {
         }
     }
 
-    /// §7 phase-2 acceptance: TX-RRC ⊗ RX-RRC is Nyquist. With unit-energy taps the cascade
-    /// peak is Σh² = 1 exactly, and every other symbol instant must sit below 1e-3 of it.
-    /// What remains at the instants is span-truncation ISI, concentrated at the edge symbol
-    /// m = span (measured for α = 0.2, sps = 4: 5.5e-3 at span 8, 9.7e-4 at 16, 1.7e-4 at
-    /// 20, while interior symbols sit near 1e-5) — a wrong RRC formula would instead leave
-    /// percent-level ISI at *every* instant, at any span. Span 20 keeps the gate about the
-    /// design math with margin, not about one truncation choice.
     #[test]
     fn tx_rrc_through_rx_rrc_is_isi_free_at_symbol_instants() {
         const SPAN: usize = 20;

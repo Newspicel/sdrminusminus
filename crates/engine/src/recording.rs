@@ -1,9 +1,3 @@
-//! The lossless IQ recording pipeline (, §7): a DSP-thread tap Arc-copies each
-//! drained slice into a bounded queue feeding a dedicated SigMF writer thread. Unlike the
-//! audio path's drop-oldest contract, backpressure here is a hard fault — a full queue (or
-//! a dead writer) disarms the tap and surfaces one error, so a recording never has silent
-//! holes.
-
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -36,16 +30,12 @@ pub struct FinalizedRecording {
     pub started_at: String,
     pub samples: u64,
     pub bytes: u64,
-    /// Capture-ring drops while the recording ran — loss upstream of the DSP plane; the file
-    /// itself is contiguous as the DSP thread saw the stream.
     pub overruns: u64,
     /// The fault that ended the writer, if any; the pair may then be unfinalized (breadcrumb
     /// meta only) and is never listed.
     pub error: Option<String>,
 }
 
-/// Counters and fault state shared between the DSP tap, the writer thread, and the control
-/// plane; readable without any lock so snapshots never wait on a busy writer.
 #[derive(Debug, Default)]
 pub(crate) struct RecordingShared {
     samples: AtomicU64,
@@ -82,8 +72,6 @@ pub(crate) struct RecBlock {
     samples: Arc<[Complex<f32>]>,
 }
 
-/// DSP-thread side of the pipeline. `push` is hot-path: one `Arc` copy plus a non-blocking
-/// bounded send per drained slice — the sanctioned PCM hand-off precedent ().
 pub(crate) struct RecorderTap {
     tx: mpsc::SyncSender<RecBlock>,
     shared: Arc<RecordingShared>,
@@ -158,8 +146,6 @@ fn write_loop(
         if let Some(expected) = next_sample
             && block.start_sample != expected
         {
-            // Loss upstream of the DSP plane, already surfaced as `DeviceSet.overruns` and
-            // `RecordingStatus.overruns`; the file stays contiguous as the DSP thread saw it.
             tracing::debug!(
                 gap = block.start_sample.saturating_sub(expected),
                 "recording spans a capture ring overrun"
@@ -186,14 +172,6 @@ fn write_loop(
     }
 }
 
-/// Create the writer under a dir-unique stem `rec_<ds>_<compact UTC timestamp>` (suffixed
-/// `-2`, `-3`, … on a same-second collision), returning it with the claimed file name.
-/// Claiming is atomic — [`SigmfWriter::create`] opens `create_new` and reports a taken stem
-/// as [`SigmfError::StemTaken`] — so concurrent starts can never share or truncate one
-/// another's files; probing `exists()` here would be a TOCTOU. The one non-atomic probe is
-/// the final meta: a meta-only stem (data file removed by hand) must not be reclaimed, or
-/// finalize would rename over the surviving meta — and final metas appear only via that
-/// rename, never mid-race.
 pub(crate) fn create_writer(
     dir: &Path,
     ds: u32,
@@ -298,7 +276,6 @@ mod tests {
         assert_eq!(name, "rec_3_19700101T000000Z");
         let base_stem = first.stem().to_path_buf();
 
-        // The in-flight first attempt (breadcrumb + data, no final meta) claims its stem.
         let (second, name) =
             create_writer(dir.path(), 3, 0, ts, 48_000.0, 1_000_000.0, "hw").unwrap();
         assert_eq!(name, "rec_3_19700101T000000Z-2");

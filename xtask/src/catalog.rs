@@ -1,11 +1,3 @@
-//! The docs-row rule ( §5 item 8): `crates/modem/CATALOG.md` and the committed
-//! measurement artifacts must move together, so the gate checks them against each other in
-//! both directions. An artifact no catalog row names is a measurement nobody can find — it
-//! stops gating anything the moment it is forgotten; a catalog path with no file behind it is
-//! a claim with nothing backing it. Same failure shape as the toolchain pins: two things
-//! updated by different hands that must change together, where divergence produces no error
-//! on its own.
-
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};

@@ -15,7 +15,6 @@ path = "src/main.rs"
 [lints]
 workspace = true
 
-# Desktop releases always use Soapy; no-default-features remains a compile-only specialist gate.
 [features]
 default = ["soapy", "net-client"]
 soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy", "dep:sdrmm-device-soapy"]

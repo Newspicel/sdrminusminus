@@ -69,10 +69,8 @@ fn frame(
 ) -> Vec<u8> {
     let mut lich = bits(u64::from(rf_channel) & 0x03, 2);
     lich.extend(bits(u64::from(functional) & 0x03, 2));
-    // Option 3: no FACCH stealing, all four EHR frames are voice.
     lich.extend(bits(3, 2));
     lich.push(outbound);
-    // Odd parity over the seven bits before it.
     let ones = lich.iter().filter(|b| **b).count();
     lich.push(ones % 2 == 0);
     let mut out = dibits(&bits(FSW, 20));

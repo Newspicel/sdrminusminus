@@ -1,30 +1,3 @@
-//! Single sideband, by both methods that produce it ( §6: *"SSB (USB/LSB) — Weaver;
-//! Hilbert"*).
-//!
-//! An SSB waveform *is* the analytic signal of its message: one-sided in frequency, so it
-//! occupies the message bandwidth once instead of twice, and so its real part is the message
-//! back again. Everything below is two ways of building that one-sided spectrum and two ways of
-//! reading it:
-//!
-//! - **Phasing** ([`SsbMethod::Hilbert`]) — `a + j·â`, the quadrature path through a Hilbert
-//!   transformer and the in-phase path through a bare delay that loses exactly as many samples.
-//!   Its sideband rejection is the transformer's own quadrature accuracy, uniform across the
-//!   band and stated by [`design_hilbert`]'s tests.
-//! - **Weaver** ([`SsbMethod::Weaver`]) — shift the message down by its own band centre, cut it
-//!   to half-bandwidth with an ordinary lowpass, shift it back up. No wideband 90° network
-//!   anywhere: the quadrature is exact because it is a complex exponential, and what limits the
-//!   rejection is a lowpass whose stopband is a design parameter rather than a tolerance.
-//!
-//! **The two are deliberately not paired.** A measured entry runs the phasing exciter into the
-//! filtering receiver and the Weaver exciter into the Weaver receiver, so a defect in either
-//! method's quadrature shows up as a sideband that did not cancel, rather than cancelling twice
-//! and hiding. That is the arrangement `channels::ssb` already used, kept and generalised.
-//!
-//! **Sensitivity is not what a sideband buys.** Suppressed-carrier AM in any of its shapes has
-//! figure of merit 1 ([`ssb_fom`](crate::ber::theory::ssb_fom)) — a double-sideband receiver
-//! collects twice the signal *and* twice the noise — so what SSB is worth is spectrum, and the
-//! entries measure it where it shows: the occupied bandwidth, and the adjacent-channel row.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -241,9 +214,6 @@ impl SsbMod {
                 mixed.clear();
                 mixed.extend(self.limited.iter().map(|&a| down.next() * a));
                 lowpass.process(mixed, cut);
-                // The lower sideband is the upper one's mirror: conjugating before the second
-                // mixer reflects the retained half-band about the carrier, which is exactly
-                // what "the other side" means.
                 out.extend(cut.iter().map(|&z| {
                     let z = if *sign > 0.0 { z } else { z.conj() };
                     z * up.next() * 2.0
@@ -445,8 +415,6 @@ mod tests {
         }
     }
 
-    /// A receiver tuned to the other sideband hears nothing — the property that makes the
-    /// waveform worth its complexity, stated as the number a channel plan reads.
     #[test]
     fn a_receiver_on_the_wrong_sideband_hears_nothing() {
         let sent = params(Sideband::Upper, SsbMethod::Hilbert);

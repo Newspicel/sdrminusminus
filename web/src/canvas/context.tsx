@@ -19,13 +19,11 @@ export interface Workspace {
   /** The patch as stored. Faces read their own node out of it; the canvas owns the geometry. */
   graph: PatchGraph;
   rack: RackLayout;
-  /** Choices that belong to the workspace rather than to a node on it — the band plan today. */
   settings: WorkspaceSettings;
   /** Ports and channel types — the generated tables the drag-time rules are built from. */
   context: GraphContext;
   /** Every open device set, for the pickers that have to name a radio. */
   deviceSets: readonly DeviceSet[];
-  /** Device node id → the set it drives right now (CANVAS §3). Absent means disconnected. */
   devices: ReadonlyMap<string, DeviceSet>;
   /** Channel node id → the engine channel it drives. Absent means apply has not created it. */
   channels: ReadonlyMap<string, ChannelInfo>;

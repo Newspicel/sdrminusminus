@@ -1,11 +1,3 @@
-//! POCSAG reference modulator (): pages → BCH codewords → two-level FSK baseband
-//! keyed by the library's own [`CpmMod`] ( §1.2: testgen builds every demodulator's
-//! test signals from the library's modulators, so the two can never drift apart).
-//!
-//! Everything here follows ITU-R M.584: 18 transmitted address bits plus a frame index, a
-//! batch of a frame sync codeword and 16 codewords, and characters packed
-//! least-significant-bit first into the message codewords' 20-bit payloads.
-
 use num_complex::Complex;
 use sdrmm_dsp::pocsag_bch_encode;
 use sdrmm_modem::{
@@ -13,7 +5,6 @@ use sdrmm_modem::{
     pulse::{self, Norm},
 };
 
-/// Frame synchronisation codeword (ITU-R M.584 §2).
 const FRAME_SYNC: u32 = 0x7CD2_15D8;
 /// Idle codeword — fills unused slots and terminates a message.
 const IDLE: u32 = 0x7A89_C197;
@@ -23,10 +14,8 @@ const CODEWORD_BITS: u32 = 32;
 const PAYLOAD_BITS: usize = 20;
 const ALPHA_BITS: usize = 7;
 const NUMERIC_BITS: usize = 4;
-/// A receiver needs at least 576 bits of 1010… to pull in its bit clock (ITU-R M.584 §2).
 const PREAMBLE_BITS: usize = 576;
 
-/// BCD alphabet used when the function bits are 0 (ITU-R M.584 §2).
 const NUMERIC_ALPHABET: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*', 'U', ' ', '-', ')', '(',
 ];
@@ -52,8 +41,6 @@ pub fn codewords(pages: &[Page]) -> Vec<u32> {
     let mut batches = vec![[IDLE; BATCH_CODEWORDS]];
     let mut pos = 0;
     for page in pages {
-        // The low 3 bits of the address are not transmitted: they select the frame the address
-        // codeword must sit in, and each frame is two codewords (ITU-R M.584 §2).
         let slot = (page.address & 7) as usize * 2;
         while pos % BATCH_CODEWORDS != slot {
             pos += 1;
@@ -88,8 +75,6 @@ pub fn keyed(words: &[u32], baud: u16, deviation_hz: f64, rate: f64) -> Vec<Comp
     for &word in words {
         symbols.extend((0..CODEWORD_BITS).rev().map(|i| (word >> i & 1) as u8));
     }
-    // Mark — the higher of the two frequencies — carries a 0 bit (ITU-R M.584 §2), so the
-    // level table puts the 0 symbol at +1: a symbol index is the data bit it transmits.
     let sps = rate / f64::from(baud);
     let mut modulator = CpmMod::new(CpmParams::from_deviation(
         Mapping::new(vec![1.0, -1.0]),
@@ -147,8 +132,6 @@ fn message_codewords(page: &Page) -> Vec<u32> {
         .collect()
 }
 
-/// Characters are packed least-significant-bit first into the codeword bit stream, for both
-/// the 7-bit alphanumeric and the 4-bit BCD alphabets (ITU-R M.584 §2).
 fn push_lsb_first(bits: &mut Vec<bool>, value: u8, len: usize) {
     bits.extend((0..len).map(|i| value >> i & 1 == 1));
 }
@@ -186,7 +169,6 @@ mod tests {
         for batch in words.as_chunks::<{ BATCH_CODEWORDS + 1 }>().0 {
             assert_eq!(batch.first(), Some(&FRAME_SYNC));
         }
-        // Every page is followed by an all-idle closing batch.
         let last = words.len() - BATCH_CODEWORDS;
         assert!(words[last..].iter().all(|&w| w == IDLE));
     }
@@ -196,7 +178,6 @@ mod tests {
         for low in 0..8 {
             let address = 0x0002_A340 | low;
             let words = codewords(&[page(address, 1, "", false)]);
-            // Skip the sync word; the address sits at the first codeword of its frame.
             let slot = 1 + (low as usize) * 2;
             let word = words[slot];
             assert_eq!(word >> 31, 0, "address codeword must carry flag 0");
@@ -235,8 +216,6 @@ mod tests {
         let pages = [page(1_234_567, 3, "TEST", false)];
         let words = codewords(&pages);
         let iq = transmission(&pages, 1_200, 4_500.0, 48_000.0);
-        // 40 samples per bit, plus the one-pulse flush that drains the last bit's tail out
-        // of the modulator's shaper.
         let expected = (PREAMBLE_BITS + words.len() * CODEWORD_BITS as usize) * 40 + 40;
         assert_eq!(iq.len(), expected);
         for s in &iq {

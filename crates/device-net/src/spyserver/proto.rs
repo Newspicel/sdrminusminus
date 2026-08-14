@@ -1,12 +1,5 @@
 //! The SpyServer wire protocol, as `spyserver_protocol.h` defines it: length-prefixed commands
 //! out, length-prefixed messages back, everything little-endian and every field a `u32`.
-//!
-//! Unlike rtl_tcp this protocol *does* describe the radio behind it — a `DeviceInfo` message with
-//! the tuner's envelope and a `ClientSync` with what this client is allowed to change — so the
-//! capability set here is read from the server rather than assumed from a table.
-//!
-//! Pure translation, no I/O: the framing that uses it lives in [`super::stream`].
-
 use sdrmm_device::DeviceError;
 
 /// SpyServer's default port, and what an operator who typed only a host means.
@@ -316,7 +309,6 @@ impl DeviceInfo {
             max_gain_index: word(6),
             min_frequency: word(7),
             max_frequency: word(8),
-            // 9 is Resolution, the ADC's bit depth.
             min_decimation: word(10),
             forced_iq_format: word(11),
         })
@@ -353,7 +345,6 @@ impl ClientSync {
             gain: word(1),
             // 2 is DeviceCenterFrequency, which is the server's business rather than this client's.
             iq_center_hz: word(3),
-            // 4 is FFTCenterFrequency.
             min_iq_center_hz: word(5),
             max_iq_center_hz: word(6),
         })

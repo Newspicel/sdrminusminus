@@ -1,19 +1,6 @@
 //! Subaudible signalling under an FM channel's voice: CTCSS tone squelch and DCS.
-//!
-//! Both live in the same place — a few percent of deviation below 300 Hz, where the voice is
-//! not — and both are read off the same discriminator output the audio path uses, so the whole
-//! detector hangs off one decimation to [`TONE_RATE`]. CTCSS is a continuous tone from a table
-//! of 50; DCS is a 23-bit Golay word repeating at 134.4 bit/s.
-//!
-//! The two run together whenever the channel is doing this at all, even when it was told to
-//! gate on only one of them: a receiver that can say "you are set to CTCSS 88.5 and this
-//! repeater sends DCS 023" is worth the fifty sliding correlators, which cost less than the
-//! decimation that feeds them.
-
 use sdrmm_dsp::{BitSync, DcBlocker, RealDecimator, ToneCorrelator, design_lowpass, golay23_ok};
 
-/// Input rate every NFM channel hands this, and the rate the two decimation stages are
-/// designed against.
 pub(crate) const INPUT_RATE_HZ: f64 = 48_000.0;
 
 /// Rate the detector runs at. Two decades below the input, which puts the whole subaudible
@@ -382,7 +369,6 @@ mod tests {
             };
             paired += 1;
             assert_ne!(partner, code, "{code:03} cannot be its own inverse");
-            // The relation is symmetric, as an inverse pair on a radio's code list is.
             assert_eq!(
                 readouts(dcs_word(partner) ^ MASK),
                 vec![code],
@@ -390,7 +376,6 @@ mod tests {
             );
         }
         assert_eq!(paired, 82, "41 inverse pairs, and 172 alone without one");
-        // The pair the literature names: 023 heard through an inverted discriminator is 047.
         assert_eq!(readouts(dcs_word(23) ^ MASK), vec![47]);
     }
 

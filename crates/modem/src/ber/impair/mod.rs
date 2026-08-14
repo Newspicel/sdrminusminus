@@ -1,24 +1,3 @@
-//! Calibrated impairment models ( §3.1 `ber/impair`) — every axis the limits runner
-//! sweeps in §4.3, as a test instrument rather than a channel simulator: each impairment is
-//! parameterised in the physical unit its limits-table row is stated in, and each carries a
-//! unit test that applies it and *measures the applied value back from the waveform*. That
-//! closed loop is the module's whole claim to trust: a limits table saying "fails at 800 Hz/s
-//! of drift" is only as true as the drift model's Hz/s, so applied == measured is proven here,
-//! once, and every sweep inherits it.
-//!
-//! Conventions shared by every model:
-//!
-//! - The waveform is complex baseband, `Vec<Complex<f32>>`; impairments operate in place, and
-//!   the ones that stretch or carve the waveform may change its length.
-//! - All randomness is drawn from the harness [`Rng`](super::rng::Rng), so any channel
-//!   realisation reproduces bit-for-bit from its seed.
-//! - Relative levels (DC, clipping, quantiser full scale, the burst noise floor) are stated
-//!   against the waveform's own RMS, measured at apply time — the instrument calibrates itself
-//!   to whatever the modulator handed it instead of assuming a nominal level.
-//! - Signal samples stay `f32`; every accumulator, phase register and parameter derivation is
-//!   `f64`, because a phase ramp accumulated in `f32` drifts by more than some of the effects
-//!   being modelled.
-
 mod burst;
 mod carrier;
 mod channel;

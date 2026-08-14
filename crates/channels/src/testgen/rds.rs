@@ -1,10 +1,3 @@
-//! RDS reference modulator (): the group sequence a station transmits, the shaped
-//! 57 kHz DBPSK subcarrier it rides on, and the FM composite / transmission around it.
-//!
-//! Physical layer per EN 50067 (IEC 62106) §1.2 — 1187.5 bit/s differentially encoded biphase
-//! data, shaped by the 100 % cosine roll-off the standard prescribes for the transmitter, on a
-//! subcarrier locked to the third harmonic of the 19 kHz pilot. Group formats per §3.
-
 use std::f64::consts::{PI, TAU};
 
 use num_complex::Complex;
@@ -12,7 +5,6 @@ use sdrmm_dsp::{RdsOffset, rds_encode_block};
 
 use super::fm_modulate;
 
-/// Bit rate: the subcarrier divided by 48 (EN 50067 §1.2.2).
 pub const BIT_RATE: f64 = 1_187.5;
 /// Stereo pilot. The subcarrier is its third harmonic, in phase with it — the standard also
 /// allows quadrature, which a receiver has to resolve on its own either way.
@@ -20,9 +12,6 @@ const PILOT_HZ: f64 = 19_000.0;
 const SUBCARRIER_HZ: f64 = 3.0 * PILOT_HZ;
 /// Peak deviation of a fully modulated broadcast carrier; [`composite`] returns ±1 for it.
 const DEVIATION_HZ: f64 = 75_000.0;
-/// Deviation shares of a typical multiplex: audio 45 %, pilot 9 %, RDS 4 % (EN 50067 §1.1
-/// recommends ±2 kHz for the subcarrier, i.e. 4 % of the ±75 kHz peak once both sidebands
-/// add).
 const AUDIO_LEVEL: f64 = 0.45;
 const PILOT_LEVEL: f64 = 0.09;
 const RDS_LEVEL: f64 = 0.04;
@@ -36,10 +25,7 @@ const PS_LEN: usize = 8;
 const RT_LEN: usize = 64;
 /// Characters a 2A group carries.
 const RT_SEGMENT: usize = 4;
-/// Ends a RadioText message shorter than 64 characters (EN 50067 §3.1.5.3).
 const RT_TERMINATOR: u8 = 0x0D;
-/// AF code 224+n announces n alternative frequencies; 1..=204 are 87.5 MHz + 100 kHz·code and
-/// 205 is the "filler" that pads an odd list (EN 50067 §3.2.1.6.1).
 const AF_COUNT_BASE: u8 = 224;
 const AF_FILLER: u8 = 205;
 const AF_BASE_HZ: f64 = 87_500_000.0;
@@ -139,7 +125,6 @@ fn cycle(station: &Station) -> Vec<Group> {
 
     for segment in 0..PS_LEN / 2 {
         let flags = (u16::from(station.ta) << 4) | (u16::from(station.music) << 3);
-        // Decoder-identification bit 2 stays 0: static PTY, mono — what this generator makes.
         let pair = af
             .get(segment % af.len().max(1))
             .copied()
@@ -154,7 +139,6 @@ fn cycle(station: &Station) -> Vec<Group> {
 
     let rt = rt_bytes(&station.radiotext);
     for (segment, chunk) in rt.as_chunks::<RT_SEGMENT>().0.iter().enumerate() {
-        // Text A/B flag (bit 4) stays 0: one message for the life of the transmission.
         groups.push(Group {
             b: (2 << 12) | common | segment as u16,
             c: pair_at(chunk, 0),
@@ -210,13 +194,9 @@ fn af_pairs(freqs: &[f64]) -> Vec<[u8; 2]> {
     all.as_chunks::<2>().0.to_vec()
 }
 
-/// Impulse response of the transmitter data shaping, `H(f) = cos(πf/(4·fb))` over
-/// `|f| ≤ 2·fb` (EN 50067 §1.2.4), at `t` seconds from its centre.
 fn shaping(t: f64) -> f64 {
     let a = PI / (4.0 * BIT_RATE);
     let edge = 2.0 * BIT_RATE;
-    // `H` has a removable singularity at t = ±a/2π, where its cosine is zero too; the limit
-    // there is the band edge itself.
     if (t.abs() - a / TAU).abs() < 1e-9 {
         return edge;
     }
@@ -238,8 +218,6 @@ fn block_bits(blocks: &[u32], out: &mut Vec<bool>) {
     }
 }
 
-/// Differential encoding (EN 50067 §1.2.3): the line level flips on a 1. This is what makes
-/// the receiver immune to the subcarrier's 180° phase ambiguity.
 fn differential(data: &[bool]) -> Vec<bool> {
     let mut last = false;
     data.iter()
@@ -264,8 +242,6 @@ fn subcarrier(station: &Station, len: usize, rate: f64) -> Vec<f32> {
     'outer: for (i, &level) in line.iter().enumerate() {
         let amplitude = if level { 1.0 } else { -1.0 };
         for phase in 0..2 {
-            // Biphase: a bit is its own level followed by the inverse, which empties the
-            // spectrum at the subcarrier itself and at DC.
             let weight = if phase == 0 { amplitude } else { -amplitude };
             let centre = ((2 * i + phase) as f64 * half_symbol).round() as usize;
             if centre >= wave.len() {
@@ -277,8 +253,6 @@ fn subcarrier(station: &Station, len: usize, rate: f64) -> Vec<f32> {
         }
     }
 
-    // A pulse written at `centre` is centred `half` samples later, so output sample n is at
-    // wave[n + half].
     let peak = wave
         .iter()
         .fold(0.0f64, |m, v| m.max(v.abs()))

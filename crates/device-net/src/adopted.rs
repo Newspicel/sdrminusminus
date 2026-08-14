@@ -1,17 +1,4 @@
 //! The endpoints a driver has been told about.
-//!
-//! A network receiver is named, never discovered, so a driver's probe can only report what
-//! something asked it to open — but it *must* report it, and keep reporting it: the engine faults
-//! a running device set whose device is missing from two consecutive probes, and re-opens a
-//! faulted one the moment its device comes back. Holding the endpoint here is what turns those two
-//! into the right behaviour for a remote: a server that reboots costs a fault and an automatic
-//! reconnect, not a lost radio.
-//!
-//! Nothing here reaches the network. Probing dials nothing — it runs every five seconds, and a
-//! connect per endpoint per tick would be a port scan of the operator's own network — so an
-//! endpoint is listed whether or not anything is listening on it, exactly as a device node bound
-//! to an unplugged dongle stays on the canvas.
-
 use std::{
     collections::BTreeSet,
     sync::{Mutex, MutexGuard, PoisonError},

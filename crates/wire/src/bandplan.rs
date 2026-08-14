@@ -1,20 +1,8 @@
-//! Frequency-allocation types (): what a frequency is *for*, layered from the ITU
-//! world table down through a national regulator, with the amateur band plan as an overlay.
-//!
-//! The layering is resolved server-side and shipped as one already-merged document per region
-//! (`BandPlan`), because a curated table is small and static: clipping it to the window a scope
-//! is showing, and searching it, are then pure client arithmetic that survive a pan without a
-//! round trip. Nothing on the server is stateful about it — the region is the client's choice
-//! and travels in the path.
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::channel::ChannelParams;
 
-/// The three ITU radio regions (Radio Regulations Art. 5 §1). Region 1 is Europe, Africa, the
-/// Middle East west of the Persian Gulf and northern Asia; Region 2 the Americas; Region 3 the
-/// rest of Asia and Oceania.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ItuRegion {
@@ -23,10 +11,6 @@ pub enum ItuRegion {
     R3,
 }
 
-/// What kind of authority a layer speaks with. This is not decoration: it is why the amateur
-/// plan renders as a separate lane instead of overriding the regulator — IARU band plans are
-/// agreements between operators, not allocations, and they subdivide a band the regulator has
-/// already given to the amateur service.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BandLayerKind {
@@ -34,7 +18,6 @@ pub enum BandLayerKind {
     World,
     /// A national or supranational regulator (BNetzA, FCC, Ofcom, CEPT).
     Regulatory,
-    /// A band plan agreed between users of a service rather than imposed on it.
     Amateur,
 }
 
@@ -77,9 +60,6 @@ pub struct BandLayerInfo {
     /// Least-specific first: where this layer sits when two of them cover one frequency. Ties
     /// cannot happen — every layer in a region has a distinct rank.
     pub rank: u8,
-    /// What wrote this layer: `curated`, or the importer that generated it from the regulator's
-    /// own publication (`bnetza`, `ofcom`, `fcc`). Worth showing: "this came out of the
-    /// Frequenzplan" and "somebody typed this in" are different kinds of claim.
     #[serde(default)]
     pub generator: String,
 }
@@ -87,9 +67,6 @@ pub struct BandLayerInfo {
 /// What a stretch of spectrum is allocated to, as one layer states it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BandAllocation {
-    /// Stable and unique within a plan. Derived from the source's own row id where it has one
-    /// (`de:27002`, `gb:FREQ_00001`) — a range is *not* enough, because a table routinely gives
-    /// one range to several services at once.
     pub id: String,
     /// [`BandLayerInfo::id`] this entry came from.
     pub layer: String,
@@ -128,17 +105,10 @@ pub struct BandAllocation {
     pub notes: Option<String>,
 }
 
-/// One resolved stretch: what wins here, and everything else that covers it.
-///
-/// Allocations travel once in [`BandPlan::allocations`] and are referenced by index. A single
-/// band is split into a block per boundary any *other* layer introduces, and an imported note
-/// can be a paragraph, so carrying the payload inline multiplied the document by an order of
-/// magnitude for no new information.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BandBlock {
     pub start_hz: f64,
     pub stop_hz: f64,
-    /// Index into [`BandPlan::allocations`]: the winner over this stretch.
     pub of: u32,
     /// Everything else covering it, most specific first — co-allocations from the winner's own
     /// layer, then the layers underneath. This is what lets the identify popover say "BNetzA
@@ -173,12 +143,10 @@ pub struct BandRegion {
     pub itu_region: ItuRegion,
     /// Layer ids, least specific first.
     pub layers: Vec<String>,
-    /// Overlay layer ids — the amateur plans that apply here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub overlays: Vec<String>,
 }
 
-/// `GET /api/bandplan/regions`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BandRegionsResponse {
     pub regions: Vec<BandRegion>,
@@ -186,7 +154,6 @@ pub struct BandRegionsResponse {
     pub default_region: String,
 }
 
-/// `GET /api/bandplan/regions/{region}` — the whole region, already layered.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BandPlan {
     pub region: BandRegion,
@@ -199,7 +166,6 @@ pub struct BandPlan {
     pub lanes: Vec<BandLane>,
 }
 
-/// `GET /api/bandplan/locate` — which region a coordinate falls in.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BandRegionMatch {
     /// The most specific region whose footprint contains the coordinate; never empty, because
@@ -211,8 +177,6 @@ pub struct BandRegionMatch {
     pub approximate: bool,
 }
 
-/// Query for `GET /api/bandplan/locate`. Flattened into the operation's parameters by utoipa,
-/// the way [`crate::rest::DecoderLogQuery`] is.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, utoipa::IntoParams)]
 pub struct LocateQuery {
     /// Degrees north, −90…90.

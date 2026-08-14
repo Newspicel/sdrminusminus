@@ -1,7 +1,3 @@
-// Opening a device (, M5). One surface asks: an unbound device node, which *is* the
-// invitation rather than a panel with an empty state (CANVAS §3). The discovery list, its
-// ranking and the diagnostics behind it live here because what a choice *means* is the node's
-// business, not the list's.
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { devicesQuery, doctorQuery } from "../lib/api";
@@ -21,8 +17,6 @@ export function rankDevices(devices: readonly DeviceInfo[]): readonly DeviceInfo
   );
 }
 
-/** Radios offered by this build. The synthetic backend is a development aid; recordings have
- * their own picker, so a production UI has no reason to expose any `virtual` probe results here. */
 export function visibleDevices(
   devices: readonly DeviceInfo[],
   devMode = import.meta.env.DEV,
@@ -30,8 +24,6 @@ export function visibleDevices(
   return rankDevices(devMode ? devices : devices.filter((device) => device.driver !== "virtual"));
 }
 
-/** The id `POST /api/devicesets` opens a device by. Not a `DeviceRef`: that names a radio in a
- * stored patch, this addresses one probe result in this run (CANVAS §3). */
 export function deviceId(device: DeviceInfo): string {
   return `${device.driver}:${device.key}`;
 }
@@ -137,7 +129,6 @@ export function DeviceChoices({
           <button
             key={deviceId(device)}
             type="button"
-            // The first device is the intended next action; the rest are alternatives.
             className={`${index === 0 ? BTN_PRIMARY : BTN} justify-center`}
             disabled={busy}
             onClick={() => onChoose(device)}

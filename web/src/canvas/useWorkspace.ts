@@ -1,6 +1,3 @@
-// The active workspace as the canvas sees it: the workspace list for the switcher, the active
-// patch, and the writes that persist it (, CANVAS §4). Server state lives in TanStack
-// Query only — WS `StateChanged { workspaces }` invalidates, nothing polls.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import {
@@ -35,7 +32,6 @@ export interface WorkspaceStore {
   activate: (id: number) => void;
   create: (name: string) => void;
   remove: (id: number) => void;
-  /** Bring the engine up to the patch (CANVAS §2). Additive and idempotent server-side. */
   apply: () => void;
   applied: PatchApplyReport | null;
   /** The list has not answered yet — distinct from "there are no workspaces", which is a real
@@ -96,8 +92,6 @@ export function useWorkspace(): WorkspaceStore {
   const applyAsync = applyMut.mutateAsync;
 
   const queried = detail.data ?? null;
-  // Refetches still update the authoritative metadata and revision in the query. While a local
-  // draft is pending, its snapshot is what the operator is editing and therefore what we render.
   const draft = queried === null ? undefined : drafts.current.get(queried.id);
   const active =
     queried !== null && draft !== undefined ? { ...queried, snapshot: draft.snapshot } : queried;
@@ -170,13 +164,10 @@ export function useWorkspace(): WorkspaceStore {
           } catch {
             // `update.error` owns the visible failure; the queue must still clean up and refetch.
           } finally {
-            // Earlier generations leave this workspace's newer draft in place. The global queue
-            // tail below turns the last completed generation into one authoritative refetch.
             const finished = drafts.current.finish(id, write.generation);
             refreshOwed.current = refreshOwed.current || finished;
           }
         })
-        // Defensive for cache/draft errors outside the mutation itself.
         .catch(() => undefined);
       finishQueue(task);
     },

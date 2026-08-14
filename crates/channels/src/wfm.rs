@@ -3,12 +3,6 @@
 //! L−R difference signal, and the channel's audio leaves as interleaved L/R.
 //! The composite is tapped off into [`RdsDecoder`] as well: RDS is the same signal's 57 kHz
 //! subcarrier, so there is nothing to switch on — a station without it simply decodes nothing.
-//!
-//! De-emphasis runs *after* the audio decimation, not on the composite: at 240 kHz it would
-//! flatten the 38 kHz difference subcarrier (−15 dB and rotated) before the stereo demux ever
-//! saw it. Being linear and time-invariant, it may equivalently be applied to the sum and
-//! difference signals separately, which is what keeps it off the interleaved output.
-
 use std::{f64::consts::FRAC_1_SQRT_2, sync::LazyLock};
 
 use num_complex::Complex;
@@ -216,8 +210,6 @@ impl StereoDemux {
                 .filter
                 .process(Complex::new(sample, 0.0) * carrier.conj());
             let reference = self.pll.process(baseband);
-            // The loop tracks the pilot at DC; multiplying its reference back by the mixer's
-            // own phasor is what returns the analytic pilot to 19 kHz without a second loop.
             let analytic = carrier * reference;
             let subcarrier = analytic * analytic;
             // ×2 because the product of two unit sinusoids halves the amplitude.
@@ -395,7 +387,6 @@ mod tests {
         let (freq, ratio) = dominant_tone(window, f64::from(AUDIO_RATE));
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
-        // Unit demod cosine through 50 µs de-emphasis: |H(1 kHz)| ≈ 0.954 → RMS ≈ 0.67.
         let amplitude = rms(window);
         assert!((0.6..0.74).contains(&amplitude), "rms {amplitude}");
     }
@@ -570,7 +561,6 @@ mod tests {
                 10.0 * separation.log10()
             );
         }
-        // 45 % deviation through 50 µs de-emphasis: |H(1 kHz)| ≈ 0.954, |H(3 kHz)| ≈ 0.728.
         assert!(
             (0.27..0.34).contains(&rms(&left)),
             "left rms {}",
@@ -591,8 +581,6 @@ mod tests {
         let audio = run_ragged(&mut chan, &two_tone_station(false));
         let (left, right) = split_stereo(&audio);
         assert_eq!(left, right, "unlocked pilot leaked into the matrix");
-        // The sum of the two tones is what a mono station transmits: both are in it, and
-        // between them they are essentially all of it (de-emphasis leaves 3 kHz the quieter).
         let settled = &left[left.len() / 2..];
         let shares: Vec<f64> = [LEFT_HZ, RIGHT_HZ]
             .iter()

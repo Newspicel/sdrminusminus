@@ -430,14 +430,6 @@ jobs:
             packaging/soapy/stage-unix.sh "$PREFIX" apps/desktop/resources/soapy
           fi
           cargo xtask soapy-bundle-check
-      # The notary service walks the whole .app and rejects every Mach-O in it that is not
-      # signed with a timestamp — and Tauri signs the app's own binary, not what we staged
-      # under `resources/`, so a release died with one rejection per staged library. The
-      # "signature of the binary is invalid" ones are the same story from the other end: the
-      # staging script rewrites install names, which breaks the ad-hoc signatures conda ships.
-      # A signature lives inside the file, so signing the staging tree here is what the bundler
-      # copies in. Own keychain, created and deleted around the run: tauri-action builds its own
-      # from the same certificate, and one identity in two keychains is ambiguous to `codesign`.
       - name: Sign the staged Soapy runtime
         if: runner.os == 'macOS'
         shell: bash
@@ -467,19 +459,12 @@ jobs:
           trap cleanup EXIT
           base64 --decode <<< "$APPLE_CERTIFICATE" > "$certificate"
           security create-keychain -p "$password" "$keychain"
-          # No arguments: clears the five-minute auto-lock, which would otherwise make codesign
-          # stop for a password prompt nobody is there to answer.
           security set-keychain-settings "$keychain"
           security unlock-keychain -p "$password" "$keychain"
           security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign
-          # Same reason: without an explicit partition list the first signature blocks on the
-          # "codesign wants to use your confidential information" dialog.
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" \
             "$keychain" > /dev/null
-          # `codesign --keychain` is not enough on its own — the identity is resolved through the
-          # search list, and a keychain that is merely named there is never consulted.
-          # shellcheck disable=SC2086
           security list-keychains -d user -s "$keychain" $previous
           find apps/desktop/resources/soapy -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
             | xargs -0 codesign --force --timestamp --options runtime \
@@ -524,12 +509,9 @@ jobs:
         run: |
           set -euo pipefail
           arch="${TARGET%%-*}"
-          # Where tauri-bundler looks: `dirs::cache_dir()/tauri`.
           tools="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
           mkdir -p "$tools"
           fetch() {
-            # A partial file still `exists()`, and the bundler would then run a truncated
-            # binary rather than re-download it — so the target name is claimed last.
             if ! curl --fail --location --silent --show-error \
                  --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
                  --output "$tools/$2.part" "$1" || [ ! -s "$tools/$2.part" ]; then
@@ -577,10 +559,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
-          # `--target`/`--bundles` are the Tauri CLI's own and pick what gets bundled; the cargo
-          # flags go after `--`, which is the only way it takes them — v2's `build` has no
-          # `--no-default-features` of its own and rejects it outright. Same order as the arg list
-          # `xtask desktop --bundles` builds, so the local bundle and this one stay one build.
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -- --no-default-features --features soapy,net-client
       - name: Verify packaged Soapy payload
         shell: bash

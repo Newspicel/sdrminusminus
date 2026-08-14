@@ -1,12 +1,6 @@
-// Audio-loss detection (). Each Opus frame carries a 48 kHz-domain sample-frame
-// timestamp; a hole in that clock is the loss signal (seq is per-stream bookkeeping, not
-// authoritative). Counting frames rather than samples is what keeps this independent of the
-// stream's channel layout, which can change mid-stream. Pure logic so the engine's gap
-// handling stays unit-testable.
 
 export type LossAction =
   | { kind: "continuous" }
-  // `frames` of audio are missing; conceal them so buffered depth and timing stay honest.
   | { kind: "gap"; frames: number }
   // Timestamps regressed or the hole is too big to conceal: drop buffered audio, rebuffer.
   // `frames` is how much was missing when that is knowable, 0 when the clock simply restarted.

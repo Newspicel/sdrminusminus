@@ -78,7 +78,6 @@ describe("createWebAudioSink", () => {
       removeEventListener: vi.fn(),
       visibilityState: "visible",
     });
-    // The worklet URL is never fetched in tests; the fake context's addModule ignores it.
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:sdr-test");
   });
 
@@ -101,7 +100,6 @@ describe("createWebAudioSink", () => {
 
     const node = FakeWorkletNode.instances[0];
     const gain = FakeGainNode.instances[0];
-    // Without "close" the processor's process() keeps returning true forever.
     expect(node?.port.postMessage).toHaveBeenCalledWith("close");
     expect(node?.disconnect).toHaveBeenCalled();
     expect(gain?.disconnect).toHaveBeenCalled();
@@ -125,7 +123,6 @@ describe("createWebAudioSink", () => {
     expect(sinkModule.isOutputRunning()).toBe(false);
     expect(reported).toEqual([false]);
 
-    // A user gesture retries the resume.
     sinkModule.resumeAudioOutput();
     expect(context?.resume).toHaveBeenCalled();
     context?.setState("running");
@@ -146,7 +143,6 @@ describe("createWebAudioSink", () => {
     );
     const context = FakeAudioContext.instances[0];
     expect(context?.resume).toHaveBeenCalled();
-    // Health is published immediately, not deferred to a statechange that may never fire.
     expect(reported).toEqual([false]);
     expect(sinkModule.isOutputRunning()).toBe(false);
 
@@ -166,7 +162,6 @@ describe("createWebAudioSink", () => {
     const node = FakeWorkletNode.instances[0];
     node?.port.postMessage.mockClear();
 
-    // The graph is two-channel, so a 480-frame gap is 960 interleaved samples of silence.
     sink.conceal(480);
     const posted = node?.port.postMessage.mock.calls[0]?.[0] as Float32Array | undefined;
     expect(posted).toBeInstanceOf(Float32Array);
@@ -219,7 +214,6 @@ describe("createWebAudioSink", () => {
     );
     const packet = Uint8Array.from([1, 2, 3]);
 
-    // The packet that announces the new layout is dropped, not decoded with the wrong one.
     sink.push(packet, 0, 2);
     expect(decoders[0]?.decode).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(decoders).toHaveLength(2));

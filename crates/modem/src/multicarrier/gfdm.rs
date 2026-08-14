@@ -1,26 +1,3 @@
-//! GFDM — generalised frequency division multiplexing ( §3.1 `multicarrier/`, §7 phase
-//! 9).
-//!
-//! **A block of `K` subcarriers by `M` subsymbols, pulse-shaped circularly.** Where OFDM sends one
-//! symbol per subcarrier per transform and pays a cyclic prefix for each, GFDM sends `M` of them
-//! and pays one prefix for the block — and shapes each with a circularly-shifted prototype pulse,
-//! so the spectrum falls away at the band edges instead of sitting under a rectangle's sinc
-//! skirts. Both of those are the point of the waveform, and both cost the same thing:
-//!
-//! **GFDM is not orthogonal, and that is the entry.** A pulse narrow enough in frequency to buy
-//! the out-of-band roll-off is wider than one subsymbol in time, so subsymbols overlap and
-//! subcarriers overlap, by construction. The transmitter is a dense `N × N` matrix `A` with
-//! `N = K·M`, and the two receivers are the two ways of dealing with a matrix that is not unitary:
-//!
-//! - [`GfdmDetector::ZeroForcing`] — `A⁻¹`. Removes the self-interference exactly and amplifies
-//!   the noise by however badly `A` is conditioned. Tier 1, because it is the one whose curve can
-//!   be read against a closed form at all.
-//! - [`GfdmDetector::Matched`] — `Aᴴ`. Costs nothing, amplifies nothing, and leaves the
-//!   self-interference in place as an error floor no amount of Eb/N0 removes.
-//!
-//! The two crossing over is the waveform's whole trade, and the entry commits both curves so the
-//! crossing is a number rather than a claim.
-
 use num_complex::Complex;
 
 use super::transform::{invert, matvec};
@@ -30,7 +7,6 @@ use super::transform::{invert, matvec};
 /// quietly turn a receiver into a linear-algebra benchmark.
 pub const MAX_BLOCK: usize = 512;
 
-/// The waveform as data (§3.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GfdmParams {
     /// Subcarriers per block.
@@ -86,7 +62,6 @@ impl GfdmParams {
         let k = self.subcarriers as f64;
         let mut g: Vec<f64> = (0..n)
             .map(|i| {
-                // Circular distance from sample 0, in subsymbol periods.
                 let half = n as f64 / 2.0;
                 let offset = (i as f64 + half).rem_euclid(n as f64) - half;
                 rrc(offset / k, self.rolloff)
@@ -122,9 +97,6 @@ impl GfdmParams {
     }
 }
 
-/// Root-raised-cosine amplitude at `t` symbol periods, roll-off `alpha`. Written here rather than
-/// taken from `pulse/` because that module designs *sampled* filters of a stated span, and this
-/// prototype is sampled circularly over a block whose length the waveform fixes.
 fn rrc(t: f64, alpha: f64) -> f64 {
     use std::f64::consts::PI;
     if alpha <= 0.0 {
@@ -186,9 +158,6 @@ impl GfdmMod {
         &self.params
     }
 
-    /// Appends `points.len() / block` blocks to `out`, each with its cyclic prefix. Points are
-    /// read subcarrier-major within a block, which is the column order [`GfdmParams::matrix`]
-    /// builds.
     pub fn modulate(&mut self, points: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         let n = self.params.block();
         for chunk in points.chunks_exact(n) {
@@ -199,7 +168,6 @@ impl GfdmMod {
     }
 }
 
-/// The two receivers (§5 item 2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GfdmDetector {
     /// `A⁻¹` — exact, noise-amplifying. Tier 1.
@@ -238,7 +206,6 @@ impl GfdmDemod {
                 );
                 a
             }
-            // Aᴴ: conjugate transpose, so row r of the receiver is column r of the transmitter.
             GfdmDetector::Matched => (0..n * n).map(|i| a[(i % n) * n + i / n].conj()).collect(),
         };
         let amplification = receive

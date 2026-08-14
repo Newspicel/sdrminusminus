@@ -1,19 +1,3 @@
-//! Decoder end-to-end ( M4, §14: "engine end-to-end via `device-virtual`").
-//!
-//! Each case renders a reference transmission with `sdrmm_channels::testgen`, plants it as a
-//! SigMF pair, replays it through the `virtual:file:` playback device the M3 milestone built,
-//! and asserts the engine's decoded-frame broadcast carries exactly the message that went in —
-//! stamped with the right channel and the right absolute frequency.
-//!
-//! This is the *plumbing* test: the channel unit tests prove the demodulation, this proves that
-//! a frame produced on the DSP thread survives the bounded hand-off, the stamping pump, the
-//! broadcast, and the DDC that sits in front of the decoder. Every case therefore tunes its
-//! channel to an offset, so the mixer and decimator are in the path rather than bypassed.
-//!
-//! Hermetic: tempdir only, no fixture files, no hardware.
-
-// Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
-// `#[cfg(test)]` items, which an integration-test crate's helpers are not.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::{path::Path, sync::Arc, time::Duration};
@@ -264,8 +248,6 @@ async fn ais_position_survives_the_ddc_and_reaches_the_decoded_stream() {
     };
     assert_eq!(message.mmsi, 211_234_560);
     assert_eq!(message.msg_type, 1);
-    // The channel setting, not the signal, decides the label — the two AIS channels are
-    // indistinguishable once the DDC has centred one of them.
     assert_eq!(message.ais_channel, 'B');
     let (lat, lon) = (message.lat.unwrap(), message.lon.unwrap());
     assert!((lat - 53.5413).abs() < 1e-3, "lat {lat}");
@@ -342,7 +324,6 @@ async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
     let engine = engine_for(dir.path());
     let offset_hz = -30_000.0;
 
-    // Two seconds: the correlator bank names a tone after half of one.
     let len = (NARROW_DEVICE_RATE * 2.0) as usize;
     let audio = testgen::nfm::mix(
         &testgen::nfm::ctcss_audio(88.5, 0.15, NARROW_DEVICE_RATE, len),
@@ -381,12 +362,9 @@ async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
 async fn adsb_squitter_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    // ADS-B occupies the whole passband, so its channel can only sit at the device centre.
     let offset_hz = 0.0;
 
     let icao = 0x3C_6444;
-    // One identification frame plus an even/odd position pair: the position only resolves
-    // once both halves have arrived, which is the interesting part of the pipeline.
     let frames = vec![
         testgen::adsb::squitter(icao, testgen::adsb::me_identification("DLH123")),
         testgen::adsb::squitter(
@@ -460,7 +438,6 @@ async fn a_mode_s_identity_reply_survives_the_ddc_and_reaches_the_decoded_stream
     };
     assert_eq!(message.icao, "40621D");
     assert_eq!(message.squawk.as_deref(), Some("7421"));
-    // An identity reply has no ME field, so it has no type code either.
     assert_eq!(message.type_code, None);
 }
 
@@ -505,8 +482,6 @@ async fn morse_text_survives_the_ddc_and_reaches_the_decoded_stream() {
     let engine = engine_for(dir.path());
     let offset_hz = -5_000.0;
 
-    // The generator puts the tone at baseband; the channel's own filter is centred on the
-    // offset, so the audible pitch a listener would hear is not part of this path.
     let mut iq = testgen::morse::transmission("CQ DE DL1ABC K", 20.0, 0.0, AUDIO_DEVICE_RATE);
     testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
 
@@ -657,12 +632,6 @@ async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert!(frame.repeats > 1, "repeats collapsed to {}", frame.repeats);
 }
 
-/// The rate an RTL-SDR actually offers. ADS-B reads the device's own samples, so 2.048 Msps —
-/// which no receiver can round to 2.000 — is a working ADS-B receiver rather than a refusal
-/// (, amended). This is the whole feature, end to end: capture at the radio's rate,
-/// through the mixing-only DDC, into a decoder whose half-chips are 1.024 samples wide.
-/// The frames land off the sample grid, as the air always delivers them — grid-aligned e2e
-/// coverage is the other ADS-B test's job.
 #[tokio::test]
 async fn adsb_decodes_at_an_rtl_sdr_rate_the_ddc_could_not_have_resampled() {
     let dir = TempDir::new().unwrap();
@@ -745,7 +714,6 @@ async fn adsb_is_rejected_above_the_rate_its_slicer_can_use() {
 async fn rds_station_survives_the_ddc_and_reaches_the_decoded_stream() {
     let dir = TempDir::new().unwrap();
     let engine = engine_for(dir.path());
-    // WFM runs at 240 kHz; 960 kHz makes the DDC decimate by 4 on the way in.
     const RATE: f64 = 960_000.0;
     let offset_hz = 200_000.0;
 
@@ -839,8 +807,6 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
     let ds = engine.create_device_set(&device).unwrap();
     let ch = engine.add_channel(ds, 0, settings(offset_hz)).unwrap();
 
-    // Let the picture accrete, then move 5 kHz — still inside the 200 kHz channel, so the
-    // same station keeps decoding and any surviving state would be plainly visible.
     let mut before = next_rds(&mut rx).await;
     while before.groups < 10 {
         before = next_rds(&mut rx).await;

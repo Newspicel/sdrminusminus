@@ -1,7 +1,3 @@
-//! WebSocket JSON messages (). Tagged enums → TS discriminated unions the client
-//! can exhaustively `switch` on. High-rate data (spectrum, audio) travels as binary frames
-//! ([`crate::frame`]); this module is the low-rate control/event channel.
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -32,10 +28,6 @@ pub enum StateScope {
     /// arrive as [`ServerEvent::Decoded`] and are appended client-side — invalidating per
     /// decode would refetch the whole log hundreds of times a second under ADS-B traffic.
     DecoderLog,
-    /// The stored workspaces changed: created, renamed, deleted, switched, or the active
-    /// layout was re-persisted (M6, ). Layout writes are debounced to the end of a
-    /// user gesture at the writer — one event per resize frame would be the decoder-traffic
-    /// mistake repeated on the control plane.
     Workspaces,
 }
 
@@ -50,14 +42,17 @@ pub enum StreamKind {
     Video,
 }
 
-/// Server → client push (). Adjacently tagged so unit variants stay compact.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerEvent {
     /// First frame after connect: current state revision so the client can detect gaps.
-    Hello { revision: u64 },
+    Hello {
+        revision: u64,
+    },
     /// Something changed; invalidate the matching query keys and refetch.
-    StateChanged { scope: StateScope },
+    StateChanged {
+        scope: StateScope,
+    },
     /// A subscribed spectrum stream is now active with this stream id (see [`crate::frame`]).
     ///
     /// The id is allocated per connection, exactly like an audio one: a multi-stream radio can
@@ -88,13 +83,10 @@ pub enum ServerEvent {
     },
     /// A subscribed stream stopped; `kind` says which one, since spectrum and audio ids
     /// come from different spaces.
-    StreamStopped { stream_id: u16, kind: StreamKind },
-    /// A decoder produced a frame (: typed JSON decoder output). Pushed to every
-    /// connected client; the same record is persisted to the decoder log ().
-    ///
-    /// Boxed so one rare variant does not set the size of every `ServerEvent`: the control
-    /// broadcast carries hundreds of buffered `StateChanged`s, which would each pay for a
-    /// record they never hold. `Box` is transparent to serde and to the schema.
+    StreamStopped {
+        stream_id: u16,
+        kind: StreamKind,
+    },
     Decoded(Box<DecodedRecord>),
     /// What the decoders heard shortly before this client connected, oldest first, sent once
     /// after [`ServerEvent::Hello`].
@@ -108,10 +100,12 @@ pub enum ServerEvent {
     /// frame onto an earlier identity frame, and replaying what it would have received reaches
     /// the same state through the same code instead of a second implementation of that rule.
     /// Records are aggregated by station id, so an event with no identity is never in here.
-    DecodedBacklog { records: Vec<DecodedRecord> },
-    /// Decoder frames were dropped before reaching clients or the log because a consumer
-    /// fell behind. Loss is surfaced, never silent ().
-    DecodedLost { count: u64 },
+    DecodedBacklog {
+        records: Vec<DecodedRecord>,
+    },
+    DecodedLost {
+        count: u64,
+    },
     /// Live frequency-scanner progress (M5). Its own event rather than a `StateChanged`:
     /// a scan retunes the device every dwell, and one full-state refetch per step would
     /// cost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which
@@ -121,11 +115,11 @@ pub enum ServerEvent {
         status: Box<crate::scan::ScannerStatus>,
     },
     /// Non-fatal server-side error surfaced to the client.
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
-/// Client → server commands over the same socket (). Stream subscriptions are
-/// per-connection, so a phone can request a lighter stream than a desktop.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", content = "data")]
 pub enum ClientCommand {

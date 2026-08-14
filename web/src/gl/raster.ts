@@ -1,6 +1,3 @@
-// Pixel arithmetic for the shared scope renderer (CANVAS §7): how many device pixels a plot
-// gets, and which row of the history ring the next spectrum frame lands in. Number in, number
-// out — the sizing rules are testable, the GL calls wrapped around them are not.
 
 /** Retina is worth the fill rate; past 2× the extra samples are below the resolution of the eye
  * and a Pi-class browser pays for them anyway (: the Pi is the floor). */
@@ -21,8 +18,6 @@ export function zoomOf(renderedPx: number, layoutPx: number): number {
   return renderedPx > 0 && layoutPx > 0 ? renderedPx / layoutPx : 1;
 }
 
-/** Device pixels per layout pixel for a plot: the display's own ratio, magnified by the canvas
- * zoom so a zoomed node re-renders instead of being stretched as a bitmap (CANVAS §7). */
 export function pixelRatio(dpr: number, zoom: number): number {
   const raw = Math.min(dpr > 0 ? dpr : 1, MAX_DPR) * (zoom > 0 ? zoom : 1);
   const snapped = Math.round(raw * RATIO_STEPS) / RATIO_STEPS;

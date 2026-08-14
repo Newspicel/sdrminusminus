@@ -1,7 +1,3 @@
-//! Arbitrary-ratio fractional resampler (): a polyphase windowed-sinc interpolation
-//! bank with linear interpolation between adjacent phases. Output timing is tracked in f64
-//! input-sample units, so the long-run output count matches the ratio to within a sample.
-
 use num_complex::Complex;
 
 use crate::fir::design_lowpass;
@@ -44,8 +40,6 @@ impl FracResampler {
             for (j, slot) in row.iter_mut().enumerate() {
                 *slot = proto[j * PHASES + p];
             }
-            // Unity DC gain per phase: raw branch gains differ slightly, which would
-            // amplitude-modulate the output at the fractional-rate beat frequency.
             let sum: f32 = row.iter().sum();
             debug_assert!(sum > 0.0, "degenerate polyphase branch");
             for v in row.iter_mut() {
@@ -101,7 +95,6 @@ mod tests {
 
     #[test]
     fn out_of_band_tone_at_5x_downsample_suppressed_over_50_db() {
-        // 240 kHz → 48 kHz: a 30 kHz tone would fold to −18 kHz, inside the output band.
         let mut r = FracResampler::new(48_000.0 / 240_000.0);
         let input = complex_tone(30_000.0 / 240_000.0, 5 * 4096);
         let mut out = Vec::new();
@@ -112,7 +105,6 @@ mod tests {
 
     #[test]
     fn downsample_5x_keeps_frequency_and_snr() {
-        // 240 kHz → 48 kHz. Tone chosen to land exactly on output FFT bin 100.
         let mut r = FracResampler::new(48_000.0 / 240_000.0);
         let input = complex_tone(100.0 / (4096.0 * 5.0), 5 * 4096 + 1024);
         let mut out = Vec::new();
@@ -124,7 +116,6 @@ mod tests {
 
     #[test]
     fn awkward_ratio_44100_to_48000_keeps_frequency_and_snr() {
-        // 1500 Hz tone: exactly bin 128 of a 4096-point FFT at 48 kHz.
         let mut r = FracResampler::new(48_000.0 / 44_100.0);
         let input = complex_tone(1500.0 / 44_100.0, 4400);
         let mut out = Vec::new();

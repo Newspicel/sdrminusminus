@@ -1,5 +1,3 @@
-//! FM quadrature discriminator ().
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -68,7 +66,6 @@ mod tests {
         let mut out = Vec::new();
         demod.process(&iq, &mut out);
 
-        // Sample 0 has no predecessor, so its instantaneous frequency reads as exactly 0.
         assert_eq!(out[0], 0.0);
         let y = &out[1..];
         let rms =

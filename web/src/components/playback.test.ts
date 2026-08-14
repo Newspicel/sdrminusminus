@@ -35,7 +35,6 @@ describe("playbackProgress", () => {
     expect(playbackProgress(status({ position_samples: 12_000 }))).toBeCloseTo(0.25);
   });
 
-  // A bar that reads NaN wide is worse than one pinned at the start.
   it("is 0 for a recording with no samples", () => {
     expect(playbackProgress(status({ total_samples: 0, position_samples: 0 }))).toBe(0);
   });
@@ -45,9 +44,6 @@ describe("playbackProgress", () => {
   });
 });
 
-// The server reports a position only when something emits a state change. Before this existed
-// the bar sat frozen and then lurched forward the moment anything else touched the set — which
-// read as the recording itself skipping.
 describe("playbackPositionAt", () => {
   it("advances on the clock between snapshots", () => {
     const at = playbackPositionAt(status({ position_samples: 1_000 }), 500, 48_000, true);

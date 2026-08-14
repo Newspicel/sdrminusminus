@@ -1,12 +1,3 @@
-// One WebSocket per client (): JSON `ServerEvent`s + binary frames in, JSON
-// `ClientCommand`s out. Auto-reconnects. The app shell owns the single-handler fields
-// (`onEvent`/`onStatus`/`onAudio`); subsystems that must observe the same events without
-// stealing those use the add/remove listener methods.
-//
-// Spectrum and video are listener *sets*, not handlers: a canvas can carry several scope faces
-// and several channel faces (CANVAS §1), and a single slot meant the last one mounted silently
-// starved the others and cleared their feed on unmount. Each listener filters on the stream id
-// the server allocated for its own subscription.
 
 import { withToken } from "./auth";
 import {
@@ -157,7 +148,6 @@ export class SdrSocket {
     try {
       event = JSON.parse(text) as ServerEvent;
     } catch {
-      // Ignore malformed frames; the server is the source of truth and will resend state.
       return;
     }
     this.onEvent(event);
@@ -194,7 +184,6 @@ export class SdrSocket {
         break;
       }
       default:
-        // Unknown kinds (e.g. future IQ_F32) are ignorable by design ().
         break;
     }
   }

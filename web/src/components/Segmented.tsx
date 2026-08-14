@@ -1,6 +1,3 @@
-// A one-of-few choice whose options are worth showing at rest — sideband, AIS channel, theme.
-// Cheaper to read and one click closer than a `Select`, so it is the right control up to about
-// four short options and the wrong one past that.
 import { Toggle } from "@base-ui/react/toggle";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { type Options, segment } from "./controls";

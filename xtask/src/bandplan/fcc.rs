@@ -1,12 +1,3 @@
-//! The FCC Online Table of Frequency Allocations — 47 CFR §2.106.
-//!
-//! Four layers from one document. §2.106 reproduces the ITU table's Region 1, 2 and 3 columns
-//! beside the US Federal and Non-Federal ones, so this is also where the ITU layers come from:
-//! the International Table *is* the ITU table as codified, and the FCC publishes it where the
-//! ITU sells it.
-//!
-//! Source: <https://transition.fcc.gov/oet/spectrum/table/fcctable.pdf>.
-
 use anyhow::{Result, bail};
 
 use super::{Row, Target};

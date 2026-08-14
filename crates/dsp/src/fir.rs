@@ -1,7 +1,3 @@
-//! Windowed-sinc FIR design and the shared streaming-FIR core (). Blackman window
-//! throughout: ~74 dB stopband and a 5.5/N transition width — the tradeoff every decimation
-//! stage in this crate is sized against.
-
 use std::{
     f64::consts::PI,
     ops::{Add, Mul},
@@ -9,8 +5,6 @@ use std::{
 
 use num_complex::Complex;
 
-/// Design a linear-phase lowpass. `cutoff` is the −6 dB point normalized to the sample rate
-/// (`0 < cutoff < 0.5`). Normalized to unity DC gain (in f64, then rounded once to f32).
 #[must_use]
 pub fn design_lowpass(taps: usize, cutoff: f64) -> Vec<f32> {
     assert!(taps >= 3, "need at least 3 taps");
@@ -26,10 +20,6 @@ pub fn design_lowpass(taps: usize, cutoff: f64) -> Vec<f32> {
     h.into_iter().map(|v| v as f32).collect()
 }
 
-/// Design a linear-phase bandpass by modulating a lowpass prototype to `center`.
-/// `low`/`high` are the −6 dB edges normalized to the sample rate (`0 < low < high < 0.5`).
-/// Passband gain is unity only while the band clears DC and Nyquist by the prototype's
-/// transition width — closer in, the negative-frequency image adds and the gain walks toward 2.
 #[must_use]
 pub fn design_bandpass(taps: usize, low: f64, high: f64) -> Vec<f32> {
     assert!(
@@ -42,8 +32,6 @@ pub fn design_bandpass(taps: usize, low: f64, high: f64) -> Vec<f32> {
         .iter()
         .enumerate()
         .map(|(k, &v)| {
-            // The cosine splits the prototype into ±band_center images at half amplitude each;
-            // doubling restores unity in the (positive-frequency) passband.
             let m = (2.0 * PI * band_center * (k as f64 - center)).cos();
             (2.0 * f64::from(v) * m) as f32
         })
@@ -63,7 +51,6 @@ pub fn design_gaussian(sps: f64, bt: f64, span: usize) -> Vec<f32> {
         taps += 1;
     }
     assert!(taps >= 3, "need at least 3 taps");
-    // Gaussian σ in symbol periods for a −3 dB bandwidth of `bt/T` (ITU-R M.1371 shaping).
     let sigma = (2.0f64.ln()).sqrt() / (2.0 * PI * bt);
     let center = (taps - 1) as f64 / 2.0;
     let mut h: Vec<f64> = (0..taps)
@@ -243,7 +230,6 @@ mod tests {
     #[test]
     fn passband_ripple_under_half_db() {
         let h = design_lowpass(129, 0.1);
-        // The Blackman transition half-width is 2.75/129 ≈ 0.021; 0.075 stays clear of it.
         for i in 0..=150 {
             let f = 0.075 * i as f64 / 150.0;
             let db = response_db(&h, f);

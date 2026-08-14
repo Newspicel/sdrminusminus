@@ -59,8 +59,6 @@ describe("mergeSettings", () => {
     ]);
   });
 
-  // Edge case 3 of the per-stream design: the radio-wide centre is the default for lanes with
-  // no override, so retuning it must not silently wipe the overrides that exist.
   it("keeps stream overrides across a radio-wide retune", () => {
     const current: DeviceSettings = {
       center_hz: 100_000_000,
@@ -72,8 +70,6 @@ describe("mergeSettings", () => {
   });
 });
 
-// Mirrors the `DeviceSettings::for_stream` tests (crates/wire): each `StreamScope` flag gates
-// exactly its own setting, so an override for a setting the radio shares never applies.
 describe("forStream", () => {
   const settings: DeviceSettings = {
     center_hz: 100_000_000,

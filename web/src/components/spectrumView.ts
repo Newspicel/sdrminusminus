@@ -1,9 +1,3 @@
-// The spectrum's view transform and axis arithmetic (), kept pure so the display
-// component only routes pointer events.
-//
-// A view is a window `[start, end] ⊆ [0, 1]` over the device's span. The server streams a fixed
-// span, so zooming magnifies what has already arrived rather than resolving more of it — which
-// is why the readout reports the *visible* span, not the device's.
 
 export interface SpectrumView {
   start: number;

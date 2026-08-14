@@ -1,21 +1,4 @@
 //! AIS decoder ( P2): 9600 baud GMSK, NRZI + HDLC framing, CRC-16/X-25.
-//!
-//! Receiver chain: feedforward carrier-offset corrector → `sdrmm_modem::cpm` GMSK front end
-//! (quadrature discriminator → Gaussian matched filter → `SymbolSync` → normalised soft
-//! symbols; discriminator tier — no coherent carrier recovery, which is what fits the Pi
-//! budget at 48 kHz and 5 samples per bit) → NRZI → HDLC deframer. The front end is a catalog
-//! entry described by data alone ( §3.3): M = 2, ±2400 Hz at 9600 baud (h = ½),
-//! Gaussian frequency pulse at BT 0.4. Of the old chain's two hand-tuned defences, the
-//! engine's floor-settled carrier gate takes over the discriminator clamp's job (keying
-//! transients kept out of every estimate) and the corrector takes over the DC blocker's
-//! (dial error off the eye within the training sequence — see [`AisChannelRx`]'s field docs
-//! for why burst acquisition cannot wait for the engine's slower centre loop). What AIS
-//! knows that the library does not is only NRZI, HDLC and the ITU-R M.1371 field layout.
-//!
-//! Two bit orders meet here. HDLC packs the wire LSB-first into octets and computes the FCS
-//! over those octets, while ITU-R M.1371 defines every message field big-endian over the wire
-//! bit order — so the deframed octets are bit-reversed once, and only then read as fields.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -34,7 +17,6 @@ use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, 
 
 const CHANNEL_TAPS: usize = 129;
 
-/// ITU-R M.1371 Annex 2 §2.2: 9600 bit/s GMSK, ±2400 Hz deviation, BT 0.4.
 const BAUD: f64 = 9_600.0;
 const DEVIATION_HZ: f64 = 2_400.0;
 const BT: f64 = 0.4;
@@ -227,7 +209,6 @@ impl ChannelRx for AisChannelRx {
         self.soft.clear();
         self.demod.process(&self.mixed, &mut self.soft);
         for &symbol in &self.soft {
-            // Index 1 is the +1 level — the high line state NRZI decodes against.
             let level = self.slicer.slice(symbol) == 1;
             let Some(frame) = self.deframer.push(self.nrzi.decode(level)) else {
                 continue;
@@ -298,13 +279,11 @@ fn decode(msg: &[u8], bits: usize, letter: char, nmea: String) -> Option<AisMess
             read_position(msg, &CLASS_A_POSITION, &mut out);
         }
         18 if bits >= 168 => read_position(msg, &CLASS_B_POSITION, &mut out),
-        // ITU-R M.1371 Annex 8 Table 50.
         5 if bits >= 424 => {
             out.call_sign = text(msg, 70, 7);
             out.name = text(msg, 112, 20);
             out.destination = text(msg, 302, 20);
         }
-        // Table 68: part A carries the name, part B the call sign.
         24 if bits >= 160 => {
             if bits_be(msg, 38, 2) == 0 {
                 out.name = text(msg, 40, 20);
@@ -500,9 +479,6 @@ mod tests {
         framed(burst(payload, RATE))
     }
 
-    /// What the engine actually hands a channel: the DDC output through the mode's own
-    /// selection filter (). Every decode test goes through it, so the filter's edge
-    /// ringing on the burst is part of what the receiver has to survive.
     fn select(iq: &[Complex<f32>]) -> Vec<Complex<f32>> {
         let mut filter = crate::channel_filter(&ChannelParams::Ais(AisParams::default())).unwrap();
         let mut out = Vec::new();
@@ -571,7 +547,6 @@ mod tests {
         assert_eq!(m.heading_deg, Some(188));
         assert!((m.lat.unwrap() - 52.372_5).abs() < 1e-4, "lat {:?}", m.lat);
         assert!((m.lon.unwrap() - 4.893_2).abs() < 1e-4, "lon {:?}", m.lon);
-        // Class B reports carry no navigational status.
         assert_eq!(m.nav_status, None);
     }
 
@@ -602,8 +577,6 @@ mod tests {
 
     #[test]
     fn an_undecoded_message_type_still_reports_its_sender_and_sentence() {
-        // Type 4 (base station report) lays its position out differently, so nothing beyond
-        // the header may be guessed at — but the AIVDM sentence still carries everything.
         let mut payload = position_payload(&report());
         payload[..6].copy_from_slice(&[false, false, false, true, false, false]);
         let m = only(run(&transmission(&payload)));
@@ -636,7 +609,6 @@ mod tests {
 
     #[test]
     fn a_payload_with_a_long_run_of_ones_survives_bit_stuffing() {
-        // 28 consecutive ones inside the MMSI field, far past the five that force a stuffed zero.
         let payload = position_payload(&PositionReport {
             mmsi: 268_435_455,
             ..report()
@@ -720,7 +692,6 @@ mod tests {
         assert_eq!(m.ais_channel, 'B');
         assert!(checksum_ok(&m.nmea), "{}", m.nmea);
         assert!(m.nmea.starts_with("!AIVDM,1,1,,B,"), "{}", m.nmea);
-        // 168 payload bits is 28 whole six-bit groups, so nothing is padded.
         assert!(m.nmea.contains(",0*"), "{}", m.nmea);
     }
 
@@ -773,7 +744,6 @@ mod tests {
     fn decodes_through_noise() {
         for seed in 1u32..=4 {
             let mut iq = raw(&static_payload(244_670_316, "NAUTICA", "PBRT", "ROTTERDAM"));
-            // Uniform noise at a fifth of the carrier amplitude on each of I and Q.
             add_noise(&mut iq, seed, 0.2);
             let m = only(run(&select(&iq)));
             assert_eq!(m.name.as_deref(), Some("NAUTICA"), "seed {seed}");
@@ -868,13 +838,6 @@ mod tests {
         assert_eq!(only(run(&select(&framed(narrow)))).mmsi, 244_670_316);
     }
 
-    /// The virtual-device replay path: a planted burst padded to a second and looped, over
-    /// *digital* silence — the one place mathematically exact zeros reach a channel, since
-    /// no antenna produces them. Against a measured floor of exactly zero the gate cannot
-    /// tell the selection filter's band-edge ripple from a carrier, so this pins down that
-    /// the receive-filter pad still keeps the ripple out of the estimates and later passes
-    /// decode; the first pass lands inside the gate's floor-settling window and is the cold
-    /// start the engine's own e2e rides out by looping.
     #[test]
     fn a_looped_replay_over_digital_silence_decodes() {
         let one_pass = {

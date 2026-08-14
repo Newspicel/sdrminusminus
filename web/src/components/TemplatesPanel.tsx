@@ -1,5 +1,3 @@
-// Template gallery (, M5): one click configures device + channels for a known
-// activity, and the explainer says what the user is now looking at.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { applyTemplate, STATE_KEY, templatesQuery } from "../lib/api";
@@ -15,8 +13,6 @@ import { deviceId } from "./OpenRadio";
  * the template needs. This is the lookup, not a second copy of the rule: the engine's rejection
  * on apply is still the authority, but a card that says why beats a failed apply. */
 export function supports(template: TemplateInfo, set: DeviceSet | null): boolean {
-  // `#[serde(default)]` on the Rust side makes the generated field optional even though the
-  // server always sends it; absent and empty mean the same thing here — no attached radio fits.
   return set !== null && (template.supported_devices ?? []).includes(deviceId(set.device));
 }
 

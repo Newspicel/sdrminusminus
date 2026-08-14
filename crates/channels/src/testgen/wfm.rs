@@ -1,17 +1,3 @@
-//! FM broadcast stereo reference modulator (): the pilot-tone multiplex a stereo
-//! station transmits, per ITU-R BS.450 / 47 CFR §73.322.
-//!
-//! `MPX = 0.45·[(L+R)/2 + (L−R)/2·sub] + 0.09·pilot`, the deviation shares of a typical
-//! broadcast multiplex — the same audio/pilot split [`super::rds`] uses, so one composite could
-//! carry both. The pilot is written as a cosine to match that module; the subcarrier is then
-//! `−sin(2ωt)`, which is what the standard's rule — pilot zero crossings coincide with
-//! positive-going subcarrier zero crossings — comes to for a cosine pilot. Getting that sign
-//! wrong swaps the channels rather than breaking them, which is exactly why it is generated
-//! here from the rule rather than copied from the demodulator.
-//!
-//! No pre-emphasis: a receiver's de-emphasis then shows up as the plain analog roll-off at the
-//! test tone's frequency, which is what the WFM tests measure against.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -98,9 +84,6 @@ mod tests {
             "pilot level {}",
             correlate(&mpx, f64::cos)
         );
-        // The difference signal rides on −sin(2ωt); correlating the multiplex against that
-        // subcarrier leaves the 1 kHz tone, which averages to zero — so demodulate first and
-        // measure what lands at baseband.
         let demodulated: Vec<f32> = mpx
             .iter()
             .enumerate()
@@ -115,7 +98,6 @@ mod tests {
             .map(|(&d, &l)| f64::from(d) * f64::from(l))
             .sum::<f64>()
             / demodulated.len() as f64;
-        // (L−R)/2 = L/2 at 0.45 deviation share, correlated against L (mean square 1/2).
         assert!(
             (recovered - AUDIO_LEVEL / 4.0).abs() < 0.01,
             "difference level {recovered}"

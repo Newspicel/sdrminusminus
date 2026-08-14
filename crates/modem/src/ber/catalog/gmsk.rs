@@ -1,15 +1,3 @@
-//! The GMSK/GFSK catalog entry ( §6 CPM row 3): BT ∈ {0.3, 0.5} at h = ½, measured
-//! at two detection tiers — the discriminator + slicer that gated the entry, and the
-//! [`MlseDetector`] sequence tier that merges against it (§5 item 2).
-//!
-//! Both tiers are framed identically — [`Acquisition::DataLike`], the same 96 + 24 + 24 symbol
-//! lengths — so the tier comparison reads the *detector* and nothing else. That framing is not
-//! a preference: a Gaussian frequency pulse is partial response, the alternating pattern sits
-//! in its symbol response's null, and at BT = 0.3 acquisition then arrives 18 dB below the
-//! payload (see [`framing::alternating_symbols`]). The pre-fix generation of the discriminator
-//! curves, measured with the alternating preamble, stays committed as history and is never
-//! regenerated (§8); [`BT03_AWGN`] and [`BT05_AWGN`] name the current artifacts.
-
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, design_lowpass};
 
@@ -29,8 +17,6 @@ use crate::{
     pulse::{self, Norm},
     soft::SoftBit,
 };
-
-// --- The entry's reference configuration ------------------------------------------------------
 
 /// Gaussian pulse spans in symbols (`gaussian_freq`'s total-length convention): BT = 0.5
 /// decays within 3 symbols; BT = 0.3's longer tails need 4 — the `pulse::cpm` tests' figures.
@@ -91,19 +77,12 @@ fn rx_name(bt: f64) -> &'static str {
     }
 }
 
-// --- The discriminator tier (the tier that gated the entry) ------------------------------------
-
 /// One steady GMSK link at the discriminator + slicer tier.
 #[must_use]
 pub fn link(bt: f64) -> Link {
     framed_link(bt, Acquisition::DataLike)
 }
 
-/// The pre-fix generation of the discriminator chain: the same receiver, framed with the
-/// alternating preamble. Kept — not deleted — because [`BT03_AWGN_ALTERNATING`] and
-/// [`BT05_AWGN_ALTERNATING`] are committed artifacts, and an artifact whose chain no longer
-/// exists cannot be reproduced, only trusted. This is what holds the two generations to the
-/// §7 rule and what turns the framing's cost into a measured number rather than a claim.
 #[must_use]
 pub fn alternating_link(bt: f64) -> Link {
     framed_link(bt, Acquisition::Alternating)
@@ -136,8 +115,6 @@ pub fn bt03_link() -> Link {
 pub fn bt05_link() -> Link {
     link(0.5)
 }
-
-// --- The sequence-detection tier ---------------------------------------------------------------
 
 /// Best sync position by Euclidean distance in the MLSE tier's *own* soft-bit domain.
 ///
@@ -212,8 +189,6 @@ pub fn bt03_mlse_link() -> Link {
 pub fn bt05_mlse_link() -> Link {
     mlse_link(0.5)
 }
-
-// --- The burst chain (AIS-shaped; feeds the limits table's burst rows) -------------------------
 
 /// Samples of dead air ahead of the first burst, rounded up to whole frames, so the gate's
 /// floor estimate (3840-sample settle window at 10 sps) has settled on the channel's true
@@ -324,11 +299,6 @@ impl BurstRecipe {
         }
     }
 
-    /// Per-burst decoding, the way a burst protocol runs the engine: locate each burst's sync
-    /// (searched wide on the first, tracked locally after), anchor the §3.4 known-symbol hook
-    /// on it, slice the payload through the correction. No warm-up quiet: the dead-air lead
-    /// is inside the waveform so the AWGN axis covers it and the gate measures its floor from
-    /// the channel it will actually gate.
     fn demodulate(&self, wave: &[Complex<f32>]) -> Vec<bool> {
         let p = params(0.5);
         let front = design_lowpass(FRONT_TAPS, NOISE_BW_HZ / RATE);
@@ -371,8 +341,6 @@ impl BurstRecipe {
     }
 }
 
-// --- Committed sweep parameters ----------------------------------------------------------------
-
 /// Sweep grids covering each chain's waterfall through BER 1e-4, set from the ignored
 /// `probe_grids` exploration and pinned by the committed curves. BT = 0.3's grid sits an
 /// octave higher and runs shallower than BT = 0.5's — the discriminator tier's ISI penalty at
@@ -414,11 +382,6 @@ pub const BT05_AWGN: &str = "cpm/gmsk_bt05_datalike_awgn";
 pub const BT03_MLSE_AWGN: &str = "cpm/gmsk_bt03_mlse_awgn";
 pub const BT05_MLSE_AWGN: &str = "cpm/gmsk_bt05_mlse_awgn";
 
-/// The pre-fix generation of the discriminator curves: the same chains framed with the
-/// alternating preamble. Historical — never regenerated (§8), but still *reproduced* from
-/// [`alternating_link`], which is what keeps the framing's effect a measured number in both
-/// directions: no sensitivity moved, a monotone waterfall gained, two resistance rows lost
-/// (the gates in `tests/gmsk_msk_afsk_bundles.rs`).
 pub const BT03_AWGN_ALTERNATING: &str = "cpm/gmsk_bt03_awgn";
 pub const BT05_AWGN_ALTERNATING: &str = "cpm/gmsk_bt05_awgn";
 

@@ -1,26 +1,3 @@
-//! §5 measurement bundle for the M-ary CPFSK catalog entry ( §7 phase 3 accept):
-//! committed BER curves for M ∈ {2, 4, 8}, the §4.3 limits table at the M = 4 reference
-//! configuration, and the level-1 E2E loopbacks. The chains under measurement live in
-//! `ber::catalog::mfsk`; the committed artifacts live in `baselines/cpm/` and regress here:
-//!
-//! - `mfsk2_cpfsk_awgn.json` — 2FSK h = ½ through discriminator + slicer. Reference policy:
-//!   noncoherent orthogonal 2-FSK theory **plus the documented offset** measured below
-//!   ([`M2_THEORY_OFFSET_DB`]) — the honest closed-form mapping for this tier, since the
-//!   discriminator is neither the coherent nor exactly the noncoherent detector, and the
-//!   chain carries its stated framing overhead in Eb.
-//! - `mfsk4_cpfsk_awgn.json` — the DMR-like reference configuration, commit-and-guard (no
-//!   closed form for partial-response CPM through a discriminator, §4.1). Reviewed at commit
-//!   time: monotone waterfall, 1e-2 sensitivity ~7 dB inside the phase-0 chain's 16.9 dB,
-//!   and — the headline — the 1e-3 and 1e-4 crossings *exist* on a continuous stream: the
-//!   old chain's wander floor is gone at the continuous timing bandwidth (residual ~1e-5).
-//! - `mfsk8_cpfsk_awgn.json` — the 8-ary generality gate, commit-and-guard, level scale on
-//!   the known-symbol hook.
-//! - `mfsk4_limits.json` — §4.3 table at the reference configuration: sensitivities, CFO,
-//!   drift, sample clock, static timing, the three burst-survival rows on the TDMA chain,
-//!   and the static-indoor composite profile, all under the *default* §4.3 criterion — the
-//!   phase-0 chain needed a documented override because its floor sat above 1e-3; this
-//!   engine does not.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -52,8 +29,6 @@ fn baseline_path(stem: &str) -> PathBuf {
 fn load_curve(stem: &str) -> Curve {
     sweep::load_json(&baseline_path(stem)).unwrap()
 }
-
-// --- Always-run harness gates ----------------------------------------------------------------
 
 /// A chain defect (alignment, sign, level scale, hook plumbing) is loud before statistics:
 /// with nearly no noise, one trial of every chain sits at or near zero errors. Bound 5e-3 —
@@ -120,16 +95,6 @@ fn mfsk2_committed_curve_sits_at_theory_plus_documented_offset() {
     );
 }
 
-// --- Level-1 E2E ( §4.4) -----------------------------------------------------------
-
-/// The §5 item-7 property: payloads survive bit-for-bit at a stated margin over each
-/// entry's own measured 1e-3 sensitivity (read off the committed curve, so the margin
-/// tightens if the detector improves). The payload budget honours the e2e module's rule that
-/// residual BER × total bits ≪ 1: unlike the phase-0 BPSK link, whose residual at +6 dB is
-/// ~3e-10, this entry's discriminator tier carries a real continuous-mode residual (the
-/// engine's measured ~1e-5 timing self-noise floor at M = 4, ~1e-4 at M = 8's 14 % margins)
-/// that no margin buys back — so perfection is demanded over few, short payloads at a wide
-/// margin, and the committed curves carry the statistics the loopback cannot.
 fn loopback_at_margin(mut link: Link, curve_name: &str, margin_db: f64, seed: u64) {
     let sensitivity = limits::ebn0_at_ber(&load_curve(curve_name), 1e-3)
         .expect("committed curve must bracket BER 1e-3");
@@ -158,8 +123,6 @@ fn mfsk4_loops_back_clean_at_10db_margin() {
 fn mfsk8_loops_back_clean_at_10db_margin() {
     loopback_at_margin(mfsk8_link_sized(2), M8_AWGN, 10.0, 0x8e2e);
 }
-
-// --- Limits table (§4.3, M = 4 reference configuration) --------------------------------------
 
 /// One seeded probe at the operating point. 150 errors separates a passing probe (clean BER
 /// ~1e-4 at sensitivity + 3 dB) from the 1e-2 limit unambiguously; the cap bounds a probe
@@ -218,8 +181,6 @@ fn steady_axis_rows(link: &Link, op_db: f64) -> Vec<LimitRow> {
     ]
 }
 
-/// The §4.3 burst-survival axes on the TDMA chain: each probe rebuilds the link, because the
-/// searched value must reshape the transmitter and the Eb accounting together.
 fn burst_axis_rows(op_db: f64) -> Vec<LimitRow> {
     vec![
         axis_row("dead time", "symbols", 1_024.0, 16.0, |off| {
@@ -228,8 +189,6 @@ fn burst_axis_rows(op_db: f64) -> Vec<LimitRow> {
             let link = recipe.link("dead-time probe");
             probe(&link, &recipe.channel(), op_db)
         }),
-        // "Minimum burst length" spelled so higher stays better for the comparator: payload
-        // symbols removable from the 108-symbol burst; min burst = 24-sym sync + remainder.
         axis_row(
             "burst shortening",
             "payload symbols removed (of 108)",
@@ -242,8 +201,6 @@ fn burst_axis_rows(op_db: f64) -> Vec<LimitRow> {
                 probe(&link, &recipe.channel(), op_db)
             },
         ),
-        // Attenuation of alternate bursts: the decay-limited direction of the level tracker,
-        // recovered (or not) within each burst's own sync via the known-symbol hook.
         axis_row(
             "level step",
             "dB attenuation of alternate bursts",
@@ -307,7 +264,6 @@ fn mfsk4_limits_rows_match_committed_table() {
             row.axis
         );
         assert_eq!(m.unit, row.unit, "unit changed on '{}'", row.axis);
-        // Degradation rows grow when things worsen; every axis threshold shrinks.
         let worse_by = if row.criterion == limits::DEGRADATION_CRITERION {
             m.threshold - row.threshold
         } else {
@@ -322,8 +278,6 @@ fn mfsk4_limits_rows_match_committed_table() {
     }
     assert!(faults.is_empty(), "limits regressions: {faults:#?}");
 }
-
-// --- Full re-measurement (nightly; regenerates the committed artifacts) ----------------------
 
 fn remeasure_curve(link: &Link, grid: &[f64], seed: u64, name: &str) -> Curve {
     let curve = sweep::sweep_ber(
@@ -346,8 +300,6 @@ fn remeasure_curve(link: &Link, grid: &[f64], seed: u64, name: &str) -> Curve {
     let path = baseline_path(name);
     if path.exists() {
         let committed: Curve = sweep::load_json(&path).unwrap();
-        // Point-by-point in rate: same seeds and budgets make each point a reproduction of
-        // the committed one, so the ratio allowance is for cross-host float drift only.
         assert_eq!(
             curve.points.len(),
             committed.points.len(),
@@ -399,9 +351,6 @@ fn measure_mfsk8_full() {
     remeasure_curve(&mfsk8_link(), M8_GRID, M8_SEED, M8_AWGN);
 }
 
-/// The full §4.3 table. The sensitivity sweep is parameter-identical to the committed M = 4
-/// curve (same link, grid, seed, budgets), so the smoke tier reads the operating point off
-/// the committed table while the curve smoke test guards the underlying number.
 #[test]
 #[ignore = "full limits run; run in release to (re)generate the committed table"]
 fn measure_mfsk4_limits_full() {
@@ -438,8 +387,6 @@ fn measure_mfsk4_limits_full() {
         println!("baseline created at {}", path.display());
     }
 }
-
-// --- Exploration (never asserted; kept ignored for grid bracketing) --------------------------
 
 #[test]
 #[ignore = "prints coarse curves to choose sweep grids; asserts nothing"]

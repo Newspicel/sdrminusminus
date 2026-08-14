@@ -1,14 +1,3 @@
-# The nightly full-measurement run (MODEM-PLAN §4.4 CI policy). Pull requests pay only for the
-# smoke tier — the always-on unit tests and curve-prefix/limits-spot-check gates that ride
-# inside `xtask check` / `xtask test` like any other test. The full sweeps, full limits tables,
-# the perf gate and the nightly BER grids run here on a schedule, where a many-minute
-# measurement is nobody's review-latency problem. Every step is a plain cargo invocation a
-# developer can run unchanged; `workflow_dispatch` makes "run the nightly now" a button.
-#
-# Ubuntu only, deliberately (no macOS): measurements gate on statistics against committed
-# thresholds, not on platform behaviour, and the perf gate compares only on the host that
-# wrote its baseline — on any other silicon it prints a skip note rather than flagging foreign
-# hardware as an engine regression (see `sdrmm_modem::ber::perf`).
 name: Nightly
 
 on:
@@ -46,9 +35,6 @@ jobs:
       # measured-vs-just-measured. It is run deliberately, on the reference host only.
       - name: modem full gates
         run: cargo test -p sdrmm-modem --release -- --ignored --skip write_perf_baseline
-      # The DMR pre-migration reference (MODEM-PLAN §7 phase 0): full steady + burst sweeps
-      # and the limits table re-measured and guarded point-wise against the committed
-      # artifacts in crates/channels/baselines/dmr/.
       - name: channels full baselines
         run: cargo test -p sdrmm-channels --release -- --ignored
       # The harness calibration entry over its full 0–10 dB grid, written as JSON + CSV and

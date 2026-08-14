@@ -231,8 +231,6 @@ describe("AudioEngine", () => {
       { type: "SubscribeAudio", data: { device_set: 1, channel: 2 } },
     ]);
 
-    // The server answers in command order: Started for subscribe #1, Stopped for the
-    // unsubscribe, Started for subscribe #2.
     socket.emit(started(1, 2, 0x8000));
     // The stale id must not bind to the new intent.
     expect(engine.isPlaying(1, 2)).toBe(false);
@@ -327,7 +325,6 @@ describe("AudioEngine", () => {
     socket.setConnected(true);
     expect(socket.sent).toEqual([]);
 
-    // A retry starts clean.
     failing.start(1, 2);
     expect(failing.getError(1, 2)).toBe(null);
   });
@@ -364,7 +361,6 @@ describe("AudioEngine", () => {
     engine.start(1, 2);
     await flush();
 
-    // Oldest pending answer is subscribe #1's failure; subscribe #2 is still owed a Started.
     expect(engine.claimServerError("too late")).toBe(true);
     expect(engine.isPending(1, 2)).toBe(true);
     expect(engine.getError(1, 2)).toBe(null);
@@ -399,14 +395,12 @@ describe("AudioEngine", () => {
     socket.onAudio(audioFrame(10, 1_920n, [3]));
     expect(sinks[0]?.conceals).toEqual([]);
 
-    // One 960-sample packet lost: 1920 → 3840 skips exactly one packet.
     socket.onAudio(audioFrame(10, 3_840n, [4]));
     expect(sinks[0]?.conceals).toEqual([960]);
 
     // A hole wider than the jitter cap cannot be concealed: drop and rebuffer.
     socket.onAudio(audioFrame(10, 34_800n, [5]));
     expect(sinks[0]?.resets).toBe(resetsAfterBind + 1);
-    // Every received frame still reaches the decoder, in order.
     expect(sinks[0]?.pushed).toHaveLength(5);
   });
 
@@ -419,12 +413,10 @@ describe("AudioEngine", () => {
 
     socket.onAudio(audioFrame(10, 0n, [1]));
     socket.onAudio(audioFrame(10, 960n, [2]));
-    // One 960-frame packet never arrived: that is the stream's loss, not this machine's.
     socket.onAudio(audioFrame(10, 2_880n, [3]));
     expect(engine.getLostFrames(1, 2)).toBe(960);
     expect(engine.getUnderruns(1, 2)).toBe(0);
 
-    // The buffer's count is cumulative per sink, so only the increment is new news.
     sinks[0]?.report({ underruns: 2 });
     sinks[0]?.report({ underruns: 3 });
     expect(engine.getUnderruns(1, 2)).toBe(3);
@@ -447,7 +439,6 @@ describe("AudioEngine", () => {
     socket.emit(started(1, 3, 11));
     socket.sent.length = 0;
 
-    // The radio behind channel 3 was forgotten; 2 is still on the canvas.
     engine.retain([{ deviceSet: 1, channel: 2 }]);
 
     expect(engine.isPlaying(1, 2)).toBe(true);
@@ -481,8 +472,6 @@ describe("AudioEngine", () => {
     socket.onAudio(audioFrame(10, 960n, [2]));
     expect(sink?.conceals).toEqual([]);
 
-    // Decoder backlogged (or mid layout swap): the packet is gone, and only a conceal keeps
-    // the buffer's depth honest about it.
     if (sink) {
       sink.accept = false;
     }

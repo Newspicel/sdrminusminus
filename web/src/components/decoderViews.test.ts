@@ -242,7 +242,6 @@ describe("RDS", () => {
   const base: RdsUpdate = { groups: 0, block_errors: 0 };
 
   it("folds frames forward without a later frame erasing an earlier field", () => {
-    // Newest first, as the store publishes them.
     const records = [
       record("rds", { ...base, groups: 100, block_errors: 1, radiotext: "Now playing" }),
       record("rds", { ...base, groups: 50, block_errors: 0, ps: "RADIO 1", pi: "D389" }),
@@ -309,10 +308,8 @@ describe("toneLabel", () => {
     expect(toneLabel({})).toBe("");
     expect(toneLabel({ ctcss_hz: 88.5 })).toBe("CTCSS 88.5 Hz");
     expect(toneLabel({ ctcss_hz: 100 })).toBe("CTCSS 100.0 Hz");
-    // Octal codes are three digits, and 023 is not 23.
     expect(toneLabel({ dcs_code: 23 })).toBe("DCS 023");
     expect(toneLabel({ dcs_code: 754 })).toBe("DCS 754");
-    // A channel set to one and hearing the other is exactly what Detect is for.
     expect(toneLabel({ ctcss_hz: 88.5, dcs_code: 23 })).toBe("CTCSS 88.5 Hz · DCS 023");
   });
 });

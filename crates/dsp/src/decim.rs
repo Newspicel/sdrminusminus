@@ -1,6 +1,3 @@
-//! Integer-factor polyphase FIR decimation (). Only fully-computed output samples are
-//! emitted; the inter-block remainder is carried so arbitrary block sizes stream exactly.
-
 use num_complex::Complex;
 
 use crate::fir::StreamFir;
@@ -12,8 +9,6 @@ pub struct Decimator {
 }
 
 impl Decimator {
-    /// `taps` must be an anti-alias lowpass for `factor` (see [`crate::fir::design_lowpass`])
-    /// with at least `factor` taps.
     #[must_use]
     pub fn new(taps: &[f32], factor: usize) -> Self {
         Self {
@@ -34,8 +29,6 @@ pub struct RealDecimator {
 }
 
 impl RealDecimator {
-    /// `taps` must be an anti-alias lowpass for `factor` (see [`crate::fir::design_lowpass`])
-    /// with at least `factor` taps.
     #[must_use]
     pub fn new(taps: &[f32], factor: usize) -> Self {
         Self {
@@ -60,7 +53,6 @@ mod tests {
     const FACTOR: usize = 4;
 
     fn taps() -> Vec<f32> {
-        // −6 dB at 0.11: passband flat to ~0.088, stopband from ~0.132 (2.75/127 half-width).
         design_lowpass(127, 0.11)
     }
 
@@ -77,7 +69,6 @@ mod tests {
     #[test]
     fn aliasing_tone_suppressed_over_50_db() {
         let mut d = Decimator::new(&taps(), FACTOR);
-        // 0.23 of the input rate folds to −0.02 of the output band after ÷4.
         let input = complex_tone(0.23, 4 * 4096);
         let mut out = Vec::new();
         d.process(&input, &mut out);
@@ -115,7 +106,6 @@ mod tests {
         let mut out = Vec::new();
         d.process(&input, &mut out);
         let rms = rms_r(&out[64..]);
-        // Unit real tone has RMS 1/√2.
         assert!((0.63..0.75).contains(&rms), "in-band rms {rms}");
 
         let mut d = RealDecimator::new(&taps(), FACTOR);

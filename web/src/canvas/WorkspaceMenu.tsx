@@ -1,9 +1,3 @@
-// The workspace menu: which workspace, and the settings that belong to it rather than to a node
-// on it.
-//
-// The band plan is here and not in the library drawer for that reason — which plan is in force is
-// a property of the bench, stored in the snapshot (`WorkspaceSettings`), while *searching* it is a
-// browse tool and stays in the library beside the bookmarks.
 import { type ReactNode, useState } from "react";
 import { Checkbox } from "../components/Checkbox";
 import { BTN, BTN_QUIET, FIELD, ICON_BTN, LABEL, segment } from "../components/controls";
@@ -98,7 +92,6 @@ function Setting({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** Which band plan this workspace reads, and whether its scopes draw the ruler (). */
 function BandSettings() {
   const { region, regions, ruler, setRegion, setRuler } = useBandPlan();
   const [locating, setLocating] = useState(false);

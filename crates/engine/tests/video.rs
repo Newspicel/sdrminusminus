@@ -1,19 +1,3 @@
-//! Video end-to-end (: ATV, §14: "engine end-to-end via `device-virtual`").
-//!
-//! Renders a standards-timed ATV transmission with `sdrmm_channels::testgen`, plants it as a
-//! SigMF pair, replays it through the `virtual:file:` playback device, and asserts a picture
-//! comes out of the engine's per-channel video broadcast with the geometry and the content that
-//! went in.
-//!
-//! The counterpart of `decode.rs` for the other output a channel can have: the ATV unit tests
-//! prove the demodulation, this proves a picture survives the DDC's rate conversion, the bounded
-//! hand-off off the DSP thread and the broadcast. The device therefore runs at 2.4 Msps against
-//! the mode's 2 Msps channel, so a real resampler is in the path.
-//!
-//! Hermetic: tempdir only, no fixture files, no hardware.
-
-// Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
-// `#[cfg(test)]` items, which an integration-test crate's helpers are not.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::{sync::Arc, time::Duration};
@@ -110,8 +94,6 @@ async fn an_atv_transmission_reaches_the_video_stream_as_a_picture() {
         "the picture must be stamped with the channel's own sample clock"
     );
 
-    // The bar pattern, read off a row well inside the picture: black on the left, white on the
-    // right. Rate-converted and replayed in real time, so this is the whole path's answer.
     let width = usize::from(picture.width);
     let row = 300 * width;
     let mean = |from: usize, to: usize| {

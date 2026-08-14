@@ -1,8 +1,3 @@
-//! Carrier recovery loops (): a shared second-order loop filter, a tracking PLL for a
-//! residual carrier or pilot tone, and a Costas loop for BPSK. Every frequency here is
-//! normalised to the sample rate (cycles/sample), so the loops are rate-agnostic — the caller
-//! divides by `fs` once. No allocation in `process`.
-
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use num_complex::Complex;
@@ -333,7 +328,6 @@ mod tests {
             let offset = pll.freq_norm() - PILOT;
             assert!(offset.abs() <= RANGE + 1e-12, "escaped by {offset} at {n}");
         }
-        // Pinned at the near edge of the range, nowhere near the tone.
         assert!(
             (pll.freq_norm() - (PILOT + RANGE)).abs() < 1e-9,
             "not clamped at the edge: {}",

@@ -1,6 +1,3 @@
-//! `sdrmm-dsp` — pure DSP primitives (). No I/O, no async, no internal dependencies:
-//! everything downstream trusts this crate, so every primitive carries golden/analytic tests.
-
 pub mod agc;
 pub mod bits;
 pub mod ddc;

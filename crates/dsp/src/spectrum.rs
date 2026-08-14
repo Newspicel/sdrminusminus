@@ -1,10 +1,3 @@
-//! Spectrum tap (, §9): windowed complex FFT of an IQ block → DC-centered power in
-//! dBFS → max-decimation to display bins → `u8` quantization over an adaptive dB window.
-//!
-//! IQ is complex, so this is a full complex FFT (bins span `[0, fs)`), fft-shifted so DC lands
-//! at the center bin — not a real-input FFT. Plans are built once; the hot path allocates
-//! nothing.
-
 use std::sync::Arc;
 
 use num_complex::Complex;
@@ -58,7 +51,6 @@ impl SpectrumAnalyzer {
         self.fft
             .process_with_scratch(&mut self.buf, &mut self.scratch);
 
-        // fftshift: raw bin 0 is DC → move it to the center so out[size/2] == DC.
         let half = self.size / 2;
         for (raw_idx, x) in self.buf.iter().enumerate() {
             let shifted = (raw_idx + half) % self.size;
@@ -68,8 +60,6 @@ impl SpectrumAnalyzer {
     }
 }
 
-/// Reduce `db` to `bins` display points by max-hold decimation (: peaks must survive
-/// downsampling so narrow signals stay visible). `out.len()` must equal `bins`.
 pub fn decimate_max(db: &[f32], out: &mut [f32]) {
     let bins = out.len();
     assert!(bins > 0, "need at least one output bin");
@@ -121,7 +111,6 @@ mod tests {
         let size = 1024;
         let mut an = SpectrumAnalyzer::new(size);
 
-        // Tone at +fs/8 → raw bin size/8; after fftshift it sits at size/2 + size/8.
         let bin = size / 8;
         let input: Vec<Complex<f32>> = (0..size)
             .map(|n| Complex::from_polar(1.0, 2.0 * PI * bin as f32 * n as f32 / size as f32))
@@ -139,7 +128,6 @@ mod tests {
         assert_eq!(peak_idx, expected, "peak bin");
         assert!(peak_val > -1.0, "peak near 0 dBFS, got {peak_val}");
 
-        // A bin far from the tone should be deep in the floor.
         assert!(
             db[expected / 2] < -60.0,
             "floor too high: {}",

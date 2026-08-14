@@ -2,14 +2,6 @@
 //! `wire`), and the `RxSink` that carries `cf32` from a device thread into the engine's ring.
 //! Backends (SoapySDR, network receivers, and virtual devices) implement
 //! these; nothing here does I/O itself.
-//!
-//! It also owns everything a backend would otherwise write for itself and get subtly wrong: the
-//! [`Duplex`] arbitration that decides whether a radio may run a direction right now, the
-//! [`Worker`] every capture thread is, the [`LutConverter`] every 8-bit radio needs, and the
-//! [`Capture`] supervisor that restarts a stalled stream in place before the engine's
-//! destructive fault path ever hears about it. A backend supplies what genuinely differs — how
-//! to point *its* radio at a stream, and what *its* ADC codes mean — and nothing else.
-
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use num_complex::Complex;
@@ -172,7 +164,6 @@ impl std::fmt::Debug for RxSink {
     }
 }
 
-/// A backend that can enumerate and open devices ().
 pub trait DeviceDriver: Send + Sync {
     /// Stable driver id, such as `"virtual"`, `"soapy"`, `"rtltcp"`, or `"spyserver"`.
     fn id(&self) -> &'static str;
@@ -201,15 +192,6 @@ pub trait DeviceDriver: Send + Sync {
     }
 }
 
-/// A live transmit burst: samples in, nothing out.
-///
-/// The mirror of [`RxSink`], and deliberately a pull rather than a push — a transmitter runs at
-/// the caller's pace, and the queue's backpressure is the only thing that keeps a burst on time.
-///
-/// Nothing in `engine`, `server` or the web UI holds one of these:  gates every
-/// application-level transmit feature behind an authorized-use switch that has not been built,
-/// and until it is, nothing above this crate holds a [`TxStream`] — whatever
-/// `Capabilities::duplex` says the hardware has.
 pub trait TxStream: Send {
     /// Queue `samples` for transmission, returning how many were accepted.
     ///
@@ -248,14 +230,7 @@ pub trait TxStream: Send {
     fn stop(&mut self) -> Result<(), DeviceError>;
 }
 
-/// An opened radio.
-///
-/// The RX half is what the engine drives. The TX half is declared here from day one, as
-/// always specified, and is implemented by the backends whose hardware has it — but no code path
-/// above this crate calls it, and [`Duplex`] is what decides whether a given radio may run a
-/// direction at all ().
 pub trait SdrDevice: Send {
-    /// Serialized to the client as-is to drive backend-driven UI ().
     fn capabilities(&self) -> &Capabilities;
     /// Currently-applied settings.
     fn settings(&self) -> &DeviceSettings;
@@ -300,12 +275,6 @@ pub trait SdrDevice: Send {
         ))
     }
 
-    /// The replay transport, on a device that is a recording rather than a radio. `None` is the
-    /// default, so only a playback backend has to think about it.
-    ///
-    /// The handle is shared, not copied: the control plane keeps it after the device has moved
-    /// into its capture runtime, which is what lets a pause or a seek land — and a position be
-    /// read for the snapshot — without taking the lock the capture thread is holding.
     fn playback(&self) -> Option<Arc<PlaybackShared>> {
         None
     }
@@ -504,8 +473,6 @@ mod tests {
         check_stream_settings(&settings, &caps(4, scoped)).expect("multi-stream");
     }
 
-    /// A radio that declares nothing per-stream refuses even an empty entry: merging it would
-    /// make `settings()` report a `streams` table the radio cannot mean anything by.
     #[test]
     fn an_unscoped_radio_refuses_any_entry() {
         refused_naming(

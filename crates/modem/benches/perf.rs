@@ -1,9 +1,3 @@
-//! Criterion throughput benches for the phase-0 perf scaffold ( §4.2). The numbers
-//! that gate CI are the committed baselines the ignored tests in `ber::perf` write through
-//! `measure_throughput`; these benches are the developer's magnifier — statistical, per
-//! change, never committed. Both consume the same pre-generated signals from `ber::perf`, so
-//! a criterion run and the committed number measure exactly the same work.
-
 use std::hint::black_box;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
@@ -29,8 +23,6 @@ fn symbol_sync_8sps(c: &mut Criterion) {
     group.finish();
 }
 
-/// A cheap canary: pure filter design, no streaming state. If this moves, the toolchain or
-/// the measurement moved — not an engine.
 fn design_rrc_canary(c: &mut Criterion) {
     let taps = design_rrc(10.0, 0.2, 8);
     let mut group = c.benchmark_group("design_rrc");

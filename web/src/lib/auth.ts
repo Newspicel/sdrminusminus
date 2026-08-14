@@ -1,9 +1,3 @@
-// Shared-token storage (: "UI prompts and stores it per saved connection"). The token
-// is the only thing the browser persists besides UI preferences (), and it is scoped
-// to the origin it was entered for so a saved token never leaks to another server.
-//
-// Kept out of TanStack Query and out of React state on purpose: `api.ts`'s fetch middleware
-// and the WebSocket URL both need it synchronously, before any component has rendered.
 
 const KEY = "sdrmm.v1.token";
 

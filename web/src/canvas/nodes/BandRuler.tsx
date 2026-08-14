@@ -1,14 +1,3 @@
-// The band ruler (, ): a gutter of coloured allocation blocks above the
-// trace, aligned to the same frequency axis, with click-to-identify and one-click tune.
-//
-// It sits *outside* the plot rectangle on purpose. Inside it the colormap owns the whole colour
-// budget and every overlay is achromatic (), which a ruler whose entire job is to
-// distinguish ten services by sight cannot obey. Moving it into its own opaque strip is the same
-// licence the marker label chip already has, and it costs the trace no pixels of data.
-//
-// It is also chrome as far as the plot's gestures are concerned (`data-plot-chrome`), so a click
-// here identifies a band and never retunes a running radio by accident. Tuning is the explicit
-// button in the popover.
 import { useEffect, useRef, useState } from "react";
 import type { BandIdentity } from "../../components/bandPlan";
 import {
@@ -81,8 +70,6 @@ export function BandRuler({
             type="button"
             className="relative block w-full cursor-help border-b border-line/60 last:border-b-0"
             style={{ height: `${ROW_H}px` }}
-            // React Flow selects the node a click landed in and would take the focus straight
-            // back off the popover this click just opened.
             onClick={(event) => {
               event.stopPropagation();
               onPick(event);

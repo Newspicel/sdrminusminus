@@ -1,29 +1,3 @@
-//! The resistance runner ( §4.3): *where an entry fails, measured*. For every
-//! impairment axis the runner binary-searches the largest level the entry survives while held
-//! at a fixed operating point — its measured 1e-3 sensitivity plus [`SENSITIVITY_MARGIN_DB`] —
-//! and commits the result as the entry's limits table: robustness as numbers, not adjectives.
-//! Sensitivity is measured first because every axis row's operating point is defined off it;
-//! an axis row without a sensitivity has no stated meaning.
-//!
-//! Four pass criteria exist (§4.3), and every row records which one produced it: the default
-//! failure floor — BER above [`FAILURE_BER`] at the operating point — the "≤ 1 dB Eb/N0
-//! penalty" form the plan states for the tracking axes (CFO, drift, sample-clock ppm, phase
-//! noise, …), and the two analog overrides the plan explicitly provides for, where BER is
-//! meaningless: a SINAD floor and a SINAD penalty. A threshold without its criterion is not a
-//! measurement, and [`compare_tables`] refuses to compare thresholds taken under different ones.
-//!
-//! One runner serves all four because they are one shape: **a cost that must stay at or below a
-//! limit**. The digital rows report BER; the analog rows report *negated* SINAD in dB, since a
-//! SINAD criterion is a floor and negating it turns the floor into the same ceiling every other
-//! row is judged by. [`Criterion::limit`] states the limit and the closure states the cost, so
-//! no axis search knows which class it is measuring.
-//!
-//! Determinism is inherited from the sweep: an axis search is a fixed sequence of seeded
-//! one-point BER measurements, so every committed threshold regenerates bit-for-bit from its
-//! seed and search bracket. Regression is one-sided by design — a number moving *better* than
-//! the committed table is never a failure; only worsening past tolerance is (§4.3: limits
-//! tables regress like curves).
-
 use std::{fs, io, path::Path};
 
 use serde::{Deserialize, Serialize};
@@ -34,13 +8,6 @@ use super::{
     sweep::{Link, sweep_ber},
 };
 
-// --- The committed artifact ------------------------------------------------------------------
-
-/// One row of a limits table (§4.3): the largest level of `axis` (stated in `unit`) at which
-/// the entry still met `criterion` — or, for `profile:` rows, the measured degradation a named
-/// composite profile costs. The criterion string rides in the row because a threshold is
-/// uninterpretable without its pass condition, and the regression comparator must refuse to
-/// compare thresholds measured under different ones.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LimitRow {
     pub axis: String,
@@ -49,11 +16,6 @@ pub struct LimitRow {
     pub criterion: String,
 }
 
-/// The committed resistance artifact for one catalog entry (§4.3). `seed` names the run every
-/// number regenerates from (§4.1: fixed seeds everywhere). The sensitivities are `Option`
-/// because a swept span that never reached a ratio has *not measured* it — `None` must stay
-/// distinguishable from any number. Composite-profile degradations live in `rows` under
-/// `profile:<name>` axes, in dB, so one comparator guards the whole table.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LimitsTable {
     pub entry: String,
@@ -61,17 +23,12 @@ pub struct LimitsTable {
     pub sensitivity_db_1e2: Option<f64>,
     pub sensitivity_db_1e3: Option<f64>,
     pub sensitivity_db_1e4: Option<f64>,
-    /// The analog rows' sensitivity (§4.3 override, §5 item 4): the channel SNR at which
-    /// measured SINAD reaches [`ANALOG_SINAD_DB`]. `None` — and absent from the artifact — for
-    /// every BER-referenced entry, so no committed table moved when this arrived.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sinad_sensitivity_db: Option<f64>,
     pub rows: Vec<LimitRow>,
 }
 
 impl LimitsTable {
-    /// Starts a table from a measured [`Sensitivity`] — the §4.3 ordering made structural:
-    /// no axis row can exist before the sensitivity that defines its operating point.
     #[must_use]
     pub fn new(entry: impl Into<String>, seed: u64, sensitivity: &Sensitivity) -> Self {
         Self {
@@ -85,9 +42,6 @@ impl LimitsTable {
         }
     }
 
-    /// Starts an analog table from its measured SINAD sensitivity — the same structural rule as
-    /// [`Self::new`] under the §4.3 override: no axis row exists before the number that defines
-    /// its operating point.
     #[must_use]
     pub fn analog(entry: impl Into<String>, seed: u64, sinad_sensitivity_db: Option<f64>) -> Self {
         Self {
@@ -101,10 +55,6 @@ impl LimitsTable {
         }
     }
 
-    /// The operating point every axis closure measures at: the entry's own sensitivity plus
-    /// the standing margin (§4.3) — the 1e-3 BER crossing, or for an analog table the
-    /// [`ANALOG_SINAD_DB`] SINAD crossing. `None` while that sensitivity is unmeasured: an axis
-    /// search without an operating point measures nothing defined.
     #[must_use]
     pub fn operating_point_db(&self) -> Option<f64> {
         self.sensitivity_db_1e3
@@ -125,8 +75,6 @@ pub fn load_json(path: &Path) -> io::Result<LimitsTable> {
     let text = fs::read_to_string(path)?;
     serde_json::from_str(&text).map_err(io::Error::other)
 }
-
-// --- Sensitivity (§4.3 row one) --------------------------------------------------------------
 
 /// A link's measured clean-channel sensitivity: the Eb/N0 at BER 1e-2 / 1e-3 / 1e-4, read off
 /// one [`sweep_ber`] curve by inverse interpolation. The curve rides along so the later steps
@@ -168,15 +116,6 @@ pub fn measure_sensitivity(
     }
 }
 
-// --- Curve interpolation ---------------------------------------------------------------------
-//
-// Both directions are linear in (dB, log10 BER) — the convention the sweep's comparators use,
-// because a waterfall is near-exponential in dB and the log domain is where a straight segment
-// approximates it honestly. Nothing extrapolates: outside the measured span the honest answer
-// is None, and the §4.3 fix for that is a wider grid, not a projected number.
-
-/// The Eb/N0 at which `curve` crosses `ber`, or `None` when the measured span never reaches
-/// it — the §4.3 sensitivity read.
 #[must_use]
 pub fn ebn0_at_ber(curve: &Curve, ber: f64) -> Option<f64> {
     if ber <= 0.0 || !ber.is_finite() {
@@ -206,7 +145,6 @@ pub fn ber_at_ebn0(curve: &Curve, ebn0_db: f64) -> Option<f64> {
         let (db_a, la) = pair[0];
         let (db_b, lb) = pair[1];
         if (ebn0_db - db_a) * (ebn0_db - db_b) <= 0.0 {
-            // A zero-width segment states no slope; an exact hit is still an answer.
             if (db_b - db_a).abs() < 1e-12 {
                 return Some(10f64.powf(la));
             }
@@ -237,32 +175,27 @@ fn usable_log_points(curve: &Curve) -> Vec<(f64, f64)> {
         .collect()
 }
 
-// --- Failure criteria (§4.3) -----------------------------------------------------------------
-
 /// The pass condition an axis row was measured under. Both reduce to "measured BER at the
 /// operating point stays at or below a limit", so one search serves both — but the limits
 /// differ by orders of magnitude, and a row must say which one its threshold means.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Criterion {
-    /// The §4.3 default: post-detection BER may not exceed [`FAILURE_BER`] while the entry
-    /// operates [`SENSITIVITY_MARGIN_DB`] above its measured 1e-3 sensitivity.
     FailureBer,
-    /// The plan's "≤ N dB penalty" rows: pass while the measured BER stays at or below
-    /// `max_ber` — the clean link's own BER `penalty_db` below the operating point, resolved
-    /// once by [`penalty_criterion`]. Carrying the resolved BER keeps every probe of the
-    /// search a plain comparison instead of a curve read per axis value.
-    MaxPenalty { penalty_db: f64, max_ber: f64 },
-    /// The analog default (§4.3: "entries may override with a documented criterion where that
-    /// default is meaningless"): measured SINAD at the operating point stays at or above
-    /// `min_sinad_db`. [`ANALOG_SINAD_DB`] is the value every analog row uses — 12 dB SINAD is
-    /// the sensitivity criterion analog receivers have always been specified at, so the
-    /// threshold a row reports is directly comparable with a datasheet's.
-    MinSinad { min_sinad_db: f64 },
+    MaxPenalty {
+        penalty_db: f64,
+        max_ber: f64,
+    },
+    MinSinad {
+        min_sinad_db: f64,
+    },
     /// The analog "≤ N dB penalty" rows: pass while measured SINAD stays within `penalty_db`
     /// of the clean chain's own SINAD at the operating point, resolved once by
     /// [`sinad_penalty_criterion`]. The resolved floor rides along for the same reason
     /// [`Criterion::MaxPenalty`]'s BER does.
-    SinadPenalty { penalty_db: f64, min_sinad_db: f64 },
+    SinadPenalty {
+        penalty_db: f64,
+        min_sinad_db: f64,
+    },
 }
 
 /// The SINAD every analog row's default criterion is stated at — the 12 dB figure analog
@@ -339,8 +272,6 @@ pub fn sinad_penalty_criterion(clean_sinad_db: f64, penalty_db: f64) -> Criterio
     }
 }
 
-// --- The axis runner -------------------------------------------------------------------------
-
 /// One seeded single-point BER measurement — the intended body of an axis-search closure.
 /// The same `seed` is passed deliberately at every axis value (common random numbers): probes
 /// then differ only in the impairment level, never in noise luck, which is what makes the
@@ -363,17 +294,6 @@ pub fn measure_ber(
 /// deterministically.
 const MAX_SEARCH_ITERS: u32 = 64;
 
-/// Binary-searches the largest axis value in `[0, max_axis]` still meeting `criterion`
-/// (§4.3). `metric_at` measures the criterion's own cost — BER, or negated SINAD — at one axis
-/// value with the link held at its operating point, and must be deterministic per value
-/// ([`measure_ber`] or [`analog::sinad_metric`](super::analog::sinad_metric) with a fixed seed
-/// is the intended body). A NaN reading counts as a failure: an unmeasurable point must shrink
-/// the claimed limit, never extend it.
-///
-/// Return semantics, all deterministic: `0.0` means the link fails even unimpaired (itself a
-/// finding, not an error); `max_axis` means no failure inside the bracket — the bracket, not
-/// the link, bounded the answer, so widen it if this row's value matters; anything else is the
-/// largest *probed passing* value, within `tolerance` of the true boundary.
 pub fn search_axis_limit(
     criterion: Criterion,
     max_axis: f64,
@@ -421,8 +341,6 @@ pub fn measure_axis_row(
         criterion: criterion.label(),
     }
 }
-
-// --- Composite profiles (§4.3 combined stress) -----------------------------------------------
 
 /// The named composite stress profiles: several axes at once, at documented levels, because
 /// fielded receivers never see one impairment at a time. Levels are stated in the impairment
@@ -526,16 +444,6 @@ pub fn measure_profile_degradation(
     }
 }
 
-// --- Regression comparison (§4.3: limits tables regress like curves) -------------------------
-
-/// Compares a fresh measurement against the committed table. One-sided by design: moving
-/// *better* is never a failure; each committed number may move worse by at most
-/// `tolerance_fraction` of its own magnitude, applied per row (sensitivities compare in dB
-/// under the same rule). A committed row or sensitivity the measurement no longer produces is
-/// a regression — a vanished measurement is worse than a smaller one — and a row whose unit
-/// or criterion changed is flagged rather than compared, because those thresholds are not the
-/// same quantity. `Err` lists every violation, so one CI run reports the whole damage rather
-/// than the first row of it.
 pub fn compare_tables(
     measured: &LimitsTable,
     committed: &LimitsTable,
@@ -689,9 +597,6 @@ mod tests {
         }
     }
 
-    /// §4.3 row one on the calibration link: measured sensitivity sits on the closed form.
-    /// 300 errors per point keep the 1e-3 crossing's counting noise near 0.06 dB — well
-    /// inside the 0.3 dB asserted (the sweep's own tests document the horizontal-CI budget).
     #[test]
     fn sensitivity_matches_theory() {
         let link = ideal_bpsk();
@@ -718,19 +623,15 @@ mod tests {
     #[test]
     fn crossings_interpolate_in_log_ber() {
         let curve = synth_bpsk_curve();
-        // Recovered crossing within the 1 dB grid's log-domain curvature (~0.02 dB at the
-        // knee — the same bound the sweep's comparator tests state).
         let db3 = ebn0_at_ber(&curve, 1e-3).unwrap();
         assert!((db3 - 6.7895).abs() < 0.03, "1e-3 at {db3} dB");
         // Forward and inverse reads use the same segments, so they must agree exactly.
         let back = ber_at_ebn0(&curve, db3).unwrap();
         assert!((back.log10() + 3.0).abs() < 1e-9, "round trip {back:e}");
-        // Outside the measured span the honest answer is None, in both directions.
         assert!(ebn0_at_ber(&curve, 1e-12).is_none());
         assert!(ebn0_at_ber(&curve, 0.9).is_none());
         assert!(ber_at_ebn0(&curve, -1.0).is_none());
         assert!(ber_at_ebn0(&curve, 12.5).is_none());
-        // Nonsense targets cross nothing.
         assert!(ebn0_at_ber(&curve, 0.0).is_none());
         assert!(ebn0_at_ber(&curve, f64::NAN).is_none());
     }
@@ -755,7 +656,6 @@ mod tests {
         // The errorless point enters as its bound 5e-7, so the 1e-4 crossing is bracketed.
         let db = ebn0_at_ber(&curve, 1e-4).unwrap();
         assert!(db > 8.0 && db < 10.0, "crossing {db} dB");
-        // A point with no trials states nothing; one usable point leaves no segment.
         let broken = Curve {
             label: "broken".to_string(),
             points: vec![
@@ -790,8 +690,6 @@ mod tests {
             panic!("penalty_criterion built {crit:?}");
         };
         assert!((penalty_db - 1.0).abs() < 1e-12);
-        // The pass BER is the clean curve read at op − 1 dB; the 1 dB grid's log-domain
-        // curvature allows a few percent.
         let want = theory::bpsk_ber(8.79);
         assert!(
             (max_ber.log10() - want.log10()).abs() < 0.05,
@@ -801,7 +699,6 @@ mod tests {
             crit.label(),
             "<= 1 dB Eb/N0 penalty at sensitivity(1e-3) + 3 dB"
         );
-        // Off the measured span there is no criterion to state.
         assert!(penalty_criterion(&synth_bpsk_curve(), 0.5, 1.0).is_none());
         assert!(penalty_criterion(&synth_bpsk_curve(), 40.0, 1.0).is_none());
     }
@@ -811,9 +708,7 @@ mod tests {
         // Never failing: the bracket, not the link, bounds the answer.
         let unbounded = search_axis_limit(Criterion::FailureBer, 8.0, 1e-3, |_| 0.0);
         assert!((unbounded - 8.0).abs() < 1e-15);
-        // Failing unimpaired: the link tolerates none of the axis.
         assert!(search_axis_limit(Criterion::FailureBer, 8.0, 1e-3, |_| 1.0) == 0.0);
-        // A NaN reading is a failure, never a pass.
         assert!(search_axis_limit(Criterion::FailureBer, 8.0, 1e-3, |_| f64::NAN) == 0.0);
         // A known step boundary is recovered to within the tolerance from below…
         let step = |v: f64| if v <= 0.37 { 0.0 } else { 1.0 };
@@ -844,10 +739,6 @@ mod tests {
         assert!(penalty < floor);
     }
 
-    /// The §4.3 axis runner end-to-end on the reference link. An open-loop matched filter
-    /// integrates a whole block with no carrier recovery, so it tolerates only a vanishing
-    /// CFO — the measured number validates the runner, not the link; a real entry's tracking
-    /// loop is what earns a respectable row here.
     #[test]
     fn cfo_axis_search_is_finite_and_deterministic() {
         let link = ideal_bpsk();
@@ -882,7 +773,6 @@ mod tests {
             row.threshold
         );
         assert_eq!(row.criterion, Criterion::FailureBer.label());
-        // Bit-identical on a rerun: the search is a fixed sequence of seeded measurements.
         let again = search_axis_limit(Criterion::FailureBer, 1e-3, 1e-7, ber_at);
         assert_eq!(row.threshold.to_bits(), again.to_bits());
         table.rows.push(row);
@@ -896,8 +786,6 @@ mod tests {
         let mu = CompositeProfile::MobileUrban.apply(ChannelSpec::default());
         assert!(mu.multipath.is_some());
         assert!(mu.cfo.is_some() && mu.drift.is_some() && mu.phase_noise.is_some());
-        // Noise stays the sweep's axis: a profile carrying its own AWGN would break the
-        // canonical noise-last Eb/N0 accounting.
         assert!(mu.awgn.is_none());
         let si = CompositeProfile::StaticIndoor.apply(ChannelSpec::default());
         assert!(si.multipath.is_some() && si.phase_noise.is_some());
@@ -930,9 +818,6 @@ mod tests {
         assert!(degradation_db(&empty, &clean, 1e-3).is_infinite());
     }
 
-    /// Combined stress (§4.3) measured end-to-end on the mildest profile: the reference link
-    /// has no equaliser and no carrier loop, yet one weak reflection plus 1° of phase noise
-    /// must cost only a fraction of a dB — and the result must come out shaped as a row.
     #[test]
     fn static_indoor_degradation_is_measured_and_mild() {
         let link = ideal_bpsk();
@@ -995,11 +880,9 @@ mod tests {
         missing.rows.remove(0);
         let faults = compare_tables(&missing, &committed, 0.1).unwrap_err();
         assert!(faults.iter().any(|f| f.contains("missing")));
-        // A vanished sensitivity too.
         let mut lost = sample_table();
         lost.sensitivity_db_1e2 = None;
         assert!(compare_tables(&lost, &committed, 0.1).is_err());
-        // A swapped criterion is incomparable: flagged, never compared.
         let mut swapped = sample_table();
         swapped.rows[0].criterion = "something else".to_string();
         assert!(compare_tables(&swapped, &committed, 0.1).is_err());
@@ -1013,7 +896,6 @@ mod tests {
         let table = sample_table();
         save_json(&table, &path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        // Pretty and newline-terminated: the committed-artifact format, same as the curves.
         assert!(text.contains("\n  ") && text.ends_with('\n'));
         assert_eq!(load_json(&path).unwrap(), table);
         std::fs::remove_dir_all(&dir).unwrap();

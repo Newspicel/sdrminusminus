@@ -23,9 +23,6 @@ updates:
         update-types: [version-update:semver-major]
       - dependency-name: tauri-build
         update-types: [version-update:semver-major]
-      # Not ours to choose: it must equal whatever axum's `ws` feature resolves to, or the
-      # graph carries two tungstenites and compiles both. Bumping it ahead of axum is a
-      # regression however new the version is, so this is bumped by hand with axum.
       - dependency-name: tokio-tungstenite
 
   - package-ecosystem: npm

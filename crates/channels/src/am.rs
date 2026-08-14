@@ -1,13 +1,4 @@
 //! AM envelope detector: 48 kHz IQ → magnitude → DC block → lowpass → optional AGC.
-//!
-//! The chain above the AGC is `sdrmm_modem::analog::AmDemod`'s envelope tier with its
-//! predetection filter switched off — the host runtime already applies [`channel_filter`], and a
-//! second copy of it would be paid for twice. What stays here is the channel's own: the
-//! bandwidth policy, the AGC, and the settings plumbing.
-//!
-//! [`AmTx`] is the modulator that pairs with it: the same audio bandwidth, keyed onto an
-//! envelope the detector above reads straight back off.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -265,7 +256,6 @@ mod tests {
             agc: true,
         });
         let audio = run_ragged(&mut chan, &am_iq(RATE, 1_000.0, 0.5, 48_000));
-        // Shared audio AGC target is 0.25 RMS; allow ±3 dB after convergence.
         let amplitude = rms(&audio[40_000..47_000]);
         assert!((0.18..0.36).contains(&amplitude), "rms {amplitude}");
     }
@@ -327,8 +317,6 @@ mod tests {
         let (freq, ratio) = dominant_tone(window, RATE);
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
-        // Full-scale audio at 80 % depth, normalized by the 1.8 peak: a 0.444-amplitude
-        // cosine, so rms ≈ 0.314.
         let amplitude = rms(window);
         assert!((0.28..0.35).contains(&amplitude), "rms {amplitude}");
     }

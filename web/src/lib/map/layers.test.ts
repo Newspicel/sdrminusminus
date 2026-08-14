@@ -111,7 +111,6 @@ describe("targetFeature", () => {
   });
 
   it("drops out-of-range sentinel positions", () => {
-    // AIS pads an unknown position with lat 91 / lon 181.
     expect(targetFeature(ais({ lat: 91, lon: 181 }))).toBeNull();
     expect(targetFeature(ais({ lat: 0, lon: 0 }))).not.toBeNull();
   });

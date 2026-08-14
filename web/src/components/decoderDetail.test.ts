@@ -1,6 +1,3 @@
-// The detail row is where the decoders that lost their per-channel panes are read, so these
-// pin the fields those panes used to show — a NAVTEX broadcast's text, an ACARS body, a sub-GHz
-// pulse train, a padded RIC — and the rule that an absent field is omitted rather than dashed.
 import { describe, expect, it } from "vitest";
 import type { DecoderEvent, DecoderKind } from "../lib/types";
 import { eventDetail } from "./decoderDetail";
@@ -93,8 +90,6 @@ describe("eventDetail", () => {
     });
   });
 
-  // The one field the removed pager pane had that the summary does not: the RIC as a pager
-  // quotes it, zero padded so a column of them aligns.
   it("pads a POCSAG RIC and names the function bit", () => {
     const detail = eventDetail({
       kind: "pocsag",
@@ -116,8 +111,6 @@ describe("eventDetail", () => {
     expect(detail.body).toBe("CALL 42");
   });
 
-  // The summary flattens newlines to fit one line; the whole point of the detail is that the
-  // broadcast comes back with its own.
   it("keeps a NAVTEX broadcast's text intact, with the header it arrived under", () => {
     const detail = eventDetail({
       kind: "navtex",
@@ -203,8 +196,6 @@ describe("eventDetail", () => {
     expect(detail.body).toBeNull();
   });
 
-  // `false` is a positive statement that the payload is in the clear; absent means the frame did
-  // not say. Collapsing the two would invent an assurance the transmission never gave.
   it("distinguishes a frame that said 'not encrypted' from one that did not say", () => {
     const said = fieldsOf({
       kind: "dv",

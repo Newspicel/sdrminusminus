@@ -7,12 +7,6 @@ use std::path::Path;
 
 use sdrmm_wire::{CheckStatus, DoctorCheck, DoctorReport};
 
-/// Build the report: compiled backends, device probe, storage paths, USB permissions.
-///
-/// Must not run while a server is live in the same process: probing enumerates every backend,
-/// and `device-soapy` documents that overlapping enumerates crash inside libusb. The CLI path
-/// exits before `serve()`; the REST path reuses the engine's own registry instead of building
-/// a second one.
 #[must_use]
 pub fn collect(db_path: Option<&Path>, recordings_dir: Option<&Path>) -> DoctorReport {
     let registry = sdrmm_engine::builtin_registry(None);
@@ -359,8 +353,6 @@ mod tests {
         let ok = path_check("x", "X", Some(dir.path()), PathKind::Directory, "unused");
         assert_eq!(ok.status, CheckStatus::Ok, "{}", ok.detail);
 
-        // A file path is judged by the directory that has to hold it — the file itself is
-        // created later, on first use.
         let file = dir.path().join("sub").join("sdrmm.db");
         let ok = path_check("x", "X", Some(&file), PathKind::File, "unused");
         assert_eq!(ok.status, CheckStatus::Ok, "{}", ok.detail);

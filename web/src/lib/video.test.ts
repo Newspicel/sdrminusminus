@@ -100,8 +100,6 @@ describe("VideoHub", () => {
     hub.subscribe(1, 2, () => {});
     waitOutGrace();
 
-    // One subscribe, and no unsubscribe: the server's stream — and with it the receiver's sync
-    // lock — survived the face being remounted.
     expect(subscribes(fake.sent)).toHaveLength(1);
     expect(unsubscribes(fake.sent)).toHaveLength(0);
   });

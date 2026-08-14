@@ -1,12 +1,3 @@
-//! §4.2 performance baseline for the M-ary CPFSK entry: `CpmDemod::process` throughput at the
-//! M = 4 reference configuration (the same waveform the criterion bench in `benches/perf.rs`
-//! consumes, so the committed number and the developer's magnifier measure identical work)
-//! and its real-time factor against the 48 kHz processing rate. The committed artifact is
-//! `baselines/cpm/mfsk_perf.json`, written and gated by the phase-0 `#[ignore]` protocol:
-//! measured in release on a stated host, compared only there. The steady-state
-//! zero-allocation gate lives with the engine (`cpm::demod` tests) — this file owns the
-//! throughput numbers.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use num_complex::Complex;
@@ -21,9 +12,6 @@ use sdrmm_modem::{
     cpm::CpmDemod,
 };
 
-/// Half a second of the reference waveform: random dibits through the entry's own modulator —
-/// the library recipe, not a testgen scaffold (§1.2: modulator and demodulator share one
-/// implementation).
 fn reference_waveform() -> Vec<Complex<f32>> {
     modulate(&mfsk4_burst(), &test_dibits(2_400, 0x5eed))
 }
@@ -33,8 +21,6 @@ fn measured_baselines() -> Vec<PerfBaseline> {
     let iq = reference_waveform();
     let mut demod = CpmDemod::new(&entry.params, &entry.receive_filter, entry.timing_bw);
     let mut soft = Vec::with_capacity(iq.len());
-    // Two warm-up blocks per the §4.2 convention: the second is the first whose buffers must
-    // fit remainder plus block, so the measured calls carry no one-off growth.
     demod.process(&iq, &mut soft);
     soft.clear();
     demod.process(&iq, &mut soft);

@@ -44,15 +44,12 @@ function node(id: string, body: Partial<PatchNode> & Pick<PatchNode, "kind">): P
   return { id, position: { x: 0, y: 0 }, ...body } as PatchNode;
 }
 
-// The rules mirrored here are `DeviceRef::matches` and `bring_up`; these cases are the same
-// ones `device_refs_match_by_serial_then_key_then_singleton` pins in Rust.
 describe("device references", () => {
   it("prefers the serial, falls back to the key, and accepts a singleton backend", () => {
     const hardware = info({ serial: "00000001" });
     const bySerial = deviceRefOf(hardware);
     expect(bySerial).toEqual({ backend: "rtlsdr", serial: "00000001" });
     expect(refMatches(bySerial, hardware)).toBe(true);
-    // Same radio, different USB port: the key moved, the serial did not.
     expect(refMatches(bySerial, info({ key: "3", serial: "00000001" }))).toBe(true);
     expect(refMatches(bySerial, info({ serial: "00000002" }))).toBe(false);
 
@@ -105,7 +102,6 @@ describe("binding", () => {
     expect(bindDevices(graph(), [set(2, other)]).size).toBe(0);
   });
 
-  // "Serial-less duplicate clones bind at most one node" (CANVAS §3).
   it("claims each set once, in node order", () => {
     const clone = info({ driver: "rtlsdr", key: "0", serial: undefined });
     const twoNodes: PatchGraph = {
@@ -126,7 +122,6 @@ describe("binding", () => {
     const channels = bindChannels(graph(), devices);
     expect(channels.get("nfm")?.id).toBe(9);
     expect(channels.get("am")?.id).toBe(7);
-    // The second NFM belongs to no node — the canvas says so rather than inventing a face.
     expect(unboundChannels(graph(), "dev", live, channels).map((c) => c.id)).toEqual([11]);
   });
 
@@ -156,9 +151,6 @@ describe("binding", () => {
     expect(channels.get("am")?.id).toBe(3);
   });
 
-  // One resolver answers "which radio is this face about" for every kind of node, and the two
-  // directions are not symmetric: a channel or a scope *takes* IQ from a radio, while a scanner
-  // *drives* one — its wire leaves it.
   it("finds the radio behind a node in either direction", () => {
     const g: PatchGraph = {
       nodes: [
@@ -175,7 +167,6 @@ describe("binding", () => {
     expect(deviceNodeOf(g, "nfm")).toBe("dev");
     expect(deviceNodeOf(g, "scan")).toBe("dev");
     expect(deviceNodeOf(g, "lost")).toBeNull();
-    // A sink hangs off a channel, not off a radio: only the wire from a device answers.
     expect(deviceNodeOf(g, "spk")).toBeNull();
   });
 
@@ -187,7 +178,6 @@ describe("binding", () => {
     expect(inputsOf(g, "spk", "audio", devices, channels)).toEqual([
       { node: "nfm", deviceSet: 1, channel: channel(9, "nfm") },
     ]);
-    // A wire from a channel with no engine channel behind it contributes nothing to play.
     expect(inputsOf(g, "spk", "audio", devices, new Map())).toEqual([]);
   });
 
@@ -221,16 +211,11 @@ describe("binding", () => {
     });
 
     it("binds by type *and* stream so lanes of one radio cannot swap channels", () => {
-      // Engine order deliberately reversed from node order: matched on type alone, "low" would
-      // claim the stream-2 channel — and removing it would then delete the wrong lane's channel
-      // while its own kept running.
       const live = set(1, rtl, [channel(5, "nfm", 2), channel(6, "nfm")]);
       const devices = bindDevices(lanes(), [live]);
       const channels = bindChannels(lanes(), devices);
       expect(channels.get("low")?.id).toBe(6);
       expect(channels.get("high")?.id).toBe(5);
-      // Only the stream-0 channel exists yet: the node on the other lane stays unbound rather
-      // than claiming it.
       const partial = bindChannels(
         lanes(),
         bindDevices(lanes(), [set(1, rtl, [channel(6, "nfm")])]),
@@ -250,9 +235,6 @@ describe("binding", () => {
   });
 });
 
-// A recording's `device_id` is `virtual:file:<absolute stem>`, so the key carries colons of its
-// own — and a ref that drops the key matches any serial-less virtual device, which is to say the
-// signal generator. These are the two ways this parse goes silently wrong.
 describe("refFromDeviceId", () => {
   it("splits on the first colon so a file key survives", () => {
     expect(refFromDeviceId("virtual:file:/data/rec/airband-2026")).toEqual({

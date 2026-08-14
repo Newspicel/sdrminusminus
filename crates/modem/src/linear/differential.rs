@@ -1,30 +1,3 @@
-//! The differential detection tier ( §6: the DPSK family, π/4-DQPSK, star-QAM).
-//!
-//! A differential receiver never learns the carrier's absolute phase. It reads the *change*
-//! between consecutive symbols — `z_k = y_k · conj(y_{k−1})`, whose angle is the transmitted
-//! phase step plus whatever the channel's phase did in one symbol period, which for any carrier
-//! offset worth calling small is nothing. That buys immunity to the M-fold ambiguity a coherent
-//! loop cannot resolve on its own, and it costs the well-known ~3 dB at high SNR: both symbols
-//! in the product carry noise, so the decision statistic sees twice as much of it.
-//!
-//! **What the transmitter must do.** The data has to be in the difference, so the symbol *index*
-//! is differentially encoded before the table lookup — `symbolcode`'s
-//! [`DifferentialSymbolEncoder`](crate::symbolcode::DifferentialSymbolEncoder), the one
-//! implementation of that rule in the crate. A π/4-DQPSK entry adds the per-symbol π/4 rotation
-//! on top, which is why its *difference* alphabet is the π/4-rotated QPSK table even though its
-//! transmitted alphabet is 8-PSK.
-//!
-//! **The difference table is data, not a special case.** [`differential_detect`] hands back the
-//! normalised products and the caller demaps them against whatever table its differences live
-//! on: `psk(M)` for DBPSK/DQPSK/8DPSK, `psk_rotated(4, π/4)` for π/4-DQPSK, the star's own ring ×
-//! phase product for star-QAM. Nothing here knows which.
-//!
-//! **Normalisation.** `|z| = |y_k|·|y_{k−1}|`, so amplitudes multiply rather than pass through:
-//! a unit-power symbol stream produces a unit-power product stream only on average, and a table
-//! with rings would be read at the wrong radius. The product is therefore divided by
-//! `|y_{k−1}|`, which restores the amplitude of `y_k` itself — the ring that carries the
-//! amplitude bits of a star-QAM difference — and leaves the phase untouched.
-
 use num_complex::Complex;
 
 /// Differentially detect a symbol stream in place-free form: output `k` is the normalised
@@ -97,7 +70,6 @@ mod tests {
         let mut rng = Rng::new(0xd9c);
         let data: Vec<u32> = (0..500).map(|_| (rng.next_u64() % 4) as u32).collect();
         let mut encoder = DifferentialSymbolEncoder::new(4);
-        // The reference symbol is the encoder's own initial state, transmitted first.
         let sent: Vec<u32> = std::iter::once(0)
             .chain(data.iter().map(|&s| encoder.encode(s)))
             .collect();
@@ -115,11 +87,9 @@ mod tests {
             let wave: Vec<Complex<f32>> = sent.iter().map(|&s| point(s) * rot).collect();
             let mut products = Vec::new();
             differential_detect(&wave, &mut products);
-            // Each product's label is the transmitted *step*, which is what was encoded.
             let steps: Vec<u32> = products
                 .iter()
                 .map(|&z| {
-                    // Gray label back to the index the table generator assigned it.
                     let label = table.hard_slice(z);
                     (0..4).find(|&i| tables::gray(i) == label).unwrap()
                 })
@@ -147,7 +117,6 @@ mod tests {
             let data = (rng.next_u64() % 4) as u32;
             steps.push(data);
             let _ = encoder.encode(data);
-            // The transmitted step is the data's quarter turn plus the entry's own π/4.
             phase += std::f64::consts::FRAC_PI_2 * f64::from(data) + tables::PI_4_ROTATION;
             wave.push(Complex::new(phase.cos() as f32, phase.sin() as f32));
         }

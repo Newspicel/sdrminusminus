@@ -1,20 +1,3 @@
-//! What the decoders have heard lately, so a client that connects late is not blind ().
-//!
-//! Decoder frames are pushed live and never replayed: a browser that reloads starts with an empty
-//! map and refills it only as aircraft happen to transmit again, which for a slow-moving contact
-//! can be minutes. That is a gap in the *server*, not the client — the engine has been decoding
-//! the whole time.
-//!
-//! This is a bounded, in-memory replay buffer of the last few records per station. Deliberately
-//! not SQLite: the decoder log already persists everything for querying and export (), and
-//! this answers a different question — "what is on the air right now" — whose answer is worthless
-//! after a restart, because the aircraft have flown on.
-//!
-//! It stores *raw records*, not merged tracks. A merged snapshot would need a second implementation
-//! of the client's forward-merge — the one that lets a position frame combine with an earlier
-//! identity frame — and two implementations of that rule would eventually disagree. Replaying the
-//! records a client would have received means it reaches the same state through the same code.
-
 use std::{
     collections::HashMap,
     sync::Mutex,

@@ -101,9 +101,6 @@ describe("SpectrumHub", () => {
     expect(hub.watched()).toEqual([]);
   });
 
-  // A face is remounted by things that have nothing to do with its radio — the patch/rack switch
-  // is the everyday one — and stopping the stream on the way through costs a restart the operator
-  // sees as a stalled plot.
   it("keeps the stream through a face that lets go and comes straight back", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();
@@ -116,7 +113,6 @@ describe("SpectrumHub", () => {
     const seen: number[] = [];
     hub.subscribe(1, 0, (frame) => seen.push(frame.streamId));
     waitOutGrace();
-    // Neither a stop nor a second subscribe: the server is answering the first one still.
     expect(unsubscribes(fake.sent)).toHaveLength(0);
     expect(subscribes(fake.sent)).toHaveLength(1);
 
@@ -125,8 +121,6 @@ describe("SpectrumHub", () => {
     expect(seen).toEqual([9]);
   });
 
-  // The id the server allocates is neither the device-set id nor the lane index, so a hub that
-  // assumed either would route every frame to the wrong face — or to none.
   it("routes frames by the id the server allocated, not by the device set", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();
@@ -140,7 +134,6 @@ describe("SpectrumHub", () => {
 
     fake.push(41);
     fake.push(42);
-    // An id nobody was told about, and the device-set ids themselves: neither is a stream id.
     fake.push(7);
     fake.push(1);
     expect(one).toEqual([41]);
@@ -173,7 +166,6 @@ describe("SpectrumHub", () => {
       { type: "UnsubscribeSpectrum", data: { device_set: 1, stream: 0 } },
     ]);
     fake.stopped(10);
-    // The surviving lane keeps delivering; only the released one goes quiet.
     fake.push(10);
     fake.push(11);
     expect(lane0).toEqual([10]);
@@ -181,8 +173,6 @@ describe("SpectrumHub", () => {
     expect(hub.watched()).toEqual([{ deviceSet: 1, stream: 2 }]);
   });
 
-  // Subscriptions are per-connection (): without this a dropped socket leaves every
-  // scope face permanently blank.
   it("re-subscribes every lane still watched when the socket comes back", () => {
     const fake = fakeSocket();
     const hub = new SpectrumHub();
@@ -245,8 +235,6 @@ function rowsOf(history: { rows: Uint8Array; count: number; bins: number }): num
   ]);
 }
 
-// A plot's history lives in its own GL texture, so a face that remounts starts blank. These rows
-// are what it opens on instead.
 describe("SpectrumHub history", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -272,8 +260,6 @@ describe("SpectrumHub history", () => {
     fake.push(9, [3, 4]);
 
     drop();
-    // Frames still arrive while no face is watching, and they are the rows that make the switch
-    // look like one continuous waterfall.
     fake.push(9, [5, 6]);
 
     expect(rowsOf(hub.history(1, 0))).toEqual([

@@ -1,9 +1,3 @@
-// Canvas drawing needs the palette as strings, and `index.css` is the only place colour is
-// decided (). Reading the custom property keeps that true for the 2D contexts,
-// which cannot use a class.
-//
-// Values are cached because `getComputedStyle` forces style resolution and the spectrum reads
-// its palette on every frame; the cache is dropped when the theme changes.
 import { onThemeChange } from "./theme";
 
 const cache = new Map<string, string>();

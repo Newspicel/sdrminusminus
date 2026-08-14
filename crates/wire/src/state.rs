@@ -35,8 +35,6 @@ pub struct RecordingStatus {
     /// Samples written to the `.sigmf-data` file so far.
     pub samples: u64,
     pub bytes: u64,
-    /// Capture-ring drops while this recording ran. The file stays contiguous as the DSP
-    /// plane saw the stream, so growth means the recording has upstream gaps ().
     pub overruns: u64,
     /// Fatal recording fault (queue overflow, disk error); the writer has stopped but the
     /// cause stays visible (CLAUDE.md no-silent-failure).

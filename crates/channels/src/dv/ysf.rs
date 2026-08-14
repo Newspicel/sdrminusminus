@@ -1,19 +1,4 @@
 //! System Fusion (YSF) decoder: C4FM at 4800 symbols per second in 12.5 kHz, 100 ms frames.
-//!
-//! Every frame opens with the same 40-bit sync and a 100-symbol frame information channel. The
-//! FICH says whether the frame is a header, a communication frame or a terminator and which of
-//! the four data modes it carries, so a log gets one line when a call starts and one when it
-//! ends rather than ten a second. That data mode selects AMBE+2 V/D1, repetition-protected
-//! natural AMBE+2 V/D2, or full-rate IMBE Voice-FR framing for the audio plane.
-//!
-//! The FICH is protected three times over: a rate-1/2 convolutional code, four Golay(24,12,8)
-//! blocks over its 48 bits, and a CRC-16 across the result. All three have to agree, which is
-//! what makes it safe to report a frame from a mode that carries no addresses in the clear.
-//!
-//! Callsigns travel in the data channel alongside the vocoder frames and are not decoded here:
-//! they need the payload de-interleaver and the same Viterbi pass per sub-block, which is
-//! follow-up work ().
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -207,15 +192,12 @@ impl Decoder {
     fn fich(&mut self) -> Option<(DvFrame, u8)> {
         self.window
             .soft_bits(PAYLOAD_SYMBOLS, FICH_SYMBOLS, &mut self.soft);
-        // De-interleave: the FICH is written into a 20 × 5 matrix by column and read by row,
-        // so coded pair `i` comes from bit 2·(i/5) + 40·(i%5).
         self.coded.clear();
         for i in 0..FICH_SYMBOLS {
             let n = 2 * (i / 5) + 40 * (i % 5);
             self.coded.push(self.soft[n]);
             self.coded.push(self.soft[n + 1]);
         }
-        // 100 steps in, 96 information bits out: the last four are the encoder's flush.
         self.info.clear();
         self.viterbi.decode(&self.coded, &mut self.info);
 
@@ -234,7 +216,6 @@ impl Decoder {
         for (i, byte) in fich.iter_mut().enumerate() {
             *byte = (value >> (40 - i * 8)) as u8;
         }
-        // CRC-16 over the four information bytes, sent high byte first.
         let crc = !crc16_msb(0x1021, 0, &fich[..4]);
         if crc != u16::from_be_bytes([fich[4], fich[5]]) {
             return None;
@@ -261,7 +242,6 @@ impl Decoder {
     fn voice(&mut self, data_mode: u8, kind: DvFrameKind, out: &mut ChannelOutputs) {
         self.window.bits(0, PAYLOAD_SYMBOLS, &mut self.bits);
         match data_mode {
-            // Five repetitions of 36 DCH symbols + one 36-symbol AMBE+2 frame.
             0 => {
                 if kind != DvFrameKind::Voice {
                     return;
@@ -310,8 +290,6 @@ impl Decoder {
                     self.half_vocoder.decode_half_info(&info, false, out);
                 }
             }
-            // Header Voice-FR frames reserve the first 216 symbols for the subheader; regular
-            // communication frames carry five back-to-back full-rate IMBE frames.
             3 => {
                 let (first, count) = match kind {
                     DvFrameKind::Header => (216, 2),

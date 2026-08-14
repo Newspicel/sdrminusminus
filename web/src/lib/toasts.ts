@@ -1,9 +1,3 @@
-// Every failure the operator must see, in one place (). A banner row at the top of
-// the shell moved every panel underneath it whenever the server refused something; a toast
-// stack reports the same fact without the layout the operator did not ask for.
-//
-// The manager lives outside React so the socket and mutation handlers can queue from anywhere;
-// `Toasts` is only its renderer.
 import { Toast } from "@base-ui/react/toast";
 
 export type Tone = "error" | "info";

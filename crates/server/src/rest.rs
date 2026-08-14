@@ -1,6 +1,3 @@
-//! REST handlers (). Each is a `#[utoipa::path]` so the OpenAPI — and therefore the
-//! generated TypeScript client — is produced from these signatures, never hand-written.
-
 use axum::{
     body::Body,
     extract::{
@@ -37,8 +34,6 @@ use crate::{
     workspace,
 };
 
-/// Typed REST error → `(status, ApiError)` (). Declaring these in each path's responses
-/// is what gives the generated client a typed `error` branch.
 #[derive(Debug)]
 pub(crate) struct AppError {
     status: StatusCode,
@@ -172,8 +167,6 @@ impl From<StoreError> for AppError {
             StoreError::Timestamp(_) | StoreError::Sources(_) | StoreError::WorkspaceLayout(_) => {
                 StatusCode::BAD_REQUEST
             }
-            // A name collision and a stale revision are both "someone else got there first";
-            // the client resolves them by renaming or by reloading, never by retrying blind.
             StoreError::WorkspaceNameTaken(_) | StoreError::WorkspaceConflict { .. } => {
                 StatusCode::CONFLICT
             }
@@ -576,8 +569,6 @@ fn apply_configuration(
     })?;
     let total_new = channels.len();
     for (done, settings) in channels.into_iter().enumerate() {
-        // Stream 0 by construction: a preset snapshot carries no stream, and templates wire
-        // `iq` — the bare stream-0 port — in their patches.
         engine.add_channel(ds, 0, settings).map_err(|e| {
             AppError::from(e).with_detail(format!(
                 "{what} partially applied: existing channels removed, device settings \
@@ -1070,7 +1061,6 @@ fn csv_export(entries: &[DecoderLogEntry]) -> Result<String, serde_json::Error> 
     Ok(out)
 }
 
-/// RFC4180 §2: quote a field containing a comma, a quote or a line break, doubling the quotes.
 fn csv_field(value: &str) -> String {
     if value.contains(['"', ',', '\n', '\r']) {
         format!("\"{}\"", value.replace('"', "\"\""))
@@ -1107,7 +1097,6 @@ pub(crate) fn reconcile_recordings(dir: &std::path::Path, store: &Store) -> Resu
         // about what is actually replayable.
         let samples = reader.total_samples();
         let meta = reader.meta();
-        // `core:sample_rate` is optional in SigMF, but playback (and duration) need one.
         let Some(sample_rate) = meta.global.sample_rate else {
             tracing::warn!(stem = %stem.display(), "skipping recording without a core:sample_rate");
             continue;
@@ -1260,9 +1249,6 @@ async fn apply_template(
     };
     let channels = template.channels.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        // Before `apply_configuration`, which deletes the set's existing channels before it
-        // retunes: a refusal after that point would leave the operator with a wiped device set
-        // and an error, which is worse than the mismatch it was reporting.
         let open = engine.snapshot();
         if let Some(set) = open.device_sets.iter().find(|set| set.id == req.device_set)
             && let Some(reason) = template.unmet_by(&set.capabilities.profile())
@@ -1279,15 +1265,6 @@ async fn apply_template(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Draw the template's patch into the active workspace (CANVAS §8 phase ④). Node ids are
-/// namespaced by the template, so applying one twice replaces its own block instead of stacking
-/// copies of it, and the device it names is the set the channels were just created on — the
-/// patch wires into an existing node for that radio rather than drawing a second box for it.
-///
-/// The device configuration has already been applied when this runs, and it is the part the
-/// user asked for: a workspace that cannot take the patch (no workspace active, or another client
-/// just rewrote it) must not turn a successful apply into an error. The failure is swallowed
-/// here and only here.
 fn apply_template_patch(
     engine: &sdrmm_engine::Engine,
     store: &Store,
@@ -1326,23 +1303,6 @@ fn apply_template_patch(
     }
 }
 
-/// Bring the engine up to what a workspace draws (CANVAS §2): open the radios its device nodes
-/// name, and add the channels hanging off them.
-///
-/// **Additive and idempotent, on purpose.** It never closes a device set and never deletes a
-/// channel: removing a node is its own gesture with its own endpoint, and a reconciler that also
-/// deleted would turn "this workspace has fewer nodes than the engine has channels" — which is
-/// the normal state when a second client adds one — into "close that operator's radio". Applying
-/// the same workspace twice is therefore a no-op, which is what makes it safe to call on load.
-///
-/// Bindings are computed here and never stored (CANVAS §3): a device node claims the first
-/// unclaimed set or attached radio its [`sdrmm_wire::DeviceRef`] matches, in stored node order,
-/// so serial-less clones bind at most one node each and the assignment is stable across runs.
-///
-/// `saved` is where those nodes were last tuned ([`crate::workspace`]). A radio this apply *opens*
-/// is handed its settings back before its channels are added, and a channel node is created with
-/// the offset, squelch and params it last had rather than its type's defaults — which is the
-/// difference between a workspace that survives a restart and one that comes back neutral ().
 fn bring_up(
     engine: &sdrmm_engine::Engine,
     snapshot: &WorkspaceSnapshot,
@@ -1386,8 +1346,6 @@ fn bring_up(
             Some(device_id) => match engine.create_device_set(&device_id) {
                 Ok(id) => {
                     report.opened += 1;
-                    // Before any channel is added, because the saved sample rate is what decides
-                    // whether the wideband channels below are even legal ().
                     if let Err(reason) = workspace::restore_device(engine, id, &node.id, saved) {
                         report.refused.push(PatchRefusal {
                             node: node.id.clone(),
@@ -1622,10 +1580,6 @@ async fn activate_workspace(
 ) -> Result<StatusCode, AppError> {
     let state = state.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        // The same gate apply takes. Activation closes radios and apply opens them, and the
-        // client runs one straight after the other: unserialized, a switch could close the set
-        // the previous workspace's apply had just opened, or two clients switching at once could
-        // each reconcile against state the other was still changing.
         let _serialized = state
             .apply_gate
             .lock()
@@ -1853,9 +1807,6 @@ async fn get_license_text(Path(id): Path<String>) -> Result<Json<LicenseTextResp
         })
 }
 
-/// OpenAPI metadata plus the schemas no path references — the WS message enums and the stored
-/// preset blob — which must be force-registered as components () to appear in the
-/// generated TypeScript.
 #[derive(OpenApi)]
 #[openapi(
     info(title = "sdr-- API", version = env!("CARGO_PKG_VERSION")),

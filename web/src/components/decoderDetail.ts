@@ -49,8 +49,6 @@ const DETAIL: {
 
   pocsag: (p) => ({
     fields: fields([
-      // Seven digits, zero padded, which is how a RIC is quoted and what makes a column of
-      // them align.
       ["RIC", String(p.address).padStart(7, "0")],
       ["Function", `${"ABCD"[p.function] ?? p.function} (${p.function})`],
       ["Baud", String(p.baud)],

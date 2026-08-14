@@ -1,29 +1,5 @@
 //! RDS decoder ( P2): the 57 kHz DBPSK subcarrier on the FM composite, per
 //! EN 50067 / IEC 62106.
-//!
-//! Carrier recovery rides on the 19 kHz pilot rather than on the data: the pilot is several dB
-//! stronger than the subcarrier and always present, and the subcarrier is locked to its third
-//! harmonic (§1.2.1), so cubing the pilot phasor hands the data path a carrier that needs no
-//! acquisition. What is left over is a fixed rotation — the standard also permits the
-//! subcarrier to sit in quadrature with that harmonic — which a decision-directed loop on the
-//! recovered symbols removes; differential decoding then makes its residual 180° ambiguity
-//! irrelevant.
-//!
-//! **What comes from the modulation library and what does not** ( §7 phase 4). The
-//! mapper does: the alphabet is `constellation::tables::bpsk()` — the crate's BPSK table, bit 1 at
-//! the positive point — and the decision is that table's own `hard_slice`, so RDS carries no
-//! private notion of what a BPSK symbol is. The differential decode is `symbolcode`'s, the one
-//! implementation of that rule in the workspace. The *carrier* deliberately stays here: RDS does
-//! not recover it from the data at all, it takes it from the 19 kHz pilot's third harmonic, and
-//! that is a property of this standard rather than of BPSK. A library carrier loop would be
-//! solving a problem RDS does not have.
-//!
-//! The composite is mixed before it is filtered. A real bandpass at the composite rate
-//! followed by a mixer is the same filter as a mixer followed by the translated lowpass, but
-//! the polyphase decimator evaluates the latter only at the instants it keeps — the same
-//! response for a fraction of the multiplies — and it also rejects the −114 kHz mixer image
-//! that a bandpass-first chain would fold straight back onto the data.
-
 use std::f64::consts::FRAC_1_SQRT_2;
 
 use num_complex::Complex;
@@ -36,11 +12,8 @@ use sdrmm_modem::{
 };
 use sdrmm_wire::{DecoderEvent, RdsUpdate};
 
-/// Bit rate: the subcarrier divided by 48 (EN 50067 §1.2.2).
 const BIT_RATE: f64 = 1_187.5;
-/// Stereo pilot; the subcarrier is its third harmonic (EN 50067 §1.2.1).
 const PILOT_HZ: f64 = 19_000.0;
-/// The shaped data spectrum ends at twice the bit rate (EN 50067 §1.2.4).
 const DATA_EDGE_HZ: f64 = 2.0 * BIT_RATE;
 /// Nearest composite neighbour of the subcarrier: the stereo difference signal ends at
 /// 53 kHz, 4 kHz below it.
@@ -84,12 +57,8 @@ const PS_LEN: usize = 8;
 /// Every PS segment seen.
 const PS_COMPLETE: u8 = u8::MAX;
 const RT_LEN: usize = 64;
-/// Ends a RadioText message shorter than 64 characters (EN 50067 §3.1.5.3).
 const RT_TERMINATOR: u8 = 0x0D;
 
-/// AF coding (EN 50067 §3.2.1.6.1): 224+n announces n alternative frequencies and 1..=204 are
-/// 87.5 MHz + 100 kHz·code. Everything else — 0 "not used", 205..=223 filler, 250 "LF/MF
-/// follows", 251..=255 spare — carries no VHF frequency.
 const AF_COUNT_BASE: u8 = 224;
 const AF_COUNT_TOP: u8 = 249;
 const AF_MAX_CODE: u8 = 204;
@@ -164,8 +133,6 @@ impl RdsDecoder {
         let baseband_rate = mpx_rate / factor as f64;
         let sps = baseband_rate / BIT_RATE;
         let data_lp = anti_alias(mpx_rate, baseband_rate, factor);
-        // Same length as the data filter, so both paths carry the same group delay and the
-        // pilot correction stays aligned with the samples it corrects.
         let pilot_lp = design_lowpass(data_lp.len(), PILOT_CUTOFF_HZ / mpx_rate);
         Self {
             mpx_rate,
@@ -216,8 +183,6 @@ impl RdsDecoder {
         self.symbols.clear();
         self.timing.process(&self.shaped, &mut self.symbols);
         for &symbol in &self.symbols {
-            // The table's label *is* the bit: the BPSK table labels its positive point 1, the
-            // crate-root sign convention, so no local polarity rule survives here.
             let level = self.alphabet.hard_slice(self.phase.process(symbol)) == 1;
             let bit = self.differential.decode(level);
             self.frames.push_bit(bit, out);
@@ -453,7 +418,6 @@ struct Station {
     af_expected: usize,
 }
 
-// `[u8; 64]` is past the array sizes `Default` is derived for.
 impl Default for Station {
     fn default() -> Self {
         Self {
@@ -801,8 +765,6 @@ mod tests {
     #[test]
     fn block_errors_are_counted_and_sync_is_regained_after_a_burst() {
         let mut bits = bits_of(&tx_groups(&station(), 60));
-        // Wreck four consecutive groups early enough that the PS name and the RadioText only
-        // finish assembling after the damage.
         for bit in bits.iter_mut().skip(2 * GROUP_BITS).take(4 * GROUP_BITS) {
             *bit = !*bit;
         }

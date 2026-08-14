@@ -1,10 +1,3 @@
-// Which engine object each node is driving right now (CANVAS §3).
-//
-// Bindings are computed, never stored: engine ids are allocated per run and reused, so a stored
-// one would silently attach a node to whichever radio opened first. This mirrors
-// `bring_up` in `crates/server/src/rest.rs` and `DeviceRef::matches` in
-// `crates/wire/src/patch.rs` — the same two rules, so the face the canvas draws is the channel
-// the server's apply would have created. Both sides carry tests; if one changes, both change.
 
 import type {
   ChannelInfo,
@@ -89,9 +82,6 @@ export function bindChannels(
   for (const [deviceNode, set] of devices) {
     const free = [...set.channels];
     for (const { node, stream } of channelNodesOf(graph, deviceNode)) {
-      // The stream is part of the key, exactly as in the server's apply: matched on type alone,
-      // a node wired to `iq3` could claim the stream-0 channel of its type — and removing it
-      // would then delete that channel while its own kept running.
       const at = free.findIndex(
         (channel) =>
           channel.settings.params.type === node.data.channel_type &&

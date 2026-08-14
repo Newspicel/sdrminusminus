@@ -55,7 +55,6 @@ impl Call {
     pub fn link_control(&self) -> Vec<bool> {
         let flco = u64::from(!self.group) * 3;
         let mut lc = bits(flco, 8);
-        // Feature set id 0 (ETSI standard), then service options whose second bit is privacy.
         lc.extend(bits(0, 8));
         lc.extend(bits(u64::from(self.encrypted) << 6, 8));
         lc.extend(bits(u64::from(self.destination), 24));
@@ -205,7 +204,6 @@ pub(crate) fn transmission_with_voice(
     rate: f64,
 ) -> Vec<Complex<f32>> {
     let mut tx = Keyed::default();
-    // Conventional voice initiation is one LC header followed by voice burst A (§5.1.2.2).
     tx.burst(&data_burst(
         call,
         DT_VOICE_LC_HEADER,
@@ -213,8 +211,6 @@ pub(crate) fn transmission_with_voice(
     ));
 
     let embedded = Bptc128::encode(&embedded_block(call));
-    // Burst A carries the sync; B to E one quarter each of the embedded link control; F the
-    // null fragment that closes the superframe.
     tx.burst(&voice_burst(call, None, &voice[0]));
     for (i, lcss) in [0b01u8, 0b11, 0b11, 0b10].into_iter().enumerate() {
         let fragment: Vec<bool> = embedded[i * 32..(i + 1) * 32].to_vec();
@@ -242,8 +238,6 @@ pub fn csbk(
     csbk_with_fid(color_code, 0, opcode, destination, source, rate)
 }
 
-/// A CSBK in a manufacturer feature set, used to prove that an opcode collision never enters
-/// the standardized ETSI field parser.
 #[must_use]
 pub(crate) fn csbk_with_fid(
     color_code: u8,
@@ -254,8 +248,6 @@ pub(crate) fn csbk_with_fid(
     rate: f64,
 ) -> Vec<Complex<f32>> {
     let mut payload = bits(u64::from(opcode) & 0x3F, 8);
-    // Feature set id, then the sixteen opcode-specific bits every CSBK carries ahead of its
-    // two addresses.
     payload.extend(bits(u64::from(fid), 8));
     payload.extend(bits(0, 16));
     payload.extend(bits(u64::from(destination), 24));
@@ -267,8 +259,6 @@ pub(crate) fn csbk_with_fid(
         color_code,
         ..Call::default()
     };
-    // Repeated, as the preamble CSBKs that precede a call are: one burst is 27.5 ms of carrier
-    // and a receiver joining a dead channel has nothing else to acquire on.
     let mut tx = Keyed::default();
     for _ in 0..3 {
         tx.burst(&data_burst(&call, DT_CSBK, &payload));

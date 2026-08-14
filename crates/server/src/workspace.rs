@@ -1,17 +1,3 @@
-//! Keeping a workspace's *settings*, not just its shape ().
-//!
-//! A workspace stores the patch: which radios, which channels, how they are wired and where the
-//! faces sit. Until now that was all that survived a restart — applying a workspace reopened the
-//! radios and recreated the channels at `ChannelParams::default_for`, so a morning spent setting
-//! offsets, squelch and gains came back neutral.
-//!
-//! This module is the missing half. It binds the graph's nodes to the engine's live device sets
-//! and channels, captures what those are set to into a [`WorkspaceState`] keyed by node id, and
-//! hands the settings back on the next apply. The binding rules are apply's own — a device node
-//! claims the first unclaimed set its [`DeviceRef`] matches, in stored node order; a channel node
-//! claims the first unclaimed channel of its (type, stream) — which is what makes capture and
-//! restore agree on which node is which without storing a per-run id (`crate::rest::bring_up`).
-
 use std::time::Duration;
 
 use sdrmm_engine::Engine;
@@ -78,12 +64,6 @@ pub(crate) fn adopt_named_devices(engine: &Engine, store: &Store) {
     }
 }
 
-/// Match the graph's device nodes to device sets that are already open.
-///
-/// Stored node order, one set per node: two nodes naming the same serial-less clone bind to one
-/// set each rather than both to the first, which is what makes the assignment stable across runs
-/// (CANVAS §3). Nodes with no open set are simply absent from the result — opening one is
-/// apply's job and never capture's.
 pub(crate) fn bind_devices(graph: &PatchGraph, state: &StateSnapshot) -> Vec<(String, u32)> {
     let mut bound = Vec::new();
     let mut claimed: Vec<u32> = Vec::new();
@@ -154,15 +134,6 @@ pub(crate) fn bind(graph: &PatchGraph, state: &StateSnapshot) -> Vec<DeviceBindi
         .collect()
 }
 
-/// What the engine currently has every bound node set to.
-///
-/// A set the scanner owns is skipped: a running scan retunes the device every dwell (), so
-/// its centre frequency is wherever the sweep happens to be and not something the operator asked
-/// for. Capturing it would persist a step of the sweep as the workspace's tuning.
-///
-/// A node in `unrestored` is skipped for the same reason one level up: the switch could not hand
-/// that radio this workspace's settings, so what it is running is the *previous* workspace's, and
-/// writing it back would overwrite the tuning this workspace had saved.
 pub(crate) fn capture(
     graph: &PatchGraph,
     state: &StateSnapshot,
@@ -263,9 +234,6 @@ pub(crate) fn spawn_autosave(state: &AppState) {
             }
             let saving = state.clone();
             match tokio::task::spawn_blocking(move || {
-                // The gate activation and apply take. Without it a debounced save can land in
-                // the middle of a switch — after the active row moved but before the reconcile
-                // finished — and write half-reconciled state into the incoming workspace's row.
                 let _serialized = saving
                     .apply_gate
                     .lock()
@@ -364,13 +332,6 @@ pub(crate) fn reconcile(
         else {
             continue;
         };
-        // A sweep owns the set's centre frequency () and `patch_device` refuses every
-        // client retune while one runs, so it has to stop before the restore below or the whole
-        // settings delta is dropped and the workspace comes up on the sweep's dial.
-        //
-        // Unconditionally, even when the incoming workspace draws a scanner of its own: the sweep
-        // that is running belongs to the *outgoing* workspace — its ranges, its dwell — and a scan
-        // is never persisted, so an incoming scanner node means an idle scanner, not this one.
         if set.scanner.is_some() {
             match engine.stop_scan(set.id) {
                 Ok(_) => report.stopped_scans += 1,
@@ -391,10 +352,6 @@ pub(crate) fn reconcile(
         }
         if let Err(err) = restore_device(engine, set.id, &binding.node, saved) {
             tracing::warn!(err, set = set.id, "could not restore a radio on switch");
-            // The workspace is now on settings that are not its own, and the autosave would
-            // shortly write them into its row — losing the tuning this whole feature exists to
-            // keep. Say so where a capture can see it (`capture` skips these nodes) rather than
-            // letting the loss happen quietly.
             report.unrestored.push(binding.node.clone());
         }
         // A channel that *survived* the switch keeps the outgoing workspace's offset, squelch and
@@ -419,12 +376,6 @@ pub(crate) fn reconcile(
     report
 }
 
-/// Hand a device set the settings its node last had.
-///
-/// Apply calls this only for sets *it* opened: apply is additive and idempotent by design — it
-/// never disturbs a set someone else is already using (`crate::rest::bring_up`) — and
-/// re-tuning a running radio because a second browser loaded the workspace would be exactly that.
-/// [`reconcile`] calls it for the sets an explicit switch keeps, where retuning is the point.
 pub(crate) fn restore_device(
     engine: &sdrmm_engine::Engine,
     device_set: u32,

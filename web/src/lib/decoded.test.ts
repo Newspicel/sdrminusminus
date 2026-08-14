@@ -65,7 +65,6 @@ describe("frame ring", () => {
 
     const frames = useDecodedStore.getState().frames.adsb ?? [];
     expect(frames).toHaveLength(RING_CAPACITY);
-    // Newest first, mirroring GET /api/decoderlog.
     expect(frames[0]?.event.data.raw).toBe(`frame-${RING_CAPACITY + overflow - 1}`);
     expect(frames.at(-1)?.event.data.raw).toBe(`frame-${overflow}`);
     expect(useDecodedStore.getState().received).toBe(RING_CAPACITY + overflow);
@@ -223,7 +222,6 @@ describe("loss and clear", () => {
       received: 0,
     });
 
-    // The staged frame was discarded, not just hidden until the next flush.
     vi.advanceTimersByTime(FLUSH_MS);
     expect(useDecodedStore.getState().frames.adsb).toBeUndefined();
   });
@@ -233,8 +231,6 @@ describe("station capacity", () => {
   it("evicts the least recently seen once the cap is passed", () => {
     const store = useDecodedStore.getState();
     store.clear();
-    // POCSAG has a station identity but no view that drives ageOut, so the cap is the only
-    // thing standing between a busy pager frequency and unbounded growth.
     const overflow = 50;
     for (let i = 0; i < STATION_CAPACITY + overflow; i += 1) {
       store.push({

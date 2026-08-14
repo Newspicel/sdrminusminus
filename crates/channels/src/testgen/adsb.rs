@@ -1,18 +1,9 @@
-//! Mode S reference modulator (): DF17 extended squitters and the DF4/5/11/20/21
-//! replies a transponder sends, PPM-modulated onto complex baseband at 1 Mbit/s.
-//!
-//! The CPR, Gillham and 6-bit-callsign encoders here are written straight from DO-260B rather
-//! than reused from [`crate::adsb`]. That is deliberate: NL(lat) is the closed form here and a
-//! 58-entry table there, so a mistyped table digit surfaces as a failing position test instead
-//! of cancelling out between generator and decoder.
-
 use std::f64::consts::{PI, TAU};
 
 use num_complex::Complex;
 use sdrmm_dsp::{mode_s_append_overlaid_parity, mode_s_append_parity};
 use sdrmm_modem::ppm::SlotWaveform;
 
-/// 6-bit identification charset (DO-260B §2.2.3.2.5.2).
 const IDENT_CHARSET: &[u8; 64] =
     b"#ABCDEFGHIJKLMNOPQRSTUVWXYZ##### ###############0123456789######";
 
@@ -28,7 +19,6 @@ const PREAMBLE_CHIPS: usize = 16;
 #[must_use]
 pub fn squitter(icao: u32, me: [u8; 7]) -> Vec<u8> {
     let mut frame = Vec::with_capacity(14);
-    // DF 17, CA 5: a level-2 transponder that is airborne — what every airliner sends.
     frame.push(17 << 3 | 5);
     frame.extend_from_slice(&icao.to_be_bytes()[1..]);
     frame.extend_from_slice(&me);
@@ -146,8 +136,6 @@ pub fn me_velocity(ground_speed_kt: f64, track_deg: f64, vertical_rate_fpm: i32)
     me
 }
 
-/// The BDS 2,0 Comm-B register: the register's own code followed by the same 8 six-bit
-/// characters an identification squitter sends (DO-181E §2.2.19.1.12).
 #[must_use]
 pub fn mb_identification(callsign: &str) -> [u8; 7] {
     let mut mb = [0u8; 7];
@@ -236,7 +224,6 @@ fn identity_field13(squawk: &str) -> u64 {
         panic!("squawk must be four octal digits, got {squawk:?}")
     };
     let mut field = 0u64;
-    // (weight bit of the digit, index in the field), most significant index first.
     for (value, places) in [
         (a, [1, 3, 5]),
         (b, [7, 9, 11]),
@@ -260,8 +247,6 @@ fn barometric_field(alt_ft: i32) -> u64 {
     let steps = (f64::from(alt_ft) / 100.0).round() as i64 + 13;
     let five_hundreds = ((steps - 1) / 5).clamp(0, 255) as u32;
     let hundreds = (steps - i64::from(five_hundreds) * 5) as u32;
-    // Inverse of the decoder's two involutions: odd 500 ft bands count backwards, and 5 and 7
-    // are exchanged in the C bits.
     let mut c = if five_hundreds & 1 == 1 {
         6 - hundreds
     } else {
@@ -273,7 +258,6 @@ fn barometric_field(alt_ft: i32) -> u64 {
     let gray_five = gray_encode(five_hundreds);
     let gray_c = gray_encode(c);
     let bit = |value: u32, index: u32| u64::from(value >> index & 1);
-    // Field order C1 A1 C2 A2 C4 A4 B1 D1 B2 D2 B4 D4, D1 (the Q bit) clear.
     bit(gray_c, 2) << 11
         | bit(gray_five, 5) << 10
         | bit(gray_c, 1) << 9
@@ -303,7 +287,6 @@ pub fn cpr_nl(lat: f64) -> i32 {
     if lat >= 87.0 {
         return 1;
     }
-    // The formula is exactly 60 at the equator, where the zone count is defined as 59.
     if lat == 0.0 {
         return 59;
     }
@@ -311,8 +294,6 @@ pub fn cpr_nl(lat: f64) -> i32 {
     (TAU / a.acos()).floor() as i32
 }
 
-/// CPR encoding of a position into the 17-bit lat/lon pair of one frame (DO-260B
-/// §2.2.3.2.6.4). `zone` is 360° for airborne frames, 90° for surface ones.
 #[must_use]
 pub fn cpr_encode(lat: f64, lon: f64, odd: bool, zone: f64) -> (u32, u32) {
     let i = f64::from(i32::from(odd));
@@ -379,8 +360,6 @@ pub fn transmission_at_phase(
     phase: f64,
 ) -> Vec<Complex<f32>> {
     let samples_per_us = rate / 1e6;
-    // Gaps and frame extents are whole output samples, so every frame starts on the output
-    // grid and `phase` alone says where its chips sit within a sample.
     let gap = (gap_us * samples_per_us).round().max(0.0) as usize;
     let waveform = SlotWaveform::new(samples_per_us * 0.5, phase, level);
     let mut iq: Vec<Complex<f32>> = Vec::new();
@@ -410,7 +389,6 @@ mod tests {
         assert_eq!(me[0] >> 3, 11);
         let cpr_lat = u32::from(me[2] & 0x03) << 15 | u32::from(me[3]) << 7 | u32::from(me[4]) >> 1;
         let cpr_lon = u32::from(me[4] & 0x01) << 16 | u32::from(me[5]) << 8 | u32::from(me[6]);
-        // The published position is quoted to 4 decimals, which is ±1 CPR count.
         assert!(cpr_lat.abs_diff(93_000) <= 2, "lat cpr {cpr_lat}");
         assert!(cpr_lon.abs_diff(51_372) <= 2, "lon cpr {cpr_lon}");
     }
@@ -430,7 +408,6 @@ mod tests {
     #[test]
     fn a_frame_is_one_microsecond_per_bit() {
         let iq = transmission(&[vec![0x00; 14]], 10.0, 1.0, 2_000_000.0);
-        // 10 µs lead-in + 8 µs preamble + 112 µs of bits + 10 µs lead-out, at 2 samples/µs.
         assert_eq!(iq.len(), 2 * (10 + 8 + 112 + 10));
     }
 }

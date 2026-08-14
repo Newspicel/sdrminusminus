@@ -1,18 +1,3 @@
-//! The reference CPM transmitter: a symbol-impulse train through the frequency pulse, a phase
-//! integrator, complex baseband out. This is *the* modulator behind every CPM catalog entry —
-//! `testgen`'s per-mode C4FM/GMSK recipes migrate onto it ( §1.2: testgen builds
-//! demodulator test signals from the library's own modulators, so the two can never drift
-//! apart), and `tx.rs` drives it as a signal generator.
-//!
-//! Phase arithmetic: with the unit-area frequency pulse `g` (asserted by [`CpmParams`]) and a
-//! symbol at level L, the per-sample phase step is `π·h·(impulses ⊛ g)[n]`, so one symbol
-//! advances the carrier by exactly `π·h·L` — the Aulin/Sundberg q(∞) = ½ convention
-//! (see `pulse::phase_pulse`). The accumulator is f64 and wrapped each sample, so a
-//! transmission of any length casts to f32 without the phase's magnitude eating its precision.
-//!
-//! Design is cold path: constructors and the keyed builder allocate freely. The §4.2
-//! zero-allocation gate binds the demodulator's `process()`, not a test-signal generator.
-
 use std::f64::consts::{PI, TAU};
 
 use num_complex::Complex;
@@ -118,8 +103,6 @@ impl CpmMod {
         let mut shaped = Vec::with_capacity(len);
         RealDecimator::new(self.params.freq_pulse(), 1).process(&impulses, &mut shaped);
 
-        // The amplifier is on wherever a radiated symbol's pulse has support: symbol k's
-        // energy spans samples [round(k·sps), round(k·sps) + pulse_len).
         let mut on = vec![false; shaped.len()];
         for (k, &sym) in symbols.iter().enumerate() {
             if sym.is_some() {
@@ -237,9 +220,6 @@ mod tests {
         }
     }
 
-    /// The full-response phase-step contract: one rect-pulse symbol at level L advances the
-    /// carrier by exactly π·h·L (q(∞) = ½). h = 0.4 keeps every checked cumulative phase
-    /// clear of the ±π wrap, where arg()'s sign is a coin toss.
     #[test]
     fn a_full_response_symbol_advances_phase_by_pi_h_level() {
         let h = 0.4;
@@ -293,7 +273,6 @@ mod tests {
         let out = m.keyed(&syms);
         assert_eq!(out.len(), 180 * 10 + dmr_params().freq_pulse().len());
 
-        // The gap: from a pulse length past the last on-symbol to the next burst's start.
         let pulse_len = dmr_params().freq_pulse().len();
         let gap = &out[60 * 10 + pulse_len..120 * 10];
         assert!(

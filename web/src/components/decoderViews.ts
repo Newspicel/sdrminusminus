@@ -1,10 +1,3 @@
-// Pure view logic for the live decoder readouts (). Everything a test can pin down —
-// row projection, ageing, sorting, the transcript trim rule — lives here so the components in
-// `DecoderPanels.tsx` stay render-only.
-//
-// Only the decoders whose output is *accumulated state* have a readout: a station picture, a
-// target table, a teleprinter roll, a tone. The ones whose output is a stream of independent
-// frames are read in the decoder log, so nothing here projects one (`DecoderPanels.VIEWS`).
 import type { StationOf } from "../lib/decoded";
 import type {
   AdsbMessage,
@@ -50,7 +43,6 @@ export function stationsInScope<S extends { deviceSet: number; channel: number }
   return stations.filter((s) => inScope(s.deviceSet, s.channel, scope));
 }
 
-// ── ageing ────────────────────────────────────────────────────────────────────────────────
 
 /** A target that has not been heard for this long is no longer "live" — it is dimmed rather
  * than removed, because silence is the only thing a transmitter out of range reports. */
@@ -75,7 +67,6 @@ export function formatAge(ageMs: number): string {
   return m < 60 ? `${m}:${pad2(seconds % 60)}` : `${Math.floor(m / 60)}h${pad2(m % 60)}`;
 }
 
-// ── target rows ───────────────────────────────────────────────────────────────────────────
 
 export interface TargetRow {
   id: string;
@@ -130,7 +121,6 @@ export function sortTargets(
   );
 }
 
-// ── formatting ────────────────────────────────────────────────────────────────────────────
 
 export function formatAltitudeFt(ft: number | null | undefined): string {
   return ft == null ? "—" : `${groupThousands(Math.round(ft))} ft`;
@@ -163,7 +153,6 @@ export function formatClock(at: string): string {
   return `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`;
 }
 
-// ── RDS ───────────────────────────────────────────────────────────────────────────────────
 
 /** Folds the scoped frames into one picture. The store merges forward per PI, but a transmitter
  * whose PI has not been received yet has no station row at all, and that is exactly when the
@@ -172,7 +161,6 @@ export function rdsPicture(records: readonly DecodedRecordOf<"rds">[]): RdsUpdat
   if (records.length === 0) {
     return null;
   }
-  // Records arrive newest-first, so folding from the tail lets a newer non-null field win.
   const merged = records.reduceRight<Record<string, unknown>>((acc, r) => {
     for (const [key, value] of Object.entries(r.event.data)) {
       if (value != null) {
@@ -223,7 +211,6 @@ export function formatAltFreqs(hz: readonly number[] | undefined): string[] {
   return (hz ?? []).toSorted((a, b) => a - b).map(formatHz);
 }
 
-// ── rolling text (RTTY / Morse) ───────────────────────────────────────────────────────────
 
 /** Characters kept in a transcript pane. Beyond this the head is dropped — the pane is a live
  * tail; the stored history is `GET /api/decoderlog`. */
@@ -271,7 +258,6 @@ export function isAtBottom(m: ScrollMetrics, tolerancePx = 8): boolean {
   return m.scrollHeight - m.scrollTop - m.clientHeight <= tolerancePx;
 }
 
-// ── subaudible signalling ─────────────────────────────────────────────────────────────────
 
 /** What is under the carrier, named the way a radio names it: a CTCSS tone in Hz to one
  * decimal, a DCS code as its three octal digits. Empty when there is nothing under it. */
@@ -282,7 +268,6 @@ export function toneLabel(status: { ctcss_hz?: number | null; dcs_code?: number 
   );
 }
 
-// ── helpers ───────────────────────────────────────────────────────────────────────────────
 
 function compareIds(a: string, b: string): number {
   if (a.length !== b.length) {
@@ -304,7 +289,6 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-// ── digital voice ─────────────────────────────────────────────────────────────────────────
 
 /** Mode names as operators write them, which is not how the wire spells them. */
 const DV_MODE_LABELS: Record<DvFrame["mode"], string> = {

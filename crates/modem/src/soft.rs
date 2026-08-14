@@ -1,18 +1,3 @@
-//! The soft-decision vocabulary of the boundary `IQ → demod → soft symbols → demapper → LLRs →
-//! FEC` ( §3.3). Both types carry the crate-root sign convention — positive means
-//! logical 1 — and both are one `f32`. What separates them is calibration: a [`SoftBit`]'s
-//! magnitude is confidence on whatever scale its producer used, while an [`Llr`] is the actual
-//! log-likelihood ratio `ln(P(bit = 1 | y) / P(bit = 0 | y))`, which can only be computed with
-//! the noise variance in hand. FEC that merely ranks hypotheses (Viterbi) is indifferent to a
-//! constant scale and eats either; anything that *combines* likelihoods across observations
-//! (Chase, turbo iteration, LLR summation over repeated bits) is only correct on true LLRs —
-//! and the two kinds of number look identical as bare floats. The newtypes exist so that
-//! mistake is a type error, not a decibel lost quietly in a curve.
-//!
-//! Every conversion below is one-directional in information: the doc of each states exactly
-//! what is lost, because a conversion that looks free but drops calibration or resolution is
-//! how soft-decision chains degrade without any test noticing.
-
 use sdrmm_dsp::fec::conv;
 
 /// A soft bit on an arbitrary confidence scale: the sign is the bit (positive = 1), the
@@ -161,7 +146,6 @@ mod tests {
         assert_eq!(Llr(-LLR_SATURATION).to_fec(), -CONFIDENT);
         assert_eq!(Llr(100.0).to_fec(), CONFIDENT);
         assert_eq!(Llr(LLR_SATURATION / 2.0).to_fec(), CONFIDENT / 2);
-        // One representable step is 0.125 nats.
         assert_eq!(Llr(0.125).to_fec(), 1);
         assert_eq!(Llr(0.06).to_fec(), 0);
     }

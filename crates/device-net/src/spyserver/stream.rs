@@ -1,12 +1,5 @@
 //! The sample half of a SpyServer connection: message framing on the capture thread, and the
 //! conversion from whichever quantisation the samples crossed the network in.
-//!
-//! The framing is why the two halves are here together. Every IQ message says in its own header
-//! what format its body is in and how many dB the server scaled it by before quantising, so the
-//! converter is told per block rather than configured once — which means a format change mid
-//! capture, or a server that scales differently than it was asked to, converts correctly instead
-//! of quietly producing samples at the wrong level.
-
 use std::{
     sync::{
         Arc, Mutex,
@@ -315,7 +308,6 @@ mod tests {
     /// that ignored them would report every level 6 dB high.
     #[test]
     fn the_servers_digital_gain_is_divided_back_out() {
-        // 6.02 dB is a factor of two, which is what one decimation stage asks for.
         let plain = converted(IqFormat::Int16, 0, &16_384i16.to_le_bytes().repeat(2));
         let scaled = converted(IqFormat::Int16, 6, &16_384i16.to_le_bytes().repeat(2));
         assert!(scaled[0].re < plain[0].re);

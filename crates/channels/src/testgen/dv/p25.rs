@@ -11,8 +11,6 @@ const DEVIATION_HZ: f64 = 1_944.0;
 const RRC_ALPHA: f64 = 0.2;
 const SYNC: u64 = 0x5575_F5FF_77FF;
 
-/// Frame lengths in bits, status symbols included (TIA-102.BAAA §7.3): a header, the two voice
-/// frames, a terminator and a trunking block.
 fn frame_bits(duid: u8) -> usize {
     match duid {
         0x0 => 792,
@@ -117,7 +115,6 @@ fn frame(nac: u16, duid: u8, voice: Option<&[[bool; 144]; 9]>, algorithm: u8) ->
     let mut read = 0;
     while out.len() < total {
         if out.len() >= 70 && (out.len() - 70) % 72 == 0 {
-            // Status di-bit 01: "unknown, use the default".
             out.push(false);
             out.push(true);
         } else {

@@ -1,21 +1,3 @@
-//! Sub-GHz OOK/ASK/FSK capture and decode (, §13 P2) — the garage remotes, doorbells,
-//! weather stations and TPMS sensors that live at 315 / 433.92 / 868 / 915 MHz.
-//!
-//! Two front ends produce the same thing: a keyed on/off stream. OOK takes the envelope
-//! through an adaptive slicer; FSK discriminates and slices the tone pair, gated by the same
-//! carrier detector. Above that everything is shared — edge timing, a base-period estimate,
-//! and a classifier that recognises the pulse-width family every cheap remote speaks and
-//! Manchester, and otherwise reports the raw edge timings so an unknown signal is still
-//! something you can look at.
-//!
-//! The channel is deliberately wide (150 kHz by default). These transmitters are SAW-
-//! controlled and routinely sit tens of kHz off their nominal frequency; a filter narrow
-//! enough to look correct on paper would simply not hear them.
-//!
-//! No chip is named. An EV1527's 24 data bits and a PT2262's 12 tri-state symbols are the
-//! *same* pulse train — so both readings ride along on a frame that fits, and the operator
-//! decides which device they are holding.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -137,27 +119,6 @@ pub(crate) fn channel_filter(p: &SubghzParams) -> Result<ChannelFilter, ChannelE
     )))
 }
 
-/// Turns IQ into a keyed on/off stream. Both arms share the carrier detector — the FSK one
-/// needs it too, because a discriminator with no carrier to discriminate produces noise that
-/// looks exactly like data.
-///
-/// The FSK arm deliberately does not ride a `cpm/` front end even though  §3.1
-/// lists subghz under the CPFSK row: a remote's symbol rate is a per-frame *measurement* —
-/// `base_period` reads it off the decoded edges after the fact — and frames are edge-timed at
-/// sample resolution, so there is no symbol clock for `SymbolSync` to recover and no symbol
-/// stream to slice. The transmit side does ride the library (`testgen::subghz::pwm_fsk` keys
-/// `CpmMod`); the receive side needs a clockless sample-domain detector the engine does not
-/// offer.
-///
-/// **Why the OOK arm did not migrate to the library's envelope tier in phase 4.** That tier
-/// (`sdrmm_modem::linear::EnvelopeDemod`) is symbol-synchronous: it takes an oversampling, runs a
-/// symbol clock, and emits one soft amplitude per symbol period. This decoder cannot give it one —
-/// it *measures* the symbol rate per frame from the keyed edges, because a garage remote's clock is
-/// whatever its RC oscillator happened to be that day and two units of the same model differ by
-/// tens of percent. What the library entry and this front end share is therefore the alphabet and
-/// the adaptive threshold, not the chain: the OOK row's committed bundle characterises magnitude
-/// detection of a *clocked* keyed carrier, and the clockless edge-timed tier this needs is the
-/// follow-on  §7 already lists for subghz.
 enum Detector {
     Ook {
         envelope: Envelope,
@@ -505,7 +466,6 @@ fn classify(edges: &[u32], rate: f64, modulation: SubghzModulation) -> SubghzFra
 /// shorter half first for a 0. This is the PT2262 / EV1527 / Princeton family and most of what
 /// a 433 MHz remote transmits.
 fn pwm_bits(steps: &[u32]) -> Option<Vec<bool>> {
-    // The trailing lone pulse is the sync bit whose long gap ended the frame.
     let pairs = steps.len() / 2;
     if pairs < MIN_BITS {
         return None;
@@ -805,8 +765,6 @@ mod tests {
     fn retune_drops_the_frame_being_held() {
         let iq = pwm(&ev1527(), RATE);
         let mut chan = channel(SubghzParams::default());
-        // Everything but the trailing silence: the frame is decoded but still being held for
-        // its repeats.
         let held = iq.len() - (0.4 * RATE) as usize;
         assert!(decode_blocks(&mut chan, &iq[..held], &BLOCKS).is_empty());
         chan.retuned();

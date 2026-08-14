@@ -1,30 +1,3 @@
-//! The frequency-allocation database (): "what is this frequency?".
-//!
-//! **The tables are data, not code.** Each layer is a JSON document in `data/bandplan/`, and most
-//! of them are *generated* — `cargo xtask bandplan` fetches the regulator's own publication and
-//! parses it, so the answer this gives is the one the source document gives, with the row it came
-//! from recorded on it. Hand-typing a regulator's table is how a band plan becomes quietly wrong
-//! and stays that way; the importers are re-runnable and their output is reviewed as a diff.
-//!
-//! The documents are `include_str!`d, so they ship inside the binary exactly as the old static
-//! tables did: no runtime file I/O, no seeded database that a migration has to correct and a user
-//! can delete. What changed is who writes them.
-//!
-//! Layering is the whole idea. A region names an ordered stack of [`Layer`]s, least specific
-//! first, and [`resolve`] flattens them so that at every frequency the most specific layer that
-//! has something to say wins, while everything it covers travels with the block for the identify
-//! popover. Amateur band plans are *not* in that stack: IARU plans are agreements between
-//! operators about a band a regulator has already allocated, so they resolve into a lane of
-//! their own and are drawn over the allocation rather than instead of it.
-//!
-//! What a regulator publishes is an allocation, not operator knowledge — BNetzA says
-//! "MOBILER SEEFUNKDIENST", not "Marine VHF, and channel 16 is the distress channel". The gap is
-//! [`ANNOTATIONS`]: a small curated overlay, the only hand-written data left, which adds the
-//! friendly name, the aliases the explorer searches, and the mode "tune here" applies.
-//!
-//! Adding a region is a JSON document plus one line in [`REGIONS`]. Nothing in the resolution
-//! knows which regulator it is walking.
-
 use std::sync::LazyLock;
 
 use sdrmm_wire::{
@@ -108,12 +81,6 @@ pub(crate) struct Layer {
     pub entries: Vec<Entry>,
 }
 
-/// The curated overlay that turns a regulator's wording into an operator's ().
-///
-/// A regulator publishes allocations; nobody publishes "this is Marine VHF, channel 16 is
-/// distress, tune it in NFM". This is that, and it is the only hand-written band data left. An
-/// annotation attaches to the *pieces* of an entry that fall inside it — entries are split at its
-/// edges first — so a note about 25 kHz of a 6 MHz allocation never relabels the whole thing.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Annotation {
     pub start_hz: f64,
@@ -305,7 +272,6 @@ static REGIONS: &[RegionDef] = &[
                 lat: (24.5, 49.4),
                 lon: (-125.0, -66.9),
             },
-            // Alaska and Hawaii, which the contiguous box misses entirely.
             Bbox {
                 lat: (51.0, 71.5),
                 lon: (-168.0, -130.0),
@@ -365,9 +331,6 @@ pub(crate) const DEFAULT_REGION: &str = "itu-r1";
 /// The lane the regulatory stack resolves into. Overlay lanes are named by their layer.
 const ALLOCATION_LANE: &str = "allocation";
 
-/// Every region, resolved once. The tables are static, so this is computed on first request and
-/// then handed out by clone — a plan is a few hundred blocks, and rebuilding it per request
-/// would sweep every layer again for an answer that cannot have changed.
 static PLANS: LazyLock<Vec<BandPlan>> = LazyLock::new(|| REGIONS.iter().map(build).collect());
 
 pub(crate) fn regions() -> BandRegionsResponse {
@@ -377,7 +340,6 @@ pub(crate) fn regions() -> BandRegionsResponse {
     }
 }
 
-/// The resolved plan for `region`, or `None` if no such region ships.
 pub(crate) fn plan(region: &str) -> Option<BandPlan> {
     PLANS.iter().find(|plan| plan.region.id == region).cloned()
 }
@@ -416,17 +378,14 @@ pub(crate) fn locate(lat: f64, lon: f64) -> BandRegionMatch {
 /// Atlantic leg of line B is a set of great-circle arcs, not the meridian used here. Every
 /// answer from this function is reported as `approximate`.
 fn itu_region_of(lat: f64, lon: f64) -> ItuRegion {
-    // Greenland is Region 1 despite sitting deep inside the Americas box.
     const GREENLAND: Bbox = Bbox {
         lat: (58.0, 84.0),
         lon: (-74.0, -11.0),
     };
-    // Region 3 east of line A: south of the former USSR, whose whole territory is Region 1.
     const ASIA_PACIFIC: Bbox = Bbox {
         lat: (-55.0, 45.0),
         lon: (60.0, 180.0),
     };
-    // Iran and the Persian Gulf's eastern shore, which line A puts in Region 3.
     const GULF_EAST: Bbox = Bbox {
         lat: (12.0, 40.0),
         lon: (44.0, 60.0),
@@ -469,8 +428,6 @@ fn build(def: &RegionDef) -> BandPlan {
         }
     }
 
-    // One table per plan, filled as the lanes resolve, so an allocation split into a dozen
-    // blocks by other layers' edges still travels exactly once.
     let mut pool = Pool::default();
     let mut lanes = vec![BandLane {
         id: ALLOCATION_LANE.to_string(),
@@ -508,9 +465,6 @@ fn build(def: &RegionDef) -> BandPlan {
     }
 }
 
-/// The plan's allocation table, built as the lanes resolve. Keyed by allocation id, which is
-/// unique within a plan by construction — a range is not, because a table routinely gives one
-/// range to several services at once.
 #[derive(Default)]
 struct Pool {
     allocations: Vec<BandAllocation>,
@@ -598,7 +552,6 @@ fn resolve(stack: &[&'static Layer], pool: &mut Pool) -> Vec<BandBlock> {
 
     while cursor < events.len() {
         let hz = events[cursor].hz;
-        // Emit the interval that ends here *before* applying this frequency's events.
         if !active.is_empty() && opened_at.is_finite() && hz > opened_at {
             push_block(&mut blocks, opened_at, hz, &active, &flat, pool);
         }
@@ -796,7 +749,6 @@ mod tests {
         let blocks = resolve(&[layer], &mut pool);
         let name = |at: u32| pool.allocations[at as usize].official_name.clone();
 
-        // 100–150: two services, the primary one winning over the secondary.
         assert_eq!(blocks[0].start_hz, 100.0);
         assert_eq!(blocks[0].stop_hz, 150.0);
         assert_eq!(name(blocks[0].of), "MARITIME MOBILE");
@@ -811,7 +763,6 @@ mod tests {
             "a secondary co-allocation must be kept, not dropped"
         );
 
-        // 150–200: all three overlap.
         assert_eq!(blocks[1].stop_hz, 200.0);
         assert_eq!(blocks[1].covered.len(), 2);
 
@@ -892,8 +843,6 @@ mod tests {
         }
     }
 
-    /// Every index a block carries must be in range and name a layer the plan describes, or the
-    /// popover reads the wrong row — or panics.
     #[test]
     fn every_block_indexes_an_allocation_the_plan_carries() {
         for plan in PLANS.iter() {
@@ -920,12 +869,6 @@ mod tests {
         }
     }
 
-    /// The property the whole feature rests on: the most specific layer wins, and everything it
-    /// covers is still readable underneath it.
-    ///
-    /// 446.1 MHz is the case worth pinning. BNetzA's own row (Eintrag 248011, 446.0–446.2 MHz)
-    /// outranks the CEPT PMR446 entry over the same range, which outranks the ITU land-mobile
-    /// allocation over all of it — three layers, narrowing, and none of them lost.
     #[test]
     fn the_national_layer_wins_and_keeps_what_it_covers() {
         let plan = plan("de").expect("germany ships");
@@ -968,13 +911,10 @@ mod tests {
                 .map(|block| plan.allocations[block.of as usize].name.clone())
                 .unwrap_or_default()
         };
-        // 902–928 MHz is the Region 2 ISM band and a Region 1 GSM uplink.
         assert!(of("us", 915_000_000.0).contains("ISM"));
         assert!(!of("de", 915_000_000.0).contains("ISM"));
     }
 
-    /// The amateur plan is an overlay, not an override: the allocation lane must still say
-    /// "amateur" underneath it.
     #[test]
     fn the_amateur_overlay_is_its_own_lane() {
         let plan = plan("de").expect("germany ships");
@@ -1013,7 +953,6 @@ mod tests {
         let denver = locate(39.74, -104.99);
         assert_eq!(denver.region, "us");
 
-        // Inside CEPT but outside every national table this build ships.
         let warsaw = locate(52.23, 21.01);
         assert_eq!(warsaw.region, "cept");
         assert!(!warsaw.approximate);
@@ -1029,11 +968,9 @@ mod tests {
         assert_eq!(nairobi.region, "itu-r1");
         assert!(nairobi.approximate);
 
-        // Brazil is Region 2 without being the United States.
         let saopaulo = locate(-23.55, -46.63);
         assert_eq!(saopaulo.region, "itu-r2");
 
-        // Greenland sits inside the Americas box and is still Region 1.
         assert_eq!(locate(72.0, -40.0).itu_region, ItuRegion::R1);
     }
 

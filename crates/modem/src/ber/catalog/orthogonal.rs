@@ -1,29 +1,3 @@
-//! The noncoherent orthogonal M-FSK catalog entry ( §6, orthogonal row): M ∈ {2, 4, 8}
-//! measured chains, shared by every consumer of the entry — the curve/limits/E2E tests, the perf
-//! baseline, and `cargo xtask ber mfsk-orthogonal` — so every committed artifact is taken on the
-//! *same* chain.
-//!
-//! One geometry for all three alphabets, and deliberately the CPM entry's: 48 kHz, 4800 baud,
-//! 10 samples per symbol. The two entries then differ by their *detector* alone, which is what
-//! makes the cross-entry number in `CATALOG.md` — orthogonal M-FSK's filterbank against M-ary
-//! CPFSK's discriminator at the same M — a measurement rather than a comparison of two
-//! unrelated configurations.
-//!
-//! Three things this chain does *not* have, each because the detector removes the need:
-//!
-//! - **No channel-selection filter.** The bank's matched filters are the selectivity: a tone's
-//!   correlator integrates one symbol and sits on every other tone's null, so noise outside the
-//!   plan contributes only through those filters. The CPM rows need a front-end lowpass because
-//!   a discriminator eats its whole input bandwidth as noise; this one measures the same
-//!   waveform without one.
-//! - **No timing loop.** Timing is the engine's feedforward burst estimate (see `orthogonal`'s
-//!   demod docs) — one whole-sample offset per trial, maximising collected peak-tone energy.
-//! - **No acquisition preamble.** A noncoherent receiver has nothing to converge: the estimator
-//!   reads the payload's own tones. The only overhead is the 24-symbol unique word and the
-//!   16 filler symbols that keep its position *searched* rather than assumed (§4.1: alignment
-//!   is never assumed), both charged to Eb — 0.08 dB at the committed payload length, as the
-//!   labels say.
-
 use num_complex::Complex;
 
 use super::{
@@ -63,10 +37,6 @@ pub const UW: [u8; 24] = [
     5, 3, 1, 0, 0, 6, 1, 2, 7, 2, 1, 5, 6, 3, 5, 4, 5, 7, 7, 3, 6, 2, 6, 4,
 ];
 
-/// The tone plan of one alphabet: spacing 1 (the tightest orthogonal plan, and FT8's).
-///
-/// # Panics
-/// As [`MfskParams::orthogonal`].
 #[must_use]
 pub fn params(m: usize) -> MfskParams {
     MfskParams::orthogonal(m, SPS)
@@ -178,12 +148,6 @@ pub fn mfsk4_link() -> Link {
 pub fn mfsk8_link() -> Link {
     link_sized(8, PAYLOAD_SYMBOLS)
 }
-
-// --- Committed sweep parameters ----------------------------------------------------------------
-//
-// Grids bracket each waterfall from its shoulder to past the 1e-4 crossing. Orthogonal
-// signalling's whole point is visible in them: the shoulder moves *left* as M grows, which is
-// bandwidth being spent on energy efficiency.
 
 pub const M2_GRID: &[f64] = &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0];
 pub const M4_GRID: &[f64] = &[5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0];

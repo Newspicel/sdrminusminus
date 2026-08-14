@@ -1,10 +1,3 @@
-// The settings surface for one channel (CANVAS §1): where it sits in the receiver's passband,
-// and the knobs its mode owns. Edits go through `useChannelPatch`, the same optimistic pipeline
-// a marker drag and the keyboard use, so sliders don't fight WS-driven refetches and no two
-// surfaces disagree.
-//
-// Audio is deliberately absent: a channel's sound belongs to whatever speaker its `audio` wire
-// reaches, so play and volume live on the speaker face, once per listener.
 import { useState } from "react";
 import type { ChannelDescriptor, ChannelInfo, ChannelParams } from "../lib/types";
 import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
@@ -74,8 +67,6 @@ const DCS_CODES = [
   503, 506, 516, 532, 546, 565, 606, 612, 624, 627, 631, 632, 654, 662, 664, 703, 712, 723, 731,
   732, 734, 743, 754,
 ];
-// The tone and code a radio ships set to, so switching to a gating mode is one click rather
-// than two: 88.5 Hz and 023 are the most-used of each list.
 const CTCSS_DEFAULT_HZ = 88.5;
 const DCS_DEFAULT_CODE = 23;
 const CTCSS_OPTIONS: Options<number> = CTCSS_TONES_HZ.map((hz) => ({
@@ -141,7 +132,6 @@ export function ChannelControls({
   const settings = channel.settings;
   const offsetHz = settings.offset_hz ?? 0;
   const squelchDb = settings.squelch_db ?? null;
-  // Remembered across off/on so re-enabling restores the last threshold.
   const [offSquelchDb, setOffSquelchDb] = useState(DEFAULT_SQUELCH_DB);
   const squelchSlider = useDebouncedCommit((db) => onEdit({ squelch_db: db }));
   const limitHz = offsetLimitHz(spanHz, descriptor);
@@ -704,7 +694,6 @@ function ModeControls({
   }
 }
 
-// A new `ChannelParams` variant fails to compile until `ModeControls` gives it a form.
 function unhandledMode(_params: never): null {
   return null;
 }

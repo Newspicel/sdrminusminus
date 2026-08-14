@@ -1,24 +1,3 @@
-//! `cargo xtask ber <entry>` — run one measurement-harness entry and write its curves to disk
-//! ( §3.1: "`cargo xtask ber <entry>` → CSV/JSON").
-//!
-//! The command is the local face of the harness's CI contract: the same sweeps the crate's own
-//! gate tests run, but with the curves landed as files — JSON as the committed-artifact format,
-//! CSV for plotting — so a curve can be reviewed, diffed, or fed to external tooling without
-//! rerunning anything. Nothing here defines a chain, a grid, a seed or a budget: those live
-//! with the entry in `sdrmm_modem::ber::catalog`, so a curve this command writes is the same
-//! measurement the crate gates on and not a second one wearing its name. Adding an entry is a
-//! line in that registry; this file does not change.
-//!
-//! Two tiers per entry, mirroring the crate's smoke/full split ( §4.4 CI policy): the
-//! default is the smoke prefix of each committed grid, `--full` the whole grid. Both run at the
-//! committed seed and budgets, so every point is a *reproduction* of its committed point rather
-//! than an independent measurement of the same quantity — which is what lets a drift be read as
-//! a regression.
-//!
-//! PASS/FAIL is judged the way the gates judge it, and a FAIL is a nonzero exit so CI and
-//! scripts read it without parsing text. The files are written even on FAIL — a failing curve
-//! is exactly the one worth looking at.
-
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -53,10 +32,6 @@ pub fn run(root: &Path, entry: &str, out: Option<&Path>, full: bool) -> Result<(
     measure(root, entry, &dir, full)
 }
 
-/// The analog half of the command ( §5 item 4): the same shape as [`measure`], with a
-/// SINAD curve against channel SNR in place of a BER curve against Eb/N0, and a figure of merit
-/// in place of an error-rate oracle. One command, because "run this catalog entry and land its
-/// curve" is one question whichever units the answer comes back in.
 fn measure_analog(
     root: &Path,
     entry: &analog_catalog::AnalogEntry,
@@ -141,7 +116,6 @@ fn judge_analog(
                 faults.push(format!("{} is {gap:+.4} dB from {name}", m.stem));
             }
         }
-        // A smoke prefix stops below the oracle's own region, where no closed form applies.
         Some((name, _, from_db, _)) => println!(
             "{}: below {from_db} dB there is no {name} to judge against",
             m.stem
@@ -214,10 +188,6 @@ fn sweep(m: &Measurement, full: bool) -> Curve {
     )
 }
 
-/// The two §4.1 judgements the crate's own gates apply, in the order a reader wants them:
-/// drift from the committed artifact (every entry has one — it is the regression gate), then
-/// the entry's closed-form reference where one exists. A commit-and-guard entry has only the
-/// first, and says so rather than printing a reference it does not have.
 fn judge(root: &Path, m: &Measurement, curve: &Curve) -> std::result::Result<(), String> {
     let mut faults = Vec::new();
 

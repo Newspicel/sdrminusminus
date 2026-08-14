@@ -1,28 +1,3 @@
-//! The catalog's point tables ( §6 linear rows), as *functions returning*
-//! [`Constellation`] — never new types, never match arms inside an engine (§3.3). Everything
-//! downstream (the one demapper, the linear engine, every measured curve) sees only a validated
-//! table, which is exactly why the exotic families below can exist at all: cross-QAM's missing
-//! corners, star-QAM's rings, hierarchical QAM's warped rails and APSK's unequal ring counts are
-//! four different geometries and zero extra code paths.
-//!
-//! **Labelling.** Two mechanisms, chosen per family by whether a closed form exists:
-//!
-//! - *Closed-form Gray* for the regular families — PAM, PSK, square QAM, hierarchical QAM
-//!   (a rail warp of square QAM, so the same labels), star-QAM (a ring × phase product). Every
-//!   nearest-neighbour pair differs in exactly one bit, which is what makes the standard
-//!   `SER/log2(M)` oracles in [`theory`](crate::ber::theory) apply.
-//! - *Deterministic descent* ([`label_by_descent`]) for cross-QAM and APSK, whose geometries
-//!   admit no perfect Gray labelling at all. It is a fixed-order 2-opt over the distance-weighted
-//!   Hamming cost — no RNG, no wall clock, so a table is the same table on every host — and the
-//!   [`gray_penalty`] it reaches is pinned by test rather than asserted in prose.
-//!
-//! **Polarity, stated once.** [`pam`] puts label 0 at the most negative point, so `pam(2)` is
-//! the crate's BPSK: bit 1 → +1, matching `ber::reference::ideal_bpsk` and the crate-root sign
-//! convention. [`psk`] follows the other universal convention — label 0 at angle 0 — so `psk(2)`
-//! is that same pair of points with the opposite polarity. Both are correct tables and the
-//! demapper's LLR signs follow the *label* either way; the catalog's BPSK row uses `pam(2)`
-//! because the calibration link it inherits its trust from does.
-
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
 use num_complex::Complex;
@@ -45,8 +20,6 @@ fn check_order(family: &'static str, m: u32, ok: bool) -> Result<(), Constellati
     }
     Err(ConstellationError::UnsupportedOrder { family, m })
 }
-
-// --- One-dimensional families ------------------------------------------------------------------
 
 /// Gray-labelled bipolar M-PAM on the real axis: points at the odd integers
 /// ±1, ±3, …, ±(M−1), label `gray(i)` on the i-th point counting up from the most negative.
@@ -103,8 +76,6 @@ pub fn ook() -> Result<Constellation, ConstellationError> {
     ask(2)
 }
 
-// --- Phase-shift keying --------------------------------------------------------------------------
-
 /// Gray-labelled M-PSK on the unit circle: point i at angle 2πi/M, label `gray(i)`. Unit radius
 /// is already mean Es = 1, so the normalisation is a no-op here up to f32 rounding.
 ///
@@ -131,8 +102,6 @@ pub fn psk_rotated(m: u32, phase_rad: f64) -> Result<Constellation, Constellatio
         .collect();
     Constellation::from_points(points, (0..m).map(gray).collect())
 }
-
-// --- Quadrature amplitude modulation --------------------------------------------------------------
 
 /// Gray-labelled square M-QAM for M ∈ {4, 16, 64, 256, 1024}: two independent √M-PAM rails,
 /// the I rail in the low `k/2` label bits and the Q rail in the high ones. Every
@@ -161,14 +130,6 @@ pub fn qam_square(m: u32) -> Result<Constellation, ConstellationError> {
     Constellation::from_points(points, labels)
 }
 
-/// Cross-QAM 32 and 128 ( §6; DVB-C's odd-bit orders). Built the standard way — the
-/// smallest odd-integer square grid that holds M points, with its four corner blocks removed —
-/// so 32 is the 6×6 grid less one corner point each and 128 the 12×12 grid less a 2×2 block
-/// each. Labels come from [`label_by_descent`]: the geometry is not a product of two rails, and
-/// no labelling of it makes every nearest-neighbour pair differ in one bit.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] unless M is 32 or 128.
 pub fn qam_cross(m: u32) -> Result<Constellation, ConstellationError> {
     check_order("cross QAM", m, m == 32 || m == 128)?;
     // 32 → 6×6 grid, corner blocks 1 wide; 128 → 12×12, corner blocks 2 wide.
@@ -228,19 +189,6 @@ pub fn qam_star(radii: &[f64], points_per_ring: u32) -> Result<Constellation, Co
     Constellation::from_points(points, labels)
 }
 
-/// Non-uniform (hierarchical) QAM in the DVB-T sense (EN 300 744 §4.3.5): a square QAM whose
-/// rails are warped so the two most significant bits — the high-priority stream — sit further
-/// apart than the rest. `alpha` is the spec's α, the ratio of the minimum distance between
-/// points carrying different high-priority bits to the minimum distance within a quadrant, so
-/// the rail coordinates are ±α, ±(α+2), ±(α+4), … and α = 1 reproduces uniform square QAM
-/// exactly (±1, ±3, …).
-///
-/// Labels are square QAM's: the warp moves points along each rail without reordering them, so
-/// the per-rail Gray labelling still puts one bit between rail neighbours.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] unless M is 16 or 64 (the DVB-T hierarchical
-/// orders) and α is finite and ≥ 1 — an α below 1 would fold the quadrants into each other.
 pub fn qam_hierarchical(m: u32, alpha: f64) -> Result<Constellation, ConstellationError> {
     check_order(
         "hierarchical QAM",
@@ -271,8 +219,6 @@ pub fn qam_hierarchical(m: u32, alpha: f64) -> Result<Constellation, Constellati
     Constellation::from_points(points, labels)
 }
 
-// --- Amplitude-phase-shift keying ------------------------------------------------------------------
-
 /// One ring of an [`apsk`] table: how many points, at what relative radius, starting at what
 /// angle.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -282,14 +228,6 @@ pub struct ApskRing {
     pub phase_rad: f64,
 }
 
-/// APSK from an arbitrary ring list — the satellite geometry (DVB-S2 EN 302 307-1 §5.4), where
-/// unequal ring populations keep the constellation close to circular so a saturated amplifier
-/// distorts it as little as possible. Labels come from [`label_by_descent`]: rings of 4 and 12
-/// points form no product structure a closed-form Gray code could label.
-///
-/// # Errors
-/// [`ConstellationError::UnsupportedOrder`] unless the total point count is a power of two in
-/// 2..=1024 and every radius is positive and finite.
 pub fn apsk(rings: &[ApskRing]) -> Result<Constellation, ConstellationError> {
     let m = rings
         .iter()
@@ -389,8 +327,6 @@ pub const PI_2_ROTATION: f64 = FRAC_PI_2;
 
 /// π/4 — [`offset_rotation`] at M = 4, named for the π/4-DQPSK row.
 pub const PI_4_ROTATION: f64 = FRAC_PI_4;
-
-// --- Labelling by descent -----------------------------------------------------------------------
 
 /// Passes the descent may take. Every table in the catalog converges in well under ten; the cap
 /// exists so a pathological geometry terminates rather than spins.
@@ -627,8 +563,6 @@ mod tests {
                 min = min.min(d2(i, j));
             }
         }
-        // 0.1 % slack: several orders above trigonometric rounding, several below the gap to
-        // the next distance shell in every table here.
         let limit = min * 1.002;
         let (mut sum, mut edges) = (0u32, 0u32);
         for i in 0..p.len() {
@@ -714,7 +648,6 @@ mod tests {
             assert_eq!(c.points()[i].im, 0.0);
         }
         assert_eq!(c.labels(), [0b00, 0b01, 0b11, 0b10]);
-        // The crate's BPSK polarity: bit 1 is the positive point.
         let bpsk = pam(2).unwrap();
         assert_eq!(bpsk.labels(), [0, 1]);
         assert!(bpsk.points()[1].re > 0.0);
@@ -740,7 +673,6 @@ mod tests {
         let q = psk_rotated(4, FRAC_PI_4).unwrap();
         let x = std::f32::consts::FRAC_1_SQRT_2;
         assert!((q.points()[0].re - x).abs() < 1e-6 && (q.points()[0].im - x).abs() < 1e-6);
-        // Documented polarity difference between the two 2-point tables.
         assert!(psk(2).unwrap().points()[0].re > 0.0);
         assert!(pam(2).unwrap().points()[0].re < 0.0);
     }
@@ -795,7 +727,6 @@ mod tests {
         let uniform = qam_hierarchical(16, 1.0).unwrap();
         assert_eq!(uniform, qam_square(16).unwrap());
         let warped = qam_hierarchical(16, 3.0).unwrap();
-        // Rail positions of the warped table, in ascending order: ±α, ±(α+2) rescaled.
         let mut rails: Vec<f64> = warped
             .points()
             .iter()
@@ -905,7 +836,6 @@ mod tests {
                 penalty <= best_seed,
                 "{name}: descent {penalty} worse than its best seed {best_seed}"
             );
-            // Half the label bits is what a labelling that ignored geometry would cost.
             let random = f64::from(c.bits_per_symbol() as u32) / 2.0;
             assert!(penalty < random, "{name}: {penalty} vs random {random}");
         }
@@ -950,9 +880,6 @@ mod tests {
         assert!((offset_rotation(8) - PI / 8.0).abs() < 1e-12);
     }
 
-    /// Table construction is setup-time work, but `hard_slice` over a big table is the hot
-    /// path of every coherent tier: §4.2's zero-allocation discipline covers it at 1024 points
-    /// exactly as it does at 4.
     #[test]
     fn slicing_a_large_table_allocates_nothing() {
         let c = qam_square(1024).unwrap();

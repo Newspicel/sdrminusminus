@@ -3,11 +3,6 @@
 //! so its helpers panic. Clippy exempts `#[test]` functions from this by config, but not
 //! the free functions and closures a fake server is built out of.
 //! The rtl_tcp backend against a fake server (: no hardware in CI, ever).
-//!
-//! A socket is the one part of this backend that cannot be a pure function, so it is the part
-//! these cover: the greeting, the exact command bytes the server observes, the samples that come
-//! back out, and the reconnect that has to put a dropped session back where the operator left it.
-
 mod common;
 
 use std::{
@@ -129,8 +124,6 @@ fn opening_reads_the_greeting_and_reports_that_tuners_capabilities() {
     assert_eq!(caps.gains[0].range.max, 49.6, "the tuner's own table");
     assert!(caps.sample_rates.contains(&2_048_000.0));
 
-    // The connection is not held between opening and capturing: an rtl_tcp server drops a client
-    // that is not draining it.
     assert_eq!(server.connections(), OPENED + 1);
     let settings = device.settings();
     assert_eq!(settings.center_hz, Some(100_000_000.0));
@@ -162,7 +155,6 @@ fn a_port_that_is_not_an_rtl_tcp_server_is_refused_by_name() {
 #[test]
 fn nothing_listening_is_an_error_naming_the_endpoint() {
     let driver = RtlTcpDriver::new();
-    // Port 1 on loopback: reserved, and nothing in CI binds it.
     let Err(error) = open(&driver, "127.0.0.1:1") else {
         panic!("nothing is listening on port 1");
     };
@@ -252,8 +244,6 @@ fn the_bytes_on_the_wire_arrive_as_rtl_sdr_samples() {
     let (sink, blocks) = blocking_sink();
     device.rx_start(vec![sink]).expect("streams");
 
-    // The first block starts at the top of the ramp: the server writes it whole and nothing is
-    // sent before it.
     let block = blocks.recv_timeout(DEADLINE).expect("samples arrive");
     let expected = |code: u8| (f32::from(code) - 127.4) / 127.5;
     assert!((block[0].re - expected(0)).abs() < 1e-6, "{:?}", block[0]);
@@ -292,7 +282,6 @@ fn a_dropped_connection_reconnects_and_replays_the_tuning() {
         "a fresh connection is a dongle at its defaults: every setting goes again"
     );
 
-    // …and samples keep coming, which is the point of doing it below the engine's fault path.
     let deadline = std::time::Instant::now() + DEADLINE;
     while blocks.recv_timeout(Duration::from_millis(100)).is_err() {
         assert!(

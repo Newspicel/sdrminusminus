@@ -3,14 +3,6 @@
 //! formulas follow Anderson, Aulin & Sundberg, *Digital Phase Modulation* — the source of the
 //! LREC/LRC vocabulary and of the phase-pulse convention `q(∞) = ½` that [`phase_pulse`]
 //! implements.
-//!
-//! One pulse, two readings: whether a tap vector here acts as a *frequency* pulse (scaling
-//! instantaneous frequency inside a CPM modulator) or an *amplitude* pulse (shaping a linear
-//! waveform) is the consumer's choice, and [`Norm`] is how the consumer says it — Area for the
-//! frequency reading (the integral fixes the phase step), Energy for the amplitude reading
-//! (the integral of h² fixes the symbol energy). That is why every constructor takes [`Norm`]
-//! rather than baking one in.
-
 use std::f64::consts::PI;
 
 use sdrmm_dsp::design_gaussian;
@@ -70,30 +62,11 @@ pub fn half_sine(sps: f64, norm: Norm) -> Vec<f32> {
     normalise(midpoint_taps(sps, 1, |u| (PI * u).sin()), norm)
 }
 
-/// Gaussian premodulation filter — the *amplitude* lowpass a GFSK transmitter runs its NRZ
-/// data through: Bluetooth BR (BT = 0.5), AIS per ITU-R M.1371 (BT = 0.4), D-STAR (BT = 0.5).
-///
-/// Wraps `sdrmm_dsp::design_gaussian` (§1 minimal duplication): under [`Norm::Area`] the taps
-/// are its output bit for bit. Inherits its span convention — `span` is the *total* length in
-/// symbols, `span·sps` taps rounded up to odd — unlike the each-side spans in `nyquist.rs`;
-/// the asymmetry is dsp's and is kept so the wrap stays exact.
 #[must_use]
 pub fn gaussian(sps: f64, bt: f64, span: usize, norm: Norm) -> Vec<f32> {
     renorm_designed(design_gaussian(sps, bt, span), norm)
 }
 
-/// The GMSK frequency pulse: a one-symbol rect convolved with the Gaussian premod filter
-/// (Murota & Hirade, "GMSK Modulation for Digital Mobile Radio Telephony", IEEE Trans. Comm.
-/// 1981 — their closed Q-function form *is* this convolution). GSM uses BT = 0.3
-/// (3GPP TS 45.004), AIS BT = 0.4. Built literally as that convolution over the wrapped
-/// [`gaussian`] design, so the Gaussian math exists once (§1).
-///
-/// Under [`Norm::Area`] this is the CPM engine's phase-3 contract: [`phase_pulse`] of these
-/// taps reaches q = ½, so a symbol advances the carrier phase by exactly π·h. `span` is the
-/// *total* length of g in symbols (the CPM L; ≥ 2 because the rect alone takes one symbol
-/// and the Gaussian smoothing the rest). Lower BT ⇒ narrower spectrum ⇒ a *longer, flatter*
-/// g(t): more of each symbol's phase step leaks into its neighbours, which is the ISI the
-/// MLSE tier exists to absorb.
 #[must_use]
 pub fn gaussian_freq(sps: f64, bt: f64, span: usize, norm: Norm) -> Vec<f32> {
     assert!(
@@ -132,8 +105,6 @@ pub fn phase_pulse(freq: &[f32]) -> Vec<f32> {
 mod tests {
     use super::*;
 
-    /// §7 phase-2 cross-check. Exact equality, not tolerance: both sides are the same code
-    /// path, and this pins the identity through any future refactor.
     #[test]
     fn lrec_of_one_symbol_is_rect() {
         for sps in [4.0, 8.0, 12.5] {
@@ -143,10 +114,6 @@ mod tests {
         }
     }
 
-    /// §7 phase-2 cross-check: half-sine against exact closed forms. On the midpoint grid the
-    /// Lagrange identities are exact, not asymptotic: Σ sin²(π(k+½)/n) = n/2 and
-    /// Σ sin(π(k+½)/n) = 1/sin(π/(2n)) — so each normalisation's scale factor is checked
-    /// pointwise in closed form.
     #[test]
     fn half_sine_energy_and_area_match_the_closed_forms() {
         for n in [8usize, 5] {
@@ -165,7 +132,6 @@ mod tests {
         }
     }
 
-    /// The wrap is a wrap — same bits as `design_gaussian`, mirroring the RRC test.
     #[test]
     fn gaussian_under_area_norm_is_bit_identical_to_design_gaussian() {
         for (sps, bt, span) in [(8.0, 0.5, 3), (10.0, 0.4, 4), (5.0, 0.3, 3)] {
@@ -177,9 +143,6 @@ mod tests {
         }
     }
 
-    /// §7 phase-2 cross-check: the documented narrowing. Lower BT means a narrower spectrum
-    /// and therefore a longer, flatter g(t) — lower peak, less of the pulse inside its own
-    /// symbol. Both orderings asserted at equal length so the shapes are truly comparable.
     #[test]
     fn gaussian_freq_at_bt_half_is_narrower_in_time_than_bt_point_three() {
         let sps = 10usize;
@@ -189,7 +152,6 @@ mod tests {
         assert_eq!(sharp.len(), 4 * sps);
         let peak = |taps: &[f32]| taps.iter().fold(0.0f32, |m, &x| m.max(x));
         assert!(peak(&sharp) > peak(&smooth), "peak ordering");
-        // Fraction of the (unit) area inside the central symbol period.
         let central = |taps: &[f32]| {
             let lo = taps.len() / 2 - sps / 2;
             taps[lo..lo + sps]
@@ -200,9 +162,6 @@ mod tests {
         assert!(central(&sharp) > central(&smooth), "concentration ordering");
     }
 
-    /// §7 phase-2 acceptance: every frequency pulse under Area normalisation drives the phase
-    /// pulse to q = ½, by cumulative sum — and monotonically, since none of these shapes has
-    /// negative lobes to swing the instantaneous frequency the wrong way mid-symbol.
     #[test]
     fn area_normalised_frequency_pulses_reach_q_of_one_half() {
         let pulses: Vec<(&str, Vec<f32>)> = vec![

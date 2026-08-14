@@ -1,9 +1,4 @@
-//! Record → replay e2e ( M3): a siggen set is recorded to a SigMF pair, the pair
-//! opens as a `virtual:file:` playback device, and an NFM channel recovers the 1 kHz tone
-//! from the recorded IQ. Hermetic — tempdir only, no fixture files ().
-
 // Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
-// `#[cfg(test)]` items, which an integration-test crate's helpers are not.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
@@ -108,7 +103,6 @@ async fn recorded_siggen_replays_and_demodulates() {
 async fn playback_streams_spectrum_frames() {
     let dir = TempDir::new().unwrap();
     let engine = recording_engine(dir.path());
-    // A short clip suffices: looped playback keeps the spectrum tap fed indefinitely.
     let finalized = record_siggen(&engine, TEST_RATE, TEST_RATE as u64 / 4).await;
 
     let ds = engine

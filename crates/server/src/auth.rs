@@ -1,12 +1,6 @@
 //! Optional shared-token auth (, M5). One middleware covers REST, the WebSocket and
 //! the MCP mount; without a configured token it is a pass-through, which is the documented
 //! default posture (LAN-trusted, same as SDRangel/rtl_tcp).
-//!
-//! The token may arrive as `Authorization: Bearer <token>` or as a `token=` query parameter.
-//! The query form is not a convenience: the browser `WebSocket` constructor cannot set request
-//! headers, and the decoder-log export is a plain navigation whose `Content-Disposition` only
-//! applies if the browser fetches the URL itself.
-
 use axum::{
     Json,
     extract::{Request, State},

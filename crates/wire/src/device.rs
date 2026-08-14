@@ -1,12 +1,8 @@
-//! Device capability model and settings. `Capabilities` is the backbone of the
-//! backend-driven UI (): the client auto-renders controls from it.
-
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// A discovered receiver, produced by a driver's probe ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceInfo {
     /// Driver id that produced this entry: `"virtual"`, `"soapy"`, `"rtlsdr"`, …
@@ -118,7 +114,6 @@ impl DeviceProfile {
 }
 
 impl DeviceInfo {
-    /// The `driver:key` handle used by `POST /api/devicesets` ().
     #[must_use]
     pub fn id(&self) -> String {
         format!("{}:{}", self.driver, self.key)
@@ -399,7 +394,6 @@ pub struct StreamScope {
     pub antenna: bool,
 }
 
-/// Everything the client needs to render device controls without hand-written DTOs ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Capabilities {
     /// Tunable center-frequency ranges in Hz (multiple = discontiguous tuner ranges).

@@ -1,9 +1,3 @@
-//! Static multipath: a fixed FIR channel built from a named profile ( §4.3 —
-//! limits rows are stated *per profile*, so the profiles are types, not ad-hoc tap vectors).
-//! Taps are normalised to unit total power, so adding multipath never changes the waveform's
-//! mean energy — an Eb/N0 stated before the channel still holds after it, and a multipath
-//! limits row measures dispersion, not an accidental level change.
-
 use num_complex::Complex;
 
 use super::Impairment;

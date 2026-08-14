@@ -1,19 +1,3 @@
-//! The harness's own reference link — the calibration standard behind the trust chain in
-//! [`ber`](super): an RRC-shaped BPSK modulator and a matched-filter receiver with *known*
-//! timing, deliberately containing no receiver loss of its own. No timing recovery, no carrier
-//! recovery, no level estimation: every one of those would add its own implementation loss,
-//! and this link exists so that the measured curve differs from ½·erfc(√γ) only by what the
-//! *harness* does — payload generation, energy accounting, noise calibration, error counting.
-//! A gap from the closed form here is a harness bug by definition ( §4.1), and the
-//! phase-0 acceptance gate pins that gap below 0.2 dB across 0–10 dB.
-//!
-//! The classic ways a harness fails this gate, so the next reader debugs in order: Eb accounted
-//! per coded or per channel bit instead of per information bit (curve shifts by the rate
-//! factor), noise sigma set per complex sample instead of per component (a 3 dB shift), and a
-//! pulse whose energy is not unity (a shift of 10·log10 Σh²). The third is why the taps come
-//! from [`pulse::root_raised_cosine`] at [`Norm::Energy`]: `design_rrc`'s native normalisation
-//! is unit *DC gain* — right for a channel filter, wrong for a pulse.
-
 use num_complex::Complex;
 
 use super::sweep::Link;
@@ -34,9 +18,6 @@ const BITS_PER_TRIAL: usize = 4096;
 /// output at the correct instant is then exactly the ±1 symbol, and a block's measured energy
 /// is its bit count — so Eb/N0 set from measured energy is the textbook one.
 fn unit_energy_rrc() -> Vec<f32> {
-    // Bit-identical to normalising `design_rrc`'s taps by hand (§1 minimal duplication): the
-    // wrap under `Norm::Energy` performs the same f64 operations in the same order, so the
-    // committed BPSK calibration cannot move.
     pulse::root_raised_cosine(SPS as f64, ALPHA, SPAN, Norm::Energy)
 }
 
@@ -170,7 +151,6 @@ fn demodulate(taps: &[f32], wave: &[Complex<f32>]) -> Vec<bool> {
             for (m, &h) in taps.iter().enumerate() {
                 acc += h * wave[base + nt - 1 - m].re;
             }
-            // Positive statistic decides logical 1 — the crate-root sign convention.
             acc > 0.0
         })
         .collect()
@@ -281,7 +261,6 @@ mod tests {
     fn symbol_statistics_recover_a_noiseless_stream() {
         let shaping = IdealShaping::new();
         let mut rng = Rng::new(0x151);
-        // ±1/±3-shaped complex points exercise both rails and unequal magnitudes.
         let symbols: Vec<Complex<f32>> = (0..512)
             .map(|_| {
                 let re = [-3.0f32, -1.0, 1.0, 3.0][(rng.next_u64() & 3) as usize];
@@ -303,17 +282,6 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("baselines/bpsk_ideal_awgn.json")
     }
 
-    /// Phase-0 acceptance gate, full tier ( §7 phase 0): 0–10 dB in 1 dB steps,
-    /// ≥100 errors per point, worst |penalty| vs the exact closed form under 0.2 dB — and the
-    /// measurement guarded within 0.1 dB against the committed baseline curve, which this test
-    /// creates on first run and thereafter treats as the regression reference. Run with
-    /// `cargo test -p sdrmm-modem --release bpsk_matches_erfc_full -- --ignored --nocapture`.
-    ///
-    /// The 10 000-error target (floor still asserted at 100) exists for the reason documented
-    /// on the smoke tier, scaled to a worst-of-eleven gate: at the shallow low-SNR slopes a
-    /// 100-error point's horizontal confidence interval is wider than the gate itself. The
-    /// 5e7-bit cap bounds the steep high-SNR points instead, where ~200 errors already read
-    /// within ±0.07 dB.
     #[test]
     #[ignore = "full gate: ~2e8 trial bits, run in release (see doc comment)"]
     fn bpsk_matches_erfc_full() {

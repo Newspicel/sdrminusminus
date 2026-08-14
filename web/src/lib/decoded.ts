@@ -1,8 +1,3 @@
-// The live decoder stream (, §13). Decoder frames never go through TanStack Query: ADS-B
-// alone can run to hundreds of frames a second, and Query is for server state that a WS
-// `StateChanged` invalidates. The stored history stays server state (`GET /api/decoderlog`);
-// this store is a bounded in-memory tail of what is arriving right now, plus the per-station
-// picture the map/table views need.
 import { create } from "zustand";
 import type {
   DecodedRecord,
@@ -55,10 +50,7 @@ type StationsByKind = { [K in DecoderKind]?: readonly StationOf<K>[] };
 export interface DecodedState {
   frames: FramesByKind;
   stations: StationsByKind;
-  /** Frames the server reported as dropped (`ServerEvent::DecodedLost`) — the gaps in this
-   * store, surfaced rather than silently absent (). */
   lost: number;
-  /** Frames published since the last `clear()`; with `lost`, the denominator of a gap readout. */
   received: number;
   /** Stages a frame. Nothing renders until the next flush (at most `FLUSH_MS` later). */
   push: (record: DecodedRecord) => void;
@@ -74,8 +66,6 @@ export interface DecodedState {
    * being tracked", and a target the server still remembers is exactly one being tracked. */
   hydrate: (records: readonly DecodedRecord[]) => void;
   reportLost: (count: number) => void;
-  /** WS glue: wire once with `socket.addEventListener(useDecodedStore.getState().observe)` —
-   * zustand action identities are stable, so the listener never has to be re-registered. */
   observe: (event: ServerEvent) => void;
   /** Publishes staged frames immediately. Called by the flush timer; exposed so a caller that
    * must see a frame synchronously (tests, a panel closing a view) can force it. */
@@ -286,7 +276,6 @@ function stationId(event: DecoderEvent): string | null {
       return event.data.source;
     case "pocsag":
       return String(event.data.address);
-    // RDS accretes into one picture per transmitter, identified by its PI code once received.
     case "rds":
       return event.data.pi ?? null;
     // Message-shaped decoders name an emitter in the log, but they do not *accumulate* into a

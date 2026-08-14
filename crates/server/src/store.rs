@@ -1,10 +1,3 @@
-//! SQLite persistence (): presets (full device-set + channels snapshots), bookmarks,
-//! the recordings index (the SigMF pairs on disk are the source of truth; rows here are
-//! reconciled from them), the decoder log (queryable and exportable decodes, not
-//! scroll-back-only) and, per workspace, its shape and where it was tuned.
-//! `rusqlite` with the bundled engine — zero system deps. All calls block, so handlers reach
-//! the store via `spawn_blocking` only.
-
 use std::{
     collections::HashMap,
     path::Path,
@@ -223,10 +216,6 @@ impl LogOrigin<'static> {
 
 pub struct Store {
     conn: Mutex<Connection>,
-    /// When this process opened the store. A row older than this cannot have come from a channel
-    /// that is running now, which is what bounds the wire scope's fallback half: engine channel
-    /// ids are allocated per run and reused (CANVAS §3), so `0:1` names a different decoder in
-    /// every run that used it.
     run_start: String,
 }
 
@@ -1206,7 +1195,6 @@ mod tests {
         let id = listed[0].id;
         assert_eq!(store.recording_stem(id).expect("stem"), "rec_1_a");
 
-        // Upsert by stem updates in place: same row id, fresh counts.
         store
             .upsert_recording(&recording_row("rec_1_a", 4_096_000))
             .expect("upsert");
@@ -1376,7 +1364,6 @@ mod tests {
         assert_eq!(until.1, 1);
         assert_eq!(until.0[0].station.as_deref(), Some("3C6444"));
 
-        // An offset bound is normalized to UTC before it is compared.
         let offset = query(
             &store,
             DecoderLogQuery {
@@ -1386,7 +1373,6 @@ mod tests {
         );
         assert_eq!(offset.1, 2);
 
-        // `q` matches station or summary, case-insensitively.
         let by_station = query(
             &store,
             DecoderLogQuery {
@@ -1414,7 +1400,6 @@ mod tests {
         );
         assert_eq!(literal.1, 0);
 
-        // Composed: everything ANDs.
         let combined = query(
             &store,
             DecoderLogQuery {
@@ -1551,8 +1536,6 @@ mod tests {
             .collect::<Vec<_>>()
         };
 
-        // The node the log is wired to gets its own rows and the unattributable one — never the
-        // rows the *other* node wrote while holding the same channel id.
         assert_eq!(stations("channel:new", "0:1"), ["LEGACY", "BBBBBB"]);
         assert_eq!(stations("channel:old", "0:1"), ["LEGACY", "AAAAAA"]);
         // Without the fallback the nodeless row is unreachable, which is what makes it a fallback
@@ -1837,8 +1820,6 @@ mod tests {
             "and the export still reaches it"
         );
 
-        // No scope does, by either half: it names no node, and its coordinates name a channel of
-        // a run that ended before this one began.
         let scoped = |nodes: &str, sources: &str| {
             query(
                 &store,
@@ -1854,16 +1835,11 @@ mod tests {
         assert_eq!(scoped("channel:whatever", ""), 0);
     }
 
-    /// The M7 migration drops M6's workspaces rather than converting a dock tree the patch model
-    /// cannot express (CANVAS §8 phase ⑤). The reset must leave a workspace behind, not an empty
-    /// switcher — the re-seed runs after the migration in `Store::open`, and this is what pins
-    /// that order.
     #[test]
     fn the_canvas_migration_clears_m6_workspaces_and_re_seeds() {
         let file = tempfile::NamedTempFile::new().expect("temp db");
         {
             let conn = Connection::open(file.path()).expect("open");
-            // Everything up to and including M6's workspaces table, as a v4 database had it.
             for (i, migration) in MIGRATIONS.iter().take(4).enumerate() {
                 conn.execute_batch(&format!(
                     "BEGIN;\n{migration}\nPRAGMA user_version = {};\nCOMMIT;",
@@ -1948,7 +1924,6 @@ mod tests {
             Err(StoreError::WorkspaceNotFound(_))
         ));
 
-        // Deleting the last one leaves the app with none, honestly reported.
         assert_eq!(store.delete_workspace(seeded).expect("delete"), None);
         assert_eq!(store.list_workspaces().expect("list").active, None);
         assert!(store.active_workspace().expect("active").is_none());
@@ -2017,8 +1992,6 @@ mod tests {
             store.create_workspace("Workspace", &WorkspaceSnapshot::starter()),
             Err(StoreError::WorkspaceNameTaken(_))
         ));
-        // Create bounds the name exactly as update does; a blank one would be a row nobody can
-        // pick out of the switcher.
         for blank in [
             "",
             "   ",

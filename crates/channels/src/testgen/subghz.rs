@@ -1,9 +1,3 @@
-//! Sub-GHz reference modulator (): pulse trains → OOK or 2-FSK at complex baseband.
-//!
-//! The generators work in microseconds, the way a remote's datasheet specifies its timing, and
-//! never in bits — so a decoder that mis-measures an edge cannot be rescued by a generator
-//! that made the same mistake.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -131,7 +125,6 @@ pub fn manchester(bits: &[bool], half_cell_us: u32, repeats: u32, rate: f64) -> 
     let mut timings = Vec::new();
     for i in 0..repeats.max(1) {
         if i > 0 {
-            // The trailing gap of the previous copy plus this separator is what ends a frame.
             timings.push(20_000);
         }
         timings.extend_from_slice(&one);
@@ -139,14 +132,6 @@ pub fn manchester(bits: &[bool], half_cell_us: u32, repeats: u32, rate: f64) -> 
     keyed(&timings, rate)
 }
 
-/// The same pulse train carried by 2-FSK: the carrier never stops, it moves between two
-/// frequencies. `deviation_hz` is the half-separation of the pair.
-///
-/// The tone keying is the library's own CPFSK modulator ( §1.2) with the remote's
-/// base clock period as the symbol: every PWM duration is a whole number of base periods by
-/// construction, so the pulse train *is* a symbol stream at `1e6/short_us` baud, mark (pulse
-/// high) at index 1. Carrier on only for the burst itself; the silence either side is what a
-/// receiver's carrier detector uses to bound the transmission.
 #[must_use]
 pub fn pwm_fsk(frame: &Pwm, deviation_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     let one = pwm_timings(frame);
@@ -210,7 +195,6 @@ mod tests {
     fn manchester_runs_are_one_or_two_half_cells() {
         let timings = manchester_timings(&[true, true, false, false, true], 250);
         assert!(timings.iter().all(|&d| d == 250 || d == 500), "{timings:?}");
-        // 1 1 0 0 1 -> H L H L L H L H H L : runs 1,1,1,2,1,1,2,1
         assert_eq!(timings, [250, 250, 250, 500, 250, 250, 500, 250]);
     }
 

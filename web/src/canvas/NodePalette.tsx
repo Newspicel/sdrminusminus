@@ -1,9 +1,3 @@
-// The "+ Node" menu. What it offers and how it is arranged is `palette.ts`; this is the drawing.
-//
-// A flat list of two dozen buttons was unreadable, and worse, unsearchable: the decoders alone
-// outnumber every other kind put together. Sections carry the arrangement, the filter carries the
-// operator who already knows what they want, and each channel entry says the bandwidth it needs —
-// the one number that decides whether the radio it is about to hang off can host it.
 import { useState } from "react";
 import { FIELD, LABEL } from "../components/controls";
 import { formatHz } from "../components/format";

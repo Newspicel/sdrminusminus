@@ -1,25 +1,3 @@
-//! Line / symbol codes ( §3.1 `symbolcode/`, §6 "Symbol codes"): NRZ, NRZI,
-//! differential, Manchester and bi-phase — each implemented once, with both directions, so the
-//! modulators, `testgen` and the protocol framings all draw on the same tables. Every code here
-//! buys something a raw bit stream lacks: transitions to clock from (Manchester, bi-phase, NRZI
-//! under stuffing), immunity to line polarity (differential, bi-phase — their information is in
-//! *change*, not level), or simply a name for the trivial mapping (NRZ) so the catalog and
-//! testgen compose uniformly.
-//!
-//! Everything operates on logical bits (`bool`); waveform concerns (pulse shaping, levels)
-//! belong to `pulse/` and the engines. The bit-pair codes decode from *half-bit* levels, and a
-//! receiver sampling half-bits cannot know a priori whether its first sample is a first or a
-//! second half — so their slice decoders return an [`Alignment`] verdict alongside the bits.
-//! A Manchester decoder that cannot say "you are half a bit off" strands the receiver in a
-//! phase it can never detect; here the misalignment is measured and reported, and the caller
-//! owns the slip (see [`Alignment`]).
-//!
-//! `sdrmm_dsp::bits` carries the streaming decoders the live channels use today (NRZI
-//! transition-on-zero, binary differential, a Manchester pair function). The implementations
-//! here are the library's own; the cross-validation tests at the bottom prove bit-exact
-//! agreement on seeded random streams, so the phase-3+ migrations can swap call sites knowing
-//! the two agree.
-
 use std::cmp::Ordering;
 
 /// NRZ "encode": bit 1 is the high level for the whole symbol, bit 0 the low level — the
@@ -315,11 +293,6 @@ pub fn manchester_decode_pair(
     })
 }
 
-/// Manchester slice decode with the alignment verdict a real receiver needs — see
-/// [`PairDecode`] for what is reported and why a violating pair still yields a placeholder
-/// bit. Pairs are taken as given (`levels[0]` assumed to start a bit); an odd trailing level
-/// is not a complete pair and decodes to nothing, visible as `bits.len() < levels.len() / 2
-/// + 1`.
 #[must_use]
 pub fn manchester_decode(convention: ManchesterConvention, levels: &[bool]) -> PairDecode {
     let mut bits = Vec::with_capacity(levels.len() / 2);
@@ -596,7 +569,6 @@ mod tests {
                 let levels = encoder.encode_all(&payload);
                 assert_eq!(decoder.decode_all(&levels), payload, "{convention:?}");
 
-                // Reset restores the idle level on both ends: the stream repeats exactly.
                 encoder.reset();
                 decoder.reset();
                 assert_eq!(encoder.encode_all(&payload), levels, "{convention:?}");
@@ -633,7 +605,6 @@ mod tests {
             assert_eq!(mine.decode(level), theirs.decode(level));
         }
 
-        // And the encoder here is the inverse the dsp decoder expects.
         let payload = random_bits(&mut rng, 2048);
         let mut encoder = NrziEncoder::new(NrziConvention::TransitionOnZero);
         let mut theirs = sdrmm_dsp::bits::NrziDecoder::new();
@@ -786,7 +757,6 @@ mod tests {
             assert_eq!(slipped.alignment, Alignment::MidBit, "{convention:?}");
             assert!(slipped.violations > 0, "{convention:?}");
 
-            // Acting on the verdict — dropping one more level — recovers the payload.
             let realigned = manchester_decode(convention, &levels[2..]);
             assert_eq!(realigned.bits, payload[1..]);
             assert_eq!(realigned.violations, 0);
@@ -797,7 +767,6 @@ mod tests {
     fn manchester_flags_a_missing_transition_without_shortening_the_output() {
         let payload = vec![true, false, true, true, false];
         let mut levels = manchester_encode(ManchesterConvention::Ieee8023, &payload);
-        // Erase the mid-bit transition of bit 2 by copying its first half over its second.
         levels[5] = levels[4];
         let decoded = manchester_decode(ManchesterConvention::Ieee8023, &levels);
         assert_eq!(decoded.violations, 1);
@@ -808,9 +777,6 @@ mod tests {
 
     #[test]
     fn ge_thomas_pairs_agree_with_the_dsp_decoder() {
-        // dsp's manchester_decode returns the first half as the bit — the G. E. Thomas
-        // mapping (see ManchesterConvention::GeThomas). All four pairs is the exhaustive
-        // proof.
         for first in [false, true] {
             for second in [false, true] {
                 assert_eq!(
@@ -820,7 +786,6 @@ mod tests {
             }
         }
 
-        // And a full encoded stream survives the dsp pair function.
         let mut rng = Rng::new(0xac);
         let payload = random_bits(&mut rng, 2048);
         let levels = manchester_encode(ManchesterConvention::GeThomas, &payload);
@@ -891,8 +856,6 @@ mod tests {
 
     #[test]
     fn biphase_reports_a_half_bit_slip() {
-        // All-zero Mark payload: no mid-bit transitions at all, so every wrong-offset pair
-        // straddles a boundary that fails the check — worst case data, clearest verdict.
         let zeros = vec![false; 64];
         let levels = BiphaseEncoder::new(BiphaseVariant::Mark).encode_all(&zeros);
         let slipped = biphase_decode(BiphaseVariant::Mark, &levels[1..]);
@@ -929,7 +892,6 @@ mod tests {
     fn biphase_streaming_decoder_resets_the_boundary_check() {
         let mut decoder = BiphaseDecoder::new(BiphaseVariant::Mark);
         assert!(decoder.decode(true, true).boundary_transition);
-        // Same levels again: now there is a predecessor and the missing edge is caught.
         assert!(!decoder.decode(true, true).boundary_transition);
         decoder.reset();
         assert!(decoder.decode(true, true).boundary_transition);

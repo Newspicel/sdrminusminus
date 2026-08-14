@@ -1,13 +1,5 @@
 //! The rate-1/2, constraint-length-5 convolutional code every amateur digital-voice mode
 //! protects its signalling with, and a soft-decision Viterbi decoder for it.
-//!
-//! Generators are G1 = 0b11001 and G2 = 0b10111 (the taps YSF, NXDN and M17 all specify —
-//! M17 writes them 0x19 and 0x17). One information bit produces two coded bits, G1 first.
-//!
-//! Punctured codes are handled without a second code path: the caller expands its received
-//! stream back to the unpunctured length and marks the positions the transmitter never sent
-//! with [`ERASURE`], which contributes equally to both branches and so votes for neither.
-
 /// Soft value of one received coded bit: positive votes for 1, negative for 0, and the
 /// magnitude is the confidence. [`ERASURE`] is the absence of a vote.
 pub type Soft = i16;
@@ -86,8 +78,6 @@ impl Viterbi5 {
             let (r1, r2) = (i32::from(first), i32::from(second));
             let mut decisions = 0u16;
             for state in 0..STATES {
-                // Two predecessors reach `state`: the one whose register held `state >> 1`
-                // with a 0 shifted in, and the one that held `state >> 1 | 8` with a 1.
                 let mut best = (i32::MIN, false);
                 for prev_high in [false, true] {
                     let prev = state >> 1 | usize::from(prev_high) << 3;
@@ -113,8 +103,6 @@ impl Viterbi5 {
         let metric = self.metrics[state];
         let start = out.len();
         for step in (0..steps).rev() {
-            // The information bit at this step is the one that was shifted in: the low bit of
-            // the state the path arrived at.
             out.push(state & 1 == 1);
             let prev_high = self.decisions[step] >> state & 1 == 1;
             state = state >> 1 | usize::from(prev_high) << 3;
@@ -182,7 +170,6 @@ mod tests {
         let mut coded = Vec::new();
         encode(&bits, &mut coded);
         let mut received = softs(&coded);
-        // Puncture every eighth coded bit — a 8/7 thinning of the rate-1/2 stream.
         for (i, value) in received.iter_mut().enumerate() {
             if i % 8 == 7 {
                 *value = ERASURE;

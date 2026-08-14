@@ -1,11 +1,3 @@
-// Per-decoder live readouts (). All of them read the decoded store, never TanStack Query:
-// decoder frames are a stream, not server state. The projection/format/sort logic lives in
-// `decoderViews.ts`; these components only render it.
-//
-// A readout is what a decoder *accumulates* — the station it has pieced together, the aircraft it
-// is tracking, the text it has copied. What it merely *received* is a log, and a log is read in a
-// decoder-log node, so the decoders whose whole output is a stream of independent frames have no
-// readout here at all (`VIEWS`).
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind } from "../lib/types";
@@ -148,9 +140,6 @@ const TARGET_COLUMNS = {
 export function TargetsView({ kind, scope = {} }: { kind: "adsb" | "ais"; scope?: DecoderScope }) {
   const now = useNow();
   const ageOut = useDecodedStoreAgeOut();
-  // Both stores are read unconditionally: reading one behind a test on `kind` would change the
-  // hook count if a channel's type were patched in place, which React answers by tearing the
-  // tree down (same rule as `TextView`).
   const aircraft = stationsInScope(useStations("adsb"), scope);
   const ships = stationsInScope(useStations("ais"), scope);
   const [sort, setSort] = useState<TargetSort>("age");
@@ -266,15 +255,10 @@ function SortButton({ label, onClick }: { label: string; onClick: () => void }) 
 }
 
 export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?: DecoderScope }) {
-  // Both kinds go through the one `useDecodedKind(kind)` call: reading morse a second time
-  // behind a `kind === "morse"` test would change the hook count when a channel's type is
-  // patched from rtty to morse in place, which React answers by tearing down the tree.
   const records = recordsInScope(useDecodedKind(kind), scope);
   const text = buildTranscript(records);
   const wpm = kind === "morse" ? latestWpm(records as readonly DecodedRecordOf<"morse">[]) : null;
   const paneRef = useRef<HTMLPreElement>(null);
-  // Stickiness is sampled on scroll, before the DOM grows: once the text has been appended the
-  // old scroll position can no longer tell us whether the user had been reading the tail.
   const stick = useRef(true);
   const [copyError, setCopyError] = useState<string | null>(null);
 

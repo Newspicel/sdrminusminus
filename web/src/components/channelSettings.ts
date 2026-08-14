@@ -61,13 +61,6 @@ export function clampOffsetHz(hz: number, limitHz: number | null): number {
   return limitHz === null ? hz : Math.min(limitHz, Math.max(-limitHz, hz));
 }
 
-/** The rates a channel will run at, when the receiver is not running one of them — otherwise
- * `null`. Both ends inclusive, and equal when only one rate will do.
- *
- * Two rules, both the server's (): a mode that fills its whole channel rate has no guard
- * band to resample through and takes exactly one rate, and a mode that reads the radio's own
- * samples takes a range of them. Either way a radio retuned after the wire was drawn stops
- * feeding it, which is what this catches for a pairing already made. */
 export function rateMismatch(
   descriptor: ChannelDescriptor | undefined,
   sampleRateHz: number | null | undefined,

@@ -1,14 +1,3 @@
-// The device node. The tuning dial is the signature element of the whole UI and it is the face of
-// every device node; everything else the radio has is drawn from `Capabilities` alone, so a new
-// device setting still needs zero frontend work ().
-//
-// Three states, each first-class (CANVAS §3): no radio named yet, and the node *is* the "open a
-// radio" invitation; named and attached, and it is the instrument; named and absent, and it is
-// the same node with dead controls and its wires kept — never silently rebound to whatever else
-// is plugged in.
-//
-// Its left side is what is done *to* the radio — a scanner's control wire, and the transmit input
-//  reserves — while everything it produces leaves on the right.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BTN, BTN_QUIET, CHIP, LABEL } from "../../components/controls";
 import { isTunable, tuningRange } from "../../components/dial";
@@ -120,8 +109,6 @@ function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning
   );
 }
 
-/** A running scan drives the tuning itself, and the server refuses ours while it does
- * (). A faulted scan has already stopped, so the dial comes back with it. */
 export function scannerOwnsTuning(set: DeviceSet): boolean {
   return set.scanner != null && set.scanner.error == null;
 }
@@ -129,14 +116,11 @@ export function scannerOwnsTuning(set: DeviceSet): boolean {
 export function DeviceFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const queryClient = useQueryClient();
-  // The kind test is what narrows `node.data` to a device node's payload.
   const reference = node.kind === "device" ? (node.data.device ?? null) : null;
   const set = workspace.devices.get(node.id) ?? null;
 
   const open = useMutation({
     mutationFn: createDeviceSet,
-    // A radio that just arrived can be the one a channel node has been waiting for, and apply is
-    // idempotent, so asking every time costs nothing.
     onSuccess: () => workspace.apply(),
     // Naming the radio has already flipped this face to its disconnected state by the time a
     // refusal lands, so the inline error below is no longer on screen to carry it.
@@ -144,8 +128,6 @@ export function DeviceFace({ node }: { node: PatchNode }) {
     onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
   });
 
-  // The durable reference is what the patch stores — never an engine id, which is allocated per
-  // run and would bind this node to whichever radio opened first (CANVAS §3).
   const nameRadio = (chosen: DeviceRef | null): void =>
     workspace.edit((snapshot) => ({
       ...snapshot,

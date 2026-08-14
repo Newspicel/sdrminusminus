@@ -1,11 +1,3 @@
-// Reading a band plan: clipping it to a window, identifying a frequency in it, and searching it
-// (). Kept pure so the ruler component only routes pointer events, the same split
-// `spectrumView.ts` uses for the view transform.
-//
-// All three run client-side over the whole region document, which the server serves already
-// layered. The expensive half — most-specific-wins across the ITU, CEPT and national tables — is
-// Rust and is tested there; what is left here is arithmetic over a sorted list, and doing it
-// locally is what lets the ruler survive a pan without a request per frame.
 import type {
   BandAllocation,
   BandBlock,
@@ -18,7 +10,6 @@ import type {
 /** A block clipped to the visible window, in screen fractions. */
 export interface BandSpan {
   block: BandBlock;
-  /** The block's winning allocation, resolved out of the plan's table. */
   allocation: BandAllocation;
   /** Left edge as a fraction of the window; already clamped into [0, 1]. */
   left: number;
@@ -87,8 +78,6 @@ export function spansIn(
   return spans;
 }
 
-/** What every lane says about one frequency, in the plan's own lane order — the allocation
- * first, then each overlay. Lanes with nothing there are omitted rather than reported empty. */
 export function identify(plan: BandPlan, hz: number): BandIdentity[] {
   const found: BandIdentity[] = [];
   for (const lane of plan.lanes) {
@@ -110,12 +99,6 @@ export function identify(plan: BandPlan, hz: number): BandIdentity[] {
   return found;
 }
 
-/** The mode to tune with at an identified frequency: the *most specific* lane's suggestion.
- *
- * Lane order runs least to most specific, so this is the last one that has anything to say, not
- * the first. The difference is the whole reason the overlay exists: 144.800 MHz is "2 m amateur,
- * NFM" to the allocation and "APRS" to the IARU plan, and the second is the answer. Same on HF,
- * where a band says SSB and its CW segment says Morse. */
 export function suggestedAt(found: readonly BandIdentity[]): ChannelParams | null {
   let suggested: ChannelParams | null = null;
   for (const entry of found) {
@@ -124,13 +107,6 @@ export function suggestedAt(found: readonly BandIdentity[]): ChannelParams | nul
   return suggested;
 }
 
-/** Free-text search over a region's plan.
- *
- * Scored by how many of the query's words a band answers to rather than requiring all of them,
- * so "show me marine VHF" finds Marine VHF and the two filler words cost nothing. A query that
- * reads as a frequency is also resolved as one, which is why "433" finds both the ISM band and
- * everything named after it. Ties break toward the narrower band: the more specific answer is
- * almost always the one being asked for. */
 export function searchPlan(plan: BandPlan, query: string, limit = 40): BandMatch[] {
   const words = query
     .toLowerCase()
@@ -141,8 +117,6 @@ export function searchPlan(plan: BandPlan, query: string, limit = 40): BandMatch
     return [];
   }
 
-  // The plan's allocation table already holds each band exactly once, so this walks it directly
-  // and needs no deduplication of its own — the normalized payload paid for itself twice.
   const lanes = new Map<string, string>();
   for (const lane of plan.lanes) {
     for (const block of lane.blocks) {
@@ -164,8 +138,6 @@ export function searchPlan(plan: BandPlan, query: string, limit = 40): BandMatch
       continue;
     }
     scored.push({
-      // A frequency hit outranks any number of word hits: an operator who typed a frequency
-      // asked a different question than one who typed a name.
       score: (covers ? 100 : 0) + matched,
       width: allocation.stop_hz - allocation.start_hz,
       match: {
@@ -244,7 +216,6 @@ export function serviceEdge(service: BandService): string {
   return EDGE[service];
 }
 
-/** The service as a word, because no block is identified by its hue alone (). */
 export function serviceLabel(service: BandService): string {
   return service === "ism" ? "ISM" : service.charAt(0).toUpperCase() + service.slice(1);
 }

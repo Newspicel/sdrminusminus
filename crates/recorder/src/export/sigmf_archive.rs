@@ -1,10 +1,4 @@
 //! SigMF Archive: a recording's pair packed into one `.sigmf` file.
-//!
-//! SigMF v1.2.6 "Rules for SigMF Archive files" fixes only the outside — POSIX.1-2001 `tar`,
-//! the `.sigmf` extension, and members that still satisfy the per-file rules once extracted —
-//! so the layout written here is the one the other SigMF tools use: a directory named after
-//! the recording holding its `.sigmf-meta` and `.sigmf-data`.
-
 use std::{collections::VecDeque, fs::File, path::Path};
 
 use super::{ExportKind, Part, open_pinned};
@@ -100,11 +94,6 @@ fn write_checksum(block: &mut [u8]) {
     block[155] = b' ';
 }
 
-/// A `ustar` numeric field: zero-padded octal in `field.len() - 1` digits, NUL-terminated.
-/// `size` outgrows its eleven digits past 8 GiB — minutes of I/Q at any real rate — so a wide
-/// field falls back to the base-256 form GNU tar, bsdtar and Python's `tarfile` all read,
-/// POSIX having left the overflow itself undefined. Only the 12-byte `size` and `mtime` can
-/// reach that branch; the 8-byte fields carry constants that always fit.
 fn write_numeric(field: &mut [u8], value: u64) {
     let digits = field.len() - 1;
     let octal = format!("{value:o}");

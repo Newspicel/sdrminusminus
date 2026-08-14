@@ -1,9 +1,3 @@
-// The patch view: React Flow over our own graph model (CANVAS §7). The library holds geometry
-// while a gesture is in flight; the stored patch is written at the end of one, which is both
-// what CANVAS §4 requires and what keeps the drag → save → `StateChanged` → refetch → re-apply
-// loop from feeding itself — the same four brakes the M6 dock needed, in a smaller shape:
-// writes happen only on gesture end, an incoming patch equal to the one held is not re-applied,
-// and a refused wire never becomes a write at all.
 import {
   Background,
   BackgroundVariant,
@@ -66,15 +60,10 @@ export function Canvas() {
     toFlowEdges(workspace.graph, workspace.context),
   );
 
-  // What the canvas currently holds, as a stored patch. An incoming graph equal to this is our
-  // own write echoing back through the query cache, and re-applying it would reset a drag in
-  // progress; anything else is another client's patch (or the 409 recovery) and is taken.
   const held = useRef<PatchGraph>(workspace.graph);
   const context = workspace.context;
   useEffect(() => {
     if (sameGraph(held.current, workspace.graph)) {
-      // The graph is unchanged, but a wire's *fault* is live state — a radio retuned to the
-      // wrong rate under a wideband channel has to light its wire without a patch write.
       setEdges(toFlowEdges(workspace.graph, context));
       return;
     }
@@ -92,8 +81,6 @@ export function Canvas() {
     setEdges(toFlowEdges(workspace.graph, context));
   }, [workspace.graph, context, setNodes, setEdges]);
 
-  // Geometry is written at the end of a gesture, never per frame: one write per drag, not one
-  // per pointer move (CANVAS §4).
   const commitGeometry = useCallback(() => {
     workspace.edit((snapshot) => ({
       ...snapshot,
@@ -119,17 +106,12 @@ export function Canvas() {
     }));
   }, [workspace]);
 
-  // The live node array, read by `commitGeometry` without making it depend on every frame of a
-  // drag (which would rebuild the handler mid-gesture).
   const flowRef = useRef(nodes);
   flowRef.current = nodes;
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<Node<FlowData>>[]) => {
       onNodesChange(changes);
-      // Selection arrives as a diff in node order, so clicking a node that sorts before the
-      // selected one yields [select B, deselect A] — applied one at a time, the deselect wins
-      // and the click reads as "nothing selected". Collapse the batch to its outcome.
       const selects = changes.filter((change) => change.type === "select");
       if (selects.length > 0) {
         workspace.select(selects.find((change) => change.selected)?.id ?? null);
@@ -206,16 +188,11 @@ export function Canvas() {
         to: { node: connection.target, port: connection.targetHandle ?? "" },
       };
       workspace.edit((snapshot) => ({ ...snapshot, graph: addEdge(snapshot.graph, edge) }));
-      // A new wire can mean a new channel to create (a channel node just given a radio), and
-      // apply is idempotent, so asking every time costs nothing.
       workspace.apply();
     },
     [workspace],
   );
 
-  // The reason a wire was refused, said in words where the operator is looking (CANVAS §1).
-  // It has to come from here rather than from `onConnect`: React Flow only calls that one for
-  // connections `isValidConnection` already accepted, so a refusal never reaches it.
   const onConnectEnd = useCallback(
     (_event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
       if (state.isValid !== false || state.fromHandle == null || state.toHandle == null) {
@@ -277,7 +254,6 @@ export function Canvas() {
         onPaneContextMenu={(event) => openMenu(event as React.MouseEvent, { kind: "pane" })}
         // Both keys, because both are what people press for "delete this".
         deleteKeyCode={DELETE_KEYS}
-        // Desktop-only (): a pointer and a keyboard are assumed.
         panOnScroll
         panOnScrollSpeed={1}
         selectionOnDrag
@@ -324,9 +300,6 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
         }
         return;
       }
-      // A pointerdown *inside* the menu is an item click arriving. This runs window-capture,
-      // before any handler on the menu itself, so dismissing here would unmount the item
-      // between pointerdown and click and the action would never fire.
       if (event.target instanceof Node && menuRef.current?.contains(event.target) === true) {
         return;
       }
@@ -432,9 +405,6 @@ function toFlowEdges(graph: PatchGraph, context: GraphContext): Edge[] {
     // A wire that exists but cannot carry what it says it carries is drawn as a fault on the
     // wire itself — the face at its end says what to do about it.
     const warning = edgeWarning(context, graph, edge.from, edge.to);
-    // Hue is the data type and nothing else (), so the class comes off the port's
-    // *type* — a port whose name differs from what it carries would otherwise draw an uncoloured
-    // wire, which is the one failure this rule cannot afford.
     const carried = portOf(context, graph, edge.from)?.port_type;
     return {
       id: edgeKey(edge),

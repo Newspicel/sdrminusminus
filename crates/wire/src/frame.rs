@@ -1,42 +1,3 @@
-//! Binary WS frame layout (). This is the *one* place a wire format is written by
-//! hand on both sides (Rust encoder here, a ~100-line TS decoder in `web/`): the deliberate
-//! exception to codegen (). All fields little-endian.
-//!
-//! ```text
-//! header (16 bytes):
-//!   u8  ver
-//!   u8  kind            (FrameKind)
-//!   u16 stream_id
-//!   u32 seq
-//!   u64 timestamp       (sample-count since capture start, )
-//! SPECTRUM payload:
-//!   f64 center_hz
-//!   f32 span_hz
-//!   f32 db_min
-//!   f32 db_max
-//!   u16 n
-//!   u8[n] bins          (quantized magnitude over [db_min, db_max])
-//! AUDIO_OPUS payload:
-//!   u8  ch_layout       (1 = mono, 2 = stereo — the packet's own Opus channel count)
-//!   u8[] opus           (one Opus packet, to end of frame)
-//! VIDEO_GRAY payload:
-//!   u16 width
-//!   u16 height
-//!   u8[width·height] luma  (row-major from the top line, 0 = black)
-//! ```
-//!
-//! AUDIO_OPUS timestamps count 48 kHz-domain sample *frames* since the channel's audio started
-//! (: demods emit 48 kHz PCM before Opus encoding), so a layout change does not disturb
-//! the clock a client detects loss on. `ch_layout` travels per frame because a channel may
-//! switch layout mid-stream (WFM stereo toggled on a live channel).
-//!
-//! VIDEO_GRAY timestamps count channel-rate IQ samples since the channel started, so a gap
-//! between pictures is legible as the time it really was. The picture is 8-bit luma and
-//! uncompressed: it is one frame per field of an analog scan, sized by what the channel's
-//! bandwidth resolved, and a codec between the demodulator and the canvas would cost more
-//! than the bytes it saved on a desktop link.
-
-/// Protocol version in every frame header. Bump on any layout change.
 pub const PROTOCOL_VERSION: u8 = 1;
 
 /// Byte length of the fixed frame header.
@@ -99,7 +60,6 @@ impl SpectrumFrame<'_> {
         buf.extend_from_slice(&self.span_hz.to_le_bytes());
         buf.extend_from_slice(&self.db_min.to_le_bytes());
         buf.extend_from_slice(&self.db_max.to_le_bytes());
-        // n is bounded by the ≤4096-bin display cap (), so the cast never truncates.
         buf.extend_from_slice(&(self.bins.len() as u16).to_le_bytes());
         buf.extend_from_slice(self.bins);
         buf

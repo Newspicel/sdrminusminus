@@ -1,26 +1,3 @@
-//! §4.2 performance baselines for the phase-9 multicarrier entries, and the steady-state
-//! zero-allocation gates on their transmit and receive paths.
-//!
-//! Five benches, and the spread between them is the point: **these four waveforms cost two orders
-//! of magnitude apart for the same rate**, and the reason is structural rather than incidental.
-//! GFDM's receiver is a dense `N × N` product per block because its pulses are not orthogonal;
-//! FBMC's is `K` symbol periods of convolution per subcarrier per half-symbol because its
-//! prototype is four symbols long; UFMC's is one `2N` transform and a per-bin division; and OTFS
-//! adds two small transforms to a carrier that was already paid for.
-//!
-//! **One of the five does not keep up with its own rate**, and the number is committed rather than
-//! hidden: FBMC's analysis bank is written in direct form — one convolution per subcarrier per
-//! slot — which is the definition rather than the implementation. The polyphase form every
-//! deployed filter bank uses is `O(M log M)` per slot where this is `O(M·KM)`, and it is a second
-//! merge with its own baseline rather than a change to this one. GFDM clears its rate, but only
-//! just, and that is not an implementation choice either: a dense inverse is what a non-orthogonal
-//! waveform *is*, and the frequency-domain factorisation that makes it cheaper is a different
-//! receiver.
-//!
-//! Real-time factors divide by the entries' shared 20 MHz reference rate — the OFDM rows' own — so
-//! the numbers answer the same "how many channels of this per core" question every other entry's
-//! do, and can be read straight against the CP-OFDM row phase 6 committed.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use num_complex::Complex;
@@ -140,8 +117,6 @@ fn measured_baselines() -> Vec<PerfBaseline> {
     let mut precoder = OtfsPrecoder::new(grid);
     let dd = points(grid.points());
     let mut tf = vec![Complex::new(0.0, 0.0); grid.points()];
-    // The precoder's own cost, per *carrier* sample: a frame of 16 symbols of 80 samples is what
-    // its 48 × 16 grid rides, so that is what the rate divides.
     let carrier_samples = 16 * 80;
     let otfs_msps = measure_throughput(4_000, carrier_samples as u64, || {
         precoder.spread(&dd, &mut tf);
@@ -213,10 +188,6 @@ fn path(stem: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{stem}.json"))
 }
 
-// --- Zero-allocation gates (§4.2) ---------------------------------------------------------------
-
-/// GFDM, both directions and both receivers. Two warm-up calls per the §4.2 convention, then one
-/// steady-state call must acquire no memory.
 #[test]
 fn the_gfdm_paths_allocate_nothing() {
     let params = gfdm_params();
@@ -317,8 +288,6 @@ fn the_otfs_precoder_allocates_nothing() {
         precoder.despread(&tf, &mut back);
     });
 }
-
-// --- The committed baseline (§4.2) ----------------------------------------------------------------
 
 #[test]
 #[ignore = "rewrites the committed baseline; run explicitly in release on the reference host"]

@@ -1,10 +1,5 @@
 //! The sample half of an rtl_tcp connection: an unframed byte stream of interleaved unsigned
 //! 8-bit IQ, and the table that turns those codes into `cf32`.
-//!
-//! There is nothing to parse — everything after the twelve-byte greeting is samples — so the
-//! capture stream is a read into a pooled block and the conversion is the shared
-//! [`LutConverter`](sdrmm_device::LutConverter) over the RTL2832U's coding.
-
 use std::{sync::Arc, time::Duration};
 
 use sdrmm_device::{CaptureStream, LutConverter, Next, StreamFailure};

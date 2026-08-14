@@ -1,6 +1,3 @@
-// Typed REST access. `openapi-fetch` gives full inference from the generated schema; the thin
-// query helpers key TanStack Query by path so WS `StateChanged` events can invalidate them
-// ( step 4, §10). No polling — invalidation is WS-driven.
 import { queryOptions } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
 import { migrateSnapshot } from "../canvas/graph";
@@ -45,8 +42,6 @@ import type {
 
 export const client = createClient<paths>({ baseUrl: "/" });
 
-// One middleware carries the shared token on every request (). Read per request, not
-// captured once: the token is entered after the client module has already been imported.
 client.use({
   onRequest({ request }) {
     const token = getToken();
@@ -342,14 +337,10 @@ export async function activateWorkspace(id: number): Promise<void> {
   unwrap(await client.POST("/api/workspaces/{id}/activate", { params: { path: { id } } }));
 }
 
-/** Bring the engine up to what the workspace draws (CANVAS §2): open the radios its device nodes
- * name, add the channels it wires. Additive and idempotent, so it is safe on every load. */
 export async function applyWorkspace(id: number): Promise<PatchApplyReport> {
   return unwrap(await client.POST("/api/workspaces/{id}/apply", { params: { path: { id } } }));
 }
 
-/** The node palette and its ports (CANVAS §1). Static for a build, like the channel types, so
- * it is fetched once and never invalidated. */
 export function patchCatalogQuery() {
   return queryOptions({
     queryKey: PATCH_CATALOG_KEY,
@@ -358,7 +349,6 @@ export function patchCatalogQuery() {
   });
 }
 
-/** The regions a band plan can be read in. Compiled into the server like the node palette. */
 export function bandRegionsQuery() {
   return queryOptions({
     queryKey: BAND_REGIONS_KEY,
@@ -368,9 +358,6 @@ export function bandRegionsQuery() {
   });
 }
 
-/** One region's whole allocation table, already layered. Fetched once and then clipped and
- * searched locally (`components/bandPlan.ts`): a scope pans and zooms continuously, and a
- * request per frame to re-cut a document that cannot change would be absurd. */
 export function bandPlanQuery(region: string | null) {
   return queryOptions({
     queryKey: ["get", "/api/bandplan/regions/{region}", region] as const,
@@ -421,7 +408,6 @@ export function doctorQuery(enabled: boolean) {
     queryKey: DOCTOR_KEY,
     queryFn: async (): Promise<DoctorReport> => unwrap(await client.GET("/api/doctor")),
     enabled,
-    // Probing enumerates USB; never do it on a window focus.
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
   });

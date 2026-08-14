@@ -1,7 +1,3 @@
-// Shared-token prompt (). The probe is `GET /api/auth`, which answers without
-// authentication — the browser WebSocket API reports a rejected handshake as a plain close,
-// indistinguishable from "server down", so without this probe a wrong token would look like
-// an outage and reconnect forever.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
 import { authQuery } from "../lib/api";
@@ -48,7 +44,6 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
           setToken(token);
           setSaved(true);
           setRefused(false);
-          // Everything fetched before the token existed was a 401; start clean.
           void queryClient.invalidateQueries();
           onToken();
         }}

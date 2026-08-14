@@ -1,14 +1,5 @@
 //! Reference ATV transmitter: a standards-timed analog raster, modulated the way the band it
 //! belongs to modulates it.
-//!
-//! Written from the standards' own timing tables in absolute microseconds — front porch, sync,
-//! back porch, active — and from their field-blanking structure in half-lines, which is where
-//! interlace lives: the two fields differ by exactly one half-line, and everything a receiver
-//! knows about which field it is looking at comes from that.
-//!
-//! Independent of [`crate::atv`] in method: this lays a raster out in time, while the decoder
-//! recovers one by classifying pulse widths. What the two share is the standard.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -55,14 +46,8 @@ struct Layout {
 fn layout(standard: AtvStandard) -> Layout {
     let (sync_us, back_us, active_us, pre_eq, broad, post_eq, blank_after_group, active_lines) =
         match standard {
-            // CCIR System B/G: 4.7 µs sync, 5.8 back porch, 51.95 active. Field blanking is
-            // 5 + 5 + 5 half-lines and the picture starts at line 23.
             AtvStandard::Ccir625 => (4.7, 5.8, 51.95, 5, 5, 5, 15, 288),
-            // EIA RS-170A: 4.7 µs sync, 4.5 back porch, 52.6 active. Field blanking is
-            // 6 + 6 + 6 half-lines and the picture starts at line 21.
             AtvStandard::Eia525 => (4.7, 4.5, 52.6, 6, 6, 6, 11, 240),
-            // System A: 9.0 µs sync, 5.8 back porch, 82.2 active. No equalizing pulses at all;
-            // four lines of broad pulses open the field and the picture starts at line 15.
             AtvStandard::SystemA405 => (9.0, 5.8, 82.2, 0, 8, 0, 10, 188),
         };
     // The line period comes from the standard's line rate, not from a rounded figure: a frame
@@ -70,7 +55,6 @@ fn layout(standard: AtvStandard) -> Layout {
     let line_s = 1.0 / standard.line_rate_hz();
     Layout {
         line_s,
-        // What the timed intervals leave over is the front porch, by construction.
         front_porch_s: line_s - (sync_us + back_us + active_us) * 1e-6,
         sync_s: sync_us * 1e-6,
         back_porch_s: back_us * 1e-6,
@@ -133,8 +117,6 @@ impl AtvSource {
         segs.extend(std::iter::repeat_n(Seg::Broad, usize::from(l.broad)));
         segs.extend(std::iter::repeat_n(Seg::Equalizing, usize::from(l.post_eq)));
         let group = usize::from(second) + usize::from(l.pre_eq + l.broad + l.post_eq);
-        // Whole lines take two half-lines each; an odd remainder ends the field on a half-line,
-        // which is what puts the *next* field's group back on the other grid.
         let remaining = usize::from(l.field_half_lines) - group;
         let lines = remaining / 2;
         for k in 0..lines {
@@ -227,11 +209,8 @@ impl AtvSource {
         video
             .iter()
             .map(|&v| {
-                // `invert` transmits the reversed polarity, which is what the receive-side
-                // setting of the same name exists to undo.
                 let m = f64::from(if self.invert { 1.0 - v } else { v });
                 match self.modulation {
-                    // Negative modulation: the sync tip is peak carrier and white is the trough.
                     AtvModulation::Am => Complex::new((1.0 - AM_DEPTH * m) as f32, 0.0),
                     AtvModulation::Fm => {
                         phase += TAU * FM_DEVIATION_HZ * (2.0 * m - 1.0) / self.rate;
@@ -307,7 +286,6 @@ mod tests {
             .into_iter()
             .map(|s| src.seg_seconds(s))
             .sum();
-        // Both fields last the same time — the displacement is where the group sits inside it.
         assert!((first - second).abs() < 1e-12, "{first} vs {second}");
         let group = |second: bool| {
             src.field(second)
@@ -333,8 +311,6 @@ mod tests {
         let hi = video.iter().copied().fold(f32::MIN, f32::max);
         assert_eq!(lo, SYNC);
         assert_eq!(hi, 1.0);
-        // The back porch of a line, which is blanking by construction. Counted from where the
-        // normal lines start — the vertical group sits on the half-line grid ahead of them.
         let l = src.layout;
         let at = |seconds: f64| video[(seconds * RATE) as usize];
         let group = f64::from(l.pre_eq + l.broad + l.post_eq) * l.line_s / 2.0;

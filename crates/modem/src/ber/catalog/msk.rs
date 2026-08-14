@@ -1,13 +1,3 @@
-//! The MSK catalog entry ( §6 CPM row 4): the LREC(1) h = ½ case, and the reference
-//! the GMSK entry's partial-response cost is measured against.
-//!
-//! It runs behind the *same* front end as GMSK ([`framing`](super::framing)) so the comparison
-//! reads the frequency pulse alone, and it is framed with the alternating preamble because it
-//! can be: rect ⊗ rect is a triangle with nulls at ±T, so this entry's symbol response is one
-//! tap and the alternating pattern arrives at full payload scale — the collapse that forces
-//! GMSK to a data-like preamble is a partial-response phenomenon and does not exist here
-//! (asserted in `framing`'s tests).
-
 use super::{
     Measurement,
     framing::{Acquisition, SPS, steady_link},
@@ -18,9 +8,6 @@ use crate::{
     pulse::{self, Norm},
 };
 
-/// MSK as CPM: LREC(1) (rect) frequency pulse at h = ½. The half-sine amplitude pulse is the
-/// same waveform's linear OQPSK reading — that representation belongs to the planned coherent
-/// tier, not to this one.
 #[must_use]
 pub fn params() -> CpmParams {
     CpmParams::from_h(Mapping::natural(2), 0.5, pulse::rect(SPS, Norm::Area), SPS)
@@ -43,8 +30,6 @@ pub fn link() -> Link {
         rx(),
     )
 }
-
-// --- Committed sweep parameters ----------------------------------------------------------------
 
 pub const GRID: &[f64] = &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0];
 pub const SEED: u64 = 0x635b;

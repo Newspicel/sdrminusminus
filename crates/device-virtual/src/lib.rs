@@ -1,18 +1,3 @@
-//! `sdrmm-device-virtual` — backend providing developer-only signal generators and
-//! always-available SigMF file playback. Playback lives here; SigMF IO lives in
-//! `sdrmm-recorder`. This is
-//! how CI, demo mode, and decoder golden tests run without hardware. The siggen synthesizes a
-//! baseband IQ stream: a few fixed tones, one slowly drifting tone, and a white-noise floor
-//! (the M0 spectrum path), plus NFM/AM/WFM carriers modulated by a 1 kHz tone that the M2
-//! engine e2e tests demodulate. The plain tones sit at fixed fractions of the sample rate;
-//! the modulated carriers sit at fixed Hz offsets from center — both ride along when the
-//! device retunes, but Hz offsets let channels address the carriers at any sample rate.
-//!
-//! No hardware backend has several streams yet, so the multi-stream test radios
-//! ([`MARKER_SHAPES`]) also live here: rx-only, half- and full-duplex shapes whose stream k
-//! carries an NFM marker at [`stream_marker_offset_hz`]`(k)`, distinguishable enough for a
-//! test to prove stream k reached channel k.
-
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering},
@@ -148,9 +133,6 @@ impl VirtualDriver {
             key: format!("{FILE_KEY_PREFIX}{stem_str}"),
             label: format!("{name} (recording)"),
             serial: None,
-            // The centre and rate are the recording's, and reading them means opening its
-            // metadata: a probe walks the whole recordings directory, so it stays a directory
-            // listing. Unknown until opened, which is what `None` says.
             profile: None,
         })
     }
@@ -167,8 +149,6 @@ impl DeviceDriver for VirtualDriver {
             infos.push(Self::siggen_info());
             infos.extend(MARKER_SHAPES.iter().map(Self::marker_info));
         }
-        // The hotplug prober calls this every 5 s: scan_stems is one readdir, no meta
-        // parses. An unreadable dir hides the playback devices, never fails the probe.
         if let Some(dir) = &self.recordings_dir
             && let Ok(stems) = scan_stems(dir)
         {
@@ -235,8 +215,6 @@ fn siggen_capabilities() -> Capabilities {
             max: 6_000_000_000.0,
             step: None,
         }],
-        // 2 Msps is here for one reason: it is the only rate ADS-B can run at (),
-        // so without it the demo radio cannot carry the mode its own fixture decodes.
         sample_rates: vec![
             250_000.0,
             1_024_000.0,
@@ -338,8 +316,6 @@ impl SdrDevice for SigGen {
 
     fn apply(&mut self, settings: &DeviceSettings) -> Result<(), DeviceError> {
         validate_tune(&self.capabilities, settings)?;
-        // Store every field via the one shared merge (`wire`), so PATCHed values round-trip
-        // into state even for knobs the siggen has no behavior for (ppm, gains, bandwidth…).
         self.settings.merge_from(settings);
         // Publish the derived params so a live capture thread picks them up next block.
         self.shared.store(Arc::new(SigParams {
@@ -362,7 +338,6 @@ impl SdrDevice for SigGen {
                 generator.fill(&mut block, params.sample_rate);
                 sink.push(&block);
 
-                // Pace to ~real time so spectrum fps and CPU stay realistic.
                 next += Duration::from_secs_f64(n as f64 / params.sample_rate);
                 let now = Instant::now();
                 if next > now {
@@ -401,8 +376,6 @@ pub const MARKER_SHAPES: [MarkerShape; 3] = [
         duplex: Duplex::RxOnly,
         rx_streams: 4,
         tx_streams: 0,
-        // A coherent array shares one tuner reference by definition; per-channel gain is how
-        // an array is levelled.
         per_stream: StreamScope {
             tuning: false,
             gain: true,
@@ -540,7 +513,6 @@ impl SdrDevice for MarkerGen {
         }
         let shared = self.shared.clone();
         self.worker.start("sdrmm-marker-rx", move |running| {
-            // Lane k feeds sinks[k]: the vec order *is* the stream order the engine binds by.
             let mut lanes: Vec<(Generator, RxSink)> = sinks
                 .into_iter()
                 .enumerate()
@@ -568,7 +540,6 @@ impl SdrDevice for MarkerGen {
                     sink.push(&block);
                 }
 
-                // Pace to ~real time so spectrum fps and CPU stay realistic (as the siggen).
                 next += Duration::from_secs_f64(n as f64 / params.sample_rate);
                 let now = Instant::now();
                 if next > now {
@@ -710,7 +681,6 @@ impl Generator {
         use std::f64::consts::TAU;
 
         let hz_to_w = TAU / sample_rate;
-        // Drift tone: offset sweeps as a slow LFO across ±0.35·fs at ~0.08 Hz.
         let lfo_w = 0.08 * hz_to_w;
         let noise_amp = 0.012;
         let mod_w = MOD_TONE_HZ * hz_to_w;
@@ -932,8 +902,6 @@ mod tests {
     fn carrier_past_nyquist_is_muted_not_aliased() {
         let fs = 1_024_000.0;
         let power = power_spectrum(1 << 19, fs);
-        // 600 kHz + Carson half-width exceeds Nyquist (512 kHz); folding would land the WFM
-        // carrier at -424 kHz.
         let aliased = band_power(&power, fs, -424_000.0, 100_000.0);
         let nfm = band_power(&power, fs, NFM_CARRIER_OFFSET_HZ, 10_000.0);
         assert!(
@@ -1062,7 +1030,6 @@ mod tests {
             assert_eq!(caps.rx_streams, shape.rx_streams, "{}", shape.key);
             assert_eq!(caps.tx_streams, shape.tx_streams, "{}", shape.key);
             assert_eq!(caps.per_stream, shape.per_stream, "{}", shape.key);
-            // Same tuning surface as the siggen, so templates that match one match the other.
             assert_eq!(caps.sample_rates, siggen_capabilities().sample_rates);
             assert_eq!(caps.freq_ranges, siggen_capabilities().freq_ranges);
         }
@@ -1097,7 +1064,6 @@ mod tests {
             dev.rx_start(sinks),
             Err(DeviceError::Unsupported(_))
         ));
-        // …and still starts with the one sink it has a stream for.
         dev.rx_start(vec![RxSink::new(|_| {})]).unwrap();
         dev.rx_stop();
     }
@@ -1313,8 +1279,6 @@ mod tests {
             "lane 0 moved with lane 1's retune (own {own:.3e}, shifted {shifted:.3e})"
         );
 
-        // Lane 1 tuned RETUNE_HZ below the radio: its marker appears RETUNE_HZ higher in its
-        // baseband, and is gone from where it used to be.
         let power = spectrum_of(&lanes[1]);
         let moved = band_power(
             &power,
@@ -1355,7 +1319,6 @@ mod tests {
         // 75 kHz below the radio, so its marker sits that much higher.
         assert_eq!(marker_offsets(&settings, &caps), vec![50_000.0, 175_000.0]);
 
-        // Shared tuning: the same override table moves nothing, whatever it says.
         let array = marker_capabilities(&MARKER_SHAPES[0]);
         assert_eq!(
             marker_offsets(&settings, &array),

@@ -3,29 +3,6 @@
 //! gaps included, scaled so the transmitted levels sit at the mapping table's values whatever
 //! the transmitter's actual deviation — a narrowband transmitter 20 % under-deviated is a
 //! signal to decode, not to reject.
-//!
-//! This generalises `sdrmm_dsp::Fsk4Demod`'s burst policy piece by piece, because that policy
-//! is the hard-won part ( §2.1): the floor-settled carrier gate, the keyed and idle
-//! peak estimates, attack-limited level tracking, learn-only-while-settled, and the per-run
-//! `process`/`process_held` split that keeps the clock coasting through TDMA dead time. Every
-//! constant that carries a measured judgment is kept, restated where needed in the unit that
-//! made it work (symbols rather than seconds — the gate races the matched filter's group
-//! delay, which is symbol-denominated, so a 9600-baud entry gets the proportionally faster
-//! gate the same reasoning demands).
-//!
-//! **All estimates are learned only while a carrier is present.** A discriminator fed a dead
-//! channel emits noise that swings an order of magnitude past any symbol, and loops that
-//! integrated it would arrive at the next burst having learned the receiver's noise floor
-//! instead of the transmitter: the clock dragged off by percent, the centre averaged halfway
-//! to zero, the level latched onto a noise spike. The gate is what makes a burst mode decode
-//! at all, and a continuously-keyed mode never notices it.
-//!
-//! **Real-valued input is first-class** ( §3.5): [`CpmDemod::real`] builds the same
-//! chain with the quadrature discriminator replaced by an audio-domain detector — an
-//! analytic-signal discriminator about a subcarrier, or a two-tone correlator filterbank —
-//! chosen per entry as [`RealDetector`] *data*. Everything downstream of the detector (matched
-//! filter, timing, gate policy, levels, the known-symbol hook) is the identical code path.
-
 use num_complex::Complex;
 use sdrmm_dsp::{
     Decimator, FmDemod, Nco, RealDecimator, SymbolSync, ToneCorrelator, design_lowpass,
@@ -72,34 +49,6 @@ const CENTRE_SYMBOLS_FLOOR: f32 = 150.0;
 /// which need it: their margins shrink as fast as their wobble would have grown.
 const CENTRE_POWER_SYMBOLS: f32 = 30.0;
 
-/// Tracking rate of the peak estimate toward an outer symbol, in symbols carrying a signal —
-/// `fsk4`'s decay constant, re-aimed (see below). Fast enough to follow a fading transmitter,
-/// slow enough that noise on one outer symbol does not shrink the eye.
-///
-/// Two measured corrections to `fsk4`'s attack-above/decay-below dynamics, both invisible at
-/// M = 4's 33 % slicing margins and fatal at M = 8's 14 % (isolated on the noise-free
-/// 8-level loopback, sliced output against the open-loop chain, which reads the levels
-/// exactly):
-///
-/// - **Only outer symbols may move the estimate down.** Decaying on every non-exceeding
-///   symbol equilibrates the peak below the true outer level by a factor set by the outer
-///   symbols' *density*: measured gain ×1.13 at M = 4 (half the symbols are outer — DMR
-///   absorbed it silently) but ×1.30 at M = 8 (a quarter are). So downward tracking is gated
-///   to the outer decision region of the current estimate.
-/// - **The pull is proportional, toward the measured magnitude.** A fixed-step decay against
-///   an attack-limited rise churns: the estimate falls a full step on any in-region symbol
-///   and recovers only an eighth of the gap per symbol above it, riding the population's low
-///   tail — measured ×1.09 residual. Pulling toward the magnitude settles closer to the
-///   population and still follows a fading transmitter on the same timescale.
-///
-/// A residual bias of order the population's own spread remains — the attack/pull rate
-/// asymmetry keeps the equilibrium in the population's lower half (measured peak 6.49 on an
-/// 8-level population at 6.88, gain ×1.087; a symmetric-band variant was measured *worse*,
-/// 6.20, because at M = 8 the band unavoidably swallows the next level's high tail: the band
-/// spans ±14 % while the levels sit 29 % apart). That is the measured boundary of *blind*
-/// magnitude-only normalisation: ample inside M ≤ 4's margins, most of the margin at M = 8 —
-/// where the known-symbol hook ( §3.4, [`super::KnownSymbols`]) is the designed
-/// level reference, exactly as every burst standard's sync pattern anticipates.
 const PEAK_SYMBOLS: f32 = 60.0;
 
 /// Decay of the peak estimate while the symbol sits *below* the outer region — the safety
@@ -154,8 +103,6 @@ const CARRIER_RISE: f32 = 4.0;
 /// band well inside the gap between the wanted tones and their mirror image.
 const IMAGE_TAPS: usize = 127;
 
-/// The audio-domain detector a real-input construction runs in place of the quadrature
-/// discriminator — per-entry data, never a protocol branch ( §3.5).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RealDetector {
     /// Mix the audio down by `centre_hz`, reject the mirror image a real signal carries, and
@@ -283,16 +230,6 @@ impl CpmDemod {
         Self::build(params, receive_filter, timing_bw, front, 0)
     }
 
-    /// Real-valued (audio-domain) construction: same chain, the discriminator front end
-    /// replaced per `detector`. `sample_rate` is the audio rate in Hz; the entry's baud is
-    /// `sample_rate / params.sps()`, and the detector's tone geometry is stated in Hz at that
-    /// rate. Feed it with [`Self::process_real`].
-    ///
-    /// # Panics
-    /// As [`Self::new`]; additionally if `sample_rate` is not positive, a tone sits outside
-    /// (0, `sample_rate`/2), the filterbank tones coincide, or a filterbank is requested for
-    /// M ≠ 2 (two tones detect two levels; M-tone orthogonal FSK is `orthogonal/`'s
-    /// filterbank, not this detector).
     #[must_use]
     pub fn real(
         params: &CpmParams,
@@ -312,9 +249,6 @@ impl CpmDemod {
                     centre_hz > 0.0 && centre_hz < sample_rate / 2.0,
                     "subcarrier centre must lie inside the Nyquist band"
                 );
-                // The wanted band ends near the outer deviation and the mirror image begins
-                // at 2·centre − deviation; the −6 dB point midway between them is the centre
-                // frequency itself.
                 let taps = design_lowpass(IMAGE_TAPS, centre_hz / sample_rate);
                 (
                     FrontEnd::Analytic {
@@ -334,8 +268,6 @@ impl CpmDemod {
                     "a two-tone filterbank detects two levels"
                 );
                 assert!(plus_hz != minus_hz, "filterbank tones must be distinct");
-                // A window of rate/|Δf| samples spaces the sliding-DFT bins by exactly the
-                // tone split, so each correlator sits on the other tone's null.
                 let window = (sample_rate / (plus_hz - minus_hz).abs()).round() as usize;
                 (
                     FrontEnd::Filterbank {
@@ -545,10 +477,6 @@ impl CpmDemod {
         let carriers = self.retimed_carrier.iter().zip(&self.retimed_settled);
         for (symbol, (&carrier, &settled)) in self.retimed.iter().zip(carriers) {
             let value = symbol.re;
-            // Each span is scaled by the level of what is actually on it, and neither
-            // estimate learns from the other's span. Within a filtering span of a keying
-            // edge the symbol belongs to the burst and is scaled by the burst's level, but
-            // nothing learns from it: that is where the transient lives.
             let magnitude = value.abs();
             if carrier {
                 if settled {
@@ -565,8 +493,6 @@ impl CpmDemod {
                     }
                 }
             } else {
-                // Dead time has no alphabet, so no region: the idle estimate follows the
-                // noise itself, exactly as `fsk4` tracked it.
                 if magnitude > idle {
                     idle += PEAK_ATTACK * (magnitude - idle);
                 } else {
@@ -574,8 +500,6 @@ impl CpmDemod {
                 }
             }
             let level = if carrier { &peak } else { &idle };
-            // Guard the divide: a squelched channel produces zeros, and a symbol stream of
-            // NaN would poison every decoder above this one.
             let unit = *level / self.level_max;
             out.push(if unit > 1e-6 { value / unit } else { 0.0 });
         }
@@ -626,7 +550,6 @@ mod tests {
     const BAUD: f64 = 4_800.0;
     const SPS: f64 = 10.0;
 
-    /// The ETSI dibit table (TS 102 361-1 §4.2.2): 00 → +1, 01 → +3, 10 → −1, 11 → −3.
     fn dibit_mapping() -> Mapping {
         Mapping::new(vec![1.0, 3.0, -1.0, -3.0])
     }
@@ -746,8 +669,6 @@ mod tests {
         let sent = symbols(900, 5, 4);
         let params = four_level(1_944.0);
         let mut iq = transmit(&params, &sent);
-        // 400 Hz off — a fifth of the outer deviation, which un-centred would slice the
-        // +1 level as +3 whenever it drifted high.
         for (k, s) in iq.iter_mut().enumerate() {
             *s *= Complex::from_polar(1.0, (TAU * 400.0 * k as f64 / RATE) as f32);
         }
@@ -809,8 +730,6 @@ mod tests {
         let mut iq = CpmMod::new(params.clone()).keyed(&keyed);
         let floor = noise(0xbeef, iq.len());
         for (s, n) in iq.iter_mut().zip(floor) {
-            // The receiver's noise is on the channel whether the transmitter is keyed or
-            // not; it is what the gate has to recognise the dead time by.
             *s += n;
         }
         let mut demod = CpmDemod::new(&params, &rx_rrc(), TIMING_BW_BURST);
@@ -852,11 +771,6 @@ mod tests {
         );
     }
 
-    /// The committed phase-0 finding, beaten and held: on continuous random 4FSK the old
-    /// chain floors near 1e-2 past ~2000 symbols (dmr_baseline.rs module docs). The engine at
-    /// its continuous operating point must hold lock through 20k symbols with at least an
-    /// order of magnitude in hand — measured while choosing [`TIMING_BW_CONTINUOUS`]: this
-    /// run's error count was 0 (six independent 20k runs during design: 1 error total).
     #[test]
     fn a_continuous_stream_holds_lock_over_twenty_thousand_symbols() {
         let sent = symbols(20_000, 0x5eed, 4);
@@ -869,7 +783,6 @@ mod tests {
         let got: Vec<u8> = soft.iter().map(|&s| params.mapping().slice(s)).collect();
         let (errors, total) = symbol_errors(&got, &sent, 500);
         assert!(total > 19_000, "only {total} symbols recovered");
-        // 1e-3 as the gate: an order under the old floor, an order over what was measured.
         assert!(
             errors <= total / 1_000,
             "{errors} symbol errors in {total}: the continuous floor is back"
@@ -919,13 +832,6 @@ mod tests {
         assert_eq!(errors, 0, "2FSK symbol errors");
     }
 
-    /// Eight levels — no protocol behind it, which is the point (§7 phase 3: 8-ary gates the
-    /// engine's generality). The level scale rides the known-symbol hook, as §3.4 prescribes
-    /// for CPM: blind magnitude-only normalisation was measured to hold the scale within
-    /// ×1.09 of true (see [`PEAK_SYMBOLS`]) — ample inside M ≤ 4's 33 % margins, but most of
-    /// an 8-level entry's 14 % — so an 8-level entry embeds known symbols exactly as every
-    /// burst standard does, and the hook's least-squares gain fit carries the rest. Zero
-    /// errors demanded on every hook-corrected payload symbol.
     #[test]
     fn eight_level_loopback_is_clean_on_the_known_symbol_hook() {
         const PATTERN: [u8; 16] = [7, 0, 5, 2, 6, 1, 4, 3, 0, 7, 3, 4, 1, 6, 2, 5];
@@ -990,8 +896,6 @@ mod tests {
         assert!(!soft.is_empty());
         assert!(soft.iter().all(|s| s.is_finite()), "non-finite symbol");
     }
-
-    // --- Real-valued input (§3.5) -------------------------------------------------------
 
     /// Bell-202-like AFSK on real audio: 1200/2200 Hz about 1700, 1200 baud at 48 kHz. Mark
     /// (bit 1, 1200 Hz) sits *below* the centre, so its level is −1 and the mapping table —
@@ -1149,8 +1053,6 @@ mod tests {
             },
         );
     }
-
-    // --- §4.2 hot-path gate --------------------------------------------------------------
 
     /// Two warm-up blocks (streaming stages carry an inter-block remainder, so the second is
     /// the first whose buffers must fit remainder plus block), then one steady-state call

@@ -1,36 +1,3 @@
-//! The four spread-spectrum catalog entries ( §6, frameworks table; §7 phase 7): the
-//! direct-sequence rows, the CCK codebook rows, chirp spreading across SF7–SF12, and the hopping
-//! framework carrying one of them.
-//!
-//! **No protocol attachments** (§6 scope decision): Barker-11 DSSS, the CCK codebooks and
-//! LoRa-like CSS parameterisations are exercised as modulation entries on synthetic vectors only.
-//! No PLCP, no SIGNAL field, no LoRa preamble or header, no `wifi`/`lora` channel.
-//!
-//! **Three of the four acceptances are closed forms, and only one is commit-and-guard.** That is
-//! the phase's shape, and it is worth stating up front because "spread spectrum" invites the
-//! opposite expectation:
-//!
-//! - **DSSS** answers to its own constellation's oracle, shifted by the frame's overhead. Under
-//!   AWGN a spreader is transparent — a chip carries `1/N` of the symbol's energy and the
-//!   correlator collects `N` of them — so a spread BPSK curve *is* a BPSK curve, and any dB it
-//!   sits from one is framing rather than spreading.
-//! - **CSS** answers to the exact noncoherent orthogonal closed form at `M = 2^SF`, because
-//!   dechirping turns the `2^SF` cyclic shifts into the columns of a DFT. This is the third
-//!   member of the identity phase 5 measured twice (M tones in one interval, M intervals at one
-//!   tone), and it is why the harness grew a large-`M` evaluation of that oracle.
-//! - **FHSS** answers to its *underlying entry's committed curve*, with no margin: a coherent
-//!   hopper's de-hop is the exact inverse of its hop, so the framework may cost nothing at all
-//!   and the measurement is the assertion that it does not.
-//! - **CCK** is the commit-and-guard row. A 64-word block code read by a correlator bank has no
-//!   closed form, and what is measured instead is the *rate trade* against the DSSS row beside
-//!   it, on the same chip rate and the same chip pulse.
-//!
-//! **Eb accounting**, identical in shape across all four: a burst radiates `preamble + payload`
-//! symbols of equal energy and the sweep runner divides the whole radiated energy by the
-//! payload's information bits, so each entry pays `10·log₁₀((P + L)/L)` — a closed form of the
-//! geometry, and the same number whatever the alphabet, because the bits per symbol cancel out of
-//! the ratio.
-
 use num_complex::Complex;
 
 use super::{
@@ -47,7 +14,6 @@ use crate::{
     symbolcode::{DifferentialSymbolDecoder, DifferentialSymbolEncoder},
 };
 
-// --- The shared chip-domain substrate --------------------------------------------------------
 //
 // One geometry for both direct-sequence entries, so a difference between the DSSS and CCK rows
 // reads the block code and nothing else: the same chip rate, the same chip pulse, the same
@@ -148,8 +114,6 @@ fn preamble_labels(alphabet: u32, len: usize) -> Vec<u32> {
         .collect()
 }
 
-// --- DSSS ------------------------------------------------------------------------------------
-
 /// One (spreading code, constellation) chain as a payload-to-payload [`Link`].
 ///
 /// The transmitter is the same shape in every row — the same burst, the same preamble rule — so a
@@ -237,8 +201,6 @@ pub fn m31_link() -> Link {
     )
 }
 
-// --- CCK -------------------------------------------------------------------------------------
-
 /// Payload symbols per CCK trial. Eight chips a symbol against the direct-sequence rows' eleven,
 /// so this is set to keep the *burst duration* comparable rather than the symbol count.
 pub const CCK_PAYLOAD: usize = 2_816;
@@ -249,11 +211,6 @@ pub fn cck_overhead_db() -> f64 {
     CckParams::framing_overhead_db(PREAMBLE, CCK_PAYLOAD)
 }
 
-/// One CCK rate as a payload-to-payload [`Link`].
-///
-/// The differential layer is the crate's one differential codec, applied to the label's φ1 dibit
-/// outside the engine — the arrangement the π/4-DQPSK entry established (§3.1 `symbolcode/`), and
-/// the reason nothing inside [`crate::spread::cck`] knows what a previous symbol is.
 #[must_use]
 pub fn cck_link(name: &str, mode: CckMode) -> Link {
     let bits_per_symbol = mode.bits_per_symbol();
@@ -319,8 +276,6 @@ pub fn cck11_link() -> Link {
 pub fn cck55_link() -> Link {
     cck_link("cck-4bit", CckMode::Bits4)
 }
-
-// --- CSS -------------------------------------------------------------------------------------
 
 /// Bandwidth of the chirp rows: 125 kHz, LoRa's most common setting. Critically sampled, so this
 /// is also the sample rate and a symbol lasts `2^SF/BW` seconds.
@@ -404,22 +359,6 @@ pub fn css_link(spreading_factor: u32) -> Link {
 /// unknown and a delaying axis has room.
 pub const CSS_LEAD: usize = 32;
 
-// --- FHSS ------------------------------------------------------------------------------------
-
-/// Channels in the hop plan, and the number is set by arithmetic rather than by taste: **the plan
-/// has to fit inside the simulated band.** Channels one chip rate apart span `(C−1)/sps` cycles
-/// per sample, so three is what 44 MHz holds at an 11 Mchip/s waveform with room for the pulse's
-/// own skirts — a sixteen-channel plan would need 3.75 times the sample rate, and the first
-/// draft's did, which aliased every channel onto its neighbours and left the hopping row measuring
-/// nothing at all (its parked-jammer threshold came out *below* the unhopped entry's).
-///
-/// An *odd* count, so that one channel sits exactly at baseband: that is where an unhopped entry
-/// always is, and a parked-jammer comparison is only clean if the same interferer at the same
-/// absolute frequency is the one both entries see.
-///
-/// Three channels is a modest plan and the `1/C` share it demonstrates is a third. That the share
-/// is exactly `1/C` at any plan size is schedule arithmetic and is asserted where it costs nothing
-/// — over 3, 4, 5, 8, 16 and 32 channels in `spread::fhss`.
 pub const HOP_CHANNELS: usize = 3;
 
 /// Channel spacing, in cycles per sample: one chip rate. A jammer on one channel's centre then
@@ -481,8 +420,6 @@ pub fn fhss_link() -> Link {
     }
 }
 
-// --- Table constructors ------------------------------------------------------------------------
-
 /// A spreading code a catalog entry names by construction. Same treatment as
 /// [`linear::table`](super::linear::table): a *caller* can ask for a code that does not exist, but
 /// a row in this crate's own registry cannot, and its validity is already proven by `spread::pn`'s
@@ -509,8 +446,6 @@ pub fn maximal_length(degree: u32) -> PnSequence {
         Err(why) => panic!("catalog entry: m-sequence of degree {degree}: {why}"),
     }
 }
-
-// --- Committed sweep parameters ----------------------------------------------------------------
 
 pub const BARKER11_GRID: &[f64] = &[4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
 pub const BARKER11_QPSK_GRID: &[f64] = &[4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
@@ -713,8 +648,6 @@ mod tests {
         let css = css_overhead_db();
         assert!((css - 10.0 * (104.0f64 / 96.0).log10()).abs() < 1e-12);
         assert!((css - 0.3475).abs() < 5e-3, "{css}");
-        // The chirp overhead is one number for every spreading factor, which is what lets three
-        // rows share one shifted-oracle constant.
         for sf in 7..=12u32 {
             assert_eq!(css_payload(sf), css_payload(7));
         }
@@ -757,8 +690,6 @@ mod tests {
         let plain = (barker11_link().modulate)(&bits);
         let hopped = (fhss_link().modulate)(&bits);
         assert_eq!(plain.len(), hopped.len());
-        // The plan's centre channel *is* baseband, so a third of the dwells are untouched by
-        // construction — what has to be true is that the rest moved.
         let moved = plain
             .iter()
             .zip(&hopped)
@@ -775,14 +706,6 @@ mod tests {
         );
     }
 
-    /// The generated hop schedule spreads a committed trial across its plan — a schedule that
-    /// used a corner of the band would spread nothing, and no BER curve would say so.
-    ///
-    /// It is *not* asserted to visit all sixteen, and that is arithmetic rather than slack: a
-    /// trial is 35 dwells, and 35 uniform draws from sixteen channels leave about 1.7 of them
-    /// unvisited on average. Full coverage is the schedule's property over its whole period and
-    /// is asserted where it belongs, in `spread::fhss`; what belongs here is that a *trial* is
-    /// spread, which is what the entry's committed curve and its partial-band row both rest on.
     #[test]
     fn the_committed_hop_schedule_spreads_a_trial_across_its_plan() {
         let sequence = hop_sequence(11);
@@ -796,9 +719,6 @@ mod tests {
             "a trial visits only {} of {HOP_CHANNELS} channels",
             sequence.visits(hops)
         );
-        // No channel may hoard the burst either: the partial-band row's whole meaning is that a
-        // jammer parked on one channel reaches about 1/C of the dwells. The slack is the
-        // schedule's own sampling noise — 35 dwells over 3 channels lands 11.7 ± 2.8 on each.
         let demod = FhssDemod::new(sequence);
         for channel in 0..HOP_CHANNELS {
             let dwells = demod.dwells_on(channel, hops);

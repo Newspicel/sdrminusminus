@@ -1,23 +1,4 @@
 //! Finding the burst and its carrier offset, from the preamble alone.
-//!
-//! Three measurements, each on the structure built for it, and the order is forced: a repetition
-//! metric over the short training says *roughly where* and *roughly how far off*; a correlation
-//! against the known long training says *exactly where*; the long training's own two repeats then
-//! say *exactly how far off*. Nothing later in the chain can recover from getting this wrong — a
-//! frame placed one sample early is an ISI-free but rotated spectrum, a frame placed one sample
-//! late is neither — so all three are searched rather than assumed, which is the §3.4
-//! known-symbol hook as this engine spends it.
-//!
-//! **Why two carrier estimates and not one.** A phase measured across a repeat of `P` samples
-//! wraps past `±1/(2P)` cycles per sample: the short training's 16-sample period gives the
-//! reference configuration a ±625 kHz acquisition range at 20 MHz, and the long training's
-//! 64-sample repeat gives four times the resolution over a quarter of the range. Coarse first,
-//! then fine inside it, is how both numbers are had at once — and it is why the committed CFO
-//! limits row reads in hundreds of kHz where a tracking loop's reads in single Hz.
-//!
-//! Nothing here allocates: the training symbol is designed at construction and every estimator
-//! is a windowed sum.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -69,9 +50,6 @@ impl PreambleSync {
         Self {
             fft: params.fft(),
             period,
-            // One period of headroom at each end: the window and its lagged copy both have to
-            // stay inside the short training even when the search starts a period early, or the
-            // metric's plateau is a slope and its argmax is wherever the noise put it.
             window: (preamble.short_repeats - 2) * period,
             short_samples: preamble.short_repeats * period,
             long_guard: preamble.long_guard,

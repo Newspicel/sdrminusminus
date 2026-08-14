@@ -1,6 +1,3 @@
-//! Power squelch with hysteresis and hold (). Comparisons run in linear power so the
-//! per-sample path never takes a logarithm.
-
 use num_complex::Complex;
 
 use crate::iir::one_pole_coeff;
@@ -108,7 +105,6 @@ mod tests {
     fn noise_floor_below_threshold_stays_closed() {
         let mut sq = squelch();
         let mut rng = XorShift32(0xdead_beef);
-        // Uniform complex noise at ~−60 dBFS mean power.
         let scale = (1e-6f32 / (2.0 / 3.0)).sqrt();
         for _ in 0..100 {
             let block: Vec<Complex<f32>> = (0..480)

@@ -2,12 +2,6 @@
 //! embedded server's origin, so reaching the updater from JS would mean granting IPC to a
 //! remote URL — the one thing the shell is built to avoid. `UpdaterExt` is a Rust API on
 //! `AppHandle` and needs no capability, so the frontend stays unaware this exists.
-//!
-//! Startup is the only moment at which "install and restart" is a safe thing to offer. Once a
-//! capture is running, restarting kills it, and `RunEvent::Exit`'s teardown is what turns a
-//! live recording into a finalized pair — which is also why the update is never installed
-//! without asking.
-
 use anyhow::Result;
 use tauri::AppHandle;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -63,7 +57,6 @@ async fn prompt(app: &AppHandle, version: &str) -> bool {
         .show(move |install| {
             let _ = tx.send(install);
         });
-    // A dropped sender means the dialog went away without an answer; treat that as "Later".
     rx.await.unwrap_or(false)
 }
 

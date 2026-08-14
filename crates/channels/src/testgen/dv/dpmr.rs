@@ -77,7 +77,6 @@ fn superframe(frames: &[[bool; 72]]) -> Vec<u8> {
     out
 }
 
-/// Twelve colour-code bits, each sent as `01` for zero and `11` for one (§6.1.5).
 fn colour_code(value: u16) -> Vec<bool> {
     let mut out = Vec::with_capacity(24);
     for i in (0..12).rev() {
@@ -128,8 +127,6 @@ fn header_info(call: &Call) -> Vec<bool> {
         .collect()
 }
 
-/// The four parity bits of the shortened Hamming(12,8), as the generator matrix of §7.3 gives
-/// them.
 fn hamming_parity(byte: u8) -> Vec<bool> {
     let bit = |i: u8| byte >> (7 - i) & 1 == 1;
     let sum = |taps: &[u8]| taps.iter().fold(false, |acc, &t| acc ^ bit(t));

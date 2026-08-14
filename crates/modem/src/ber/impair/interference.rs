@@ -1,21 +1,6 @@
 //! Interference: an independent transmitter added at a stated carrier-to-interference ratio.
 //! Self-contained on purpose — the interferer must not be built from the modulator under test, or
 //! an interference limits row would move whenever the entry it measures does.
-//!
-//! **Two kinds, because they measure different things.** A shaped QPSK carrier is the canonical
-//! "someone else's digital signal" — constant symbol energy, no spectral lines, bandwidth set by
-//! `sps` and `alpha` — and it is what a co-channel or adjacent-channel row means. A [continuous
-//! carrier](Interferer::narrowband) is the *jammer*: energy at essentially one frequency, which is
-//! the case a spread-spectrum entry exists to answer and no shaped signal reproduces.
-//!
-//! **The narrowband kind draws its frequency per realisation, and that is the definition rather
-//! than a convenience.** Processing gain is a statement about a jammer *somewhere* in the band: a
-//! tone at one fixed offset reads the spreading code's own spectrum at one point, and at DC it
-//! reads the code's balance — where a balanced code rejects by `N²` and flatters itself by a
-//! factor of `N`. Drawing the offset uniformly over the stated band is what turns a single
-//! measurement into the average the gain is defined as, and it stays reproducible because the draw
-//! is the harness RNG's.
-
 use num_complex::Complex;
 use sdrmm_dsp::fir::design_rrc;
 
@@ -98,7 +83,6 @@ impl Interferer {
 impl Impairment for Interferer {
     fn apply(&self, x: &mut Vec<Complex<f32>>, rng: &mut Rng) {
         let carrier = mean_power(x);
-        // C/I is relative to the carrier; a silent waveform defines no interference level.
         if carrier <= 0.0 {
             return;
         }
@@ -284,7 +268,6 @@ mod tests {
         // not happening, and the whole measurement would silently become a single-tone one.
         let rms = (drawn.iter().map(|f| f * f).sum::<f64>() / drawn.len() as f64).sqrt();
         assert!((0.03..0.09).contains(&rms), "offset RMS {rms}");
-        // A parked interferer sits exactly where it was put, at every seed.
         for seed in 0..8u64 {
             let at = recovered(Interferer::parked(6.0, 0.07), seed);
             assert!((at - 0.07).abs() < 1e-3, "parked offset read {at}");

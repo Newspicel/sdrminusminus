@@ -1,12 +1,3 @@
-//! Checksums and error-correcting codes for the framed decoders (): the HDLC/AIS
-//! CRC-16, the Mode S CRC-24 with single-bit correction, the POCSAG BCH(31,21) codeword and
-//! the RDS shortened cyclic (26,16) block, plus the block, product and convolutional codes the
-//! digital-voice signalling layers are built from in the submodules.
-//!
-//! All of it is integer arithmetic over GF(2) — no allocation, no locks — so a decoder may call
-//! it straight from the DSP thread. [`conv::Viterbi5`] is the one exception and says so: it owns
-//! a traceback buffer that grows once to the longest frame it is given.
-
 pub mod block;
 pub mod bptc;
 pub mod conv;
@@ -37,9 +28,6 @@ pub fn crc16_x25(data: &[u8]) -> u16 {
     !crc16_reflected(0xFFFF, data)
 }
 
-/// CRC-16/KERMIT (reflected 0x1021, init 0, no final inversion) — the ACARS block check
-/// (ARINC 618 §4.3.4). Transmitted low byte first, so appending the two check bytes to the
-/// message leaves a zero remainder; that is how a receiver validates a block.
 #[must_use]
 pub fn crc16_ccitt(data: &[u8]) -> u16 {
     crc16_reflected(0, data)
@@ -145,7 +133,6 @@ pub fn rs64_decode(codeword: &[u8], data_symbols: usize) -> Option<(Vec<u8>, u32
         return Some((corrected[..data_symbols].to_vec(), 0));
     }
 
-    // Berlekamp-Massey, with locator coefficients in ascending polynomial order.
     let mut locator = vec![0u8; parity + 1];
     let mut previous = vec![0u8; parity + 1];
     locator[0] = 1;
@@ -192,7 +179,6 @@ pub fn rs64_decode(codeword: &[u8], data_symbols: usize) -> Option<(Vec<u8>, u32
         return None;
     }
 
-    // Solve the first `degree` syndrome equations for the error magnitudes.
     let mut matrix = vec![vec![0u8; degree + 1]; degree];
     for row in 0..degree {
         for (column, &power) in powers.iter().enumerate() {
@@ -299,7 +285,6 @@ pub fn hdlc_fcs_ok(frame: &[u8]) -> bool {
     crc16_x25(payload) == u16::from_le_bytes([*lo, *hi])
 }
 
-/// Mode S CRC-24 generator 0x1FFF409 without its implicit x^24 term (DO-260 §2.2.3.2).
 const MODE_S_POLY: u32 = 0x00FF_F409;
 const MODE_S_MASK: u32 = 0x00FF_FFFF;
 /// Short (DF < 16) and long (DF >= 16) transmission lengths, parity bytes included.
@@ -338,19 +323,6 @@ pub fn mode_s_syndrome(frame: &[u8]) -> u32 {
     mode_s_crc(frame)
 }
 
-/// The value a frame's parity field was keyed with (ICAO Annex 10 Vol IV §3.1.2.3.3.2).
-///
-/// Most downlink formats do not transmit their parity bare: DF4/5/20/21 overlay the aircraft
-/// address on it (the AP field) and DF11 overlays the interrogator identifier (PI), so the
-/// receiver recovers the overlay by XOR-ing the field with the parity it computed itself. A
-/// frame whose parity really is bare — DF17/18 — returns 0, which is [`mode_s_syndrome`]'s
-/// zero by another name.
-///
-/// This is *not* the syndrome: the syndrome runs the recovered value on through the register
-/// and comes out as `value·x^24 mod g`, which is a fine "is it zero" test and a useless
-/// address.
-///
-/// `None` for anything that is not a 7- or 14-byte transmission.
 #[must_use]
 pub fn mode_s_overlay(frame: &[u8]) -> Option<u32> {
     if frame.len() != MODE_S_SHORT_LEN && frame.len() != MODE_S_LONG_LEN {
@@ -399,8 +371,6 @@ pub fn mode_s_fix_single_bit(frame: &mut [u8]) -> Option<usize> {
         return None;
     }
     let bits = frame.len() * 8;
-    // Syndrome of an error at bit i is x^(bits−1−i)·x^24 mod g. The last bit's is x^24 ≡ g
-    // minus its leading term; walking backwards is one multiply by x per position.
     let mut trial = MODE_S_POLY;
     for i in (0..bits).rev() {
         if trial == syndrome {
@@ -412,11 +382,6 @@ pub fn mode_s_fix_single_bit(frame: &mut [u8]) -> Option<usize> {
     None
 }
 
-/// Golay(23,12) generator x^11+x^10+x^6+x^5+x^4+x^2+1 — the one DCS / CDCSS keys its
-/// subaudible word with. The code is *cyclic*, which is the fact its users have to design
-/// around: every rotation of a codeword is another codeword, so a receiver sliding a 23-bit
-/// window over a repeating word finds a valid one at 23 alignments and needs something
-/// outside the code to pick the right one.
 const GOLAY23_POLY: u32 = 0xC75;
 const GOLAY23_CODE_BITS: u32 = 23;
 const GOLAY23_DATA_BITS: u32 = 12;
@@ -520,8 +485,6 @@ pub fn pocsag_bch_decode(word: u32) -> Option<(u32, u32)> {
         return Some(if odd { (word ^ 1, 1) } else { (word, 0) });
     }
     if let Some(bit) = pocsag_find_bit(syndrome) {
-        // Odd parity means the field error stands alone; even parity means the parity bit
-        // was hit too. Distance 5 rules out a two-error field with a single-bit syndrome.
         let fix = (1 << (bit + 1)) | u32::from(!odd);
         return Some((word ^ fix, if odd { 1 } else { 2 }));
     }
@@ -806,11 +769,6 @@ mod tests {
         }
     }
 
-    /// The property a DCS receiver has to design around: the code is cyclic, so sliding a
-    /// window over a repeating word finds a valid codeword at every one of 23 alignments, and
-    /// the complement of a codeword is one too. Neither is a defect — but a decoder that
-    /// assumed "parity checks out" meant "this is the word" would read a different code out
-    /// of the same transmission depending on where it happened to lock.
     #[test]
     fn every_rotation_and_the_complement_of_a_golay_word_is_also_one() {
         let word = golay23_encode(0b1000_0001_0011);
@@ -836,7 +794,6 @@ mod tests {
 
     #[test]
     fn pocsag_round_trips_a_codeword() {
-        // A typical address codeword: flag 0 + address + function bits.
         let word21 = 0x0007_ABCD & ((1 << 21) - 1);
         let encoded = pocsag_bch_encode(word21);
         assert_eq!(encoded >> 11, word21);

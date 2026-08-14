@@ -1,10 +1,3 @@
-//! Digital down-converter (): NCO mix by −offset → integer polyphase decimation
-//! stages → fractional resampler for the residual ratio, so the output rate is exact.
-//!
-//! Every stage's anti-alias filter protects the full output Nyquist band, not just its own —
-//! whatever survives a stage can never fold into the final passband with less than the
-//! design stopband (~74 dB Blackman, spec floor 50 dB).
-
 use num_complex::Complex;
 
 use crate::{Decimator, FracResampler, Nco, fir::design_lowpass};
@@ -158,8 +151,6 @@ fn stage(input_rate: f64, factor: usize, output_rate: f64) -> Decimator {
     let stage_out = input_rate / factor as f64;
     let pass = PASSBAND_FRAC * output_rate / input_rate;
     let stop = (stage_out - PROTECT_FRAC * output_rate) / input_rate;
-    // Blackman transition width is 5.5/taps: size each stage for exactly the transition it
-    // needs, so early wide-band stages stay short.
     let taps = (((5.5 / (stop - pass)).ceil() as usize) | 1).max(11);
     Decimator::new(&design_lowpass(taps, (pass + stop) / 2.0), factor)
 }
@@ -237,9 +228,6 @@ mod tests {
 
     #[test]
     fn quotient_below_two_still_suppresses_folding_blockers_over_50_db() {
-        // Quotients in (1, 2) plan zero integer stages, so the fractional kernel alone must
-        // hold the ≥50 dB floor. 460k→240k: +145 kHz folds to −95 kHz inside the flat
-        // ±96 kHz passband; 76.8k→48k: +29 kHz folds to −19 kHz inside ±19.2 kHz.
         for (fs_in, fs_out, blocker_hz) in [
             (460_000.0, 240_000.0, 145_000.0),
             (76_800.0, 48_000.0, 29_000.0),

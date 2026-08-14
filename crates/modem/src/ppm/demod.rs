@@ -1,24 +1,4 @@
 //! M-PPM detection: the slot statistics, the argmax, and the soft output.
-//!
-//! Two detectors, because the catalog's two consumers of this engine want different things and
-//! the difference is a measured number rather than a preference:
-//!
-//! - [`SlotDetector::MatchedFilter`] integrates the *samples* of a slot and squares the result.
-//!   That is the optimal statistic for an equal-energy orthogonal set with unknown carrier
-//!   phase, and it is why this tier sits on the noncoherent orthogonal closed form: the slot
-//!   statistic's noise power is one sample's, however many samples the slot spans.
-//! - [`SlotDetector::Envelope`] sums the *magnitudes* a scanning receiver already computed.
-//!   Every sample contributes its own rectified noise mean, so the tier pays a measured penalty
-//!   — recorded in `CATALOG.md` — and buys back the thing Mode S needs: a statistic that costs
-//!   one magnitude per sample for a receiver hunting bursts in a wideband stream, and that no
-//!   carrier offset or phase drift inside a slot can cancel.
-//!
-//! Soft output follows the same split, and the type system carries it. The matched-filter
-//! statistic is calibrated — normalised so a noise-only slot reads mean `N0` — so it goes
-//! through the crate's one energy demapper as a true [`Llr`]. The envelope statistic is a
-//! confidence on the receiver's own scale and comes back a [`SoftBit`]; calling it an LLR would
-//! be the exact mistake `soft`'s two types exist to prevent.
-
 use num_complex::Complex;
 
 use super::grid::SlotGrid;
@@ -153,13 +133,6 @@ impl PpmDemod {
         }
     }
 
-    /// The M slot statistics of the symbol whose first slot is `first_slot`, written into `out`.
-    /// `window` starts at the burst's first sample. Both tiers read complex baseband here, so a
-    /// chain that changes detector changes one constructor argument and nothing else. Zero
-    /// allocation — the hot path of every consumer.
-    ///
-    /// # Panics
-    /// If `out.len() != m`.
     pub fn statistics_at(&self, window: &[Complex<f32>], first_slot: usize, out: &mut [f32]) {
         assert_eq!(out.len(), self.m, "one statistic per slot");
         for (k, slot) in out.iter_mut().enumerate() {
@@ -167,14 +140,6 @@ impl PpmDemod {
         }
     }
 
-    /// [`Self::statistics_at`] over *pre-computed* sample magnitudes — the entry point for a
-    /// receiver that scans a wideband stream and therefore already holds a magnitude buffer
-    /// (`channels::adsb`), where recomputing one per candidate window would double its
-    /// per-sample cost.
-    ///
-    /// # Panics
-    /// If `out.len() != m`, or if this receiver's detector is [`SlotDetector::MatchedFilter`],
-    /// which cannot work from magnitudes at all — the phase is what it integrates.
     pub fn envelope_at(&self, magnitudes: &[f32], first_slot: usize, out: &mut [f32]) {
         assert_eq!(out.len(), self.m, "one statistic per slot");
         assert_eq!(
@@ -250,19 +215,6 @@ impl PpmDemod {
         best.0
     }
 
-    /// The §3.4 known-symbol hook for this engine: the first slot in `0..=search` at which
-    /// `known`'s symbols best explain what the receiver sees, scored as collected evidence
-    /// rather than as agreement.
-    ///
-    /// Soft rather than hard for the reason the CPM substrate's `find_uw` records: a hard-sliced
-    /// match throws away exactly the confidence that separates the true position from a
-    /// neighbour, and a slot grid has neighbours that still slice perfectly — at 8 samples per
-    /// slot, a burst read three samples early decodes every symbol of the word and loses 4 dB
-    /// doing it. The score is the expected slot's statistic minus the mean of the others, summed
-    /// over the word, which peaks only where the pulses are centred.
-    ///
-    /// # Panics
-    /// If `known` is empty.
     #[must_use]
     pub fn align(&self, window: &[Complex<f32>], known: &[u8], search: usize) -> usize {
         assert!(!known.is_empty(), "no known symbols, no alignment");
@@ -305,14 +257,6 @@ pub fn llrs(statistics: &[f32], noise_var: f64, out: &mut [Llr]) {
     energy_llrs(statistics, noise_var, out);
 }
 
-/// Per-bit confidences of one symbol's *envelope* statistics: the same max-log difference, but
-/// scaled by the winning slot instead of a measured variance, so the result is a [`SoftBit`] on
-/// the receiver's own scale — ±1 for a clean symbol, per the crate's convention. An envelope
-/// sum's noise is neither zero-mean nor of known variance; calling this an LLR would be a
-/// calibration claim nothing here can back.
-///
-/// # Panics
-/// As [`energy_llrs`], plus if `out.len()` is not log₂ of the slot count.
 pub fn soft_bits(statistics: &[f32], out: &mut [SoftBit]) {
     let peak = statistics.iter().copied().fold(0.0f32, f32::max);
     // A dead window votes for nothing rather than voting confidently for the tie rule's winner.
@@ -375,7 +319,6 @@ mod tests {
         use crate::ber::rng::Rng;
         for &sps in &[2.0, 7.0, 16.0] {
             let mut rng = Rng::new(0x9711);
-            // Complex noise of total variance 1: each component σ² = ½.
             let sigma = (0.5f64).sqrt();
             let noise: Vec<Complex<f32>> = (0..(sps as usize) * 4_000)
                 .map(|_| Complex::new((rng.normal() * sigma) as f32, (rng.normal() * sigma) as f32))
@@ -413,7 +356,6 @@ mod tests {
         let stats = [0.1f32, 4.0, 0.2, 0.05];
         let mut soft = [SoftBit(0.0); 2];
         soft_bits(&stats, &mut soft);
-        // Slot 1 = bits (b0, b1) = (1, 0), positive means 1 (crate-root convention).
         assert!(soft[0].0 > 0.0 && soft[1].0 < 0.0, "{soft:?}");
         assert!(soft.iter().all(|s| s.0.abs() <= 1.0), "{soft:?}");
 

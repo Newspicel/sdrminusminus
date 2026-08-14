@@ -1,6 +1,3 @@
-//! Audio AGC (): smoothed power envelope, asymmetric gain smoothing toward
-//! `target_rms / envelope`, clamped to `max_gain`.
-
 use crate::iir::one_pole_coeff;
 
 #[derive(Clone, Debug)]
@@ -93,7 +90,6 @@ mod tests {
     #[test]
     fn quiet_tone_converges_within_4_release_time_constants() {
         let mut agc = agc();
-        // −40 dBFS RMS tone: amplitude 0.01·√2.
         let mut x: Vec<f32> = real_tone(1_000.0 / RATE, 48_000)
             .iter()
             .map(|v| v * 0.01 * std::f32::consts::SQRT_2)

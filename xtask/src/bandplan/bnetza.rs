@@ -1,21 +1,3 @@
-//! The German Frequenzplan, from the Bundesnetzagentur's PDF.
-//!
-//! BNetzA publishes no machine-readable form and has said it does not plan to, so this parses
-//! the PDF — but the document is far kinder than that sounds. It is not a visual table: it is
-//! ~1900 records of `Label: value`, each carrying an `Eintrag` number, which becomes the row's
-//! provenance for free.
-//!
-//! The two fields worth knowing:
-//!
-//! - `Funkdienst` is the ITU radio service, and its **capitalisation is meaningful** — the
-//!   Radio Regulations write a primary service in capitals and a secondary one in mixed case.
-//!   Some records leave it empty, which is BNetzA saying the usage is not an ITU service at all
-//!   (short-range devices, for instance); `Frequenznutzung` names those.
-//! - `Frequenzteilbereich(e)` is the row's actual range, which may be narrower than the
-//!   `Frequenzbereich` heading it sits under.
-//!
-//! Source: BNetzA Frequenzplan gemäß § 54 TKG.
-
 use anyhow::{Result, bail};
 
 use super::{Row, Target, report_unmapped, service_of};
@@ -76,7 +58,6 @@ static SERVICES: &[(&str, &str)] = &[
     ("wlan", "ism"),
     ("mgws", "ism"),
     ("ism", "ism"),
-    // Licence-exempt usages BNetzA lists without an ITU service name at all.
     ("funkmikrofone", "ism"),
     ("hörhilfen", "ism"),
     ("fernsteuerung", "ism"),
@@ -93,16 +74,12 @@ pub(super) fn parse(input: &str) -> Result<Vec<Row>> {
         let Some(reference) = field(&record, "Eintrag") else {
             continue;
         };
-        // The row's own range, falling back to the heading it sits under.
         let range = field(&record, "Frequenzteilbereich(e)")
             .or_else(|| field(&record, "Frequenzteilbereich"))
             .or_else(|| field(&record, "Frequenzbereich"));
         let Some(range) = range else { continue };
         let service_name = field(&record, "Funkdienst").filter(|name| !name.is_empty());
         let usage = field(&record, "Frequenznutzung").filter(|name| !name.is_empty());
-        // An empty `Funkdienst` is not a parse failure: it is BNetzA saying this usage is not an
-        // ITU service. `Frequenznutzung` is what it is instead, and dropping the row would lose
-        // every short-range and ISM allocation in the plan.
         let Some(name) = service_name.clone().or_else(|| usage.clone()) else {
             continue;
         };
@@ -135,8 +112,6 @@ pub(super) fn parse(input: &str) -> Result<Vec<Row>> {
     Ok(rows)
 }
 
-/// Split the document into records. A record begins at the `Frequenzteilplan:` header line that
-/// also carries an `Eintrag:`; everything before the first one is front matter.
 fn records(input: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut current: Option<Vec<&str>> = None;
@@ -156,12 +131,6 @@ fn records(input: &str) -> Vec<String> {
     out
 }
 
-/// The value of `Label:` within a record, including any continuation lines.
-///
-/// A label is not always at the start of its line — the record header packs `Frequenzteilplan:`,
-/// `Eintrag:` and `Stand:` onto one — so a value runs from its own colon to the *next* label, not
-/// to the end of the line. Continuations are only read for a label that did start its line,
-/// which is what keeps a wrapped prose field from swallowing the column beside it.
 fn field(record: &str, label: &str) -> Option<String> {
     let needle = format!("{label}:");
     for (index, line) in record.lines().enumerate() {
@@ -206,7 +175,6 @@ fn label_at(line: &str, needle: &str) -> Option<usize> {
 fn next_label(text: &str) -> Option<usize> {
     let colon = text.find(':')?;
     let before = &text[..colon];
-    // A label is one word, so back up to the whitespace before it.
     Some(before.rfind(char::is_whitespace).map_or(0, |at| at + 1))
 }
 
@@ -306,8 +274,6 @@ mod tests {
         assert!(shared.iter().any(|row| row.service == "maritime"));
     }
 
-    /// An empty `Funkdienst` is BNetzA saying "this is not an ITU service", not a broken record.
-    /// Dropping those rows would lose every short-range allocation in the plan.
     #[test]
     fn a_record_with_no_funkdienst_is_named_by_its_usage() {
         let rows = parse(FIXTURE).expect("parse");
@@ -318,7 +284,6 @@ mod tests {
         assert!(srd.name.contains("SRD"));
         assert_eq!(srd.service, "ism");
         assert!(!srd.primary, "a non-ITU usage is not a primary allocation");
-        // Its sub-range is narrower than the heading it sits under, and that is the real answer.
         assert_eq!(srd.start_hz, 442_200.0);
         assert_eq!(srd.stop_hz, 450_000.0);
     }
@@ -328,7 +293,6 @@ mod tests {
         assert_eq!(german("148,5"), Some(148.5));
         assert_eq!(german("  9 "), Some(9.0));
         assert_eq!(german("12,5 kHz"), Some(12.5));
-        // A thousands separator, which the plan uses above 1000.
         assert_eq!(german("30.000"), Some(30_000.0));
     }
 

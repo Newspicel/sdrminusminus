@@ -1,18 +1,3 @@
-//! §5 measurement bundle for the analog entries ( §7 phase 8): committed SINAD curves
-//! for AM, DSB-SC, VSB, SSB, FM and PM, the §4.3 limits tables under the plan's documented
-//! analog override, and the level-1 loopbacks.
-//!
-//! The chains live in `ber::catalog::analog`; the committed artifacts live in `baselines/analog/`.
-//!
-//! **What the phase is about.** Every analog row has a closed form above its detector's
-//! threshold — the figure of merit — so the analog entries are oracle-matched like the linear
-//! ones rather than commit-and-guard. What is committed instead is the *knee*: the channel SNR
-//! at which each detector's own nonlinearity takes the curve off that straight line. Read the
-//! figures of merit down the table and the family tree is one sentence: amplitude modulation
-//! cannot beat unity because it spends bandwidth on a mirror image, and angle modulation is
-//! unbounded because it spends bandwidth on deviation, which enters squared — at a threshold
-//! that arrives sooner the more of it is bought.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -80,8 +65,6 @@ fn every_committed_curve_reproduces_its_smoke_prefix() {
     }
 }
 
-/// The §4.1 acceptance: every oracle row sits on its own figure of merit above the stated
-/// threshold. This is the phase's headline — an analog entry is not commit-and-guard.
 #[test]
 fn every_oracle_row_sits_on_its_figure_of_merit() {
     for m in measurements() {
@@ -124,8 +107,6 @@ fn every_committed_curve_is_monotone_above_its_threshold() {
         }
     }
 }
-
-// --- The tier comparisons (§5 item 2) ---------------------------------------------------------
 
 /// Drop below the oracle that names a detector's knee. One dB is past any counting noise on
 /// these curves and well inside the several dB a real threshold collapses by.
@@ -194,10 +175,6 @@ fn the_committed_curves_price_bandwidth_against_sensitivity() {
             .unwrap()
             .sinad_db
     };
-    // At 30 dB of channel SNR, where every row is above its own threshold: single sideband
-    // returns the channel SNR unchanged, full-carrier AM at broadcast depth loses the 6.15 dB
-    // its carrier costs, and broadcast FM is 15.7 dB ahead of both — the figures of merit's own
-    // differences, measured end to end.
     let ssb = at("analog/ssb_hilbert_sinad", 30.0);
     let am = at("analog/am_envelope_sinad", 30.0);
     let wfm = at("analog/wfm_discriminator_sinad", 30.0);
@@ -212,8 +189,6 @@ fn the_committed_curves_price_bandwidth_against_sensitivity() {
         "WFM {wfm:.2} dB is {:.2} dB ahead of SSB's {ssb:.2}",
         wfm - ssb
     );
-    // And the price: at 15 dB, below broadcast FM's threshold, the same deviation delivers
-    // *less* than the sideband it beats by 15.7 dB fifteen dB higher up.
     let ssb_low = at("analog/ssb_hilbert_sinad", 15.0);
     let wfm_low = at("analog/wfm_discriminator_sinad", 15.0);
     assert!(
@@ -252,8 +227,6 @@ fn the_fm_loop_tier_buys_sensitivity_rather_than_threshold() {
             "at {snr} dB the loop tier is {gain} dB ahead"
         );
     }
-    // The knee is the same point on both curves: what the loop bought is the line, not where it
-    // ends.
     let oracle = |snr| sdrmm_modem::ber::theory::analog_sinad_db(1.041_666_666_666_666_7, snr);
     assert_eq!(
         threshold_db(&discriminator, oracle, KNEE_DROP_DB),
@@ -280,7 +253,6 @@ fn the_oracle_gap_is_the_receive_filters_own_transition() {
             &format!("DSB-SC, {taps} taps"),
         );
         let curve = sweep_sinad(&link, &ChannelSpec::default(), &grid, 0xf117e2, TRIALS);
-        // Unity figure of merit: the oracle *is* the channel SNR, so the gap is a bare read.
         -worst_shortfall_db(&curve, |snr| snr, 24.0, 30.0)
     };
     let soft = gap_at(127);
@@ -295,11 +267,6 @@ fn the_oracle_gap_is_the_receive_filters_own_transition() {
     );
 }
 
-// --- Level-1 E2E (§4.4) -------------------------------------------------------------------------
-
-/// The analog level-1 property: at a stated margin above the entry's own 12 dB-SINAD
-/// sensitivity, the recovered tone meets a stated SINAD *and* a stated distortion. "Payload
-/// equality" has no analog meaning; this is the same statement in the units §5 item 4 defines.
 #[test]
 fn every_entry_recovers_its_tone_at_a_stated_margin() {
     for m in measurements() {
@@ -329,8 +296,6 @@ fn every_entry_recovers_its_tone_at_a_stated_margin() {
         );
     }
 }
-
-// --- §4.3 limits ---------------------------------------------------------------------------------
 
 /// Regression tolerance on a committed threshold, as a fraction of its own magnitude.
 const LIMITS_TOLERANCE: f64 = 0.2;
@@ -439,8 +404,6 @@ fn measure_table(entry: &str, link: &AnalogLink, grid: &[f64], seed: u64) -> Lim
     table
 }
 
-/// The committed tables, re-measured and held to their own numbers. One-sided, per §4.3: a
-/// threshold moving *better* is never a failure.
 #[test]
 #[ignore = "full limits run; the axis searches are minutes of sweeping"]
 fn every_committed_limits_table_still_holds() {
@@ -452,8 +415,6 @@ fn every_committed_limits_table_still_holds() {
         }
     }
 }
-
-// --- Regeneration -------------------------------------------------------------------------------
 
 /// JSON only: the committed-artifact format is what lives under `baselines/`, and the docs-row
 /// rule would demand a catalog row for every stray CSV dropped beside it. `cargo xtask ber`

@@ -1,22 +1,5 @@
-//! The CPM parameter space ( §3.1, §3.3): everything that distinguishes one CPM/FSK
-//! entry from another is *data* held here — the symbol→level table, the modulation index, the
-//! frequency pulse, the oversampling. A `match` on a standard anywhere downstream of this
-//! struct is a defect; the five phase-3 probes (POCSAG, DMR, D-STAR, AIS, APRS) differ only in
-//! the values they put in these fields.
-
 use crate::soft::SoftBit;
 
-/// The symbol→frequency-level table: `levels[i]` is the frequency multiple symbol index `i`
-/// transmits, in the alphabet's own units (conventionally the odd integers, ±1 for M = 2,
-/// ±1/±3 for M = 4, …). The *order* is the standard's bit-to-symbol assignment and is supplied
-/// by the caller — DMR maps dibit 01 to +3, 00 to +1, 10 to −1, 11 to −3
-/// (ETSI TS 102 361-1 §4.2.2), which is neither the natural nor the Gray order, so no built-in
-/// ordering can be assumed; [`Mapping::natural`] and [`Mapping::gray`] are offered as plain
-/// constructors for entries that do use them.
-///
-/// M must be a power of two: each symbol carries exactly `log2(M)` bits, and the per-bit
-/// demapper ([`Mapping::soft_bits`]) reads bit `k` of the symbol *index* — which is what makes
-/// the bit-to-level assignment data instead of code.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mapping {
     levels: Vec<f32>,
@@ -173,25 +156,6 @@ impl Mapping {
     }
 }
 
-/// One CPM/CPFSK waveform, fully described by data (§3.3): the mapping table, the modulation
-/// index in its one canonical form, the frequency pulse, and the oversampling. [`CpmMod`] and
-/// [`CpmDemod`] are both constructed from this, which is what keeps a transmitter and its
-/// receiver describing the *same* waveform.
-///
-/// **The canonical index is h.** A caller may know the waveform by h directly (GMSK's ½, MSK's
-/// ½) or by its deviation set (DMR's ±1944 Hz at 4800 baud); [`CpmParams::from_deviation`]
-/// converts at construction and nothing downstream ever sees a Hz figure again. With the
-/// conventional odd-integer levels, the outermost deviation `d` of an M-level set gives
-/// `h = 2·d / ((M−1)·baud)` — implemented as `2·d / (max_level·baud)`, the same number for the
-/// conventional table and still meaningful for any other.
-///
-/// **The frequency pulse is unit-area** ([`pulse::Norm::Area`](crate::pulse::Norm)): its
-/// integral fixes the phase pulse at q(∞) = ½ and the per-symbol phase step at π·h — asserted
-/// here, because an Energy-normalised pulse would silently rescale h by the ratio of the two
-/// norms and no downstream test would localise the decibels to this one argument.
-///
-/// [`CpmMod`]: super::CpmMod
-/// [`CpmDemod`]: super::CpmDemod
 #[derive(Clone, Debug)]
 pub struct CpmParams {
     mapping: Mapping,
@@ -295,7 +259,6 @@ mod tests {
     use crate::pulse::{self, Norm};
 
     fn dmr_mapping() -> Mapping {
-        // ETSI TS 102 361-1 §4.2.2: dibit 00 → +1, 01 → +3, 10 → −1, 11 → −3.
         Mapping::new(vec![1.0, 3.0, -1.0, -3.0])
     }
 
@@ -320,22 +283,17 @@ mod tests {
     fn soft_bits_match_the_fsk4_calibration_on_the_dmr_table() {
         let map = dmr_mapping();
         let mut out = Vec::new();
-        // Clean +3: sign bit fully 0 (negative-saturated), outer bit half-confident 1 —
-        // exactly fsk4::soft_bits' numbers for the same symbol.
         map.soft_bits(3.0, &mut out);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].0, -1.0);
         assert!((out[1].0 - 0.5).abs() < 1e-6);
-        // Clean +1: both bits half-confident, sign 0 and inner 0.
         out.clear();
         map.soft_bits(1.0, &mut out);
         assert!((out[0].0 + 0.5).abs() < 1e-6);
         assert!((out[1].0 + 0.5).abs() < 1e-6);
-        // A boundary symbol is an erasure on the bit the boundary decides.
         out.clear();
         map.soft_bits(2.0, &mut out);
         assert_eq!(out[1].0, 0.0);
-        // Clean −3: sign bit fully 1.
         out.clear();
         map.soft_bits(-3.0, &mut out);
         assert_eq!(out[0].0, 1.0);
@@ -360,7 +318,6 @@ mod tests {
         let nat = Mapping::natural(4);
         assert_eq!(nat.levels(), &[-3.0, -1.0, 1.0, 3.0]);
         let gray = Mapping::gray(4);
-        // Ascending levels visit indices 0, 1, 3, 2 — one bit flip per step.
         assert_eq!(gray.levels(), &[-3.0, -1.0, 3.0, 1.0]);
         let mut prev: Option<u8> = None;
         for &(_, i) in &gray.sorted {
@@ -396,9 +353,7 @@ mod tests {
             pulse::root_raised_cosine(10.0, 0.2, 8, Norm::Area),
             10.0,
         );
-        // h = 2·1944/((4−1)·4800) = 0.27.
         assert!((p.h() - 0.27).abs() < 1e-12, "h = {}", p.h());
-        // GMSK-style: AIS ±2400 Hz at 9600 baud, two levels → h = ½.
         let ais = CpmParams::from_deviation(
             Mapping::natural(2),
             2_400.0,

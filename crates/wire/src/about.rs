@@ -1,16 +1,4 @@
 //! What sdr-- is, and what it is built out of.
-//!
-//! sdr-- is MIT licensed, and almost everything it links is MIT or Apache-2.0 — but "almost"
-//! is not "all", and permissive is not the same as unconditional. MIT and BSD both require the
-//! copyright notice to travel with the binary, so a release that ships the code and not the
-//! notices is out of compliance no matter how liberal the licenses are. That is what these
-//! types carry: the attribution the distributed artifact owes, in the artifact itself, rather
-//! than in a file somebody has to go and find.
-//!
-//! The data behind them is *generated* (`cargo xtask licenses`) from the same lockfiles the
-//! build resolves, so the list describes the build that is running rather than the build
-//! somebody last remembered to write down.
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

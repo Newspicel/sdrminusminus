@@ -1,38 +1,10 @@
-//! UFMC — universal filtered multicarrier ( §3.1 `multicarrier/`, §7 phase 9).
-//!
-//! **OFDM with the prefix replaced by a filter, applied per *subband* rather than per band.** A
-//! CP-OFDM symbol is a rectangle in time, so its spectrum is a sinc and its out-of-band leakage
-//! falls off as `1/f` — which is why every OFDM system leaves guard bands it does not use. UFMC
-//! filters each contiguous group of subcarriers with a short prototype instead: the leakage falls
-//! away like the filter's stopband, and the filter's own tail does the job the cyclic prefix did.
-//!
-//! **The receiver is exact, and the reason is one line of algebra.** A symbol is `N + L − 1`
-//! samples long; zero-pad it to `2N`, transform, and keep the even bins. Bin `2k` of a `2N`-point
-//! transform is the `N`-point transform of the same sequence at bin `k`, so what comes out is
-//! `X[k]·F_b(k/N)` — the subcarrier's own point times the response of *its* subband's filter at
-//! *its* bin. Dividing by a response computed once at construction recovers the point exactly.
-//! No prefix, no interpolation, no assumption about the channel.
-//!
-//! **What the filter costs is stated by the geometry, not fitted.** The receiver integrates
-//! `N + L − 1` samples where an OFDM one integrates `N`, so it collects that ratio more noise:
-//! `10·log₁₀((N + L − 1)/N)` of Eb/N0, the same shape of closed-form overhead a cyclic prefix
-//! charges, and the entry is held to its constellation's own oracle shifted by exactly it.
-//!
-//! The prototype is `sdrmm_dsp`'s Blackman-windowed lowpass rather than the Dolph–Chebyshev
-//! window the UFMC literature uses. Both are the same trade — sidelobe height against mainlobe
-//! width — and the Blackman design's −58 dB sidelobes sit below the leakage this entry measures,
-//! so what would be gained is a second window design and not a number.
-
 use num_complex::Complex;
 use sdrmm_dsp::design_lowpass;
 
 use super::transform::Dft;
 
-/// Largest transform a UFMC entry will plan. Same guard as everywhere else in the module: a
-/// parameterisation past this is a mistake upstream, not a configuration.
 pub const MAX_FFT: usize = 4_096;
 
-/// The waveform as data (§3.3).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UfmcParams {
     /// Transform size.
@@ -97,22 +69,6 @@ impl UfmcParams {
         index / self.per_subband
     }
 
-    /// The `b`-th subband's filter: the prototype modulated to that subband's own centre.
-    ///
-    /// The prototype's cutoff is the subband's half-width *plus* the design's own transition
-    /// half-width (`2.75/L` for `sdrmm_dsp`'s Blackman design), so the subband sits inside the
-    /// flat part of the response rather than across its skirt — which is what keeps the
-    /// receiver's per-bin division from amplifying noise at the subband edges.
-    ///
-    /// # Panics
-    /// If the transform is empty or past [`MAX_FFT`], if the prototype is not `3..=fft + 1` taps,
-    /// or if the subband count is odd.
-    ///
-    /// The upper tap bound is the receiver's: it reads a symbol of `fft + filter_len − 1` samples
-    /// into a `2·fft` transform, so a longer prototype has nowhere to land. The parity is the
-    /// allocation's: the subbands split evenly either side of the carrier, and an odd count leaves
-    /// one of them straddling the DC bin the allocation skips — a filter centred where no
-    /// subcarrier is, with no panic to say so.
     #[must_use]
     pub fn subband_filter(&self, b: usize) -> Vec<Complex<f32>> {
         assert!(
@@ -130,7 +86,6 @@ impl UfmcParams {
         let transition = 2.75 / self.filter_len as f64;
         let prototype = design_lowpass(self.filter_len, (half_width + transition).min(0.4999));
         let first = self.subband_of_first(b);
-        // The subband's centre in cycles/sample, from the two bins at its ends.
         let centre = 0.5 * (self.signed_bin(first) + self.signed_bin(first + self.per_subband - 1))
             / self.fft as f64;
         prototype
@@ -183,7 +138,6 @@ impl UfmcMod {
         &self.params
     }
 
-    /// Appends `points.len() / points_per_symbol` symbols to `out`.
     pub fn modulate(&mut self, points: &[Complex<f32>], out: &mut Vec<Complex<f32>>) {
         let per_symbol = self.params.points();
         for chunk in points.chunks_exact(per_symbol) {
@@ -272,8 +226,6 @@ impl UfmcDemod {
             self.padded[..samples].copy_from_slice(chunk);
             self.dft.forward(&mut self.padded);
             for (index, &gain) in self.equaliser.iter().enumerate() {
-                // Bin 2k of the 2N-point transform is bin k of the N-point one; the unitary
-                // scaling differs by √2 between the two sizes, which the constant restores.
                 let bin = 2 * self.params.bin(index);
                 out.push(self.padded[bin] * gain * std::f32::consts::SQRT_2);
             }
@@ -299,8 +251,6 @@ mod tests {
             .collect()
     }
 
-    /// The allocation is symmetric about the carrier, never touches DC, and every subband is
-    /// contiguous — the three properties the filter design and the equaliser both assume.
     #[test]
     fn the_subcarrier_map_is_symmetric_and_skips_dc() {
         let params = UfmcParams::reference();

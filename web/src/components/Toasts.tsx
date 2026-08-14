@@ -1,5 +1,3 @@
-// The error surface (). Bottom-right, dismissible, and long-lived enough to read:
-// a failure the operator missed is a silent failure.
 import { Toast } from "@base-ui/react/toast";
 import { type ToastData, toastManager } from "../lib/toasts";
 import { ICON_BTN } from "./controls";

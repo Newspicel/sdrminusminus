@@ -1,23 +1,5 @@
 //! The OFDM transmitter: constellation points onto subcarriers, an inverse transform, a cyclic
 //! prefix, and the preamble the receiver finds the burst with.
-//!
-//! Two conventions are locked here because everything downstream reads them.
-//!
-//! **The transform is unitary.** Both directions carry `1/√N`, so Parseval holds sample for
-//! symbol: a symbol whose 52 occupied bins each carry unit energy radiates exactly 52 units over
-//! its 64 transform samples, and the per-subcarrier Eb/N0 a curve is plotted against is the
-//! *same quantity* as the time-domain Eb/N0 the sweep runner sets. Without it every OFDM curve
-//! would sit an arbitrary N-dependent distance from its closed form.
-//!
-//! **The prefix is cyclic, not a pad.** The last `cp` samples of the symbol are prepended, which
-//! is what turns the channel's linear convolution into a circular one over the transform window
-//! — and therefore what makes a one-tap equaliser correct at all. The engine's tolerance to
-//! delay spread is exactly this length, and the limits table measures it as such.
-//!
-//! Rendering is cold path (a test-signal generator, `tx.rs`'s source): it allocates its planner
-//! and buffers once at construction and nothing per frame, but the §4.2 zero-allocation gate
-//! binds the demodulator.
-
 use std::sync::Arc;
 
 use num_complex::Complex;
@@ -25,12 +7,6 @@ use rustfft::{Fft, FftPlanner};
 
 use super::params::{Domain, OfdmParams};
 
-/// One OFDM transmitter over one parameter set.
-///
-/// `Clone` is part of the contract, not an afterthought: a measurement chain builds one
-/// transmitter and clones it per trial, so every trial starts from the same designed state
-/// without re-planning a transform (the harness's rule that a trial reproduces from its own seed
-/// alone, at the cost of one buffer copy instead of one planner).
 #[derive(Clone)]
 pub struct OfdmMod {
     params: OfdmParams,
@@ -254,7 +230,6 @@ mod tests {
                 "long training sample {n}"
             );
         }
-        // …and the guard is that symbol's own tail.
         for n in 0..params.preamble().long_guard {
             let tail = wave[long + params.fft() - params.preamble().long_guard + n];
             assert!((wave[short + n] - tail).norm() < 1e-6, "long guard {n}");

@@ -4,10 +4,6 @@
 //! the free functions and closures a fake server is built out of.
 //! Shared scaffolding for the fake-server tests: a loopback listener whose connections a test
 //! scripts, and the two waits every test here needs.
-//!
-//! No hardware, and no clock a test depends on being fast: everything is a loopback socket and a
-//! poll with a generous deadline, so these run the same on a loaded CI box as on a laptop.
-
 use std::{
     net::{SocketAddr, TcpListener, TcpStream},
     sync::{

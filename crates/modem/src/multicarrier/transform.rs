@@ -1,26 +1,10 @@
 //! The two pieces of linear algebra all four multicarrier waveforms are built from: a **unitary**
 //! transform of arbitrary size, and a dense complex solve.
-//!
-//! **Unitary in both directions, always.** Each direction carries `1/√N`, so Parseval holds
-//! sample for sample: a unit-energy symbol grid produces a unit-energy waveform, and the
-//! per-subcarrier Eb/N0 a curve is plotted against is the same quantity as the time-domain one
-//! the sweep runner sets. Every entry in this module inherits that, and it is the reason their
-//! curves can be compared against the linear engine's closed forms at all. (`ofdm/` makes the
-//! same choice for the same reason; the wrapper is repeated here rather than shared because that
-//! one is welded to a subcarrier map and this one has to run at `K·M`, `2N` and `M×N` sizes no
-//! power of two describes.)
-//!
-//! **The solve exists for exactly one entry.** GFDM is *not* orthogonal — its subcarriers overlap
-//! by construction, which is the point — so a zero-forcing receiver is a genuine matrix inverse
-//! and not a per-bin division. Computed once at construction from the modulation matrix the
-//! transmitter is defined by, so the receive path stays a matrix–vector product.
-
 use std::sync::Arc;
 
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 
-/// A unitary DFT of one fixed size, planned once.
 #[derive(Clone)]
 pub struct Dft {
     forward: Arc<dyn Fft<f32>>,
@@ -81,14 +65,6 @@ impl Dft {
     }
 }
 
-/// Inverts a dense `n × n` complex matrix in row-major order, in place, by Gauss–Jordan with
-/// partial pivoting. `None` when the matrix is singular to working precision — which for the one
-/// caller means a prototype pulse that cannot be zero-forced, a real design outcome rather than
-/// an error to hide.
-///
-/// `f64` throughout: the matrix is built once at construction and its condition number is the
-/// whole quality of the receiver it becomes, so this is the one place in the crate where the
-/// signal path's `f32` would be the wrong precision.
 #[must_use]
 pub fn invert(a: &mut [Complex<f64>], n: usize) -> Option<()> {
     assert_eq!(a.len(), n * n, "matrix is not {n}×{n}");
@@ -193,7 +169,6 @@ mod tests {
     #[test]
     fn the_inverse_is_an_inverse_and_a_singular_matrix_is_refused() {
         let n = 6;
-        // A well-conditioned complex matrix: diagonally dominant, with structure.
         let mut a: Vec<Complex<f64>> = (0..n * n)
             .map(|i| {
                 let (r, c) = (i / n, i % n);
@@ -229,7 +204,6 @@ mod tests {
         let x = [Complex::new(1.0f32, 0.0), Complex::new(0.0, 1.0)];
         let mut y = [Complex::new(0.0f32, 0.0); 2];
         matvec(&a, 2, 2, &x, &mut y);
-        // Row 0: 1·1 + j·j = 1 − 1 = 0. Row 1: 2·1 + (−j)(j) = 2 + 1 = 3.
         assert!(y[0].norm() < 1e-6);
         assert!((y[1] - Complex::new(3.0, 0.0)).norm() < 1e-6);
     }

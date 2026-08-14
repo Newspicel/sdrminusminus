@@ -1,12 +1,5 @@
 //! Built-in workspace templates (, M5): one click configures the device and its
 //! channels for a known activity, with a short "what am I looking at" explainer.
-//!
-//! Templates are a static table, not seeded rows: they ship with the binary, so a seeded
-//! table would need its own migration every time one is added or corrected, and a user could
-//! edit or delete an entry the next release would silently restore. Presets remain the
-//! writable, device-bound side of the same idea (); a template is device-*agnostic* —
-//! it names a frequency and a mode, and applies to whatever hardware can reach them.
-
 use std::sync::LazyLock;
 
 use sdrmm_wire::{
@@ -28,9 +21,7 @@ struct Entry {
     explainer: &'static str,
     center_hz: f64,
     sample_rate: f64,
-    /// `(absolute frequency, params)` — absolute so the table reads like a band plan.
     channels: &'static [Channel],
-    /// What the template's channels feed (CANVAS §8 phase ④).
     shape: Shape,
     /// Whether the template opens a readout for its channels' decoders. Set where the *live
     /// picture* is the point of the template — RDS station text, a table of aircraft — and left
@@ -135,8 +126,6 @@ fn patch(shape: Shape, readout: bool, channels: &[Channel]) -> PatchGraph {
     PatchGraph { nodes, edges }
 }
 
-/// Every template. Keep the sample rates conservative: the Pi 4 is the performance floor
-/// (), and a template is the first thing a new user runs.
 static TEMPLATES: &[Entry] = &[
     Entry {
         id: "fm-radio",
@@ -307,7 +296,6 @@ pub(crate) fn all() -> &'static [TemplateInfo] {
                     // one does not, the picker refuses a receiver rather than offering it.
                     direction: sdrmm_wire::Direction::Rx,
                     exact_rate: entry.exact_rate,
-                    // The handler fills this in against the radios actually attached.
                     supported_devices: Vec::new(),
                 }
             })
@@ -369,8 +357,6 @@ mod tests {
         }
     }
 
-    /// ADS-B fills its whole 2 MHz channel, so a resampling DDC cannot deliver it: the
-    /// template must name exactly the device rate the engine will accept ().
     #[test]
     fn adsb_template_runs_the_device_at_the_channel_rate() {
         let adsb = get("adsb").expect("adsb template");
@@ -437,9 +423,6 @@ mod tests {
         }
     }
 
-    /// Apply creates the `channels` list and the patch draws a node per entry; binding is by
-    /// type in order (CANVAS §3), so the two lists must agree or a node would bind to the wrong
-    /// channel — or to none.
     #[test]
     fn every_patch_draws_the_channels_the_template_creates() {
         for template in all() {
@@ -448,8 +431,6 @@ mod tests {
                 .channels_of("dev")
                 .filter_map(|(node, stream)| match &node.body {
                     NodeBody::Channel(channel) => {
-                        // Binding is by (type, stream); templates wire the bare `iq` port, so a
-                        // non-zero stream here would bind their nodes to nothing.
                         assert_eq!(stream, 0, "{} wires a non-zero stream", template.id);
                         Some(channel.channel_type.as_str())
                     }

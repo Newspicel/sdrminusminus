@@ -10,8 +10,6 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-# SoapySDR is the canonical local-hardware layer. `--no-default-features` remains available for
-# deliberate virtual-only/minimal CI builds; normal builds and releases use the default.
 [features]
 default = ["soapy", "net-client"]
 soapy = ["dep:sdrmm-device-soapy"]
@@ -40,6 +38,4 @@ tokio = { workspace = true, features = ["sync"] }
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
 tempfile.workspace = true
-# Reference modulators for the decoder end-to-end runs (): one encoder per protocol,
-# shared with the channel unit tests and `xtask fixtures`.
 sdrmm-channels = { workspace = true, features = ["test-signals"] }

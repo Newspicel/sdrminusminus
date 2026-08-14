@@ -1,34 +1,5 @@
 //! The feedforward timing tier: one estimate for a whole burst, from the signal's own square-law
 //! spectral line, rather than a loop that walks toward the answer.
-//!
-//! **Why the engine carries two timing tiers.** `SymbolSync`'s Gardner loop is the right answer
-//! for a continuously-keyed stream: it tracks a transmitter's clock indefinitely and costs
-//! nothing per symbol. What it cannot do is *arrive* quickly, and its error term is
-//! data-dependent — on an amplitude-varying table the self-noise is far larger than on the
-//! constant-modulus alphabets the CPM engine measured it against. Both bite on a burst. Measured
-//! on this crate's 8192-symbol linear frames at the loop's best bandwidth, the residual timing
-//! error puts an error floor at 1e-4 on 64-QAM and 8e-3 on 256-QAM — which is not a curve, it is
-//! a wall the entry's waterfall never gets past.
-//!
-//! **The estimator** is Oerder and Meyr's square-law nonlinearity (*Digital filter and square
-//! timing recovery*, IEEE Trans. Comm. 36(5), 1988). With `N ≥ 4` samples per symbol, the symbol
-//! clock appears as a discrete spectral line in `|y|²` at exactly the symbol rate, and its phase
-//! *is* the timing offset:
-//!
-//! ```text
-//! X = Σ_n |y_n|² · e^{−j2πn/N},    τ̂ = −N·arg(X) / 2π   samples
-//! ```
-//!
-//! No decisions, no loop, no acquisition transient, and its variance falls as 1/(number of
-//! symbols) — so a long burst estimates its own timing far better than any loop tracks it. What
-//! it gives up is tracking: a sample-clock *rate* error walks the true instant during the burst
-//! and one offset cannot follow it. That is a real limit and the limits table measures it, rather
-//! than this comment claiming a range.
-//!
-//! **Blocks, not streams.** The estimate needs the burst before it can place the first symbol, so
-//! this tier is a block API by nature — which is exactly the burst/packet processing shape
-//!  §3.3 says lives behind the streaming channel interface, as ADS-B already does.
-
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, farrow};
 
@@ -94,8 +65,6 @@ impl FeedforwardTiming {
 #[must_use]
 pub fn square_law_offset(filtered: &[Complex<f32>], sps: usize) -> f64 {
     let mut acc = Complex::new(0.0f64, 0.0);
-    // Whole symbol periods only: a partial period leaves a fraction of a cycle of the line
-    // unbalanced, which is a bias on exactly the quantity being measured.
     let usable = filtered.len() - filtered.len() % sps;
     for (n, y) in filtered[..usable].iter().enumerate() {
         let theta = -std::f64::consts::TAU * (n % sps) as f64 / sps as f64;
@@ -104,8 +73,6 @@ pub fn square_law_offset(filtered: &[Complex<f32>], sps: usize) -> f64 {
     if acc.norm() <= 0.0 {
         return 0.0;
     }
-    // arg(X) runs backwards against the sampling instant, and the estimate lives modulo one
-    // symbol.
     let tau = -acc.arg() / std::f64::consts::TAU * sps as f64;
     tau.rem_euclid(sps as f64)
 }
@@ -120,7 +87,6 @@ pub fn resample_at(
     offset: f64,
     out: &mut Vec<Complex<f32>>,
 ) {
-    // The kernel reads one sample below the instant and two above.
     let mut position = offset;
     while position < 1.0 {
         position += sps as f64;
@@ -258,7 +224,6 @@ mod tests {
         let table = tables::qam_square(256).unwrap();
         let p = LinearParams::new(table.clone(), rrc(), SPS).unwrap();
         let mut wave = LinearMod::transmission(&p, &labels(4_000, 256, 0x7e));
-        // Es/N0 = 30 dB, near 256-QAM's own 1e-4 operating point.
         Awgn::with_sigma((0.5 * 10f64.powf(-3.0)).sqrt()).apply(&mut wave, &mut Rng::new(0x91));
         let mut tier = FeedforwardTiming::new(&p, &rrc());
         let mut symbols = Vec::new();

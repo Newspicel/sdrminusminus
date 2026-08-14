@@ -1,13 +1,3 @@
-//! §4.2 performance baselines for the two phase-5 entries: the orthogonal M-FSK filterbank and
-//! both M-PPM detector tiers, each measured on the waveform its own catalog chain transmits (so
-//! the committed number and the criterion bench in `benches/perf.rs` measure identical work),
-//! plus the steady-state zero-allocation gates for their hot paths.
-//!
-//! The real-time factors divide by each entry's own processing rate — 48 kHz for the M-FSK
-//! reference configuration, 8 MHz for the PPM one — so the two numbers answer the same
-//! question ("how many channels of this per core") despite the two orders of magnitude between
-//! their sample rates.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use num_complex::Complex;
@@ -104,10 +94,6 @@ fn path(stem: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{stem}.json"))
 }
 
-// --- Zero-allocation gates (§4.2) ------------------------------------------------------------
-
-/// The M-FSK hot path: filterbank energies into a caller's slice. Warmed twice per the §4.2
-/// convention, then one steady-state call must acquire no memory.
 #[test]
 fn the_filterbank_hot_path_allocates_nothing() {
     let iq = mfsk_signal();
@@ -123,8 +109,6 @@ fn the_filterbank_hot_path_allocates_nothing() {
             demod.energies(&iq, 0, symbol, &mut energies);
         }
     });
-    // Timing estimation and hard decisions are the same loop plus an argmax; the symbol sink is
-    // the caller's Vec, so it is reserved once and then written into.
     let mut symbols = Vec::with_capacity(MFSK_SYMBOLS);
     demod.demodulate(&iq, 0, MFSK_SYMBOLS, &mut symbols);
     symbols.clear();
@@ -177,8 +161,6 @@ fn the_magnitude_scan_path_allocates_nothing() {
         }
     });
 }
-
-// --- Baseline writer and gate (§4.2 protocol) ------------------------------------------------
 
 /// Rewrites both committed baselines. Run deliberately, on the reference machine:
 /// `cargo test -p sdrmm-modem --release --test orthogonal_ppm_perf write_ -- --ignored`.

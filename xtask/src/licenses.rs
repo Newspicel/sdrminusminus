@@ -1,22 +1,5 @@
 //! `cargo xtask licenses` — the attribution a release owes, harvested from the build that
 //! produces it.
-//!
-//! sdr-- is MIT, and so is nearly everything it links. That is not a reason to skip this: MIT,
-//! BSD and Apache all require the copyright notice to travel with the binary, so the notices
-//! are a shipping obligation and not a courtesy. A hand-written list discharges it exactly
-//! once — on the day it is written — and every dependency bump after that makes it a slightly
-//! more confident lie. So it is generated, from `cargo metadata` and `pnpm licenses` rather
-//! than from memory, and `xtask check` fails on any drift the way it does for the OpenAPI.
-//!
-//! Two outputs, one harvest: [`NOTICES_JSON`] is compiled into the server and served at
-//! `/api/about`, so a user can read the notices in the thing the notices are about; the
-//! markdown is for the repository, where a reader has no binary to run.
-//!
-//! What the harvest deliberately does *not* cover is the hardware libraries: SoapySDR and its
-//! modules come from platform packages that are resolved at packaging time, not from a lockfile
-//! this can read, so they are curated in [`NATIVE`] and their per-package texts are staged into
-//! the installer by `packaging/soapy/stage-unix.sh`.
-
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
@@ -160,9 +143,6 @@ const NATIVE: &[Native] = &[
     },
 ];
 
-/// The on-disk document. Not a wire type: `crates/server` deserializes its own copy of this
-/// shape, the way it does for the band-plan layers, because the format on disk answers to the
-/// generator and the reader rather than to the API.
 #[derive(Debug, Serialize)]
 struct NoticesDocument {
     license: String,
@@ -257,9 +237,6 @@ impl TextPool {
         if text.is_empty() {
             return None;
         }
-        // 64 bits of SHA-256. These ids address a few hundred texts written by nobody with an
-        // interest in colliding them, and they end up in URLs and in a committed document, so
-        // the shorter id is worth more than the unused margin.
         let id: String = Sha256::digest(text.as_bytes())
             .iter()
             .take(8)
@@ -279,12 +256,6 @@ fn normalize(text: &str) -> String {
     out
 }
 
-/// Every license-ish file sitting next to a manifest, interned, ids sorted for determinism.
-///
-/// Matching on the file name is how every tool in this space does it, because there is no
-/// metadata that points at these files: a crate declares an SPDX id and drops `LICENSE-MIT`
-/// next to `Cargo.toml` by convention alone. `NOTICE` is included because Apache-2.0 §4(d)
-/// makes it part of what must be redistributed.
 fn license_files(dir: &Path, pool: &mut TextPool) -> Result<Vec<String>> {
     const PREFIXES: &[&str] = &["license", "licence", "copying", "unlicense", "notice"];
 
@@ -316,8 +287,6 @@ fn license_files(dir: &Path, pool: &mut TextPool) -> Result<Vec<String>> {
     ids.dedup();
     Ok(ids)
 }
-
-// -- Rust ---------------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 struct Metadata {
@@ -359,13 +328,6 @@ struct MetaDepKind {
     kind: Option<String>,
 }
 
-/// Every crate that reaches a distributed artifact.
-///
-/// `--all-features` and no platform filter, both deliberately: one binary is built per platform
-/// but the *release* is all of them, so the notices have to be the union — the Windows installer
-/// carries `windows-sys` and the macOS one carries `objc2`, and a user reading either should
-/// find what they were given. Build dependencies stay in (a proc macro's output is compiled into
-/// the artifact); dev-dependencies drop out, because a test harness is not distributed.
 fn rust_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution>> {
     let output = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--all-features"])
@@ -458,8 +420,6 @@ fn rust_components(root: &Path, pool: &mut TextPool) -> Result<Vec<Attribution>>
     Ok(components)
 }
 
-// -- Web ----------------------------------------------------------------------------------
-
 #[derive(Debug, Deserialize)]
 struct PnpmPackage {
     name: String,
@@ -490,7 +450,6 @@ fn web_components(root: &Path, pnpm: &str, pool: &mut TextPool) -> Result<Vec<At
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    // Keyed by license expression, each holding the packages that declare it.
     let listing: BTreeMap<String, Vec<PnpmPackage>> =
         serde_json::from_slice(&output.stdout).context("parse `pnpm licenses list` output")?;
 
@@ -514,8 +473,6 @@ fn web_components(root: &Path, pnpm: &str, pool: &mut TextPool) -> Result<Vec<At
     }
     Ok(components)
 }
-
-// -- Markdown -----------------------------------------------------------------------------
 
 /// The repository-facing rendering: what a reader with no binary to run gets.
 ///
@@ -596,8 +553,6 @@ fn markdown(document: &NoticesDocument) -> String {
     }
     out
 }
-
-// -- Native -------------------------------------------------------------------------------
 
 /// The curated hardware layer, with the license texts that are committed for it.
 ///

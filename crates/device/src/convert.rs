@@ -1,16 +1,3 @@
-//! Device-edge sample conversion: interleaved 8-bit IQ to the one `cf32` format the rest of the
-//! pipeline speaks ().
-//!
-//! Every 8-bit SDR needs the same two things — a 256-entry lookup instead of a per-sample
-//! convert-and-divide on a path that runs at twice the sample rate, and a carry byte so a block
-//! that ends mid-sample does not swap I and Q for the rest of the session. Only the *table*
-//! differs between radios (the RTL2832U's unsigned codes sit around a measured 127.4 DC offset;
-//! the HackRF's are two's complement around zero), so the table is what a backend supplies and
-//! everything around it lives here.
-//!
-//! The carry is the part worth sharing: it is the half of this that has been wrong before, and
-//! a second copy is a second chance to get it wrong.
-
 use crate::Sample;
 
 /// Turns raw device bytes into samples for one capture thread.

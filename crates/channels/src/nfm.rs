@@ -1,14 +1,6 @@
 //! NFM voice: 48 kHz IQ → quadrature discriminator → voice-band lowpass. RF selectivity at
 //! `bandwidth_hz` is the host's channel filter (see [`crate::channel_filter`]); here the
 //! bandwidth only sets the deviation the discriminator is scaled to.
-//!
-//! The channel also reads the subaudible signalling under the voice — CTCSS or DCS — and will
-//! gate the audio on it (see [`crate::tone_squelch`]). That path only exists when it is asked
-//! for: with [`NfmToneMode::Off`] the audio is what it always was, flat to DC.
-//!
-//! [`NfmTx`] is the modulator that pairs with it. Neither carries pre- or de-emphasis: the two
-//! have to agree, and a flat pair is the one that round-trips.
-
 use std::{f64::consts::TAU, sync::LazyLock};
 
 use num_complex::Complex;
@@ -95,8 +87,6 @@ impl Tone {
         let heard = self.detector.process(demodulated);
         self.highpass.process(demodulated);
         let open = match self.mode {
-            // Detect never gates: it answers "what does this repeater use?", and muting the
-            // audio until the answer arrived would make that question unaskable.
             NfmToneMode::Off | NfmToneMode::Detect => true,
             NfmToneMode::Ctcss => match (heard.ctcss_hz, self.ctcss_hz) {
                 (Some(heard), Some(want)) => (heard - want).abs() < 0.05,
@@ -160,13 +150,6 @@ fn check_params(p: &NfmParams) -> Result<(), ChannelError> {
     }
 }
 
-/// Deviation follows the channel plan — ±2.5 kHz on 12.5 kHz spacing, ±5 kHz on 25 kHz —
-/// so a fixed bandwidth/5 ratio covers both standards.
-/// The library detector this channel is an attachment to: `sdrmm_modem::analog`'s quadrature
-/// discriminator alone. Everything the engine can also do — a Carson-rule predetection filter, an
-/// audio lowpass, a DC block — is switched off, because the host runtime already filters at
-/// `bandwidth_hz` and what follows the discriminator here is the channel's own: the subaudible
-/// detector, its highpass, and the voice-band lowpass.
 fn discriminator(rate: f64, p: &NfmParams) -> AngleDemod {
     let params = AngleParams::new(
         AngleKind::Fm {
@@ -193,7 +176,6 @@ pub(crate) fn channel_filter(p: &NfmParams) -> Result<ChannelFilter, ChannelErro
     )))
 }
 
-// `dsp` has no factor-1 real-FIR runner; `RealDecimator` at 1:1 is exactly that.
 fn audio_lowpass() -> RealDecimator {
     RealDecimator::new(
         &design_lowpass(AUDIO_TAPS, VOICE_CUTOFF_HZ / f64::from(AUDIO_RATE)),
@@ -240,9 +222,6 @@ impl ChannelRx for NfmChannel {
     }
 
     fn needs_gated_input(&self) -> bool {
-        // With a tone mode on, the gated span is what lets the detector *lose* a tone: the
-        // correlators decay over their window and the "no tone, muted" event follows. Off,
-        // there is nothing to measure and the host may skip the channel entirely.
         self.tone.is_some()
     }
 
@@ -380,7 +359,6 @@ mod tests {
         let (freq, ratio) = dominant_tone(window, RATE);
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
         assert!(ratio > 10.0, "tone-to-rest ratio {ratio}");
-        // Full-scale deviation demodulates to a unit-amplitude cosine.
         let amplitude = rms(window);
         assert!((0.6..0.8).contains(&amplitude), "rms {amplitude}");
     }
@@ -456,8 +434,6 @@ mod tests {
         assert!(matches!(built, Err(ChannelError::InvalidSettings(_))));
     }
 
-    // ── subaudible signalling ──────────────────────────────────────────────────────────────
-
     /// A repeater keys its subaudible signalling at 10–15 % of deviation, under speech at
     /// most of the rest. Both are fractions of full deviation, which is what the
     /// discriminator hands back.
@@ -519,7 +495,6 @@ mod tests {
             let last = statuses.last().expect("a tone must be reported");
             assert_eq!(last.ctcss_hz, Some(tone_hz), "{tone_hz} Hz: {statuses:?}");
             assert_eq!(last.dcs_code, None, "{tone_hz} Hz");
-            // Detect answers the question without acting on it.
             assert!(last.open, "{tone_hz} Hz");
         }
     }
@@ -569,7 +544,6 @@ mod tests {
     fn dcs_decodes_through_a_carrier_offset() {
         for offset_hz in [-400.0f64, 250.0] {
             let word = dcs_audio(23, SUBAUDIBLE, RATE, TONE_LEN);
-            // A constant frequency error is a constant term in the modulating waveform.
             let bias = (offset_hz / DEVIATION_HZ) as f32;
             let biased: Vec<f32> = word.iter().map(|s| s + bias).collect();
             let mut chan = tone_channel(tone_params(NfmToneMode::Detect, None, None));
@@ -725,7 +699,6 @@ mod tests {
             let ctcss_hz = (mode == NfmToneMode::Ctcss).then_some(88.5);
             assert!(tone_channel(tone_params(mode, ctcss_hz, None)).needs_gated_input());
         }
-        // Turned off again, the channel goes back to being skippable.
         let mut chan = tone_channel(tone_params(NfmToneMode::Detect, None, None));
         chan.apply(settings(ChannelParams::Nfm(NfmParams::default())))
             .unwrap();
@@ -795,8 +768,6 @@ mod tests {
                 "{bandwidth_hz} Hz: {freq} Hz"
             );
             assert!(ratio > 10.0, "{bandwidth_hz} Hz: tone-to-rest {ratio}");
-            // Deviation tracks the channel plan on both sides, so a full-scale tone comes back
-            // full-scale at either spacing — not doubled at the wide one.
             let amplitude = rms(window);
             assert!(
                 (0.6..0.8).contains(&amplitude),

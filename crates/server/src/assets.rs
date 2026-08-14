@@ -1,7 +1,3 @@
-//! Embedded UI assets (): the built frontend is baked into the binary via `rust-embed`
-//! so a Pi deployment is one file. Unknown non-API paths fall back to `index.html` (SPA
-//! routing). Before the frontend is ever built the embed is empty and we serve a hint page.
-
 use axum::{
     Json,
     http::{StatusCode, Uri, header},
@@ -17,8 +13,6 @@ struct Assets;
 pub(crate) async fn static_handler(uri: Uri) -> Response {
     let raw = uri.path().trim_start_matches('/');
 
-    // An unmatched /api path is a real 404 on the JSON surface — never mask it as the SPA shell
-    // (a stale client would parse HTML as JSON). Return a typed error like the REST handlers.
     if raw == "api" || raw.starts_with("api/") {
         let body = ApiError {
             error: format!("no such endpoint: /{raw}"),

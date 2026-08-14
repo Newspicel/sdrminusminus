@@ -1,10 +1,3 @@
-// The band explorer (): search the workspace's band plan in words or in megahertz, and
-// tune what you find with the mode the band suggests.
-//
-// Searching is a browse tool, so it lives in the library drawer beside the bookmarks; *which*
-// plan is being searched is a workspace setting and lives in the workspace menu with the rest of
-// them. It is also the keyboard route into the band plan: the ruler on the scope is a pointer
-// instrument, this is a list.
 import { useState } from "react";
 import { pushToast } from "../lib/toasts";
 import type { ChannelParams, DeviceSet } from "../lib/types";

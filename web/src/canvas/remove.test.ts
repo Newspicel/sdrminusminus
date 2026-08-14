@@ -30,8 +30,6 @@ const channelOnLane2: ChannelInfo = {
   settings: { offset_hz: 0, params: { type: "nfm", settings: {} } as never },
 };
 
-// Only the three fields `closeEngineObjects` reads; the rest of the workspace is React state
-// with no bearing on removal.
 const workspace = {
   graph,
   devices: new Map([["dev", { id: 4 } as DeviceSet]]),
@@ -83,8 +81,6 @@ describe("releaseRadio", () => {
     await expect(releaseRadio(workspace, "dev", () => (unbound = true))).rejects.toThrow(
       "device busy",
     );
-    // A patch that has forgotten a radio which is still streaming is the one state worse than
-    // the failure itself.
     expect(unbound).toBe(false);
   });
 

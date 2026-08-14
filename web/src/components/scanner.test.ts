@@ -99,8 +99,6 @@ describe("liveStatus", () => {
   });
 });
 
-// Mirrors the server's refusal (a sweep needs one radio-wide tuning to own): the panel disables
-// the start and says why, so the operator never sees the raw 400.
 describe("scanRefusal", () => {
   it("refuses a radio whose streams tune independently", () => {
     const perStream = deviceSet({
@@ -147,9 +145,6 @@ const TEMPLATE: TemplateInfo = {
   supported_devices: ["rtlsdr:00000001"],
 };
 
-// Which radios can run a template is decided once, in `TemplateInfo::unmet_by`, and served as
-// `supported_devices`. The panel looks the open radio up in that list rather than re-deriving
-// the rule from the capability set — these cases pin the lookup, not the rule.
 describe("template support", () => {
   it("offers the template on a radio the server listed", () => {
     const rtl = deviceSet({

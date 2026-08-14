@@ -79,7 +79,6 @@ impl Impairment for BurstModel {
             return;
         }
         let signal_rms = rms(x);
-        // Per-component sigma: total floor power is rms²·10^(−floor/10), split over I and Q.
         let sigma = signal_rms * 10f64.powf(-self.floor_db / 20.0) / std::f64::consts::SQRT_2;
         let step = 10f64.powf(self.level_step_db / 20.0);
         for (n, s) in x.iter_mut().enumerate() {

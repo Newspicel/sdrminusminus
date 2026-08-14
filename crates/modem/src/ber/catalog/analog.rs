@@ -1,32 +1,3 @@
-//! The measured chains behind the analog `CATALOG.md` rows ( §7 phase 8), and the
-//! registry `cargo xtask ber <entry>` dispatches on for them.
-//!
-//! Same contract as the BER registry next door — one definition of each chain, read by the
-//! crate's own gates and by the command alike — with the substitution §5 item 4 makes: the
-//! artifact is a [`SinadCurve`] against channel SNR rather than a `Curve` against Eb/N0, and the
-//! reference is a **figure of merit** rather than an error-rate oracle.
-//!
-//! **Two geometries, ten rows.** Everything except broadcast FM is measured on one voice
-//! geometry — 48 kHz, a 3 kHz message, a 1 kHz tone at full drive — so the ten rows differ by
-//! their modulation and detector and by nothing else, and the figures of merit are directly
-//! comparable across the table. Broadcast FM cannot be: 75 kHz of deviation does not fit in
-//! 48 kHz, so the wideband row is measured at 240 kHz with a 15 kHz message, which is its own
-//! standard's geometry.
-//!
-//! **Where an oracle applies and where it does not.** Seven rows are held to a closed form above
-//! their detector's threshold. Three are commit-and-guard, each for a stated reason:
-//!
-//! - **VSB** — the complementary slope halves the carrier and re-weights the sidebands, so the
-//!   fraction of transmitted power that is message depends on the slope's shape and not only on
-//!   the depth. No closed form describes that; the measured curve is the reference, and the
-//!   number that matters is its distance from the double-sideband row on the same depth.
-//! - **The FM PLL tier** — a loop is a filter, and its closed-loop response shapes the parabolic
-//!   output noise and the tone differently. The tier's value is below threshold anyway, and
-//!   *that* is what its committed curve is compared with the discriminator's for.
-//! - **The AM envelope tier below its knee** — held to the same oracle as the synchronous tier
-//!   above threshold, since above threshold they are the same number; the knee itself is the
-//!   committed quantity, and the two tiers' knees are the tier comparison.
-
 use crate::{
     analog::{
         AmDetector, AmMode, AmParams, AmRx, AngleDetector, AngleKind, AngleParams, AngleRx,
@@ -40,8 +11,6 @@ use crate::{
         theory,
     },
 };
-
-// --- The measurement geometry -------------------------------------------------------------------
 
 /// Samples one analysis window holds. Large enough that a point's SINAD is an average over
 /// hundreds of tone cycles rather than a realisation — a voice-geometry window holds ~1000
@@ -66,17 +35,6 @@ pub const SMOKE_POINTS: usize = 3;
 /// figures of merit in [`theory`] are read at the `message_power` they are stated for.
 pub const DRIVE: f32 = 1.0;
 
-/// Taps in every filter of the measured configuration, and the one parameter here that is set
-/// by the *acceptance* rather than by the waveform.
-///
-/// A figure of merit is stated for an ideal brick-wall receiver at the message bandwidth. A real
-/// filter's `−6 dB` edge has a transition around it, and everything it removes inside the
-/// message band is noise the chain does not have to carry — so a soft receiver measures
-/// *better* than its own oracle, which the harness treats as a defect rather than a triumph
-/// (`sweep`'s comparators). At `sdrmm_dsp`'s Blackman design the transition half-width is
-/// `2.75/taps`, so this many taps put it at 4 % of a 3 kHz message and the residual bias inside
-/// the rows' own tolerance. The consumers in `channels` run far shorter filters and are none the
-/// worse for it: what a short filter costs is an acceptance against a closed form, not audio.
 pub const TAPS: usize = 1_023;
 
 /// The voice geometry: 48 kHz, a 3 kHz message, a 1 kHz test tone.
@@ -93,7 +51,6 @@ const WIDE_TONE: f64 = 1_000.0 / WIDE_RATE_HZ;
 /// practice leaves, so a peaking talker never folds the envelope through zero.
 pub const DEPTH: f64 = 0.8;
 
-/// Narrowband FM: ±2.5 kHz into a 3 kHz message, the 12.5 kHz channel plan's own deviation.
 pub const NFM_DEVIATION_HZ: f64 = 2_500.0;
 /// Broadcast FM: ±75 kHz into a 15 kHz message (ITU-R BS.450).
 pub const WFM_DEVIATION_HZ: f64 = 75_000.0;
@@ -112,8 +69,6 @@ fn voice_tone() -> TonePlan {
 fn wide_tone() -> TonePlan {
     TonePlan::new(WIDE_TONE, WINDOW)
 }
-
-// --- The chains ---------------------------------------------------------------------------------
 
 /// The two full-carrier AM rows and the suppressed-carrier one, at whichever detector.
 #[must_use]
@@ -353,9 +308,6 @@ pub fn pm_link() -> AnalogLink {
     )
 }
 
-// --- The registry -------------------------------------------------------------------------------
-
-/// What a measured SINAD curve is judged against (§4.1, analog form).
 #[derive(Clone, Copy, Debug)]
 pub enum AnalogReference {
     /// Commit-and-guard: the committed artifact is the whole judgement.
@@ -610,7 +562,6 @@ pub fn measurement_for(stem: &str) -> Option<&'static AnalogMeasurement> {
         .find(|m| m.stem == stem)
 }
 
-/// Artifact stems of the committed limits tables (§4.3), one per detector tier that carries one.
 pub const AM_LIMITS: &str = "analog/am_envelope_limits";
 pub const SSB_LIMITS: &str = "analog/ssb_hilbert_limits";
 pub const NFM_LIMITS: &str = "analog/nfm_discriminator_limits";
@@ -650,7 +601,6 @@ mod tests {
         stems.sort_unstable();
         stems.dedup();
         assert_eq!(stems.len(), count, "duplicate analog artifact stem");
-        // And no analog stem may collide with a BER one — they share a directory tree.
         for stem in &stems {
             assert!(super::super::measurement(stem).is_none(), "{stem}");
         }

@@ -1,6 +1,3 @@
-// Audio subscription state machine (), one entry per (device set, channel). Pure of
-// WebAudio: the sink factory is injected so the whole lifecycle — subscribe, stream-id
-// binding, frame routing, reconnect resubscribe, teardown — is unit-testable.
 import type { AudioFrame } from "../frame";
 import type { ClientCommand, ServerEvent } from "../types";
 import { LossTracker } from "./loss";
@@ -186,7 +183,6 @@ export class AudioEngine {
       return false;
     }
     const entry = this.entries.get(pending.key);
-    // A superseded subscribe failing is moot — a fresher one is still awaiting its answer.
     if (entry && entry.generation === pending.generation) {
       entry.lastError = message;
       entry.desired = false;
@@ -269,8 +265,6 @@ export class AudioEngine {
           break;
         }
         if (pending !== undefined && pending.generation !== entry.generation) {
-          // Answers a superseded subscribe: binding its id would let the StreamStopped that
-          // follows (for the unsubscribe we already sent) tear down the current intent.
           break;
         }
         entry.streamId = event.data.stream_id;
@@ -290,7 +284,6 @@ export class AudioEngine {
         if (!entry) {
           break;
         }
-        // The server killed the stream (channel/set removed) — clear intent, don't resubscribe.
         entry.desired = false;
         entry.requested = false;
         entry.generation += 1;
@@ -312,7 +305,6 @@ export class AudioEngine {
         }
       }
     } else {
-      // Subscriptions are per-connection (); they died with the socket.
       for (const entry of this.entries.values()) {
         entry.requested = false;
       }
@@ -322,7 +314,6 @@ export class AudioEngine {
   };
 
   private readonly handleAudio = (frame: AudioFrame): void => {
-    // Frames for unbound ids are expected churn (e.g. just after unsubscribe): drop.
     const entry = this.findByStream(frame.streamId);
     const sink = entry?.sink;
     if (!entry || !sink) {
@@ -412,7 +403,6 @@ export class AudioEngine {
           return;
         }
         if (generation !== entry.generation) {
-          // A stop/start cycle overtook this creation; retry with the current generation.
           sink.close();
           this.ensureSink(entry);
           return;
@@ -462,7 +452,6 @@ export class AudioEngine {
     console.error(`audio ${entry.deviceSet}:${entry.channel} failed:`, err);
     entry.lastError = err instanceof Error ? err.message : String(err);
     this.stop(entry.deviceSet, entry.channel);
-    // stop() is a no-op when intent was already cleared; the error must publish regardless.
     this.notify();
   }
 

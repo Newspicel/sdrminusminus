@@ -23,7 +23,6 @@ import {
   toQuery,
 } from "./decoderLog";
 
-/** The wire scope the fixtures decode under: both channels every `record()` can name. */
 const WIRED = sourceSet("0:0,1:0");
 
 const adsb: DecoderEvent = {
@@ -139,7 +138,6 @@ describe("matchesFilter", () => {
     const scope = sourceSet("0:0");
     expect(matchesFilter(record(), filter(), scope)).toBe(true);
     expect(matchesFilter(record({ channel: 1 }), filter(), scope)).toBe(false);
-    // Channel ids are per device set, so the same channel on another radio is another channel.
     expect(matchesFilter(record({ device_set: 1 }), filter(), scope)).toBe(false);
     expect(matchesFilter(record(), filter(), sourceSet(""))).toBe(false);
   });
@@ -243,7 +241,6 @@ describe("eventSummary", () => {
         data: { source: "DL1ABC-9", destination: "APRS", info: "hi", tnc2: "DL1ABC-9>APRS:hi" },
       }),
     ).toBe("DL1ABC-9>APRS:hi");
-    // A Mic-E packet's monitor line is binary, so the message is named beside it.
     expect(
       eventSummary({
         kind: "aprs",
@@ -263,7 +260,6 @@ describe("eventSummary", () => {
     expect(eventSummary({ kind: "tone", data: { dcs_code: 23, open: false } })).toBe(
       "DCS 023 · muted",
     );
-    // Nothing under the carrier still has something to say once a tone has gone.
     expect(eventSummary({ kind: "tone", data: { open: false } })).toBe("no tone · muted");
     expect(eventSummary({ kind: "morse", data: { text: "SOS", wpm: 18 } })).toBe("SOS");
     expect(

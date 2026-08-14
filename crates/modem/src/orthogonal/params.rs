@@ -1,25 +1,10 @@
-//! The tone plan: M equally spaced tones, and the one constraint that makes them a *set*.
-//!
-//! Orthogonality is not a property of the tones alone but of the tones and the symbol period
-//! together: two tones `Δf` apart are orthogonal over `T` under noncoherent detection exactly
-//! when `Δf·T` is a whole number (under coherent detection a half-integer suffices, but this
-//! engine's detector never sees a phase, so the whole-integer condition is the one that binds).
-//! [`MfskParams`] therefore carries the spacing in *cycles per symbol*, where the condition is
-//! visible — `spacing = 1` is the tightest orthogonal plan and the one FT8 and most M-FSK
-//! standards use — instead of in Hz, where it would depend on a sample rate the engine does not
-//! have and cannot check.
-
 use crate::{
     cpm::{CpmParams, Mapping},
     pulse::{self, Norm},
 };
 
-/// Tones a bank may carry. The bound is the exact noncoherent oracle's
-/// (`ber::theory::mfsk_noncoherent_ser`, exact to M = 64): a plan this engine can measure but
-/// the harness cannot reference is an entry with no acceptance, which §1.2 does not allow.
 pub const MAX_TONES: usize = 64;
 
-/// One orthogonal M-FSK tone plan.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MfskParams {
     m: usize,
@@ -28,15 +13,6 @@ pub struct MfskParams {
 }
 
 impl MfskParams {
-    /// `spacing` is the tone separation in cycles per symbol — see the module docs for why that
-    /// unit and not Hz.
-    ///
-    /// # Panics
-    /// If `m` is not a power of two in `2..=MAX_TONES`; if `sps` is not a whole number of at
-    /// least two (the matched filter is one symbol of samples, so a fractional one would have
-    /// no defined length); if `spacing` is not a whole number of at least one (the plan would
-    /// not be orthogonal, which is the entry's whole premise); or if the outer tone reaches
-    /// Nyquist, `spacing·(M−1) ≥ sps`.
     #[must_use]
     pub fn new(m: usize, sps: f64, spacing: f64) -> Self {
         assert!(
@@ -59,10 +35,6 @@ impl MfskParams {
         Self { m, sps, spacing }
     }
 
-    /// The tightest orthogonal plan: one cycle per symbol between neighbours.
-    ///
-    /// # Panics
-    /// As [`Self::new`].
     #[must_use]
     pub fn orthogonal(m: usize, sps: f64) -> Self {
         Self::new(m, sps, 1.0)
@@ -94,19 +66,11 @@ impl MfskParams {
         self.m.trailing_zeros()
     }
 
-    /// Tone `index`'s frequency in cycles per sample, the plan centred on zero: index 0 is the
-    /// lowest tone and index M−1 the highest, which is the natural-binary order every label in
-    /// this engine (and the demapper it feeds) reads.
     #[must_use]
     pub fn tone_cycles_per_sample(&self, index: usize) -> f64 {
         self.spacing * (index as f64 - (self.m - 1) as f64 / 2.0) / self.sps
     }
 
-    /// The same waveform as continuous-phase CPM: a rect frequency pulse at modulation index
-    /// `h = spacing`, over the natural odd-integer level table. This is not a coincidence to
-    /// be re-derived — an M-FSK tone plan with continuous phase *is* M-ary CPFSK, and stating
-    /// it as `CpmParams` is what lets the continuous tier of this entry's modulator be the
-    /// crate's one CPM modulator rather than a second implementation of it (§1.2).
     #[must_use]
     pub fn as_cpm(&self) -> CpmParams {
         CpmParams::from_h(
@@ -133,9 +97,6 @@ mod tests {
         assert!(f.iter().all(|c| c.abs() < 0.5), "past Nyquist: {f:?}");
     }
 
-    /// The identity the continuous tier stands on: adjacent CPM levels are two apart and the
-    /// per-level frequency is `h·L·baud/2`, so `h = spacing` puts the tones exactly where the
-    /// plan says.
     #[test]
     fn the_cpm_spelling_puts_the_tones_where_the_plan_does() {
         for (m, spacing) in [(2, 1.0), (4, 1.0), (8, 1.0), (4, 2.0)] {

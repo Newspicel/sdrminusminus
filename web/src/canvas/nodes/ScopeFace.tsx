@@ -1,13 +1,3 @@
-// The scope face: trace + waterfall for whatever radio its `iq` wire comes from — CANVAS §1's
-// "the WebGL plot, one component, patched anywhere". Binary frames bypass React state and go
-// straight to the canvases (: high-rate streams never touch TanStack Query); only the
-// readout's slow-moving metadata is state.
-//
-// The plot is the instrument, so it owns its gestures — but only once its node is the active one
-// (`useFaceActive`): wheel zooms about the cursor, a drag pans, a click tunes, and a marker drag
-// moves a channel. Until then the camera keeps both, and a click on the plot only brings the face
-// forward, which is also what stops a stray click on a scope nobody selected from retuning a
-// running radio.
 import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -48,7 +38,6 @@ import { BandRuler } from "./BandRuler";
 import { tuneDelta } from "./DeviceFace";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
-/** Below this a pointer gesture is a click, not a pan (). */
 const DRAG_SLOP_PX = 4;
 /** How close the pointer must be to a marker to grab it rather than pan the plot. */
 const GRAB_PX = 10;
@@ -57,7 +46,6 @@ const TRACE_MIN = 0.15;
 const TRACE_MAX = 0.75;
 /** Rows the frequency axis reserves at the bottom of the trace canvas, in CSS pixels. */
 const AXIS_H = 16;
-/** Gridlines carry less ink than the data they sit behind (). */
 const GRID_ALPHA = 0.16;
 
 interface FrameMeta {
@@ -146,8 +134,6 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const [panning, setPanning] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
 
-  // Read inside the render loop and the frame handler, neither of which may be rebuilt per
-  // frame or per state change.
   const viewRef = useRef(view);
   viewRef.current = view;
   const holdRequested = useRef(hold);
@@ -189,17 +175,6 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   const tuneChannel = (channel: number, offsetHz: number): void =>
     applyEdit(set.id, channel, { offset_hz: offsetHz });
 
-  /** "Tune here with the suggested mode" from the band ruler.
-   *
-   * With a channel selected the band moves *it*, so the operator keeps listening through the
-   * same face; with nothing selected there is only the receiver to move, and creating a channel
-   * uninvited is not what a click on a ruler asked for. A frequency outside the current passband
-   * retunes the receiver first, because a channel offset beyond half the span is not a place a
-   * channel can be.
-   *
-   * The mode is applied to the engine *and* to the node that draws the channel: the node names
-   * the type (CANVAS §4), so patching only the engine would unbind this face and the next apply
-   * would add a second channel beside it. Same two halves as the `m` shortcut. */
   const tuneToBand = (hz: number, suggested: ChannelParams | null): void => {
     const params = suggested === null ? {} : { params: suggested };
     if (selectedChannel === null) {
@@ -379,8 +354,6 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     gesture.moved = true;
     const at = pointerFraction(event.clientX);
     if (gesture.channel !== null) {
-      // The offset is previewed while dragging and committed on release: a PATCH per pointer
-      // event would flood the server and fight the state it echoes back.
       setPreview({
         channel: gesture.channel,
         offsetHz: Math.round(spanToOffset(viewToSpan(gesture.view, at), spanHz)),
@@ -641,8 +614,6 @@ function Markers({
               // target size are different budgets.
               className="pointer-events-auto absolute inset-y-0 w-5 -translate-x-1/2 cursor-ew-resize"
               style={{ left: `${at * 100}%` }}
-              // React Flow selects the node a click landed in, which would take the selection
-              // straight back off the channel this click just put it on.
               onClick={(event) => {
                 event.stopPropagation();
                 onSelect(channel.id);
@@ -782,8 +753,6 @@ function drawTrace(
   if (width === 0 || height === 0) {
     return;
   }
-  // Same rule as the waterfall (CANVAS §7): React Flow magnifies the node with a CSS transform,
-  // so the backing store follows the zoom or the trace is a stretched bitmap.
   const rect = canvas.getBoundingClientRect();
   const ratio = pixelRatio(window.devicePixelRatio, zoomOf(rect.width, width));
   const w = Math.round(width * ratio);
@@ -848,7 +817,6 @@ function drawTrace(
   ctx.globalAlpha = 1;
   ctx.textAlign = "left";
 
-  // Centre of the device passband — the frequency the dial is showing.
   const centerAt = spanToView(view, 0.5);
   if (centerAt >= 0 && centerAt <= 1) {
     const x = Math.round(centerAt * width) + 0.5;

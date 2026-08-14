@@ -1,6 +1,3 @@
-// The transport of a device node that is a recording rather than a radio (CANVAS §3: a
-// recording is opened the same way a radio is, so it is the same node — this is the one strip
-// that differs). Play, stop, loop and a scrubbable position, driven off `DeviceSet.playback`.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { controlPlayback, STATE_KEY } from "../lib/api";
@@ -111,8 +108,6 @@ function useLivePosition(status: PlaybackStatus, sampleRate: number, looping: bo
   }));
   const [now, setNow] = useState(() => Date.now());
 
-  // Re-anchor as the server reports: adjusting state during render is cheaper than an effect,
-  // which would paint one frame of the stale position first.
   if (anchor.position !== status.position_samples) {
     setAnchor({ position: status.position_samples, at: Date.now() });
     setNow(Date.now());

@@ -1,20 +1,3 @@
-//! The sweep runner ( §3.1): drives any modulate/demodulate pair through the
-//! calibrated [`impair`](super::impair) channel across a grid of Eb/N0 points and counts bit
-//! errors into a committed [`Curve`]. Every correctness gate in the harness — the BPSK-vs-erfc
-//! calibration, every later entry's oracle match, every committed-reference guard — is a
-//! comparison between a curve this runner measured and a reference, so the comparators live
-//! here beside it.
-//!
-//! Accounting (crate root,  §4.1): Eb is energy per *information* bit. The runner
-//! owns the AWGN axis — whatever else the channel template carries, noise is set per point
-//! from the waveform's own measured energy and the trial's information-bit count via
-//! [`Awgn::for_ebn0`], applied canonically last, so the curve's x-axis is true at the detector
-//! by construction rather than by per-link bookkeeping.
-//!
-//! Determinism: one point's error count is fully determined by `(seed, point index)` — payload
-//! bits and channel noise draw from one [`Rng`] seeded from exactly that pair — so any single
-//! point of a committed curve can be regenerated without resweeping the rest.
-
 use std::{fs, io, path::Path};
 
 use num_complex::Complex;
@@ -25,8 +8,6 @@ use super::{
     rng::Rng,
 };
 
-/// Payload bits to complex-baseband waveform. Boxed `dyn Fn` because phase 0 has no engine
-/// types to name — a link captures whatever taps and tables it designed at construction.
 pub type ModulateFn = Box<dyn Fn(&[bool]) -> Vec<Complex<f32>>>;
 
 /// Waveform back to payload-aligned bits.
@@ -120,8 +101,6 @@ fn random_bits(rng: &mut Rng, n: usize) -> Vec<bool> {
     bits
 }
 
-// --- Curve I/O -------------------------------------------------------------------------------
-
 /// Writes the curve as pretty JSON — the committed-artifact format, kept human-diffable so a
 /// regression review can read exactly which point moved.
 pub fn save_json(curve: &Curve, path: &Path) -> io::Result<()> {
@@ -183,18 +162,6 @@ pub fn load_csv(path: &Path) -> io::Result<Curve> {
     Ok(Curve { label, points })
 }
 
-// --- Comparators -----------------------------------------------------------------------------
-//
-// Every gate compares curves *horizontally* — dB distance at equal BER — because that is the
-// unit tolerances are stated in (§4.1 "within 0.2 dB") and because vertical distance at equal
-// dB explodes wherever the curve is steep. Interpolation between measured points is linear in
-// (dB, log10 BER): error-rate curves are near-exponential in dB, so the log domain is where a
-// straight segment approximates them honestly.
-//
-// Failure is loud, not silent: a comparison that cannot be made — the target BER outside the
-// measured span, no usable points in the range — returns +∞, which fails any `< tolerance`
-// gate instead of vacuously passing it.
-
 /// Horizontal distance in dB between a measured curve and a closed-form oracle at one BER:
 /// positive means the measurement needs that many dB more than theory (a loss), negative would
 /// mean beating theory — which past counting noise is a harness bug, not a triumph.
@@ -208,11 +175,6 @@ pub fn penalty_db(measured: &Curve, oracle: impl Fn(f64) -> f64, at_ber: f64) ->
     db_measured - db_oracle
 }
 
-/// The worst horizontal penalty vs an oracle over `[db_lo, db_hi]`: each measured point in the
-/// range (with at least one error — an errorless point states only a bound, not a BER) is
-/// compared at its *own* measured rate against the oracle's dB for that rate. Point-wise
-/// distance rather than double interpolation, so the number reads the raw counts. Returns the
-/// signed penalty of largest magnitude; gates take `.abs()`.
 pub fn worst_penalty_db(
     measured: &Curve,
     oracle: impl Fn(f64) -> f64,
@@ -237,8 +199,6 @@ pub fn worst_penalty_db(
     worst
 }
 
-/// [`penalty_db`] against a committed reference curve instead of a closed form — the guard for
-/// entries whose reference is commit-and-review (§4.1).
 pub fn penalty_db_vs_curve(measured: &Curve, reference: &Curve, at_ber: f64) -> f64 {
     let Some(db_measured) = db_at_ber(measured, at_ber, false) else {
         return f64::INFINITY;

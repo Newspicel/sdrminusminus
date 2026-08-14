@@ -1,49 +1,3 @@
-//! The genie-LLR bound ( §7 phase 1 acceptance): the harness instrument that tells
-//! a *concept* failure from an *LLR-quality* failure. A coded link is run twice over the same
-//! seeds — once with its real demapper, once with LLRs a genie computes from the true channel
-//! state — and the post-FEC curves are compared with
-//! [`penalty_db_vs_curve`](super::sweep::penalty_db_vs_curve). The reading is binary: a bad
-//! genie curve means the concept is broken (code, mapping, metric wiring, Eb accounting) and
-//! no demapper work can save it; a clean genie curve with the real curve trailing it means the
-//! gap belongs to the LLR path (demapper tier, noise-variance calibration, sync losses) — and
-//! the gap *is* that path's measured cost.
-//!
-//! What the genie knows, precisely: the transmitted symbols and the clean waveform they shaped
-//! into ([`GenieTap`]), and through them the noise the channel actually applied
-//! ([`GenieTap::true_noise_var`]). What it never sees is the answer key: [`genie_llrs`] is the
-//! honest exact-tier posterior of each received statistic, computed with perfect channel
-//! knowledge but zero knowledge of which symbol the statistic carries. A genie that peeked at
-//! the transmitted bit would decode error-free at any Eb/N0 and separate nothing; this one is
-//! bounded by the channel, which is the point. The genie also draws no randomness of its own —
-//! runs stay reproducible from the sweep seed alone, and a genie run and a real-demapper run
-//! at the same seed see bit-identical payloads, waveforms and noise, so their curve gap is a
-//! paired comparison carrying almost none of the counting noise two independent sweeps would.
-//!
-//! The committed demonstration (`genie_separates_concept_failures_from_llr_quality` below,
-//! rate-1/2 K=5 Viterbi over Gray 4-PAM on the reference chain) measures three LLR qualities
-//! at the same seeds, plus the concept side. Measured gaps vs the genie curve at post-FEC
-//! BER 6e-3, seed 0x6e2e:
-//!
-//! - **max-log at the true noise variance:** +0.03 dB — on the bound to within the paired
-//!   comparison's resolution; the max-log approximation costs 4-PAM essentially nothing at
-//!   these distances. Asserted < 0.3 dB, the task-level bound for a healthy LLR path.
-//! - **max-log at 10× the true variance:** +0.23 dB — real but modest, and the *mechanism*
-//!   matters: a uniform LLR scale error is invisible to the Viterbi's metric comparisons, so
-//!   the 10× axis is benign right up to [`Llr::to_fec`], where the fixed 8-nat saturation
-//!   turns the ÷10 shrink into ~1.25 nats per i16 step and the weak bits soft decoding lives
-//!   on collapse toward erasure. The 0.23 dB is that quantisation loss, not variance
-//!   sensitivity in the decoder — stated so, rather than crediting the Viterbi with a
-//!   discipline it does not have.
-//! - **sign-preserving hard-clip of genie LLRs to full confidence:** +2.67 dB — every bit
-//!   voting ±CONFIDENT is hard-decision decoding. Kept in the demonstration as the quality
-//!   defect that stays loud even on a decoder whose metric normalisation would make a
-//!   uniform mis-scale fully benign. Larger than the textbook ~2 dB soft-vs-hard figure
-//!   because that is the deep-waterfall asymptote; at 6e-3 the hard curve is still on its
-//!   shoulder.
-//! - **concept failure** (`a_broken_mapping_fails_even_with_genie_llrs`): a natural-binary
-//!   demapper against the Gray mapper floors at BER 0.506 with genie LLRs, at an Eb/N0 where
-//!   the sound concept posts ≲1e-5 — the genie refuses to absolve a broken concept.
-
 use std::{cell::RefCell, rc::Rc};
 
 use num_complex::Complex;
@@ -135,7 +89,6 @@ pub fn genie_llrs(
     out: &mut Vec<Llr>,
 ) {
     let bits = c.bits_per_symbol();
-    // Labels are u32 — the same scratch bound the demappers size against.
     let mut scratch = [Llr(0.0); 32];
     for &y in statistics {
         exact_llrs(y, c, true_noise_var, &mut scratch[..bits]);
@@ -365,8 +318,6 @@ mod tests {
     fn genie_separates_concept_failures_from_llr_quality() {
         let spec = ChannelSpec::default();
         let seed = 0x6e2e;
-        // The waterfall region (BER ~9e-3 → ~3e-3 for the bound); the hard-clip curve is
-        // right-shifted far enough that it needs its own points around the comparison BER.
         let points = [4.0, 4.5, 5.0];
         let points_clip = [6.5, 7.0, 7.5];
         let sweep = |source: LlrSource, points: &[f64]| {
@@ -401,9 +352,6 @@ mod tests {
              10x mis-scaled {mis_gap:+.3} dB, hard-clip {clip_gap:+.3} dB"
         );
 
-        // Quality intact: the correctly fed max-log tier sits on the bound. The lower bound
-        // is the bound property itself — a demapper visibly *beating* the genie would mean
-        // the genie (or the pairing) is broken.
         assert!(real_gap < 0.3, "max-log vs genie gap {real_gap} dB");
         assert!(
             real_gap > -0.15,

@@ -1,9 +1,3 @@
-//! Morse/CW reference modulator (): PARIS-timed on-off keying of one tone.
-//!
-//! The element table here is written as pattern strings while the decoder's is written as
-//! packed codes; keeping the two independent is deliberate, so a typo in either table shows up
-//! as a failing round-trip instead of cancelling out.
-
 use num_complex::Complex;
 use sdrmm_dsp::window::hann;
 
@@ -13,8 +7,6 @@ use super::ook;
 /// this rate to keep the click sidebands inside a few hundred Hz.
 const RISE_S: f64 = 5e-3;
 
-/// International Morse (ITU-R M.1677-1 §1 and §2), plus the prosign SK: the only one of
-/// AR/SK/BT whose element run is not already a punctuation mark.
 const TABLE: &[(char, &str)] = &[
     ('A', ".-"),
     ('B', "-..."),
@@ -84,7 +76,6 @@ fn pattern(ch: char) -> Option<&'static str> {
 pub fn envelope(text: &str, wpm: f32, rate: f64) -> Vec<f32> {
     assert!(wpm > 0.0 && wpm.is_finite(), "wpm must be positive");
     assert!(rate > 0.0, "sample rate must be positive");
-    // PARIS: one dot is 1.2 s / wpm.
     let dot = 1.2 * rate / f64::from(wpm);
 
     let mut out = Vec::new();
@@ -133,8 +124,6 @@ pub fn transmission(text: &str, wpm: f32, tone_hz: f64, rate: f64) -> Vec<Comple
 fn shape_edges(key: &[f32], wpm: f32, rate: f64) -> Vec<f32> {
     let dot = 1.2 * rate / f64::from(wpm);
     let taps = ((RISE_S * rate).min(dot / 4.0).round() as usize).max(1) | 1;
-    // `hann` is the periodic form, whose first sample is the unpaired one; dropping it leaves
-    // an odd-length window that is symmetric about its middle tap.
     let kernel: Vec<f32> = hann(taps + 1).into_iter().skip(1).collect();
     let norm: f32 = kernel.iter().sum();
     let half = taps / 2;
@@ -167,7 +156,6 @@ mod tests {
 
     #[test]
     fn envelope_uses_paris_element_and_letter_timing() {
-        // "EE": dot, 3-dot letter gap, dot.
         let env = envelope("EE", WPM, RATE);
         assert_eq!(env.len(), 5 * DOT);
         assert!(env[..DOT].iter().all(|&v| v == 1.0));
@@ -177,7 +165,6 @@ mod tests {
 
     #[test]
     fn word_gap_is_seven_dots_and_leading_space_is_dropped() {
-        // "E E": 1 + 7 + 1 dot units.
         assert_eq!(envelope("E E", WPM, RATE).len(), 9 * DOT);
         assert_eq!(envelope(" E", WPM, RATE).len(), DOT);
     }
@@ -186,7 +173,6 @@ mod tests {
     fn shaped_edges_keep_the_half_amplitude_point_on_the_boundary() {
         let iq = transmission("E", WPM, 0.0, RATE);
         assert_eq!(iq.len(), DOT);
-        // Element start and end sit at half amplitude; the middle is full scale.
         assert!((iq[0].norm() - 0.5).abs() < 0.05, "start {}", iq[0].norm());
         assert!((iq[DOT / 2].norm() - 1.0).abs() < 1e-3);
         let last = iq[DOT - 1].norm();

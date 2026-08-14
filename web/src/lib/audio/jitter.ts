@@ -1,20 +1,3 @@
-// Jitter-buffer scheduling for audio playback (: 60–100 ms target). This class is
-// injected into the AudioWorklet via `JitterBuffer.toString()` (see worklet.ts), so it must
-// stay fully self-contained: no imports, no references to anything in module scope — which is
-// also why every tunable is an instance field rather than a module or static constant.
-//
-// Everything is counted in sample frames, never in samples: the ring holds interleaved audio
-// and `read` deinterleaves it into one output per channel, so depth and timing mean the same
-// thing whatever layout the stream is in.
-//
-// Two independent clocks meet here: audio is produced against the radio's sample clock and
-// consumed against the output device's, and they always differ by some ppm. A reader locked to
-// exactly one frame per output frame therefore *must* eventually run dry (a silent rebuffer) or
-// run long (a discarded chunk) — both audible, both recurring. So the reader instead runs at a
-// rate that steers the smoothed depth back to target, bounded to ±0.4 % (~7 cents of pitch,
-// inaudible), and hard discards are left as a safety net for gross excursions only. The target
-// itself adapts: an underrun means the pre-buffer was too small for this path, so it grows, and
-// it relaxes again after a long clean run so a one-off hiccup does not cost latency forever.
 export class JitterBuffer {
   private readonly buf: Float32Array;
   private readonly channels: number;
@@ -164,7 +147,6 @@ export class JitterBuffer {
         if (!out) {
           continue;
         }
-        // A stream with fewer channels than the output has feeds its last channel to the rest.
         const lane = Math.min(c, ch - 1);
         const a = this.buf[pos * ch + lane] ?? 0;
         const b = this.buf[next * ch + lane] ?? 0;

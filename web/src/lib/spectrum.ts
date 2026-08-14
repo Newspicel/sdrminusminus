@@ -16,7 +16,6 @@
 // per-connection, so everything wanted must be re-sent when the socket comes back.
 //
 // Faces are the third. A scope face is remounted by things that have nothing to do with its radio
-// — switching between the patch and the rack is the everyday one — and a plot's history lives in
 // its own GL texture, so that round trip used to leave the operator watching an empty waterfall
 // fill in again. So the lane's recent rows are kept here, where they outlive any one face, and the
 // stream is stopped a few seconds after the last watcher rather than the instant it lets go.
@@ -36,8 +35,6 @@ export interface SpectrumSocket {
   removeEventListener(listener: (event: ServerEvent) => void): void;
 }
 
-/** Frame rate and bin count asked of the server. Per connection, not per face (): the
- * server clamps both, and one stream feeds every face watching that lane. */
 export const SPECTRUM_FPS = 30;
 export const SPECTRUM_BINS = 1024;
 
@@ -261,7 +258,6 @@ export class SpectrumHub {
   }
 
   private send(lane: Lane, on: boolean): void {
-    // A `send` while the socket is closed is dropped by design; the reconnect path re-sends.
     this.socket?.send(
       on
         ? {

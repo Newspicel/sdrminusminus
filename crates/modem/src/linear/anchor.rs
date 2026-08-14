@@ -1,45 +1,3 @@
-//! The known-symbol hook ( §3.4), linear form: "positions i..j carry known sequence
-//! S", turned into a complex gain and a frequency offset by least squares over exactly those
-//! positions. This is the *pilot-aided* arm of the coherent tier list, and it is what the CPM
-//! engine's [`KnownSymbols`](crate::cpm::KnownSymbols) is for that engine — the same idea, in
-//! the domain where amplitude and phase are one complex number instead of two real estimates.
-//!
-//! **Three things it fixes that a loop cannot.**
-//!
-//! - *The M-fold phase ambiguity.* A blind carrier loop locks to a rotation of the table, never
-//!   to the table (see [`carrier`](super::carrier)). Known symbols name the right one.
-//! - *Absolute amplitude.* The blind normaliser in [`demod`](super::demod) scales the symbol
-//!   stream to unit mean *power*, which under AWGN is Es + N0, not Es — so the table it hands
-//!   the demapper is shrunk by √(1 + 1/SNR): 4.6 % at 10 dB Es/N0, 1.5 % at 15. That is
-//!   invisible to a constant-modulus slicer and steadily less so as a QAM table gains rings.
-//!   A data-aided fit has no such bias, because it compares against what was actually sent.
-//! - *Residual frequency.* Fitting a slope across the anchors, rather than a constant, removes
-//!   the offset a short burst gives a loop no time to acquire.
-//!
-//! **The estimator.** With `r_k = y_k · conj(x_k)` at the known positions, a pure offset
-//! `y = g·e^{j2πfk}·x` makes `r_k = g|x_k|²e^{j2πfk}`, so consecutive anchors' product
-//! `r_{k+1}·conj(r_k)` has phase `2πf·Δk` free of the data. Averaging those angles is Kay's
-//! estimator (*A fast and accurate single frequency estimator*, IEEE ASSP-37, 1989), and the
-//! weighting is what makes it worth using: the parabolic window `w_k ∝ (k+1)(N−1−k)` is the one
-//! that reaches the Cramér–Rao bound, where a flat average does not. The difference is not
-//! academic: on 64 anchors at 10 dB a flat average scatters the slope far enough to turn the far
-//! end of the very word it was fitted on by a large fraction of a turn, taking the gain estimate
-//! with it. Each term additionally carries its own magnitude, so a weak anchor contributes as
-//! little as its energy says it should. The gain then follows as the de-sloped average.
-//!
-//! **Give it a constant-modulus word.** Measured on 64 anchors at 10 dB: a QPSK word fits the
-//! slope inside 5e-4 cycles/symbol, a 16-QAM word only to 3.1e-3 — because a 16-QAM inner point
-//! carries a tenth of the mean energy and its phase is nearly unreadable at the SNR the outer
-//! points are comfortable at. This is why standards put constant-modulus preambles in front of
-//! QAM payloads, and an entry that hands this fit an amplitude-varying word gets the worse
-//! number.
-//!
-//! **Unwrapping bounds the range, and that is stated rather than hidden**: `arg` of a
-//! single-step product wraps past `|f·Δk| = ½`, so with contiguous anchors (Δk = 1) the fit
-//! covers ±0.5 cycles/symbol — everything — and with anchors spread Δk apart it covers
-//! ±1/(2Δk). Scattered pilots therefore need to be closer together than half the reciprocal of
-//! the offset they must catch, which is the ordinary pilot-spacing rule stated for this fit.
-
 use num_complex::Complex;
 
 /// Why an anchor fit was refused. The estimate is only applied when it is believable: a fit
@@ -97,8 +55,6 @@ impl PhaseAnchor {
                 y * x.conj()
             })
             .collect();
-        // Kay-weighted phase slope: the parabolic window over the anchor pairs, times each
-        // pair's own magnitude, times the reciprocal of the index gap it spans.
         let pairs = r.len() - 1;
         let mut slope_acc = 0.0f64;
         let mut slope_weight = 0.0f64;
@@ -121,7 +77,6 @@ impl PhaseAnchor {
         }
         let freq = slope_acc / slope_weight / std::f64::consts::TAU;
 
-        // De-slope, then the gain is the energy-weighted mean: g = Σ r_k e^{-j2πfk} / Σ|x_k|².
         let mut num = Complex::new(0.0f64, 0.0);
         let mut den = 0.0f64;
         for (k, (&index, &x)) in indices.iter().zip(expected).enumerate() {
@@ -307,7 +262,6 @@ mod tests {
         let sent: Vec<Complex<f32>> = (0..n)
             .map(|_| table.points()[(rng.next_u64() % 16) as usize])
             .collect();
-        // Es/N0 = 10 dB: total noise variance 0.1 against unit mean symbol energy.
         let mut received = sent.clone();
         Awgn::with_sigma((0.05f64).sqrt()).apply(&mut received, &mut rng);
         let blind_scale = (received
@@ -316,12 +270,10 @@ mod tests {
             .sum::<f64>()
             / n as f64)
             .sqrt();
-        // The blind estimate is high by √(1 + N0/Es) = √1.1 ≈ 1.0488.
         assert!(
             (blind_scale - 1.1f64.sqrt()).abs() < 0.02,
             "blind scale {blind_scale}"
         );
-        // Gain only: the honest counterpart, since there is no offset here to fit a slope to.
         let fit = PhaseAnchor::fit_gain_only(&received[..64], &sent[..64]).unwrap();
         let aided = fit.gain.norm();
         assert!(
@@ -361,7 +313,6 @@ mod tests {
         assert!((fit.gain.norm() - 1.0).abs() < 0.05, "{fit:?}");
         assert!(fit.misfit < 0.4, "{fit:?}");
 
-        // The same fit on an amplitude-varying word, to hold the documented contrast to a number.
         let qam = tables::qam_square(16).unwrap();
         let mut rng = Rng::new(0x510e);
         let word: Vec<Complex<f32>> = (0..64)
@@ -400,7 +351,6 @@ mod tests {
     #[test]
     fn the_slope_estimate_wraps_where_the_docs_say_it_does() {
         let x = known_word(16, 0x2b0);
-        // Contiguous: 0.3 cycles/symbol is well inside ±0.5 and comes back.
         let indices: Vec<usize> = (0..x.len()).collect();
         let y = impose(&x, Complex::new(1.0, 0.0), 0.3, 0);
         let fit = PhaseAnchor::fit(&indices, &y, &x).unwrap();
@@ -420,7 +370,6 @@ mod tests {
             (fit.freq_cycles_per_symbol - 0.3).abs() > 0.05,
             "a gap of 4 should alias 0.3 cycles/symbol, read {fit:?}"
         );
-        // …and an offset inside the reduced reach still comes back.
         let y: Vec<Complex<f32>> = spread
             .iter()
             .zip(&x)

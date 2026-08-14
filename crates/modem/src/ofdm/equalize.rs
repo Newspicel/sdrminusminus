@@ -1,22 +1,6 @@
 //! What the receiver knows about the channel, and how it keeps knowing it: the least-squares
 //! estimate over known symbols, the interpolation that fills the bins the training did not
 //! reach, the one-tap equaliser, and the pilot tracker that follows what drifts within a frame.
-//!
-//! The one-tap equaliser is the reason OFDM exists, and it is only correct because the prefix is
-//! cyclic: a delay spread inside the prefix turns the channel into a per-bin complex gain, and
-//! dividing by that gain is the whole equaliser. Everything in this module is therefore about
-//! *how well the gain is known*, and every part of that is measured — the estimation cost as a
-//! committed BER margin against a genie receiver, and the estimator's own error as a closed form
-//! (`σ²/2` per bin from two averaged repeats, asserted rather than asserted-to).
-//!
-//! **Two estimators, because they fail differently.** The long training energises every occupied
-//! bin, so it resolves any channel the prefix can carry. The short training energises a *comb* —
-//! every stride-th bin — which buys 6.4 dB of estimator SNR at the reference geometry (its
-//! energy is concentrated on a twelfth of the band and repeated ten times) and pays for it with
-//! the delay-domain Nyquist limit a comb has: a stride-4 comb can only represent a channel
-//! shorter than `fft/4` samples, and past that it aliases. Both are committed, and the pair is
-//! what makes "channel-estimation error" a number rather than an adjective.
-
 use num_complex::Complex;
 
 use super::params::SubcarrierMap;
@@ -165,16 +149,6 @@ impl ChannelEstimate {
     }
 }
 
-/// Fills every occupied bin left unknown by linear interpolation in the *offset* axis between
-/// its known neighbours, extending flat past the outermost known bin.
-///
-/// Linear in the complex plane rather than in magnitude and phase separately: the two agree
-/// wherever the interpolation is worth doing (neighbouring known bins that differ by little) and
-/// the polar form has a branch cut where they do not. A ramp the caller *knows* about is removed
-/// first — see [`ChannelEstimate::finish`].
-///
-/// Walks the map rather than collecting its anchors, so the receive path this sits on stays
-/// allocation-free (§4.2).
 pub fn interpolate(map: &SubcarrierMap, known: &[bool], h: &mut [Complex<f32>]) {
     let occupied = map.occupied();
     let Some(first) = occupied.iter().position(|c| known[c.bin]) else {
@@ -204,12 +178,6 @@ pub fn interpolate(map: &SubcarrierMap, known: &[bool], h: &mut [Complex<f32>]) 
     }
 }
 
-/// Noise variance per bin from two repeats of the same known symbol: their difference is noise
-/// alone, of twice the per-bin variance, whatever the channel did to the signal in between.
-///
-/// This is the §3.4 hook paying for itself twice — the same repeats that give the channel
-/// estimate give the noise variance the LLRs need, and neither number is a parameter anyone has
-/// to supply.
 #[must_use]
 pub fn noise_var_from_repeats(first: &[Complex<f32>], second: &[Complex<f32>]) -> f64 {
     if first.is_empty() {
@@ -421,8 +389,6 @@ mod tests {
             known[c.bin] = true;
         }
         interpolate(&map, &known, &mut h);
-        // Inside the comb's span only: past the outermost anchor there is nothing to interpolate
-        // between, which is the next test's subject.
         for c in map.occupied().iter().filter(|c| c.offset.abs() <= 24) {
             let want = truth(c.offset);
             assert!(
@@ -479,7 +445,6 @@ mod tests {
             let (mut first, mut second) = (Vec::with_capacity(n), Vec::with_capacity(n));
             let mut error = 0.0f64;
             for _ in 0..n {
-                // The truth is 1 on every bin; the two repeats see independent noise.
                 let (a, b) = (
                     Complex::new(1.0, 0.0) + draw(&mut rng),
                     Complex::new(1.0, 0.0) + draw(&mut rng),

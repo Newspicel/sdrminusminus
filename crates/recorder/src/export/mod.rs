@@ -41,7 +41,6 @@ impl ExportKind {
     #[must_use]
     pub fn content_type(self) -> &'static str {
         match self {
-            // No media type is registered for SigMF, and the archive is a tar, so say so.
             Self::SigmfArchive => "application/x-tar",
             Self::Wav => "audio/wav",
         }

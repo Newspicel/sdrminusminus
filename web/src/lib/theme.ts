@@ -1,10 +1,3 @@
-// Theme selection (). Unlike workspaces, a theme is a property of the eye looking
-// at the screen rather than of the workspace, so it lives in `localStorage` and never syncs
-// between clients.
-//
-// The document only ever carries a *resolved* theme (`data-theme="dark" | "light"`), so the
-// stylesheet needs no `prefers-color-scheme` branch and canvases can read the resolved tokens
-// with one `getComputedStyle`.
 import { useSyncExternalStore } from "react";
 
 export type ThemeChoice = "system" | "dark" | "light";

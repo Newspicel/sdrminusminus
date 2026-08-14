@@ -1,9 +1,3 @@
-//! AIS reference modulator (): ITU-R M.1371 bursts as 9600 bit/s GMSK at complex
-//! baseband. The waveform comes from the library's own [`CpmMod`] ( §1.2: testgen
-//! builds every demodulator's test signals from the library's modulators, so the two can
-//! never drift apart); the parameters feeding it are declared here from the spec rather than
-//! shared with the decoder, so a wrong constant cannot cancel out between the two.
-
 use num_complex::Complex;
 use sdrmm_dsp::{crc16_x25, pack_lsb};
 use sdrmm_modem::{
@@ -11,7 +5,6 @@ use sdrmm_modem::{
     pulse::{self, Norm},
 };
 
-/// ITU-R M.1371 Annex 2 §2.2: 9600 bit/s, ±2400 Hz deviation (modulation index 0.5), BT 0.4.
 const BAUD: f64 = 9_600.0;
 const DEVIATION_HZ: f64 = 2_400.0;
 const BT: f64 = 0.4;
@@ -22,8 +15,6 @@ const BT: f64 = 0.4;
 const PULSE_SPAN: usize = 5;
 
 const FLAG: [bool; 8] = [false, true, true, true, true, true, true, false];
-/// ITU-R M.1371 Annex 2 §3.3.7.2 training sequence: 24 bits of alternating line level. Zero
-/// data bits produce exactly that, because NRZI toggles the line on every zero.
 const TRAINING_BITS: usize = 24;
 /// The spec's trailing buffer field, which also gives the shaping filter's group delay the
 /// room it needs to finish the closing flag.
@@ -87,7 +78,6 @@ pub fn class_b_payload(report: &PositionReport) -> Vec<bool> {
     b.field(u64::from(report.heading_deg.min(511)), 9);
     b.field(60, 6);
     b.field(0, 2);
-    // CS unit, display, DSC, band, message 22, assigned mode and RAIM flags.
     b.field(0, 7);
     b.field(0, 20);
     debug_assert_eq!(b.0.len(), 168);
@@ -106,7 +96,6 @@ pub fn static_payload(mmsi: u32, name: &str, call_sign: &str, destination: &str)
     b.text(call_sign, 7);
     b.text(name, 20);
     b.field(0, 8);
-    // Dimensions to bow / stern / port / starboard.
     b.field(0, 9);
     b.field(0, 9);
     b.field(0, 6);
@@ -144,12 +133,10 @@ pub fn static_data_payloads(mmsi: u32, name: &str, call_sign: &str) -> (Vec<bool
     b.field(u64::from(mmsi), 30);
     b.field(1, 2);
     b.field(0, 8);
-    // Vendor id, unit model code and serial number.
     b.field(0, 18);
     b.field(0, 4);
     b.field(0, 20);
     b.text(call_sign, 7);
-    // Dimensions to bow / stern / port / starboard, then spare.
     b.field(0, 9);
     b.field(0, 9);
     b.field(0, 6);
@@ -204,11 +191,6 @@ fn modulate(framed: &[bool], rate: f64) -> Vec<Complex<f32>> {
     bits.extend(FLAG);
     bits.extend(std::iter::repeat_n(false, BUFFER_BITS));
 
-    // Natural order: the high NRZI line state is index 1, the +2400 Hz mark tone. The keyed
-    // builder ramps the envelope over one bit against each adjoining dead bit — ITU-R M.1371
-    // allocates the slot's first bits to exactly that ramp-up, and a stepped envelope is not
-    // something any radio puts on the air: its splash through the receiver's channel filter
-    // reads as a discriminator excursion several times the outermost level.
     let mut symbols: Vec<Option<u8>> = vec![None];
     symbols.extend(nrzi_encode(&bits).into_iter().map(|b| Some(u8::from(b))));
     symbols.push(None);

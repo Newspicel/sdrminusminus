@@ -1,27 +1,4 @@
 //! Where a symbol's slots fall on the sample grid, when the two grids owe each other nothing.
-//!
-//! A PPM receiver's whole job is comparing the energy of one slot against its siblings, and that
-//! comparison is only as good as the boundary between them. Three facts make the boundary a
-//! design problem rather than an index:
-//!
-//! - **A slot is not a whole number of samples.** Mode S puts 0.5 µs slots on a 2.048 Msps
-//!   radio — 1.024 samples each — so a fixed stride drifts a whole sample by the end of a
-//!   120 µs frame and slices the last bits against the wrong halves. Every boundary is
-//!   therefore computed from the slot index, never stepped.
-//! - **A slot's energy straddles the samples it touches.** A band-limited pulse arrives with
-//!   roughly a sample of rise time, so at ~1 sample per slot a single-sample peak cannot say
-//!   which slot owned it. The fractional-overlap sum can, and it is what dump1090 hard-codes
-//!   one rate at a time.
-//! - **A transmitter's clock owes the receiver's sample grid no phase.** Whatever sub-sample
-//!   offset is assumed, some slot's energy lands next door; so a grid is built per assumed
-//!   phase ([`SlotGrid::phases`]) and something downstream — a CRC, a sync correlation — picks
-//!   the one that was right.
-//!
-//! The weights are plain aperture overlaps: slot `j` spans `[j·sps + phase, (j+1)·sps + phase)`
-//! in samples, and sample `k` contributes the length of the intersection with `[k, k+1)`. At an
-//! integer `sps` and phase 0 that degenerates to one unit weight per sample, i.e. the plain
-//! rectangular matched filter, which is the identity the tests pin.
-
 use num_complex::Complex;
 
 /// One slot's window: where it starts and how many samples it touches.
@@ -72,8 +49,6 @@ impl SlotGrid {
             let from = j as f64 * samples_per_slot + phase;
             let to = from + samples_per_slot;
             let start = from.floor() as usize;
-            // Samples the slot touches: from its first to the one holding its end. `max(1)`
-            // covers the degenerate sub-sample slot that opens and closes inside one sample.
             let taps = (to.ceil() as usize).saturating_sub(start).max(1);
             let at = weights.len();
             for i in 0..taps {
@@ -200,9 +175,6 @@ impl SlotGrid {
     }
 }
 
-/// Sample magnitudes appended to `out` — the front of every envelope-tier PPM receiver, and the
-/// only per-sample cost a scanning one pays. `mul_add` and a square root rather than `norm()`,
-/// which routes through `hypot` and its overflow safety at an order of magnitude the cost.
 pub fn magnitudes(iq: &[Complex<f32>], out: &mut Vec<f32>) {
     out.extend(iq.iter().map(|s| s.re.mul_add(s.re, s.im * s.im).sqrt()));
 }
@@ -222,7 +194,6 @@ mod tests {
             assert_eq!(grid.start(slot), slot * 4);
         }
         let window: Vec<f32> = (0..24).map(|i| i as f32).collect();
-        // Slot 2 covers samples 8..12.
         assert_eq!(grid.energy(&window, 2), 8.0 + 9.0 + 10.0 + 11.0);
     }
 
@@ -261,7 +232,6 @@ mod tests {
     /// enough — this is `channels::adsb`'s field failure in eight lines.
     #[test]
     fn a_pulse_off_the_sample_grid_needs_the_matching_phase_table() {
-        // Slot 3's pulse at phase 0.5, as the samples a band-limited front end delivers.
         let (from, to): (f64, f64) = (3.0 * 1.024 + 0.5, 4.0 * 1.024 + 0.5);
         let window: Vec<f32> = (0..12)
             .map(|k| (to.min(k as f64 + 1.0) - from.max(k as f64)).max(0.0) as f32)

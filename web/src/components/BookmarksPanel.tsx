@@ -1,5 +1,3 @@
-// Frequency bookmarks (): save the current center, list sorted by frequency, click to
-// tune. Tuning goes through `useDevicePatch`, so a rejected tune lands in the shared banner.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { BOOKMARKS_KEY, bookmarksQuery, createBookmark, deleteBookmark } from "../lib/api";

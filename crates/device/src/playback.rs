@@ -1,12 +1,3 @@
-//! Transport shared between a file-playback worker and the control plane.
-//!
-//! Atomics rather than a lock, because of who touches this: the capture thread writes the
-//! position once per block (CLAUDE.md — the hot path takes no locks), and the control plane
-//! reads it on every state emit. A mutex here would put the snapshot behind a device thread
-//! and the device thread behind whoever last asked for state.
-//!
-//! Only a device replaying a recording has one; see [`crate::SdrDevice::playback`].
-
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use sdrmm_wire::{PlaybackAction, PlaybackRequest, PlaybackStatus};
@@ -90,8 +81,6 @@ impl PlaybackShared {
             return;
         }
 
-        // A request crossed the store above. Restore its position, retrying if another request
-        // arrives while the restoration itself is in progress.
         loop {
             let current = self.position_generation.load(Ordering::SeqCst);
             let requested = self.requested_position.load(Ordering::SeqCst);

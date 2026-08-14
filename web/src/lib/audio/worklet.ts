@@ -1,7 +1,3 @@
-// The playback AudioWorklet, loaded from a Blob URL so it works identically under Vite dev
-// and build (no separate worklet asset to ship). The processor is a thin shell: all
-// scheduling lives in JitterBuffer, whose transpiled source is injected via toString() —
-// which is why that class must stay self-contained.
 import { JitterBuffer } from "./jitter";
 
 export const PROCESSOR_NAME = "sdr-audio-playback";

@@ -37,8 +37,6 @@ pub struct FilePlayback {
     capabilities: Capabilities,
     settings: DeviceSettings,
     shared: Arc<ArcSwap<PlaybackParams>>,
-    /// Pause, position and seek. Separate from `shared` because the control plane keeps this
-    /// after the device is gone into its runtime, and because it is written from both sides.
     transport: Arc<PlaybackShared>,
     worker: Worker,
 }
@@ -203,9 +201,6 @@ impl SdrDevice for FilePlayback {
             let mut next = Instant::now();
             'stream: while running.load(Ordering::Acquire) {
                 let params = *shared.load_full();
-                // Capture before taking a seek: a request arriving anywhere after this point
-                // invalidates the position produced by this iteration. A seek already pending
-                // at the boundary belongs to this generation and is safe to publish.
                 let position_generation = transport.position_generation();
                 if let Some(target) = transport.take_seek()
                     && let Err(err) = reader.seek_to(target)
@@ -257,7 +252,6 @@ impl SdrDevice for FilePlayback {
                     return;
                 }
 
-                // Pace to ~real time, resyncing without debt when behind (as the siggen does).
                 next += Duration::from_secs_f64(filled as f64 / sample_rate);
                 let now = Instant::now();
                 if next > now {
@@ -480,11 +474,9 @@ mod tests {
         dev.apply(&loop_setting(false)).unwrap();
         let rx = start(&mut dev);
         assert_bits_eq(&recorded, &collect(&rx, 10_000));
-        // Parked at end of data: nothing further may arrive.
         assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
         dev.rx_stop();
 
-        // A restart replays from sample 0.
         let rx = start(&mut dev);
         assert_bits_eq(&recorded, &collect(&rx, 10_000));
         dev.rx_stop();
@@ -496,7 +488,6 @@ mod tests {
         let recorded = tone(1_000);
         let stem = record(dir.path(), "looped", &recorded);
 
-        // `loop` defaults on; 12_000 samples span the file 12 times.
         let mut dev = FilePlayback::open(&stem).unwrap();
         let rx = start(&mut dev);
         let streamed = collect(&rx, 12_000);
@@ -568,7 +559,6 @@ mod tests {
                 }],
                 ..DeviceSettings::default()
             },
-            // A recording has one stream and declares nothing per-stream.
             DeviceSettings {
                 streams: vec![StreamSettings {
                     stream: 0,
@@ -586,7 +576,6 @@ mod tests {
         // Rejected deltas must not leak into settings.
         assert!(dev.looping());
 
-        // Re-applying the recorded values and toggling `loop` round-trip.
         dev.apply(&DeviceSettings {
             center_hz: Some(100_000_000.0),
             sample_rate: Some(250_000.0),
@@ -632,7 +621,6 @@ mod tests {
                 "zero_rate",
                 r#"{"global":{"core:datatype":"cf32_le","core:version":"1.2.6","core:sample_rate":0.0},"captures":[]}"#,
             ),
-            // Spec-legal minimal meta: parses, but playback needs a rate to pace.
             (
                 "no_rate",
                 r#"{"global":{"core:datatype":"cf32_le","core:version":"1.2.6"},"captures":[]}"#,

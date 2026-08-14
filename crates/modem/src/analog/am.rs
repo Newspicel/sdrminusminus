@@ -1,28 +1,3 @@
-//! Amplitude modulation: full-carrier AM, suppressed-carrier DSB, and vestigial sideband as a
-//! *filter configuration of the same engine* rather than a third type ( §3.1
-//! `analog/`, §6).
-//!
-//! One transmitter and one receiver cover the three, because they differ only in what the
-//! carrier does and what the band filter keeps:
-//!
-//! | Mode | Baseband | Detectors |
-//! |---|---|---|
-//! | [`AmMode::FullCarrier`] | `1 + m·a(t)` | envelope, synchronous |
-//! | [`AmMode::Suppressed`] | `a(t)` | synchronous only |
-//! | vestigial ([`AmParams::vestige`]) | either, through [`design_vestigial`] | envelope, synchronous |
-//!
-//! **A suppressed carrier has no envelope to detect**, and that is a measurement rather than a
-//! caveat: `a(t)` crosses zero, `|a(t)|` folds every negative excursion up, and the folded
-//! output's second harmonic is the whole signal — the entry's own tests read it at ~50 % THD.
-//! The receiver does not refuse the combination; it produces the rectified audio a real
-//! envelope detector produces, and the catalog row records what that costs.
-//!
-//! **Envelope and synchronous detection are the same number above threshold.** Both recover
-//! the message with the figure of merit [`am_fom`](crate::ber::theory::am_fom) states, and what
-//! separates them is what happens *below* it: the envelope detector's nonlinearity turns noise
-//! into a message-suppressing term and its curve knees, while the synchronous one degrades
-//! linearly forever. The two tiers exist to put a number on that knee.
-
 use num_complex::Complex;
 use sdrmm_dsp::{Costas, DcBlocker, FirC, Pll, RealDecimator, design_lowpass};
 
@@ -54,17 +29,12 @@ impl AmMode {
     }
 }
 
-/// The waveform as data (§3.3): everything both ends need to agree on, and nothing about how
-/// either end is implemented. Frequencies are cycles per sample throughout.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AmParams {
     pub mode: AmMode,
     /// Message bandwidth. The transmitter band-limits the message to it, the receiver's audio
     /// filter cuts at it, and every closed form the entry is held to reads the noise in it.
     pub bandwidth: f64,
-    /// Half-width of the retained lower sideband. `None` is double sideband; `Some(v)` carves
-    /// the lower sideband away over a complementary slope of half-width `v` about the carrier
-    /// (see [`design_vestigial`]).
     pub vestige: Option<f64>,
     /// Taps in the transmitter's vestigial filter and the receiver's predetection band.
     pub band_taps: usize,
@@ -148,7 +118,6 @@ impl AmMod {
     }
 }
 
-/// The two detection tiers (§5 item 2).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AmDetector {
     /// `|x|` — no carrier reference at all, which is why it is the tier every consumer in the
@@ -436,7 +405,6 @@ mod tests {
         let rx = AmRx::new(AmDetector::Synchronous { loop_bw: 1e-3 });
         let audio = demodulated(&params, &rx, &iq);
         let window = &audio[8_192..60_032];
-        // The slope halves the carrier, and a detector's output scales with it.
         let amplitude = tone_amplitude(window, TONE);
         assert!((amplitude - 0.2).abs() < 0.02, "amplitude {amplitude}");
         assert!(

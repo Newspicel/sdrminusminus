@@ -1,9 +1,3 @@
-//! `sdrmm-channels` — the `ChannelRx` plugin surface (). Depends only on `dsp` + `wire`.
-//! Phase-1 analog demodulators plus the wave-1 and wave-2 data decoders (): NFM, AM,
-//! SSB, WFM (stereo + RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse, NAVTEX, ACARS, sub-GHz
-//! and ATV. Each mode is one module whose descriptor and constructor sit in the same
-//! [`REGISTRY`] row, so the "add channel" UI and `create` dispatch cannot drift apart.
-
 mod acars;
 mod adsb;
 mod ais;
@@ -26,9 +20,6 @@ mod wfm;
 #[cfg(test)]
 mod testutil;
 
-/// Reference modulators for the decoder tests, fixtures and end-to-end runs ().
-/// Compiled for this crate's own tests, and for downstream crates that opt in with the
-/// `test-signals` feature — never in a production build.
 #[cfg(any(test, feature = "test-signals"))]
 pub mod testgen;
 
@@ -181,10 +172,6 @@ pub enum ChannelError {
     InvalidPayload(String),
 }
 
-/// Construction context passed to a channel: the rate of the IQ it exchanges with the host —
-/// what a [`ChannelRx`] receives from the DDC, and what a [`ChannelTx`] produces. The engine
-/// decimates to the descriptor's `input_rate_hz` before construction; channels verify and refuse
-/// anything else. Grows as the plugin API matures ().
 #[derive(Clone, Copy, Debug)]
 pub struct ChannelCtx {
     /// Sample rate of the channel's IQ stream, in Hz.
@@ -201,8 +188,6 @@ pub struct VideoPicture {
     pub luma: Vec<u8>,
 }
 
-/// Sink a channel writes into each `process` call: demodulated audio, typed events, pictures,
-/// and low-rate IQ taps for the analyzer (). Buffers are reused across calls by the host.
 #[derive(Default)]
 pub struct ChannelOutputs {
     /// PCM plus its sample rate, when the channel produced audio this block. Interleaved at
@@ -231,9 +216,6 @@ impl ChannelOutputs {
     }
 }
 
-/// A receive channel: consumes decimated IQ, produces audio/events/taps ().
-/// `offset_hz` and `squelch_db` in [`ChannelSettings`] are host concerns (DDC tuning and
-/// gating happen in the engine); channels read only their mode params.
 pub trait ChannelRx: Send {
     /// Static description that drives the "add channel" UI. Object-safe callers use the
     /// registry; this associated fn is for the concrete type.
@@ -286,17 +268,6 @@ pub enum TxPayload {
     Frame(Vec<u8>),
 }
 
-/// A transmit channel: consumes payloads, produces the IQ that carries them ().
-///
-/// The mirror of [`ChannelRx`], and deliberately not the same trait — the two directions share
-/// their framing and their constants, not their state. A demodulator carries timing recovery,
-/// sync hunting and error correction that a modulator has no counterpart for, and forcing both
-/// onto one type would leave every receive-only mode implementing a refusal.
-///
-/// Building one radiates nothing.  gates every application-level transmit feature
-/// behind an authorized-use switch that has not been built, and until it is, nothing in
-/// `engine` or `server` calls [`create_tx`] and nothing above `sdrmm-device` holds the
-/// `TxStream` these samples would be handed to.
 pub trait ChannelTx: Send {
     /// The same descriptor the receive side publishes — one type id, one set of rates, whichever
     /// direction is being built.
@@ -311,13 +282,6 @@ pub trait ChannelTx: Send {
     /// Reconfigure mode params in place, as [`ChannelRx::apply`] does.
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError>;
 
-    /// Queue a payload. Control plane — called off the DSP thread, so this is where a channel
-    /// does its allocating and its framing.
-    ///
-    /// # Errors
-    /// [`ChannelError::InvalidPayload`] for a variant this mode does not carry, or when the
-    /// queue is too full to accept it. A transmitter that quietly dropped what it was asked to
-    /// send would look identical to one that sent it.
     fn submit(&mut self, payload: TxPayload) -> Result<(), ChannelError>;
 
     /// Hot path: fill `out` with the next samples of the burst, returning how many were written
@@ -355,8 +319,6 @@ fn boxed_tx<C: ChannelTx + 'static>(
     Ok(Box::new(C::new(ctx, settings)?))
 }
 
-/// One row per demod module; both columns come from the same concrete type, so the
-/// descriptor list and the `create` dispatch share a single source ().
 const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: NfmChannel::descriptor,
@@ -483,9 +445,6 @@ pub fn descriptors() -> Vec<ChannelDescriptor> {
         .collect()
 }
 
-/// Whether this type can only run with the device at exactly its input rate (): a mode
-/// occupying its full output rate leaves the DDC no guard band, so no resampled path can carry
-/// it. ADS-B is the one such mode today.
 fn exact_rate_only(descriptor: &ChannelDescriptor) -> bool {
     // A native-rate type never meets a resampling DDC at all: it is handed the device's own
     // samples, so the guard band this asks about is not in its path.
@@ -507,14 +466,6 @@ pub fn create(
     (find(settings)?.create)(ctx, settings.clone())
 }
 
-/// Build the transmit channel matching `settings.params` ().
-///
-/// Nothing above this crate calls this — see [`ChannelTx`] for why, and for what would have to
-/// exist first. The samples it produces reach a buffer, never an antenna.
-///
-/// # Errors
-/// [`ChannelError::NoTransmitter`] for a receive-only type, which is every type whose descriptor
-/// reports `can_transmit == false`.
 pub fn create_tx(
     ctx: ChannelCtx,
     settings: &ChannelSettings,
@@ -537,7 +488,6 @@ pub(crate) fn check_input_rate(
     ctx: ChannelCtx,
     descriptor: &ChannelDescriptor,
 ) -> Result<(), ChannelError> {
-    // A native-rate channel is handed the device's own samples, so what it checks is a range.
     if let Some((low, high)) = descriptor.native_rate_range() {
         return if (low..=high).contains(&ctx.input_rate) {
             Ok(())
@@ -634,9 +584,6 @@ mod tests {
                 "acars" => (12_500.0, 48_000.0),
                 "subghz" => (150_000.0, 250_000.0),
                 "atv" => (1_500_000.0, 2_000_000.0),
-                // The digital-voice modes all meet the DDC at 48 kHz; they differ in how much
-                // of it they occupy — 12.5 kHz for the four that share a 12.5 kHz raster,
-                // 6.25 for the narrow pair, and 9 kHz for M17.
                 "dmr" | "ysf" | "p25" => (12_500.0, 48_000.0),
                 "dstar" | "nxdn" | "dpmr" => (6_250.0, 48_000.0),
                 "m17" => (9_000.0, 48_000.0),

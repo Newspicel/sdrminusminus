@@ -1,11 +1,3 @@
-// The terminal faces: what a decoded or demodulated stream ends up in (CANVAS §1). Each one
-// fronts machinery that already exists — the audio engine, the map, the decoder readouts, the
-// stored decoder log, its export, the video hub and the device recorder — so a wire into one of
-// these is a subscription, never a new data path (CANVAS §2).
-//
-// A channel node's face is settings only, so these are also where a channel's output is *seen*
-// at all: the wire is the filter, which is the whole reason each of them is a node and not a
-// menu item.
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { BTN, BTN_DANGER, CHIP, LABEL } from "../../components/controls";
@@ -45,9 +37,6 @@ function useInputs(node: string, port: string): Input[] {
   return inputsOf(workspace.graph, node, port, workspace.devices, workspace.channels);
 }
 
-/** The decoder each wired channel runs, paired with the channel it came from. The wire is the
- * filter, which is the whole reason the readout, the map, the log and the export are nodes rather
- * than menu items (CANVAS §1). */
 function useWiredDecoders(inputs: readonly Input[]): { input: Input; kind: string }[] {
   const workspace = useWorkspaceContext();
   return inputs.flatMap((input) => {
@@ -62,14 +51,6 @@ function useWiredKinds(inputs: readonly Input[]): string[] {
   return [...new Set(useWiredDecoders(inputs).map((wired) => wired.kind))];
 }
 
-/**
- * The channels wired into a sink, as the decoder log's scope spells them.
- *
- * Both halves, because a stored row can answer to either. The patch node id is the durable one —
- * engine channel ids are allocated per run and reused (CANVAS §3), so a scope built on them alone
- * would hand this node another node's history after a restart. The coordinates are the fallback,
- * and reach only the rows that carry no node.
- */
 function wireScope(inputs: readonly Input[]): WireScope {
   return {
     nodes: inputs.map((input) => input.node).join(","),
@@ -77,8 +58,6 @@ function wireScope(inputs: readonly Input[]): WireScope {
   };
 }
 
-/** Client-side mixing (): the server ships one stream per channel and the browser adds
- * them up, so N listeners on one channel still cost one encode. */
 export function SpeakerFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "audio");
   return (
@@ -170,8 +149,6 @@ function AudioInput({ input }: { input: Input }) {
   );
 }
 
-/** One layer per connected decoder (CANVAS §1) — the wires, not the store, decide what this map
- * plots, so two map nodes on different decoders show different things. */
 export function MapFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "events");
   const wired = useWiredKinds(inputs);
@@ -274,8 +251,6 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
   );
 }
 
-/** The raster a video channel scans out (). A subscription, not a filter: `VideoView`
- * asks the hub for one channel's pictures, so a node wired to two channels draws two. */
 export function VideoFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "video");
   return (
@@ -359,7 +334,6 @@ export function ExportFace({ node }: { node: PatchNode }) {
   );
 }
 
-/** The device-level SigMF recorder (), drawn as the sink it is. */
 export function RecorderFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
@@ -454,12 +428,6 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
   );
 }
 
-/**
- * The scanner owns a radio's tuning while it runs, so its wire runs *into* the radio: the edge is
- * the ownership, which is the only way to see at a glance which radio a running sweep has taken
- * over — and client retunes on that radio are refused while it does (), which the face
- * says in words. It consumes nothing; the sweep reads the device set the engine already gave it.
- */
 export function ScannerFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);

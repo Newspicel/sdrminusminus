@@ -1,24 +1,5 @@
 //! dPMR decoder (ETSI TS 102 490): 4FSK at 2400 symbols per second in 6.25 kHz — the licence-
 //! free 446 MHz digital radios and their commercial cousins.
-//!
-//! Four frame sync words separate the four things a transmission can be doing (§6.1), and the
-//! header behind two of them carries the addressing in the clear:
-//!
-//! * **FS1** (48 bits) opens a voice or short-data header, twice over: two copies of the same
-//!   72-bit header information either side of the colour code, so a receiver that misses one
-//!   still has the other.
-//! * **FS4** (48 bits) opens a packet-data header, laid out the same way.
-//! * **FS2** (24 bits) opens a 756-symbol payload superframe. It is trusted only after a
-//!   CRC-checked header establishes a call; all four TCH blocks then yield sixteen AMBE+2
-//!   frames.
-//! * **FS3** (24 bits) marks the end frame.
-//!
-//! Header information is CRC-8 checked, split into ten bytes, each carried by a shortened
-//! Hamming(12,8), interleaved 12 × 10 and scrambled with `x⁹ + x⁵ + 1` (§7.7). The Hamming code
-//! is systematic, so the information comes straight out of the first eight bits of each block —
-//! this decoder detects errors with the CRC rather than correcting them with the Hamming
-//! parity, which is what the doubled header is for.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -40,7 +21,6 @@ const DEVIATION_HZ: f64 = 1_050.0;
 const RRC_ALPHA: f64 = 0.2;
 const BANDWIDTH_HZ: f64 = 6_250.0;
 
-/// ETSI TS 102 490 §6.1.
 const FS1: u64 = 0x57FF_5F75_D577;
 const FS4: u64 = 0xFD55_F5DF_7FDD;
 const FS3: u64 = 0x7D_DFF5;
@@ -57,7 +37,6 @@ const HI_BITS: usize = 72;
 const HI_CODED_BITS: usize = 120;
 const HI_BLOCKS: usize = 10;
 const HI_SYMBOLS: usize = HI_CODED_BITS / 2;
-/// The colour code between the two header copies: twelve bits, each sent as a di-bit (§6.1.5).
 const CC_SYMBOLS: usize = 12;
 /// Everything the header frame carries after FS1: HI0, the colour code, HI1.
 const HEADER_SYMBOLS: usize = HI_SYMBOLS * 2 + CC_SYMBOLS;
@@ -207,9 +186,6 @@ impl Decoder {
                 return;
             }
         }
-        // Both superframe markers are only believed inside a call: nothing behind either of
-        // them can be checked, and the header that opened the call is what vouches for them.
-        // A call joined after its header has passed is therefore not reported ().
         if !self.in_call {
             return;
         }
@@ -249,11 +225,8 @@ impl Decoder {
         frame.color_code = colour;
         frame.destination = Some(bits_to_u32(&hi, 4, 24));
         frame.source = Some(bits_to_u32(&hi, 28, 24));
-        // Communication mode 0 is an individual call; the rest are group and all-call modes.
         let mode = bits_to_u32(&hi, 52, 3);
         frame.group_call = Some(mode != 0);
-        // Voice, voice with slow data, and voice followed by appended data all carry AMBE+2
-        // in each traffic channel. Modes 2..4 are data-only.
         Some((frame, matches!(mode, 0 | 1 | 5)))
     }
 
@@ -276,9 +249,6 @@ impl Decoder {
     }
 }
 
-/// Twelve colour-code bits, each sent as the di-bit `01` for zero and `11` for one (§6.1.5).
-/// Any other di-bit means the field did not survive, and a wrong colour code is worse than
-/// none.
 fn colour_code(bits: &[bool]) -> Option<u16> {
     let mut value = 0;
     for &[first, second] in bits.as_chunks::<2>().0 {
@@ -322,7 +292,6 @@ fn header_info(coded: &[bool]) -> Option<Vec<bool>> {
     (crc8(&bytes[..9]) == bytes[9]).then_some(info)
 }
 
-/// CRC-8 with polynomial `x⁸ + x² + x + 1` (§7.2).
 fn crc8(data: &[u8]) -> u8 {
     let mut crc = 0u8;
     for &byte in data {

@@ -1,23 +1,3 @@
-//! The known-symbol hook ( §3.4), CPM form: data-aided level and centre estimation
-//! anchored to the known sequences every burst standard embeds — "positions i..j carry known
-//! sequence S", generalising `sdrmm_dsp::fsk4::SyncLevels` from packed DMR dibits to any M and
-//! any pattern length.
-//!
-//! The centre and peak loops in [`CpmDemod`](super::CpmDemod) learn from whatever the channel
-//! carries, and most of what a burst carries is data: a payload whose symbol mean is not zero
-//! drags the centre, and a keying-edge transient scales the peak. A known sequence is the one
-//! stretch of a burst whose transmitted levels are known exactly, so it says what the levels
-//! are with no data dependence at all — which is what a TDMA receiver should measure them from
-//! (MMDVM does, in DMRDMORX.cpp/DMRSlotRX.cpp). Each detection fits
-//! `measured = gain·transmitted + centre` by least squares; the correction applied is the
-//! average over the last [`ANCHORS`] fits.
-//!
-//! The plausibility gates keep their measured judgments from `fsk4`, restated in the units
-//! that made them work: the gain range is scale-free and carries over unchanged, and the
-//! centre and misfit bounds — 1.0 in DMR's ±1/±3 units, where adjacent levels sit 2.0 apart —
-//! are half the mapping's minimum level spacing, which reproduces the committed constants
-//! exactly on the DMR table and means the same thing on any other.
-
 use super::params::{CpmParams, Mapping};
 
 /// Detections the estimate averages over — MMDVM's figure (DMRDMORX.cpp keeps four). One
@@ -190,7 +170,6 @@ mod tests {
         )
     }
 
-    /// The DMR BS voice sync's 24 dibits (ETSI TS 102 361-1 §9.1.1), oldest first.
     fn dmr_sync() -> Vec<u8> {
         let bits: u64 = 0x755F_D7DF_75F7;
         (0..24)
@@ -321,7 +300,6 @@ mod tests {
                 "{sent} corrected to {corrected}"
             );
         }
-        // The gates scale with the table: a centre of 0.9 spacings is implausible at any M.
         let mut fresh = KnownSymbols::new(&params, 1_000);
         fresh.anchor(&pattern, &measured(&pattern, &params, 1.0, 1.8));
         assert_eq!(fresh.correct(1.0), 1.0);

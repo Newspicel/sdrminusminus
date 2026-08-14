@@ -1,4 +1,3 @@
-// Shared frequency display formats (: mono tabular numerals for data columns).
 
 export function formatHz(hz: number): string {
   return hz >= 1e6

@@ -1,7 +1,5 @@
 //! `cargo xtask` — the only entry points (CLAUDE.md). Keeps local gates and CI in lockstep:
 //! every check CI runs is runnable here first.
-//!
-//! Dev tooling: `expect` on infallible workspace-path invariants is fine here (startup code).
 #![allow(clippy::expect_used)]
 
 use std::{
@@ -50,16 +48,10 @@ enum Cmd {
     Smoke,
     /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
     Fixtures,
-    /// Regenerate the band-plan tables from the regulators' own publications ().
-    /// Needs `curl` and `pdftotext` (poppler); neither is needed to build or run the server.
     Bandplan {
-        /// Parse what is already in `target/bandplan-cache` instead of fetching. The sources are
-        /// tens of megabytes and change a few times a year.
         #[arg(long)]
         offline: bool,
     },
-    /// Measure one modem-harness entry's BER curve and write it as JSON + CSV (
-    /// §3.1), with PASS/FAIL against the entry's oracle. FAIL exits nonzero.
     Ber {
         /// Harness entry to sweep, e.g. `bpsk-ideal`. An unknown name lists the known ones.
         entry: String,
@@ -74,7 +66,6 @@ enum Cmd {
     /// output). Not part of `check`: the renders are committed precisely so no build needs a
     /// rasteriser, and re-rendering them to compare would defeat that.
     Icons,
-    /// Build the self-contained release archive for this host ().
     Dist {
         /// Cross-compile for this target triple instead of the host.
         #[arg(long)]
@@ -106,13 +97,10 @@ enum Cmd {
         #[arg(long = "external")]
         external: Vec<String>,
     },
-    /// Stamp a release version across the workspace (). CI runs this from the tag.
     SetVersion {
         /// Semver, with or without a leading `v`.
         version: String,
     },
-    /// Write the Tauri updater's `latest.json` from the `.sig` files in a release directory
-    /// (). CI runs this once the desktop matrix's bundles are collected.
     UpdaterManifest {
         /// Release version the manifest offers, with or without a leading `v`.
         #[arg(long)]
@@ -210,7 +198,6 @@ fn codegen(root: &Path) -> Result<()> {
 
 fn dev(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
-    // Vite (HMR) proxies /api to the server; the server serves the API + WS on :8080.
     let mut vite = Command::new(PNPM);
     vite.args(["--dir", "web", "dev"]).current_dir(root);
     // Detach Vite from the terminal: it must not read the TTY it shares with the server
@@ -270,7 +257,6 @@ fn check(root: &Path) -> Result<()> {
     catalog::check(root)?;
     run("cargo", &["fmt", "--all", "--", "--check"], root)?;
 
-    // Web gate.
     ensure_web_deps(root)?;
     run(PNPM, &["--dir", "web", "exec", "biome", "ci", "."], root)?;
     run(
@@ -280,7 +266,6 @@ fn check(root: &Path) -> Result<()> {
     )?;
     run(PNPM, &["--dir", "web", "exec", "tsgo", "--noEmit"], root)?;
 
-    // Rust gate (default members; the Tauri app is `xtask desktop`, see workspace manifest).
     run(
         "cargo",
         &["clippy", "--all-targets", "--", "-D", "warnings"],
@@ -361,8 +346,6 @@ fn check_toolchain_pins(root: &Path) -> Result<()> {
     let dockerfile = file("Dockerfile")?;
     let package_json = file("web/package.json")?;
 
-    // web/package.json first in each list: its value is the one the error message names as
-    // canonical, and `packageManager` is the pin pnpm itself enforces at runtime.
     let mut pnpm = vec![
         (
             "web/package.json".to_string(),
@@ -478,8 +461,6 @@ fn agree(what: &str, pins: &[(String, String)]) -> Result<()> {
     Ok(())
 }
 
-/// The cargo flags every normal release artifact uses. Keeping them explicit makes a release
-/// immune to an unrelated future default-feature addition while Soapy remains mandatory.
 fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
@@ -550,7 +531,6 @@ fn dist(root: &Path, target: Option<&str>) -> Result<()> {
     let out = root.join("dist");
     let name = format!("sdrmm-{}-{triple}", env!("CARGO_PKG_VERSION"));
     let staged = out.join(&name);
-    // A stale member from an earlier run would be packed into the archive as if it belonged.
     if staged.exists() {
         std::fs::remove_dir_all(&staged)
             .with_context(|| format!("cannot clear {}", staged.display()))?;
@@ -616,8 +596,6 @@ fn archive(root: &Path, out: &Path, name: &str, windows: bool) -> Result<PathBuf
             root,
         )?;
     } else {
-        // COPYFILE_DISABLE stops macOS bsdtar from emitting ._ AppleDouble members for
-        // extended attributes; ignored by GNU tar.
         run_with_env(
             "tar",
             &[
@@ -1003,15 +981,6 @@ fn smoke(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Synthesize the fixture SigMF pairs in `fixtures/` (). Deterministic renders — the
-/// siggen for the record/replay fixture, and `channels::testgen`'s reference modulators for
-/// one fixture per wave-1 decoder — so the pairs are regenerated on demand and never
-/// committed (fixtures/README.md).
-///
-/// The decoder fixtures are the same encoders the decoder unit tests and the engine
-/// end-to-end run use, so a fixture can never drift from what the decoders are tested
-/// against. They exist to be *played*: open one as a `virtual:file:` device, add the matching
-/// channel at the stated offset, and the decoder log fills up with the documented message.
 fn fixtures(root: &Path) -> Result<()> {
     const CENTER_HZ: f64 = 100_000_000.0;
 
@@ -1053,8 +1022,6 @@ struct Fixture {
     note: String,
 }
 
-/// The APRS fixture's burst, keyed by the modulator that pairs with the decoder it is meant to
-/// feed () — nothing here reaches an antenna; it is written to a file.
 fn aprs_burst() -> Vec<Complex<f32>> {
     use sdrmm_channels::{AprsTx, ChannelCtx, ChannelTx, TxPayload, testgen};
     use sdrmm_wire::{AprsMode, AprsParams, ChannelParams, ChannelSettings};
@@ -1197,9 +1164,6 @@ fn decoder_fixtures() -> Vec<Fixture> {
             ADSB_RATE,
         ),
         rate: ADSB_RATE,
-        // 2 Msps is the *lowest* rate ADS-B runs at — one sample per half-chip. The decoder
-        // reads whatever the radio gives it up to 4 Msps (), so this fixture is the
-        // floor of that range rather than the only point in it.
         note: "adsb channel at 0 Hz, device at 2 Msps -> 3C6444/DLH123 at FL380".to_string(),
     });
 
@@ -1291,9 +1255,6 @@ fn decoder_fixtures() -> Vec<Fixture> {
         note: "subghz channel at +100 kHz -> 24-bit PWM 0A1B23, address 0A1B2 button 3".to_string(),
     });
 
-    // Wider and longer than the rest: a raster needs the device above the mode's 2 Msps channel,
-    // and a receiver has to hunt sync before it scans anything out, so two frames is the least
-    // that shows a picture on replay.
     const ATV_RATE: f64 = 2_400_000.0;
     let atv_params = sdrmm_wire::AtvParams::default();
     out.push(Fixture {

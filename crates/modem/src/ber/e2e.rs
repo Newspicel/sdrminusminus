@@ -1,40 +1,3 @@
-//! Level-1 end-to-end scaffolding ( §4.4): *payload in equals payload out, at a
-//! stated margin above sensitivity* — the property-style loopback every catalog entry runs as
-//! part of its §5 bundle. Because `tx.rs` drives the same modulators, a green loopback is also
-//! the transmit path's correctness test.
-//!
-//! §4.4 defines five E2E levels; this module is level 1 and the one place that states where
-//! the rest live, so later phases do not re-litigate the map:
-//!
-//! 1. **Modem loopback** — here. Random payload → modulator → impairment channel at a stated
-//!    margin above sensitivity → demodulator → payload equality.
-//! 2. **Protocol E2E, synthetic** — `crates/channels` tests. `channels::testgen` frame
-//!    builders construct a complete transmission, the library modulator and an impairment
-//!    channel carry it, and the actual channel implementation's decoded events are asserted
-//!    field-by-field.
-//! 3. **Recorded-fixture E2E** — `crates/channels` tests. Short off-air SigMF captures with
-//!    committed expected output; `decodes_a_recorded_call` is the model, and a failure there
-//!    is blocking ( §8).
-//! 4. **Engine integration E2E** — `crates/engine` tests. Raw samples at a native device rate
-//!    through the runtime (DDC construction, resampling, scheduling) to an asserted
-//!    `DecoderEvent` stream, including the multi-channel case.
-//! 5. **Cross-validation** — ad hoc, wherever an independent implementation exists to compare
-//!    against on identical input; results land in the entry's `CATALOG.md` row, not in a
-//!    permanent harness.
-//!
-//! Why a *margin* rather than a fixed Eb/N0: the loopback asserts perfection, and perfection
-//! is only a fair demand where the entry's own sensitivity says errors are negligible. Stated
-//! as "+N dB above the 1e-3 sensitivity", the operating point carries the same meaning for a
-//! chain whose sensitivity is 7 dB and one whose sensitivity is 17 dB, and it tightens
-//! automatically if a detector improves. The margin must put `residual BER × total bits ≪ 1`;
-//! the fixed seed then makes the outcome a fact of the entry rather than a coin flip — a seed
-//! that happened to land on the residual tail would fail once, at authoring time, loudly.
-//!
-//! Determinism follows the sweep runner's doctrine: every payload is named by its own seed,
-//! and the channel realisation continues that payload's stream — so the [`Mismatch`] a failed
-//! run reports regenerates alone, via [`Payload::from_seed`], without replaying the payloads
-//! before it.
-
 use std::{error::Error, fmt};
 
 use super::{
@@ -222,18 +185,6 @@ pub fn loopback(
     Ok(())
 }
 
-/// The margin convention, §4.3's "operating N dB above the measured 1e-3 sensitivity", as a
-/// channel builder: `template` carries whatever other axes the test wants, and the AWGN axis
-/// is set to `sensitivity_1e3_db + margin_db` for this link. The limits runner uses
-/// [`SENSITIVITY_MARGIN_DB`](super::SENSITIVITY_MARGIN_DB); loopback tests state their own,
-/// larger, margin — see the module docs for how large is large enough.
-///
-/// The sigma derivation is not repeated here: [`Awgn::for_ebn0`] measures the waveform's own
-/// energy at apply time, against `link.bits_per_trial` information bits — the identical
-/// accounting the sweep runner's curves rest on, still true after the template's other axes
-/// have reshaped the waveform, because the composed [`Channel`] applies AWGN canonically last.
-/// The payloads handed to [`loopback`] must therefore be `link.bits_per_trial` bits long, or
-/// the stated Eb/N0 is off by the length ratio.
 #[must_use]
 pub fn channel_at_margin(
     template: &ChannelSpec,

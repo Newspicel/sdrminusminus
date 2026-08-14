@@ -1,10 +1,3 @@
-//! MCP server (, §18, M5): the same engine, exposed as tools an LLM agent can drive,
-//! mounted at `/mcp` on this axum app with the same optional token auth as REST.
-//!
-//! There is no parallel implementation — every tool calls the same `Engine`/`Store` methods
-//! the REST handlers do, and returns the same `wire` types as structured JSON. A tool that
-//! needed its own logic would be a sign the service layer is in the wrong place.
-
 use std::sync::{Arc, LazyLock};
 
 use axum::Router;
@@ -51,15 +44,8 @@ pub(crate) fn router(
         },
         Arc::new(LocalSessionManager::default()),
         StreamableHttpServerConfig::default()
-            // Stateless: one POST, one JSON reply, no session to garbage-collect and nothing
-            // to lose across a restart. The cost is no server-initiated notifications, which
-            // no tool here needs — progress lives in `GET /api/state`.
             .with_legacy_session_mode(false)
             .with_json_response(true)
-            // The DNS-rebinding guard defaults to localhost-only, which would 403 every LAN
-            // client — and reaching the server over the LAN is the entire deployment model
-            // (: LAN-trusted, optional token, a VPN if you want it reachable from
-            // outside). The token layer above is what actually gates this endpoint.
             .disable_allowed_hosts(),
     );
     Router::new().nest_service("/mcp", service)
@@ -81,8 +67,6 @@ impl SdrMcp {
         store: Arc<Store>,
         recordings_gate: Arc<std::sync::Mutex<()>>,
     ) -> Self {
-        // The factory runs per request in stateless mode; rebuilding the whole tool map each
-        // time would be pure waste, so it is built once and cloned.
         static ROUTER: LazyLock<ToolRouter<SdrMcp>> = LazyLock::new(SdrMcp::tool_router);
         Self {
             engine,
@@ -420,10 +404,6 @@ impl SdrMcp {
                 return Ok(serde_json::json!({ "recording": true }));
             }
             let finalized = engine.stop_recording(ds).map_err(engine_error)?;
-            // Exactly what the REST stop path does after the same call: without the
-            // reconcile the finalized pair is never indexed, and without the scope no client
-            // ever learns the library changed (the DeviceSet scope invalidates state, not
-            // recordings).
             if let Some(dir) = engine.recordings_dir() {
                 {
                     let _gate = crate::rest::lock_gate(&gate);

@@ -1,6 +1,3 @@
-//! `sdrmm` — the headless server binary (), a thin wrapper over `crates/server`. This is
-//! the Raspberry Pi target: one binary, embedded UI, browse to `http://host:8080`.
-
 use std::{net::SocketAddr, path::PathBuf};
 
 use anyhow::Context;
@@ -15,21 +12,12 @@ struct Args {
     /// Address to bind (LAN-trusted by default, ).
     #[arg(long, default_value = "0.0.0.0:8080")]
     bind: SocketAddr,
-    /// Relax CORS for a separate dev origin ().
     #[arg(long)]
     dev_cors: bool,
-    /// SQLite database for presets/bookmarks (). Defaults to
-    /// `<platform data dir>/sdrmm/sdrmm.db` so the file never depends on the launch cwd
-    /// (systemd units, SSH sessions, and double-clicks all start elsewhere).
     #[arg(long)]
     db: Option<PathBuf>,
-    /// Directory for SigMF recordings (). Defaults to
-    /// `<platform data dir>/sdrmm/recordings`, cwd-independent like `--db`.
     #[arg(long)]
     recordings_dir: Option<PathBuf>,
-    /// Require this shared token on every API, WebSocket and MCP request ().
-    /// Also readable from `SDRMM_TOKEN` so it need not appear in the process list.
-    /// Without it the server is LAN-trusted and unauthenticated, which is the default.
     #[arg(long, env = "SDRMM_TOKEN", hide_env_values = true)]
     token: Option<String>,
     /// Print environment diagnostics (backends, devices, USB permissions, paths) and exit.
@@ -37,9 +25,6 @@ struct Args {
     doctor: bool,
 }
 
-/// The absolute DB path: `--db` verbatim, otherwise the per-user data dir — mirroring the
-/// desktop app's `app_data_dir()` anchor. Absolute so logs and errors name the real file
-/// regardless of where the process was started.
 fn resolve_db_path(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     let path = match cli {
         Some(path) => path,

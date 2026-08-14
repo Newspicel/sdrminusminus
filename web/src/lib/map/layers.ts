@@ -1,7 +1,3 @@
-// The pure half of the target map ( Maps, §13 P2): store rows in, GeoJSON out. No
-// MapLibre import and no browser globals — the projection rules (which kinds carry a position,
-// what a label falls back to, when a target is too old to draw) are the part worth testing, and
-// MapPanel.tsx keeps everything that needs a canvas.
 import type { StationOf } from "../decoded";
 import type { ChannelParams, DecoderKind } from "../types";
 
@@ -64,12 +60,6 @@ export interface TargetDetail {
   rows: readonly (readonly [string, string])[];
 }
 
-/**
- * The kinds a map node plots, from the decoder kinds wired into it (CANVAS §1: layers per
- * connected decoder). Deduplicated and in `MAP_KINDS` order, so the layer stack does not depend
- * on the order the wires happen to be stored in; a decoder that reports no position — POCSAG,
- * ACARS — simply drops out, and a map fed only by those gets nothing to draw.
- */
 export function mapKindsOf(kinds: readonly string[]): MapKind[] {
   return MAP_KINDS.filter((kind) => kinds.includes(kind));
 }
@@ -162,8 +152,6 @@ export function referencePositions(params: readonly ChannelParams[]): [number, n
   return positions;
 }
 
-// The same structural-GeoJSON trick as `TargetCollection`, for landmark points that carry no
-// target identity.
 export interface ReferenceCollection {
   type: "FeatureCollection";
   features: {
@@ -204,8 +192,6 @@ export function targetHeading(station: Target): number | null {
     case "adsb":
       return bearing(event.data.track_deg);
     case "ais":
-      // True heading when the vessel reports one, else course over ground: a ship at anchor has a
-      // heading but no course.
       return bearing(headingOf(event.data.heading_deg)) ?? bearing(courseOf(event.data.cog_deg));
     case "aprs":
       return bearing(event.data.course_deg);
@@ -295,7 +281,6 @@ function scalar(value: number | null | undefined, digits: number, unit: string):
 }
 
 function trimmed(value: string | null | undefined): string | null {
-  // ADS-B callsigns arrive space-padded to eight characters.
   const text = value?.trim() ?? "";
   return text === "" ? null : text;
 }

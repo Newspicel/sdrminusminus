@@ -8,8 +8,6 @@ import "./index.css";
 // Before the first render, so the first paint is already in the resolved theme.
 initTheme();
 
-// Server state never goes stale on its own: WS `StateChanged` events drive every refetch
-// (). No window-focus refetch, no polling.
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: Number.POSITIVE_INFINITY, refetchOnWindowFocus: false, retry: 1 },

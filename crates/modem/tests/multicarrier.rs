@@ -1,20 +1,3 @@
-//! §5 measurement bundle for the four multicarrier entries ( §7 phase 9): committed BER
-//! curves for GFDM on both receivers, UFMC, FBMC/OQAM and OTFS; the §4.3 limits tables; and the
-//! level-1 E2E loopbacks.
-//!
-//! The chains live in `ber::catalog::multicarrier`; the committed artifacts live in
-//! `baselines/multicarrier/`.
-//!
-//! **What the phase is about.** Three of the four waveforms are orthogonal maps from points to
-//! samples, so under thermal noise alone they can be neither better nor worse than the
-//! constellation they carry — every dB their curves sit from Gray QPSK's exact closed form is
-//! their own framing overhead, and every overhead here is arithmetic rather than a fitted
-//! constant. GFDM is the exception and the interesting one: its pulses overlap by construction, so
-//! it has no unitary reading at all, and its two receivers are the two ways of living with that.
-//! What the other three are *for* shows up on axes AWGN cannot see, and the entries measure it
-//! there — UFMC's out-of-band suppression, FBMC's prefix-free spectrum, and OTFS's diversity
-//! against the nulled subcarrier phase 6 recorded as an uncoded chain's whole loss.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
@@ -85,9 +68,6 @@ fn every_committed_curve_reproduces_its_smoke_prefix() {
     }
 }
 
-/// The §4.1 acceptance: every oracle row sits on its constellation's own closed form, shifted by
-/// an overhead that is a closed form of the geometry. This is the phase's headline — three of the
-/// four waveforms are transparent, and the measurement says so.
 #[test]
 fn every_oracle_row_sits_on_its_constellation() {
     for m in measurements() {
@@ -138,7 +118,6 @@ fn the_gfdm_tiers_cross_and_the_matched_one_walls() {
             .unwrap()
             .rate()
     };
-    // At the top of the matched tier's own grid it has stopped improving: that is the floor.
     let top = mf.points.last().unwrap();
     let previous = mf.points[mf.points.len() - 2];
     let decade = (previous.rate() / top.rate()).log10();
@@ -146,7 +125,6 @@ fn the_gfdm_tiers_cross_and_the_matched_one_walls() {
         decade < 1.0,
         "the matched tier is still falling a decade per grid step: {decade}"
     );
-    // …and the zero-forcing tier has not: it is orders below by the same point.
     assert!(
         at(&zf, top.ebn0_db) < top.rate() / 5.0,
         "zero forcing {:e} against matched {:e} at {} dB",
@@ -154,8 +132,6 @@ fn the_gfdm_tiers_cross_and_the_matched_one_walls() {
         top.rate(),
         top.ebn0_db
     );
-    // At the bottom of the grid the matched tier is ahead, which is the other half of the trade:
-    // there is nothing to zero-force out of noise, and the inverse's amplification is pure cost.
     let low = mf.points[0].ebn0_db;
     assert!(
         at(&mf, low) <= at(&zf, low),
@@ -164,8 +140,6 @@ fn the_gfdm_tiers_cross_and_the_matched_one_walls() {
         at(&zf, low)
     );
 }
-
-// --- The OTFS headline (§4.1, cross-entry) -------------------------------------------------------
 
 /// A two-tap echo deep enough to null subcarriers, applied to a whole waveform, plus the channel
 /// response the genie receiver is then told about — so the comparison below isolates the precoder
@@ -256,8 +230,6 @@ fn what_otfs_spreading_buys_depends_entirely_on_the_equaliser() {
         otfs_mmse < ofdm_mmse / 2.0,
         "MMSE: OTFS {otfs_mmse:e} should be well ahead of plain OFDM {ofdm_mmse:e}"
     );
-    // And the OFDM row's own floor is the phase-6 result restated: one nulled subcarrier out of
-    // 48, its bits essentially random, is a BER floor near 1/96 whatever the equaliser.
     assert!(
         (0.002..0.05).contains(&ofdm_mmse),
         "plain OFDM's floor through a null: {ofdm_mmse:e}"
@@ -283,8 +255,6 @@ fn equalising_demodulator(
         &vec![Complex::new(1.0, 0.0); params.map().occupied().len()],
         1.0,
     );
-    // The genie's channel covers every occupied bin; only the data bins reach the output, in the
-    // map's own order.
     let data: Vec<Complex<f32>> = params
         .map()
         .data()
@@ -301,8 +271,6 @@ fn equalising_demodulator(
         .collect();
     let grid = sdrmm_modem::multicarrier::OtfsGrid::new(params.data_subcarriers(), SYMBOLS);
     let constellation = sdrmm_modem::constellation::tables::qam_square(4).expect("qpsk table");
-    // MMSE's regularisation is the noise-to-signal ratio at the operating point, which the genie
-    // knows for the same reason it knows the channel.
     let nu = 10f32.powf(-14.0 / 10.0);
     Box::new(move |wave| {
         let mut demod = demod.clone();
@@ -334,8 +302,6 @@ fn equalising_demodulator(
     })
 }
 
-// --- Level-1 E2E (§4.4) ---------------------------------------------------------------------------
-
 /// One level-1 loopback: artifact stem, chain, and the margin above its own sensitivity.
 type Loopback = (&'static str, fn() -> Link, f64);
 
@@ -363,8 +329,6 @@ fn every_entry_loops_back_clean_at_its_stated_margin() {
         );
     }
 }
-
-// --- §4.3 limits ------------------------------------------------------------------------------------
 
 const LIMITS_TOLERANCE: f64 = 0.2;
 
@@ -424,9 +388,6 @@ const TABLES: [Table; 2] = [
 /// independent realisations of the same chain.
 const OTFS_SEED_FOR_LIMITS: u64 = 0x0_07f6;
 
-/// The sensitivity sweep the tables are built on: the committed grid plus two points, because a
-/// §4.3 operating point is the 1e-3 crossing *plus three dB* and the ≤1 dB criterion is read a dB
-/// below that — which is past the top of a grid drawn for the curve rather than for the table.
 const LIMITS_GRID: &[f64] = &[0.0, 2.0, 4.0, 6.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0];
 
 fn measure_table(entry: &str, link: &Link, seed: u64) -> LimitsTable {
@@ -468,8 +429,6 @@ fn every_committed_limits_table_still_holds() {
         }
     }
 }
-
-// --- Regeneration -----------------------------------------------------------------------------------
 
 #[test]
 #[ignore = "full sweep; run to (re)generate the committed curves"]

@@ -153,9 +153,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # No libSoapySDR here, unlike the gate: xtask inherits `sdrmm-server` with
-      # `default-features = false`, so `soapysdr-sys` is not in its graph at all, and
-      # `cargo deny` reads the lockfile rather than compiling anything.
       - run: rustup show
       # Restore-only on the gate's cache: this job builds the same xtask binary and has nothing
       # of its own worth storing.

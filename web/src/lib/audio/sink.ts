@@ -1,5 +1,3 @@
-// The WebAudio half of a channel: Opus decoder → worklet jitter buffer → per-channel gain.
-// One shared AudioContext for all channels; mixing is just parallel graphs ().
 import type { OpusPacketDecoder } from "./decoder";
 import { createOpusPacketDecoder } from "./decoder";
 import type { AudioSink, SinkFactory } from "./engine";
@@ -28,7 +26,6 @@ export function onOutputStateChange(listener: (running: boolean) => void): () =>
   return () => outputListeners.delete(listener);
 }
 
-/** Must be called from a gesture handler: iOS only allows resume() inside a user gesture. */
 export function resumeAudioOutput(): void {
   attemptResume();
 }
@@ -54,9 +51,6 @@ function handleStateChange(): void {
   }
 }
 
-// While suspended/interrupted (phone call, Siri, autoplay veto — WebKit reports states
-// beyond "suspended"), retry on the signals that can legally un-suspend the context: a
-// fresh user gesture or the tab becoming visible again.
 function armRecovery(): void {
   if (recoveryArmed) {
     return;
@@ -102,7 +96,6 @@ function toOutputLayout(pcm: Float32Array, channels: number): Float32Array {
   const out = new Float32Array(frames * CHANNELS);
   for (let f = 0; f < frames; f++) {
     for (let c = 0; c < CHANNELS; c++) {
-      // Fewer source channels than outputs: the last one feeds the rest.
       out[f * CHANNELS + c] = pcm[f * channels + Math.min(c, channels - 1)] ?? 0;
     }
   }
@@ -110,8 +103,6 @@ function toOutputLayout(pcm: Float32Array, channels: number): Float32Array {
 }
 
 export const createWebAudioSink: SinkFactory = async (volume, onError, onReport) => {
-  // Runs synchronously inside the user's start() gesture — the standard autoplay unlock:
-  // both context creation and resume() must happen before the first await.
   if (ctx === null) {
     ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
     ctx.addEventListener("statechange", handleStateChange);

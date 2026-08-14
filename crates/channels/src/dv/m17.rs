@@ -1,20 +1,5 @@
 //! M17 decoder (M17 specification, 2024): C4FM at 4800 symbols per second, root-raised-cosine
 //! shaped at 0.5, in 9 kHz.
-//!
-//! The one open mode of the seven, and the only one whose call setup is fully readable: a link
-//! setup frame carries both callsigns in the clear, base-40 encoded into 48 bits each, under a
-//! convolutional code and a CRC. This decodes them.
-//!
-//! A frame is a 16-bit sync burst and 368 payload bits. Which sync arrived says what the frame
-//! is — link setup, stream, packet, or the end-of-transmission marker. The link setup payload
-//! is undone in the order the transmitter applied it: derandomise with the specification's
-//! 46-byte sequence, deinterleave by the quadratic permutation, restore the bits the puncturing
-//! pattern removed, then Viterbi-decode and check the CRC.
-//!
-//! Stream frames also rebuild the link setup from their six Golay-protected LICH fragments for
-//! late entry, undo P2 puncturing, and decode either two Codec2 3200 voice blocks or the Codec2
-//! 1600 half of a voice+data block. Encrypted stream types are reported and emitted as silence.
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -37,7 +22,6 @@ const DEVIATION_HZ: f64 = 2_400.0;
 const RRC_ALPHA: f64 = 0.5;
 const BANDWIDTH_HZ: f64 = 9_000.0;
 
-/// The four sync bursts, 16 bits each (M17 spec §2.5).
 const SYNC_LSF: u64 = 0x55F7;
 const SYNC_STREAM: u64 = 0xFF5D;
 const SYNC_PACKET: u64 = 0x75FF;
@@ -87,7 +71,6 @@ fn interleave_index(i: usize) -> usize {
     (45 * i + 92 * i * i) % PAYLOAD_BITS
 }
 
-/// Callsign alphabet: index 0 is the space that pads a short callsign (M17 spec §2.3.1).
 const CALLSIGN_ALPHABET: &[u8; 40] = b" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-/.";
 
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
@@ -266,13 +249,9 @@ impl Decoder {
         match kind {
             FrameType::LinkSetup => {
                 let frame = self.link_setup();
-                // A frame that failed its CRC says nothing — including nothing about whether
-                // the call this decoder was following has ended. Sixteen bits of sync match
-                // noise often enough that treating a failure as an end would lose the call.
                 self.in_stream |= frame.is_some();
                 frame
             }
-            // A stream frame carries both a late-entry LSF fragment and Codec2 audio.
             FrameType::Stream => self.stream(out),
             FrameType::Packet => self
                 .in_stream
@@ -283,7 +262,6 @@ impl Decoder {
     /// Undo the transmitter's payload chain and read the link setup out of it.
     fn link_setup(&mut self) -> Option<DvFrame> {
         self.window.soft_bits(0, PAYLOAD_SYMBOLS, &mut self.soft);
-        // Derandomise: the sequence flips bits, which for a soft value is a sign change.
         for (i, value) in self.soft.iter_mut().enumerate() {
             if RANDOMIZER[i / 8] >> (7 - i % 8) & 1 == 1 {
                 *value = -*value;
@@ -338,8 +316,6 @@ impl Decoder {
 
         let late = self.late_entry(&deinterleaved[..96]);
 
-        // Stream contents are a 296-bit rate-1/2 code punctured by deleting every twelfth
-        // coded bit. Restore those positions as erasures before Viterbi decoding.
         self.stream_coded.clear();
         let mut read = 96;
         for i in 0..STREAM_CODED_BITS {
@@ -435,8 +411,6 @@ fn frame_from_lsf(lsf: &[u8; LSF_BYTES]) -> Option<DvFrame> {
     Some(frame)
 }
 
-/// Base-40 callsign decoding (M17 spec §2.3.1). `0xFFFFFFFFFF` is the broadcast address, which
-/// every radio answers to and which no base-40 value can collide with.
 fn callsign(address: u64) -> Option<String> {
     if address == 0 {
         return None;

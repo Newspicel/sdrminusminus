@@ -1,6 +1,3 @@
-//! Single-pole IIR helpers (): FM deemphasis, DC removal, and the complex baseband
-//! smoother a mixed-down carrier is extracted with.
-
 use std::f64::consts::TAU;
 
 use num_complex::Complex;
@@ -223,7 +220,6 @@ mod tests {
         let mut tone = real_tone(1_000.0 / 48_000.0, 9_600);
         filter.process(&mut tone);
         assert!(tone.iter().all(|v| v.is_finite()), "state still poisoned");
-        // 50 µs de-emphasis passes 1 kHz at |H| ≈ 0.954.
         let gain = rms_r(&tone[4_800..]) / FRAC_1_SQRT_2;
         assert!((0.9..1.0).contains(&gain), "post-recovery gain {gain}");
     }
@@ -255,7 +251,6 @@ mod tests {
 
     #[test]
     fn complex_one_pole_matches_the_analytic_single_pole_response() {
-        // |H(f)| = (1 + (f/fc)²)^(−stages/2), the cascade of identical RC sections.
         for (freq_norm, stages) in [(CUTOFF_NORM, 1), (10.0 * CUTOFF_NORM, 1), (0.01, 3)] {
             let ratio = freq_norm / CUTOFF_NORM;
             let expected = (1.0 + ratio * ratio).powf(-(stages as f64) / 2.0) as f32;
@@ -313,7 +308,6 @@ mod tests {
     /// voice band left where it was.
     #[test]
     fn highpass_takes_the_subaudible_band_out_and_keeps_the_voice_band() {
-        // Three cascaded 6 dB/octave sections: (f / √(f² + fc²))³.
         let analytic = |f: f64| (f / f.hypot(300.0)).powi(3) as f32;
         for freq_hz in [67.0f64, 88.5, 254.1, 300.0, 1_000.0] {
             let gain = highpass_gain(300.0, freq_hz);
@@ -323,9 +317,6 @@ mod tests {
                 "{freq_hz} Hz: gain {gain}, expected {want}"
             );
         }
-        // The two ends of the trade: a CTCSS tone is gone from the audio, the voice is not.
-        // The discrete sections shed a little more than the analog form at the top of the
-        // voice band — ~0.7 dB at 3 kHz — which is the price of doing this at 48 kHz at all.
         assert!(highpass_gain(300.0, 88.5) < 0.03);
         assert!(highpass_gain(300.0, 3_000.0) > 0.9);
     }

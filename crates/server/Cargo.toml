@@ -20,10 +20,8 @@ net-client = ["sdrmm-engine/net-client"]
 sdrmm-wire.workspace = true
 sdrmm-engine.workspace = true
 sdrmm-dsp.workspace = true
-# `--doctor` reports the driver registry the engine would open devices through ().
 sdrmm-device.workspace = true
 sdrmm-device-soapy = { workspace = true, optional = true }
-# SigMF scan/parse for the recordings-index reconcile ().
 sdrmm-recorder.workspace = true
 
 # `macros` for the FromRequest/FromRequestParts derives that remap extractor rejections
@@ -62,6 +60,5 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 # Hermetic test engine (virtual driver only): tests must never enumerate live Soapy modules.
 sdrmm-device-virtual.workspace = true
 tokio-tungstenite.workspace = true
-# Planting SigMF pairs on disk for the recordings-index tests.
 num-complex.workspace = true
 tempfile.workspace = true

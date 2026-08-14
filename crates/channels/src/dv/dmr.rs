@@ -1,27 +1,5 @@
 //! DMR Tier II/III decoder (ETSI TS 102 361-1): 4FSK at 4800 symbols per second in 12.5 kHz,
 //! two 30 ms TDMA slots on one carrier.
-//!
-//! A burst is 264 bits: 108 payload, a 48-bit sync or embedded signalling field, 108 payload.
-//! Which of the eight sync patterns matched says whether the burst is voice or data and whether
-//! it came from a repeater, a radio, or a direct-mode radio naming its own slot. From there:
-//!
-//! * **Data bursts** carry a Golay(20,8) slot type split either side of the sync — colour code
-//!   and data type — and 196 bits of BPTC(196,96) product code around it, which unpacks into a
-//!   voice LC header, a terminator, a CSBK or a data header. The link control's Reed-Solomon
-//!   (12,9) parity is masked per frame type, so verifying it also *confirms* the frame type.
-//! * **Voice bursts** carry three conventional AMBE+2 3,600 x 2,450 frames. Their DMR
-//!   interleave is removed, their two Golay codewords are corrected, and the 8 kHz vocoder PCM
-//!   is resampled onto the application's 48 kHz audio plane. Bursts B to E also carry one
-//!   quarter each of a BPTC(128,77) embedded link control. That is the late-entry path: a
-//!   receiver that joins a call in progress learns who is talking within 240 ms.
-//!
-//! Only burst A of a voice superframe has a sync to find, so B to F are located by counting:
-//! the superframe is six bursts one 60 ms TDMA frame apart, in the slot the sync arrived on.
-//!
-//! Repeater CACH supplies Hamming-protected slot numbering and four-fragment Short LC. Each slot
-//! owns independent call, embedded-LC, alias, privacy and vocoder state, so concurrent repeater
-//! calls never share codec history.
-
 use std::sync::LazyLock;
 
 use blip25_vocoder::{
@@ -43,7 +21,6 @@ use crate::{
 };
 
 const BAUD: f64 = 4_800.0;
-/// Outer-symbol deviation of a 12.5 kHz C4FM transmitter (ETSI TS 102 361-1 §4.2.2).
 const DEVIATION_HZ: f64 = 1_944.0;
 const RRC_ALPHA: f64 = 0.2;
 const BANDWIDTH_HZ: f64 = 12_500.0;
@@ -55,9 +32,6 @@ const SYNC_BITS: u32 = 48;
 const HALF_PAYLOAD_BITS: usize = 108;
 const TRAILING_SYMBOLS: usize = HALF_PAYLOAD_BITS / 2;
 
-/// Symbols in one 30 ms TDMA slot. The 132-symbol burst occupies 27.5 ms of it; the remaining
-/// 2.5 ms is the CACH a repeater sends or the guard time during which a radio is keyed off
-/// (ETSI TS 102 361-1 §4.2.2), so a slot is *longer* than the burst it carries.
 const SLOT_SYMBOLS: usize = 144;
 
 /// One 60 ms TDMA cycle: this burst's slot, then the other's. Bursts B to F of a voice
@@ -68,7 +42,6 @@ const SUPERFRAME_STRIDE: usize = SLOT_SYMBOLS * 2;
 /// what its distance from the other seven allows.
 const SYNC_TOLERANCE: u32 = 4;
 
-/// Data types carried in the slot type (ETSI TS 102 361-1 §9.3.6).
 const DT_PI_HEADER: u8 = 0x0;
 const DT_VOICE_LC_HEADER: u8 = 0x1;
 const DT_TERMINATOR_WITH_LC: u8 = 0x2;
@@ -111,7 +84,6 @@ struct Sync {
     slot: Option<u8>,
 }
 
-/// ETSI TS 102 361-1 §9.1.1, as the 48 bits each occupies.
 const SYNCS: [Sync; 8] = [
     Sync {
         bits: 0x755F_D7DF_75F7,
@@ -368,8 +340,6 @@ impl Decoder {
     /// A burst whose last symbol has just arrived.
     fn burst(&mut self, voice: bool, slot: Option<u8>, out: &mut ChannelOutputs) {
         if voice {
-            // Burst A of a voice superframe: no signalling of its own, but it anchors the
-            // five that follow, which carry the embedded link control.
             self.window.bits(0, BURST_SYMBOLS, &mut self.bits);
             let index = slot_index(slot).unwrap_or(0);
             self.voice_payload(index, slot, out);
@@ -391,8 +361,6 @@ impl Decoder {
                 if let Some(encrypted) = frame.encrypted {
                     self.slots[index].encrypted = Some(encrypted);
                 }
-                // A header starts a new codec stream. Repeated headers may reset this more
-                // than once, but no voice frame has arrived between them.
                 self.slots[index].voice.reset();
             }
             DvFrameKind::Terminator => {
@@ -427,8 +395,6 @@ impl Decoder {
         self.schedule_follower(index);
     }
 
-    /// Decode the 216-bit vocoder socket (§6.1), preserving the three contiguous 72-bit
-    /// frame order while skipping the burst's centre sync/embedded field.
     fn voice_payload(&mut self, index: usize, slot: Option<u8>, out: &mut ChannelOutputs) {
         if slot.is_some_and(|slot| !self.params.slots.accepts(slot)) {
             return;
@@ -556,8 +522,6 @@ impl Decoder {
         Some(self.decode_lc(index, payload))
     }
 
-    /// A control signalling block: opcode, feature set id, and the two addresses most of the
-    /// opcodes carry in the same place.
     fn csbk(&mut self, payload: &[bool; 96]) -> Option<DvFrame> {
         let mut frame = self.checked_block(payload, CSBK_MASK)?;
         let opcode = bits_to_u32(payload, 2, 6) as u8;
@@ -565,8 +529,6 @@ impl Decoder {
         set_dmr_vendor(&mut frame, fid);
         frame.opcode = Some(csbk_opcode_name(fid, opcode));
         if fid != 0 {
-            // Proprietary offsets are not interchangeable. Preserve the feature
-            // payload for inspection without manufacturing ETSI addresses from it.
             frame.data = Some(hex_bits(&payload[16..80]));
         }
         // These PDUs place target then source in their final 48 bits. Other opcode layouts
@@ -589,7 +551,6 @@ impl Decoder {
             frame.destination = Some(bits_to_u32(payload, 32, 24));
             frame.source = Some(bits_to_u32(payload, 56, 24));
         } else if fid == 0 && opcode == 0b100110 {
-            // NACK reverses that order: source then target (§7.1.2.4).
             frame.source = Some(bits_to_u32(payload, 32, 24));
             frame.destination = Some(bits_to_u32(payload, 56, 24));
         }
@@ -703,8 +664,6 @@ impl Decoder {
         let colour = (info >> 3) as u16 & 0x0F;
         let lcss = info & 0b11;
 
-        // 00 is a single-fragment reverse-channel word this decoder has no use for; the other
-        // three are the quarters of an embedded link control, in order.
         match lcss {
             0b01 => {
                 self.slots[index].embedded.clear();
@@ -781,7 +740,6 @@ impl ShortLc {
             return None;
         }
 
-        // Four transmitted rows were read column-first from the 4x17 BPTC encode matrix.
         let mut matrix = [[false; 17]; 4];
         for column in 0..17 {
             for (row, cells) in matrix.iter_mut().enumerate() {
@@ -916,7 +874,6 @@ fn csbk_opcode_name(fid: u8, opcode: u8) -> String {
         (0, 0b100110) => "negative acknowledge response",
         (0, 0b111000) => "BS outbound activation",
         (0, 0b111101) => "preamble",
-        // TS 102 361-4 V1.12.1 Annex B.1.
         (0, 0b011001) => "ALOHA",
         (0, 0b011100) => "AHOY",
         (0, 0b101110) => "clear",
@@ -1135,7 +1092,6 @@ fn decode_rate_three_quarter(burst: &[bool]) -> Option<[bool; 144]> {
     }
     let mut encoded = [0u8; 98];
     for (i, value) in encoded.iter_mut().enumerate() {
-        // Closed form of table B.9: indices 0..25 cover the even columns and 26..49 the odd.
         let source = if i < 50 {
             (i % 26) * 8 + i / 26
         } else {
@@ -1552,8 +1508,6 @@ mod tests {
         assert_eq!(terminator.color_code, Some(u16::from(call.color_code)));
     }
 
-    /// Three 20 ms AMBE+2 frames in each of six voice bursts make one continuous 360 ms audio
-    /// superframe on the application's 48 kHz plane.
     #[test]
     fn decodes_voice_to_audio() {
         let call = tx::Call::default();

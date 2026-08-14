@@ -1,13 +1,3 @@
-// Aircraft (ADS-B), ships (AIS) and APRS stations on one MapLibre map ( Maps, §13 P2).
-// Targets come from the decoded store, never from TanStack Query — this is the high-rate plane.
-// There is deliberately no React element per target: MapLibre owns one GeoJSON source per wired
-// kind and gets a `setData` on the `DRAW_TICK_MS` tick, so a thousand aircraft cost one source
-// update every 500 ms rather than a thousand components.
-//
-// `kinds` is the whole content of the map: a map node draws layers per *connected* decoder
-// (CANVAS §1), so two map nodes on different wires plot different things. It changes while the
-// map lives, and the layer stack is rebuilt in place rather than the map — the operator's view
-// is not something a wire change may take away.
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   AttributionControl,
@@ -158,8 +148,6 @@ export function MapPanel({
       map.addControl(new NavigationControl({ showCompass: false }), "top-right");
 
       map.on("style.load", () => {
-        // The landmark first: target layers appended after it draw above it, which is the
-        // stacking a landmark owes the targets it anchors.
         installReferenceLayer(map, accentRef.current, edge, referencesRef.current);
         installLayers(map, edge, kindsRef.current);
         readyRef.current = true;
@@ -229,7 +217,6 @@ export function MapPanel({
       const selected = selectedRef.current;
       if (selected !== null) {
         const current = findDetail(selected.kind, selected.id);
-        // A target that aged out of the store takes its selection with it.
         setDetail((previous) =>
           current === null || previous === null || current.lastSeen !== previous.lastSeen
             ? current
@@ -286,16 +273,13 @@ export function MapPanel({
   useEffect(() => {
     const map = mapRef.current;
     if (map === null || !readyRef.current) {
-      // Before the style lands there is nothing to install into; `style.load` does the first one.
       return;
     }
     const wired = mapKindsOf(kindsKey.split(" "));
     installLayers(map, edgeRef.current, wired);
-    // Every source starts empty again, so nothing may be held back as already drawn.
     drawnRef.current = {};
     const selected = selectedRef.current;
     if (selected !== null && !wired.includes(selected.kind)) {
-      // The layer the selection was drawn on is gone with its wire.
       selectedRef.current = null;
       setDetail(null);
     }
@@ -304,9 +288,6 @@ export function MapPanel({
     highlight(map, wired, selectedRef.current);
   }, [kindsKey]);
 
-  // The station mark follows the settings edit live: type a new reference into the decoder's
-  // face and the mark moves with it. Keyed like `kinds` — the array is rebuilt every render,
-  // and its JSON is the identity that actually changes.
   const referencesKey = JSON.stringify(references);
   useEffect(() => {
     const map = mapRef.current;
@@ -433,8 +414,6 @@ async function fetchStyle(): Promise<MapStyle | null> {
 }
 
 function offlineStyle(background: string): MapStyle {
-  // No `glyphs` entry on purpose: with no glyph server MapLibre rasterises label glyphs locally
-  // (TinySDF), so target labels still draw with no network at all.
   return {
     version: 8,
     sources: {},
@@ -501,7 +480,6 @@ function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]
     });
   }
 
-  // Labels last so no kind's dots can cover another kind's text.
   for (const kind of kinds) {
     map.addLayer({
       id: layerId(kind, "label"),
@@ -513,7 +491,6 @@ function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]
         "text-size": 11,
         "text-anchor": "top",
         "text-offset": [0, LABEL_OFFSET_EM[kind]],
-        // Dropping a colliding label beats hiding the target it belongs to.
         "text-optional": true,
       },
       paint: {
@@ -534,7 +511,6 @@ function highlight(
     return;
   }
   for (const kind of kinds) {
-    // The style has no target layers before `style.load`, and none for a kind whose wire went.
     if (map.getLayer(layerId(kind, "dot")) === undefined) {
       continue;
     }
@@ -575,9 +551,6 @@ function frame(map: MapLibreMap, collection: TargetCollection): void {
 }
 
 const ICON_SCALE = 2;
-/** Box sizes per symbol. The APRS arrow is a course *indicator* riding beside the dot; the
- * plane and the hull replace the dot as the target symbol itself, so they get the room a
- * glanceable silhouette needs. */
 const ARROW_PX = 18;
 const PLANE_PX = 26;
 const SHIP_PX = 22;
@@ -646,8 +619,6 @@ function arrowImage(color: string, edge: string): ImageData | null {
   });
 }
 
-/** An airliner — nose, swept wings, tailplane — centred on the position it marks, so it rotates
- * in place with the track. The dot beneath shows only as the selection ring. */
 function planeImage(color: string, edge: string): ImageData | null {
   return rasterize(PLANE_PX, (ctx) => {
     silhouette(ctx, PLANE_PX, [

@@ -1,35 +1,3 @@
-//! Frequency hopping ( §3.1 `spread/`, §6 frameworks table): the one entry in the
-//! catalog that carries *another* entry.
-//!
-//! **What it is, stripped of folklore: a frequency schedule applied to somebody else's
-//! waveform.** The modulator is whatever catalog entry the link chose; this framework moves each
-//! dwell's worth of its output onto a channel, and the receiver moves it back before handing the
-//! same samples to that entry's own demodulator. So there is no hopping *detector* to build and
-//! none is claimed — what a hopping receiver needs beyond the underlying entry is the schedule,
-//! and the plan's acceptance says so: "payload survives a hopping channel with the sequencer
-//! known" (§7 phase 7).
-//!
-//! **Coherent hopping.** The hop oscillator runs off the buffer's own sample index rather than
-//! restarting per dwell, so transmitter and receiver derive the same phase at every hop and
-//! de-hopping restores the baseband exactly — a direct-digital-synthesis hopper, and the reason
-//! the committed curve lands on the underlying entry's own with no margin at all. A hopper whose
-//! synthesiser re-locks per dwell instead leaves an unknown phase step at every boundary, which
-//! is a *receiver* problem (per-dwell re-anchoring) and therefore a second tier rather than a
-//! parameter here.
-//!
-//! **What hopping buys is escape, and what it buys is bounded.** Interference sitting on one
-//! channel reaches only the dwells that land there: with `C` channels a jammer that would take the
-//! link down outright instead corrupts `1/C` of them, exactly. That exposure is the framework's
-//! deliverable and it is what [`FhssDemod::dwells_on`] counts.
-//!
-//! Turning it into *link margin*, though, is something an uncoded chain cannot do, and the
-//! catalog's committed tables measure that too: with a third of the dwells destroyed the average
-//! error rate is already 0.17, far past any sensible failure floor, so a hopped uncoded link fails
-//! at very nearly the jammer level that destroys those dwells at all — measured at a fraction of a
-//! dB. What recovers the other two thirds is coding and interleaving *across hops*, which is
-//! channel coding and belongs beside the FEC in `sdrmm-dsp` ( §1.1). Hopping is a
-//! diversity mechanism, and diversity without a code to spend it is only a promise.
-
 use num_complex::Complex;
 
 use super::pn::{PnError, PnSequence};
@@ -49,7 +17,6 @@ pub struct HopSequence {
 pub enum FhssError {
     /// Fewer than two channels is not a hopping link, and a zero-sample dwell is not a dwell.
     DegenerateSchedule,
-    /// An order entry naming a channel the plan does not have.
     ChannelOutOfRange(usize),
     /// An empty hop order visits nothing.
     EmptyOrder,
@@ -111,18 +78,6 @@ impl HopSequence {
         })
     }
 
-    /// A schedule *generated* from a maximal-length sequence rather than transcribed: the code's
-    /// chips are read `bits` at a time — `bits` being what it takes to index the channel plan —
-    /// and any draw landing outside the plan is rejected rather than folded into it.
-    ///
-    /// Generated rather than tabulated for the reason the OFDM entry generates its training
-    /// (§6): nothing here interoperates with a standard, and a hop table no test can check is a
-    /// liability. What the generator has to deliver is that the schedule *visits*, which
-    /// [`Self::visits`] measures.
-    ///
-    /// # Errors
-    /// [`FhssError::Sequence`] if the degree is untabulated, [`FhssError::ExhaustedCode`] if the
-    /// code never draws enough in-range channels, plus [`Self::new`]'s.
     pub fn from_m_sequence(
         channels: usize,
         spacing_cycles: f64,
@@ -130,9 +85,6 @@ impl HopSequence {
         hops: usize,
         degree: u32,
     ) -> Result<Self, FhssError> {
-        // The plan is checked before anything is generated, not after: `channels - 1` below and
-        // the draw loop's termination both depend on it, so `Self::new` at the end is too late to
-        // protect either.
         if channels < 2 || dwell_samples == 0 {
             return Err(FhssError::DegenerateSchedule);
         }
@@ -142,15 +94,6 @@ impl HopSequence {
         let code = PnSequence::maximal_length(degree).map_err(FhssError::Sequence)?;
         let bits = (usize::BITS - (channels - 1).leading_zeros()) as usize;
         let chips = code.chips();
-        // Rejection rather than a modulo, and it is not fastidiousness: at three channels a
-        // two-bit draw reduced mod 3 lands on channel 0 twice as often as on 1 or 2, and the
-        // framework's whole claim is that a jammer reaches `1/C` of the dwells. A biased plan
-        // would break that quietly, in exactly the row that measures it.
-        //
-        // Rejection needs a budget, though, because the code is periodic: the draw positions
-        // repeat after at most `chips.len()` of them, so a plan the code never draws in range for
-        // would otherwise spin forever. If any draw in one period is accepted, `hops` of them
-        // arrive within `hops` periods; if none is, the budget is what reports it.
         let budget = chips.len().saturating_mul(hops);
         let mut at = 0usize;
         let mut draws = 0usize;
@@ -206,8 +149,6 @@ impl HopSequence {
         self.order[hop % self.order.len()]
     }
 
-    /// Carrier offset of a channel in cycles per sample, the plan centred on zero: channel
-    /// `(C−1)/2` sits at baseband and the outermost pair at `±(C−1)/2 · spacing`.
     #[must_use]
     pub fn offset_cycles(&self, channel: usize) -> f64 {
         (channel as f64 - (self.channels as f64 - 1.0) / 2.0) * self.spacing_cycles
@@ -387,8 +328,6 @@ mod tests {
         }
     }
 
-    /// The generated schedule visits: a hop order that used a corner of its plan would spread
-    /// nothing, and no error-rate curve would ever say so.
     #[test]
     fn the_generated_schedule_visits_its_whole_plan() {
         for channels in [3usize, 4, 5, 8, 16, 32] {
@@ -399,8 +338,6 @@ mod tests {
                 channels,
                 "{channels} channels over {hops} hops"
             );
-            // No channel may hoard the schedule either: with C channels and 8C hops, a uniform
-            // generator lands ~8 dwells each, and the test's job is to catch a degenerate one.
             let demod = FhssDemod::new(sequence);
             for channel in 0..channels {
                 let dwells = demod.dwells_on(channel, hops);
@@ -412,9 +349,6 @@ mod tests {
         }
     }
 
-    /// The plan is centred, so hopping costs no net frequency offset and the outermost channels
-    /// are symmetric about baseband — what lets an underlying entry's carrier tolerance stay its
-    /// own.
     #[test]
     fn the_channel_plan_is_centred_on_baseband() {
         let sequence = schedule(9, 16);
@@ -460,8 +394,6 @@ mod tests {
         ));
     }
 
-    /// The generator validates the plan *before* it draws, because a plan it cannot draw for is
-    /// the one case where the loop has no natural end.
     #[test]
     fn the_generator_refuses_a_degenerate_plan_instead_of_drawing_for_it() {
         for channels in [0usize, 1] {

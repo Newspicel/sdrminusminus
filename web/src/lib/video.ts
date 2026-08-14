@@ -166,7 +166,6 @@ export class VideoHub {
   }
 
   private send(channel: VideoChannel, on: boolean): void {
-    // A `send` while the socket is closed is dropped by design; the reconnect path re-sends.
     this.socket?.send({
       type: on ? "SubscribeVideo" : "UnsubscribeVideo",
       data: { device_set: channel.deviceSet, channel: channel.channel },

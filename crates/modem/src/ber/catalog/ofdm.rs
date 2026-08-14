@@ -1,27 +1,3 @@
-//! The CP-OFDM and DMT catalog entries ( §6, frameworks table; §7 phase 6): four
-//! modulation orders on a subcarrier, two channel-estimation tiers and the genie they are
-//! measured against, and the Hermitian (DMT) configuration — all at one geometry, all through one
-//! engine.
-//!
-//! **Reference configuration: 64-point transform, 16-sample prefix, 48 data and 4 pilot
-//! subcarriers at 20 MHz** — 802.11a/g's numbers, exercised on synthetic vectors only. No PLCP,
-//! no SIGNAL field, no rate switching: §6's scope decision puts the waveform in and the protocol
-//! out, and this file is where that boundary is spent.
-//!
-//! **The acceptance is the linear engine's own oracles, shifted by the frame's overhead.** An
-//! OFDM subcarrier under a flat channel is a bare carrier; a curve measured here must therefore
-//! land on the same closed form the `psk`/`qam` rows land on, offset by exactly the energy the
-//! frame spends on things that are not payload. That offset is a *closed form of the geometry*
-//! ([`OfdmParams::framing_overhead_db`]) rather than a fitted number, and — the property worth
-//! stating — it is the same for every modulation order, because the bits per subcarrier cancel
-//! out of the ratio. One constant, four curves, no per-row fudge.
-//!
-//! Eb accounting, in full: a frame carries 320 preamble samples and a 16-sample prefix on each of
-//! its 64 data symbols, and 4 of its 52 occupied subcarriers are pilots. The sweep runner divides
-//! the whole radiated energy by the payload's information bits, which charges all of that to Eb —
-//! [`OVERHEAD_DB`] of it, 1.58 dB, of which 1.32 dB is the prefix and the pilots (structural, at
-//! any frame length) and 0.26 dB the preamble (amortising, at this one).
-
 use std::sync::LazyLock;
 
 use num_complex::Complex;
@@ -231,12 +207,6 @@ pub fn qam64_link() -> Link {
     )
 }
 
-/// The genie counterparts, one per order: the same waveform through a receiver that is *told* the
-/// frame's origin, its carrier offset and its channel. These are the rows held to a closed form
-/// (§4.1) — an OFDM subcarrier under a flat channel is a bare carrier, and a genie receiver has
-/// nothing between the transform and the demapper to cost anything the geometry does not already
-/// account for. The acquiring rows above are then measured *against* them, which is what turns
-/// "what acquisition costs" into a number.
 #[must_use]
 pub fn bpsk_genie_link() -> Link {
     wifi_link(
@@ -308,8 +278,6 @@ pub fn dmt_link() -> Link {
         SYMBOLS,
     )
 }
-
-// --- Committed sweep parameters ----------------------------------------------------------------
 
 pub const BPSK_GRID: &[f64] = &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0];
 pub const QPSK_GRID: &[f64] = &[8.0, 9.0, 10.0, 11.0, 12.0, 13.0];
@@ -418,9 +386,6 @@ pub const MODULATIONS: &[Measurement] = &[
     Measurement::committed(QAM64_AWGN, qam64_link, QAM64_GRID, QAM64_SEED, FULL_CAP),
 ];
 
-/// The same four orders through the genie receiver — the entry's closed-form acceptance (§4.1),
-/// and the proof that the transform, the framing and the Eb accounting cost exactly what the
-/// geometry says at *every* table rather than at one.
 pub const GENIE: &[Measurement] = &[
     oracle_row(
         BPSK_GENIE_AWGN,
@@ -493,7 +458,6 @@ mod tests {
         let want = 10.0 * f64::log10((260.0 + 65.0 * 64.0) / (48.0 * 64.0));
         assert!((*OVERHEAD_DB - want).abs() < 1e-12, "{}", *OVERHEAD_DB);
         assert!((*OVERHEAD_DB - 1.580).abs() < 5e-3, "{}", *OVERHEAD_DB);
-        // Structural (prefix + pilots) versus amortising (preamble), as the module docs split it.
         let structural = 10.0 * f64::log10(65.0 / 48.0);
         assert!((structural - 1.317).abs() < 5e-3, "{structural}");
         assert!((*OVERHEAD_DB - structural - 0.263).abs() < 5e-3);

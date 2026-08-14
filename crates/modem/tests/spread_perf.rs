@@ -1,16 +1,3 @@
-//! §4.2 performance baselines for the phase-7 spread-spectrum entries, and the steady-state
-//! zero-allocation gates on their receive paths.
-//!
-//! Four benches, one per entry, because the four cost their bandwidth in different places and the
-//! split is the interesting part: the direct-sequence receiver pays a chip matched filter plus one
-//! correlation per symbol, CCK pays the same filter and then a *bank* of them, the chirp receiver
-//! pays one transform per symbol and no filter at all, and hopping pays one complex rotation per
-//! sample on top of whatever it carries.
-//!
-//! Real-time factors divide by each entry's own reference rate — 44 MHz for the chip-domain rows,
-//! 125 kHz for the chirp — so the numbers answer the same "how many channels of this per core"
-//! question every other entry's do.
-
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use num_complex::Complex;
@@ -217,11 +204,6 @@ fn path(stem: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("baselines/{stem}.json"))
 }
 
-// --- Zero-allocation gates (§4.2) ------------------------------------------------------------
-
-/// The direct-sequence receive path: matched filter, burst search, despread, correction. Warmed
-/// twice per the §4.2 convention — the matched filter's output buffer reaches its capacity on the
-/// first call — then one steady-state pass must acquire no memory.
 #[test]
 fn the_direct_sequence_receive_path_allocates_nothing() {
     let mut burst = dsss_burst();
@@ -240,7 +222,6 @@ fn the_direct_sequence_receive_path_allocates_nothing() {
     });
     assert_eq!(sink.len(), SYMBOLS);
 
-    // The soft path too, at the noise variance the acquisition measured.
     let table = tables::pam(2).unwrap();
     let mut llrs = vec![Llr(0.0); sink.len() * table.bits_per_symbol()];
     burst.demod.llrs(&sink, &table, &mut llrs);
@@ -343,8 +324,6 @@ fn hopping_allocates_nothing() {
     assert_no_alloc("FhssMod::hop", || hopper.hop(&mut wave));
     assert_no_alloc("FhssDemod::dehop", || dehopper.dehop(&mut wave));
 }
-
-// --- Baseline writer and gate (§4.2 protocol) ------------------------------------------------
 
 /// Rewrites the committed baseline. Run deliberately, on the reference machine:
 /// `cargo test -p sdrmm-modem --release --test spread_perf write_ -- --ignored`.

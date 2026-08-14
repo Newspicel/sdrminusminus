@@ -1,10 +1,3 @@
-//! Subaudible-signalling reference modulator (): the CTCSS tone or DCS word a
-//! repeater keys under the voice, as the modulating waveform an FM transmitter carries.
-//!
-//! Deviations are expressed as a fraction of the channel's own full deviation, which is what
-//! the discriminator hands back: a repeater keys its subaudible signalling at 10–15 % of
-//! deviation, so that is what these default to.
-
 use sdrmm_dsp::golay23_encode;
 
 /// DCS bit rate (see [`crate::tone_squelch`] for the two figures in the literature).

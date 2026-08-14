@@ -1,21 +1,3 @@
-//! The phase-modulation catalog entries ( §6, linear rows 2–5): coherent M-PSK, the
-//! DPSK family, the offset pair, and π/4-DQPSK on both of its tiers. Every one of them is the
-//! [`linear`](super::linear) substrate plus a table, a rotation and a detector — which is the
-//! claim the engine exists to support, and these rows are where it is measured.
-//!
-//! **The loop bandwidth is per-entry data**, and the rule behind it is measured: a
-//! decision-directed loop's error is only as good as its decisions, so a denser table wants a
-//! narrower loop. The constant-modulus rows here all take the M-th-power detector instead, which
-//! needs no decisions at all — so they run at the substrate's wide 0.01 and acquire inside the
-//! preamble.
-//!
-//! **Every differential row's data is in the difference.** The payload's symbol indices are
-//! differentially encoded before the table lookup, and the receiver reads the product of
-//! consecutive symbols — so these chains run open-loop and are immune to the phase ambiguity by
-//! construction, at the ~3 dB the tier costs. π/4-DQPSK additionally carries the π/4 per-symbol
-//! rotation, which the demodulator removes before the product is formed; its difference alphabet
-//! is therefore plain QPSK, and its differential curve must land on DQPSK's.
-
 use crate::{
     ber::{
         catalog::{
@@ -37,8 +19,6 @@ use crate::{
 /// M-th-power detector's own noise leaking into the loop. 0.003 is the widest setting that costs
 /// nothing.
 pub const PSK_LOOP_BW: f64 = 0.003;
-
-// --- Coherent M-PSK --------------------------------------------------------------------------
 
 /// Coherent BPSK — the crate's `pam(2)` table, so bit 1 is the positive point and this row is the
 /// phase-0 calibration link plus framing, timing recovery and carrier recovery.
@@ -88,8 +68,6 @@ pub fn psk8_link() -> Link {
         },
     )
 }
-
-// --- The offset pair -------------------------------------------------------------------------
 
 /// OQPSK: the QPSK table with its quadrature rail staggered half a symbol. The receiver undoes
 /// the stagger with an integer-sample delay, so this row must land on QPSK's curve — the stagger
@@ -142,8 +120,6 @@ pub fn pi2_bpsk_link() -> Link {
     )
 }
 
-// --- The DPSK family -------------------------------------------------------------------------
-
 fn dpsk_link(name: &str, m: u32) -> Link {
     differential_link(
         &format!(
@@ -175,8 +151,6 @@ pub fn dpsk8_link() -> Link {
     dpsk_link("8dpsk", 8)
 }
 
-// --- π/4-DQPSK -------------------------------------------------------------------------------
-
 /// π/4-DQPSK, differential tier — TETRA's and EDR's waveform. The transmitted alphabet walks an
 /// 8-PSK grid (four data phases plus the entry's own π/4 per symbol); the demodulator removes the
 /// rotation, so the differences land on plain QPSK and this row must sit on DQPSK's curve.
@@ -192,11 +166,6 @@ pub fn pi4_dqpsk_link() -> Link {
     )
 }
 
-/// π/4-DQPSK, coherent tier (§5 item 2: the second tier is measured against the first). The
-/// carrier is recovered, the rotation removed, the symbols sliced against QPSK — and the
-/// differential *decode* then happens on the sliced indices rather than on the received phases,
-/// which is what buys back the differential tier's ~3 dB. What it costs is the ambiguity: the
-/// unique-word anchor resolves it, and without one this tier would not decode at all.
 #[must_use]
 pub fn pi4_dqpsk_coherent_link() -> Link {
     coherent_differential_link(
@@ -214,12 +183,6 @@ pub fn pi4_dqpsk_coherent_link() -> Link {
         },
     )
 }
-
-// --- Committed sweep parameters ----------------------------------------------------------------
-//
-// Grids bracket 1e-2 through 1e-4 at 1 dB steps, which is where §4.3's sensitivity rows are read
-// and where the oracle comparison is tightest. Seeds are distinct per measurement so no two
-// curves share a noise realisation.
 
 pub const BPSK_GRID: &[f64] = &[4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
 pub const QPSK_GRID: &[f64] = BPSK_GRID;

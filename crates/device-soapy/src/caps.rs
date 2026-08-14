@@ -443,7 +443,6 @@ mod tests {
         assert_eq!(options[0].label.as_deref(), Some("Off"));
         assert_eq!(options[1].label.as_deref(), Some("I-ADC"));
         assert_eq!(options[2].label, None);
-        // The label is what is read; the value is still what is written.
         assert_eq!(
             extra_write_value(&extras, "direct_samp", &serde_json::json!("1")).unwrap(),
             "1"
