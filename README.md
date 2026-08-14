@@ -47,6 +47,22 @@ SoapyRemote. SDRplay requires its separately licensed runtime. See the
 [hardware guide](https://newspicel.github.io/sdrminusminus/hardware.html) for setup and USB
 troubleshooting.
 
+### Nix
+
+On NixOS or another Linux system with flakes enabled, install the Tauri desktop application
+directly from GitHub:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' \
+  profile install github:Newspicel/sdrminusminus
+sdrmm-desktop
+```
+
+The flake supports x86_64 and aarch64 Linux. It does not bundle SoapySDR hardware modules; NixOS
+users select those in their system configuration and enable the corresponding device permissions.
+See the [installation guide](https://newspicel.github.io/sdrminusminus/getting-started/install.html#nix)
+for an RTL-SDR and HackRF example.
+
 ## Build from source
 
 You need the pinned Rust toolchain, Node 26, pnpm 11, and SoapySDR 0.8 development files. On
