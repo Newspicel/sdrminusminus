@@ -71,4 +71,4 @@ Keep unrelated cleanup separate. Review is much easier when the diff, tests, and
 describe one coherent outcome.
 
 By contributing, you agree that your contribution is licensed under the repository's
-[MIT License](LICENSE).
+[GNU General Public License, version 3 or later](LICENSE).

@@ -60,9 +60,9 @@ mod tests {
     #[test]
     fn notices_document_parses() {
         let about = about();
-        assert_eq!(about.license, "MIT");
+        assert_eq!(about.license, "GPL-3.0-or-later");
         assert!(
-            about.license_text.contains("MIT License"),
+            about.license_text.contains("GNU GENERAL PUBLIC LICENSE"),
             "the project's own license text is missing from the notices"
         );
         assert!(

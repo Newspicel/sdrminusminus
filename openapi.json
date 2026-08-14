@@ -7,8 +7,8 @@
       "name": "sdr-- contributors"
     },
     "license": {
-      "name": "MIT",
-      "identifier": "MIT"
+      "name": "GPL-3.0-or-later",
+      "identifier": "GPL-3.0-or-later"
     },
     "version": "0.0.0"
   },
@@ -5010,6 +5010,7 @@
         "enum": [
           "auto",
           "capacity_plus",
+          "hytera_xpt",
           "tier_three"
         ]
       },
@@ -5449,6 +5450,7 @@
         "description": "What the signalling turned out to be. An observation, so it has no \"auto\" —\n[`crate::DmrTrunkProtocol`] is what an operator asks the node for.",
         "enum": [
           "capacity_plus",
+          "hytera_xpt",
           "tier_three"
         ]
       },

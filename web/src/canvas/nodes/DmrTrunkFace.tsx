@@ -11,9 +11,10 @@ import { patchNode } from "../graph";
 import { FaceBody, FaceEmpty, NodeShell } from "./NodeShell";
 import { CallRow } from "./SinkFaces";
 
-const PROTOCOLS: readonly { value: DmrTrunkProtocol; label: string }[] = [
+export const DMR_TRUNK_PROTOCOLS: readonly { value: DmrTrunkProtocol; label: string }[] = [
   { value: "auto", label: "Auto-detect" },
   { value: "capacity_plus", label: "Capacity Plus" },
+  { value: "hytera_xpt", label: "Hytera XPT" },
   { value: "tier_three", label: "Tier III / Capacity Max" },
 ];
 
@@ -66,7 +67,7 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
               label="Protocol"
               className="w-48"
               value={protocol}
-              options={PROTOCOLS}
+              options={DMR_TRUNK_PROTOCOLS}
               onChange={(next) => edit({ protocol: next })}
             />
           </Label>
@@ -86,8 +87,8 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
         ) : (
           <>
             <p className="border-b border-border p-2 text-xs text-muted-foreground">
-              {guidance(protocol, status?.detected ?? null)} Runs on the server while this page is
-              closed.
+              {dmrTrunkGuidance(protocol, status?.detected ?? null)} Runs on the server while this
+              page is closed.
             </p>
             {status !== undefined && status.followers.length > 0 && (
               <ul className="flex flex-wrap gap-1 border-b border-border p-2">
@@ -126,18 +127,28 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
   );
 }
 
-function guidance(protocol: DmrTrunkProtocol, detected: DvTrunkProtocol | null): string {
+export function dmrTrunkGuidance(
+  protocol: DmrTrunkProtocol,
+  detected: DvTrunkProtocol | null = null,
+): string {
   if (protocol === "auto" && detected !== null) {
-    return detected === "capacity_plus"
-      ? "Detected Capacity Plus signalling; both timeslots of every wired carrier are being followed."
-      : "Detected Tier III signalling; voice grants create traffic receivers automatically.";
+    switch (detected) {
+      case "capacity_plus":
+        return "Detected Capacity Plus signalling; both timeslots of every wired carrier are being followed.";
+      case "hytera_xpt":
+        return "Detected Hytera XPT signalling; both timeslots of every wired carrier are being followed.";
+      case "tier_three":
+        return "Detected Tier III signalling; voice grants create traffic receivers automatically.";
+    }
   }
   switch (protocol) {
     case "capacity_plus":
       return "Add one DMR decoder for every known repeater output frequency. Both timeslots are isolated automatically.";
+    case "hytera_xpt":
+      return "Add one DMR decoder for every Hytera XPT repeater output frequency. Both timeslots are isolated automatically.";
     case "tier_three":
       return "Add the DMR control-channel decoder. Standard channel definitions and voice grants create traffic receivers automatically.";
     case "auto":
-      return "The system detects Capacity Plus or Tier III signalling from the connected DMR carriers.";
+      return "The system detects Capacity Plus, Hytera XPT, or Tier III signalling from the connected DMR carriers.";
   }
 }

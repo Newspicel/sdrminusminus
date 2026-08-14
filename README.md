@@ -129,6 +129,9 @@ for prerequisites, architecture, testing, and release workflows.
 
 ## License
 
-sdr-- is available under the [MIT License](LICENSE). Distributed dependencies and bundled
-hardware components are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); their
-complete license texts are also available from the app's About panel.
+Copyright (C) 2026 sdr-- contributors.
+
+sdr-- is free software licensed under the [GNU General Public License, version 3 or
+later](LICENSE). Distributed dependencies and bundled hardware components are documented in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); their complete license texts are also available
+from the app's About panel.

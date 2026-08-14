@@ -49,6 +49,14 @@ async function renderedScale(locator: Locator): Promise<number> {
   });
 }
 
+/** Leave an autocomplete field the way a pointer does: press somewhere else on the face. While a
+ * suggestion popup is open it hides every element outside itself from the accessibility tree, and
+ * a scripted `blur()` reports no element focus moved to — which a combobox reads as the window
+ * losing focus, not the field being left — so the popup would stay open over the next control. */
+async function leaveField(node: Locator): Promise<void> {
+  await node.locator("header").click();
+}
+
 /** One face in the rack. The rack has no wires and no pane, so its faces are addressed by the
  * node they render rather than through React Flow. */
 function rackNode(page: Page, id: string): Locator {
@@ -429,17 +437,17 @@ test.describe("the workspace", () => {
     await detectedDevice.click();
     await expect(device).toHaveValue("/dev/cu.usbmodem11401");
     await device.fill("/dev/ttyACM7");
-    await device.blur();
+    await leaveField(nmea);
     const baud = nmea.getByRole("combobox", { name: "Baud" });
     await baud.fill("38400");
-    await baud.blur();
+    await leaveField(nmea);
     await nmea.getByRole("combobox", { name: "Update rate" }).click();
     await page.getByRole("option", { name: "5 Hz" }).click();
     await device.fill(" ");
-    await device.blur();
+    await leaveField(nmea);
     await expect(device).toHaveValue("/dev/ttyACM7");
     await baud.fill("100");
-    await baud.blur();
+    await leaveField(nmea);
     await expect(baud).toHaveValue("38400");
 
     await expect
