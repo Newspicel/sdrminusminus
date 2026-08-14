@@ -1,4 +1,4 @@
-//! REST request/response bodies (PLAN §5). Defined once here; TS is generated, never
+//! REST request/response bodies (). Defined once here; TS is generated, never
 //! hand-written (CLAUDE.md non-negotiable #1).
 
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use crate::{
     device::{DeviceInfo, DeviceSettings},
 };
 
-/// `GET /api/devices` — discovered hardware across all drivers (PLAN §5).
+/// `GET /api/devices` — discovered hardware across all drivers ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DevicesResponse {
     pub devices: Vec<DeviceInfo>,
@@ -34,7 +34,7 @@ pub struct CreateChannelRequest {
     pub settings: ChannelSettings,
 }
 
-/// The channel types this server build offers, driving the "add channel" UI (PLAN §8).
+/// The channel types this server build offers, driving the "add channel" UI ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelTypesResponse {
     pub types: Vec<ChannelDescriptor>,
@@ -49,7 +49,7 @@ pub struct ChannelTypesResponse {
 pub const PRESET_SNAPSHOT_VERSION: u32 = 2;
 
 /// The stored body of a preset: where every radio a workspace draws was tuned, and what hung off
-/// them (PLAN §11).
+/// them ().
 ///
 /// A preset is workspace-wide because a workspace is: an operator who saved "the morning airband
 /// bench" means every radio on it, and a per-device preset made that several saves that could be
@@ -92,7 +92,7 @@ pub struct CreatePresetRequest {
     pub name: String,
 }
 
-/// A stored frequency bookmark (PLAN §11).
+/// A stored frequency bookmark ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Bookmark {
     pub id: i64,
@@ -117,7 +117,7 @@ pub struct CreateBookmarkRequest {
 }
 
 /// `POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream
-/// (PLAN §5: the recording path is lossless).
+/// (: the recording path is lossless).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordRequest {
     pub action: RecordAction,
@@ -135,7 +135,7 @@ pub enum RecordAction {
     Stop,
 }
 
-/// One finalized SigMF recording in the library (PLAN §11: the files on disk are the source
+/// One finalized SigMF recording in the library (: the files on disk are the source
 /// of truth; this row is its SQLite index entry).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RecordingInfo {
@@ -212,7 +212,7 @@ pub struct RecordingDownloadQuery {
     pub format: RecordingFormat,
 }
 
-/// One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not
+/// One stored decoder frame (: decoder logs are queryable and exportable, not
 /// scroll-back-only). The typed `event` is stored verbatim so an export loses nothing;
 /// `kind`, `summary` and `station` are the indexed projections the list view filters on.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -249,11 +249,11 @@ pub struct DecoderLogResponse {
     /// Rows matching the filter, ignoring `limit`.
     pub total: u64,
     /// Frames dropped on the way to the log since the server started, because a consumer
-    /// fell behind (PLAN §5: bounded queues surface their loss).
+    /// fell behind (: bounded queues surface their loss).
     pub dropped: u64,
 }
 
-/// Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a
+/// Export format for `GET /api/decoderlog/export/{format}` (: CSV/JSON). It is a
 /// path segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing
 /// [`DecoderLogQuery`] across list/export/clear requires the format to live elsewhere.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -409,7 +409,7 @@ pub struct DeletedCount {
     pub deleted: u64,
 }
 
-/// One built-in workspace template (PLAN §10: the template gallery). Read-only and
+/// One built-in workspace template (: the template gallery). Read-only and
 /// device-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry
 /// applies to whatever hardware is open, provided the device can tune it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -419,7 +419,7 @@ pub struct TemplateInfo {
     pub name: String,
     /// One line for the gallery card.
     pub description: String,
-    /// The "what am I looking at" text shown once it is applied (PLAN §10).
+    /// The "what am I looking at" text shown once it is applied ().
     pub explainer: String,
     pub center_hz: f64,
     pub sample_rate: f64,
@@ -441,7 +441,7 @@ pub struct TemplateInfo {
     #[serde(default = "receive")]
     pub direction: crate::device::Direction,
     /// Whether `sample_rate` is the only rate that works, rather than a starting point. ADS-B
-    /// fills its whole 2 MHz channel, so a resampled one decodes nothing (PLAN §18) — a radio
+    /// fills its whole 2 MHz channel, so a resampled one decodes nothing () — a radio
     /// whose rate menu misses 2 Msps cannot run it at all, while an FM template is happy at
     /// anything wide enough.
     #[serde(default)]
@@ -524,7 +524,7 @@ pub struct ApplyTemplateRequest {
     pub device_set: u32,
 }
 
-/// `GET /api/clients` — how many clients share this server right now (PLAN §16 M5
+/// `GET /api/clients` — how many clients share this server right now ( M5
 /// multi-client). Includes the caller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ClientsResponse {
@@ -532,7 +532,7 @@ pub struct ClientsResponse {
 }
 
 /// `GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before
-/// its first real request (PLAN §12: optional single shared token).
+/// its first real request (: optional single shared token).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AuthInfo {
     /// Whether this server rejects requests without the shared token.

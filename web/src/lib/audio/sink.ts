@@ -1,9 +1,9 @@
 // The WebAudio half of a channel: Opus decoder → worklet jitter buffer → per-channel gain.
-// One shared AudioContext for all channels; mixing is just parallel graphs (PLAN §9).
+// One shared AudioContext for all channels; mixing is just parallel graphs ().
 import type { OpusPacketDecoder } from "./decoder";
 import { createOpusPacketDecoder } from "./decoder";
 import type { AudioSink, SinkFactory } from "./engine";
-import type { WorkletMessage } from "./worklet";
+import type { WorkletMessage, WorkletReport } from "./worklet";
 import {
   CHANNELS,
   MAX_FRAMES,
@@ -109,7 +109,7 @@ function toOutputLayout(pcm: Float32Array, channels: number): Float32Array {
   return out;
 }
 
-export const createWebAudioSink: SinkFactory = async (volume, onError) => {
+export const createWebAudioSink: SinkFactory = async (volume, onError, onReport) => {
   // Runs synchronously inside the user's start() gesture — the standard autoplay unlock:
   // both context creation and resume() must happen before the first await.
   if (ctx === null) {
@@ -141,6 +141,9 @@ export const createWebAudioSink: SinkFactory = async (volume, onError) => {
   });
   const gain = new GainNode(context, { gain: volume });
   node.connect(gain).connect(context.destination);
+  node.port.onmessage = (event: MessageEvent<WorkletReport>) => {
+    onReport(event.data);
+  };
 
   let closed = false;
   // Bound into each decoder's callback, never read from here: a late frame from the decoder
@@ -194,13 +197,13 @@ export const createWebAudioSink: SinkFactory = async (volume, onError) => {
   const sink: AudioSink = {
     push(opus, timestampUs, channels) {
       if (closed) {
-        return;
+        return false;
       }
       if (channels !== decoder.channels) {
         useLayout(channels);
-        return;
+        return false;
       }
-      decoder.decode(opus, timestampUs);
+      return decoder.decode(opus, timestampUs);
     },
     conceal(frames) {
       post(node, new Float32Array(frames * CHANNELS));
@@ -215,6 +218,7 @@ export const createWebAudioSink: SinkFactory = async (volume, onError) => {
       closed = true;
       decoder.close();
       post(node, "close");
+      node.port.onmessage = null;
       node.disconnect();
       gain.disconnect();
     },

@@ -1,4 +1,4 @@
-//! §5 measurement bundle for the M-PPM entry (MODEM-PLAN §7 phase 5): committed BER curves on
+//! §5 measurement bundle for the M-PPM entry ( §7 phase 5): committed BER curves on
 //! both detector tiers, the two §4.3 limits tables that make the tier trade a measured pair
 //! rather than a claim, the level-1 E2E loopbacks, and the fractional-rate / sub-sample-phase
 //! properties the ADS-B attachment stands on.
@@ -153,7 +153,7 @@ fn ppm_and_mfsk_measure_the_same_sensitivity_at_equal_alphabets() {
     }
 }
 
-// --- Level-1 E2E (MODEM-PLAN §4.4) -----------------------------------------------------------
+// --- Level-1 E2E ( §4.4) -----------------------------------------------------------
 
 fn loopback_at_margin(mut link: Link, curve_name: &str, margin_db: f64, seed: u64) {
     let sensitivity = limits::ebn0_at_ber(&load_curve(curve_name), 1e-3)

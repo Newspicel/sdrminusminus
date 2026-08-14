@@ -1,11 +1,11 @@
-//! Frequency scanner (PLAN §13 P2, M5). App-level, not a channel: a control-plane thread per
+//! Frequency scanner ( P2, M5). App-level, not a channel: a control-plane thread per
 //! device set walks a target list, measures each target off the existing spectrum tap, and
 //! parks a hosted channel on whatever breaks the threshold.
 //!
 //! The unit of work is a *device tuning*, not a target: one tuning's passband usually covers
 //! hundreds of targets, and they are all measured from the same spectrum frames. A 2 MHz-wide
 //! receiver therefore sweeps a whole VHF band per dwell instead of per channel, which is what
-//! keeps this affordable on the Pi 4 (PLAN §14 performance floor) — the scan costs retunes and
+//! keeps this affordable on the Pi 4 ( performance floor) — the scan costs retunes and
 //! a max over FFT bins, and no extra DSP at all.
 
 use std::{
@@ -26,7 +26,7 @@ use crate::{Engine, EngineError, runtime::SpectrumSnapshot};
 
 /// Fraction of the sample rate a scan will place targets in. The band edges belong to the
 /// device's analog roll-off and the capture filter's transition, so measuring there would
-/// read low and miss signals; the same 80% the DDC reserves as its guard band (PLAN §18).
+/// read low and miss signals; the same 80% the DDC reserves as its guard band ().
 const USABLE_SPAN_FRACTION: f64 = 0.8;
 /// Time to let the tuner and the capture ring flush after a retune, before the first frame is
 /// believed. The FFT's own 4096-sample history is sub-millisecond at any real rate; this
@@ -465,7 +465,7 @@ fn drain(rx: &mut tokio::sync::broadcast::Receiver<SpectrumSnapshot>) {
 
 /// Peak power in `bw_hz` around `target`, or `None` when the target is outside this
 /// snapshot's span. Peak, not integrated power: the waterfall the operator picks a threshold
-/// off is max-decimated (PLAN §9), so a threshold set by eye means the same thing here.
+/// off is max-decimated (), so a threshold set by eye means the same thing here.
 fn measure(snapshot: &SpectrumSnapshot, target: f64, bw_hz: f64) -> Option<f32> {
     let n = snapshot.db.len();
     if n == 0 || snapshot.span_hz <= 0.0 {

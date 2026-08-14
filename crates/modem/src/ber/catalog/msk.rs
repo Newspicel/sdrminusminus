@@ -1,4 +1,4 @@
-//! The MSK catalog entry (MODEM-PLAN §6 CPM row 4): the LREC(1) h = ½ case, and the reference
+//! The MSK catalog entry ( §6 CPM row 4): the LREC(1) h = ½ case, and the reference
 //! the GMSK entry's partial-response cost is measured against.
 //!
 //! It runs behind the *same* front end as GMSK ([`framing`](super::framing)) so the comparison

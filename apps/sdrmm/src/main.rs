@@ -1,4 +1,4 @@
-//! `sdrmm` — the headless server binary (PLAN §3), a thin wrapper over `crates/server`. This is
+//! `sdrmm` — the headless server binary (), a thin wrapper over `crates/server`. This is
 //! the Raspberry Pi target: one binary, embedded UI, browse to `http://host:8080`.
 
 use std::{net::SocketAddr, path::PathBuf};
@@ -12,22 +12,22 @@ use sdrmm_server::{Config, ServerOptions, serve};
 #[derive(Parser, Debug)]
 #[command(name = "sdrmm", version, about)]
 struct Args {
-    /// Address to bind (LAN-trusted by default, PLAN §12).
+    /// Address to bind (LAN-trusted by default, ).
     #[arg(long, default_value = "0.0.0.0:8080")]
     bind: SocketAddr,
-    /// Relax CORS for a separate dev origin (PLAN §10).
+    /// Relax CORS for a separate dev origin ().
     #[arg(long)]
     dev_cors: bool,
-    /// SQLite database for presets/bookmarks (PLAN §11). Defaults to
+    /// SQLite database for presets/bookmarks (). Defaults to
     /// `<platform data dir>/sdrmm/sdrmm.db` so the file never depends on the launch cwd
     /// (systemd units, SSH sessions, and double-clicks all start elsewhere).
     #[arg(long)]
     db: Option<PathBuf>,
-    /// Directory for SigMF recordings (PLAN §11). Defaults to
+    /// Directory for SigMF recordings (). Defaults to
     /// `<platform data dir>/sdrmm/recordings`, cwd-independent like `--db`.
     #[arg(long)]
     recordings_dir: Option<PathBuf>,
-    /// Require this shared token on every API, WebSocket and MCP request (PLAN §12).
+    /// Require this shared token on every API, WebSocket and MCP request ().
     /// Also readable from `SDRMM_TOKEN` so it need not appear in the process list.
     /// Without it the server is LAN-trusted and unauthenticated, which is the default.
     #[arg(long, env = "SDRMM_TOKEN", hide_env_values = true)]

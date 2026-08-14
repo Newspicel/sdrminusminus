@@ -1,4 +1,4 @@
-//! Symbol timing recovery (PLAN §7): a Gardner detector driving a Farrow parabolic
+//! Symbol timing recovery (): a Gardner detector driving a Farrow parabolic
 //! interpolator for complex baseband, and a zero-crossing bit clock for real sliced baseband.
 
 use std::f64::consts::{FRAC_1_SQRT_2, TAU};
@@ -220,7 +220,7 @@ impl SymbolSync {
 
 /// Piecewise-parabolic interpolation at `mu` in [0, 1) between `w[1]` and `w[2]`.
 ///
-/// Public because it is the workspace's one fractional-delay kernel (MODEM-PLAN §3.2: one
+/// Public because it is the workspace's one fractional-delay kernel ( §3.2: one
 /// Farrow). [`SymbolSync`] drives it from a tracking loop; a feedforward timing estimator drives
 /// the same four taps from a computed offset, and the two must interpolate identically or a
 /// comparison between the tiers would read the interpolator instead of the estimator.

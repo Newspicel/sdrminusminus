@@ -50,7 +50,7 @@ enum Cmd {
     Smoke,
     /// Regenerate the synthesized SigMF fixtures in `fixtures/` (see fixtures/README.md).
     Fixtures,
-    /// Regenerate the band-plan tables from the regulators' own publications (FEATURES §5).
+    /// Regenerate the band-plan tables from the regulators' own publications ().
     /// Needs `curl` and `pdftotext` (poppler); neither is needed to build or run the server.
     Bandplan {
         /// Parse what is already in `target/bandplan-cache` instead of fetching. The sources are
@@ -58,7 +58,7 @@ enum Cmd {
         #[arg(long)]
         offline: bool,
     },
-    /// Measure one modem-harness entry's BER curve and write it as JSON + CSV (MODEM-PLAN
+    /// Measure one modem-harness entry's BER curve and write it as JSON + CSV (
     /// §3.1), with PASS/FAIL against the entry's oracle. FAIL exits nonzero.
     Ber {
         /// Harness entry to sweep, e.g. `bpsk-ideal`. An unknown name lists the known ones.
@@ -74,7 +74,7 @@ enum Cmd {
     /// output). Not part of `check`: the renders are committed precisely so no build needs a
     /// rasteriser, and re-rendering them to compare would defeat that.
     Icons,
-    /// Build the self-contained release archive for this host (PLAN §15).
+    /// Build the self-contained release archive for this host ().
     Dist {
         /// Cross-compile for this target triple instead of the host.
         #[arg(long)]
@@ -106,13 +106,13 @@ enum Cmd {
         #[arg(long = "external")]
         external: Vec<String>,
     },
-    /// Stamp a release version across the workspace (PLAN §15). CI runs this from the tag.
+    /// Stamp a release version across the workspace (). CI runs this from the tag.
     SetVersion {
         /// Semver, with or without a leading `v`.
         version: String,
     },
     /// Write the Tauri updater's `latest.json` from the `.sig` files in a release directory
-    /// (PLAN §15). CI runs this once the desktop matrix's bundles are collected.
+    /// (). CI runs this once the desktop matrix's bundles are collected.
     UpdaterManifest {
         /// Release version the manifest offers, with or without a leading `v`.
         #[arg(long)]
@@ -1003,7 +1003,7 @@ fn smoke(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Synthesize the fixture SigMF pairs in `fixtures/` (PLAN §14). Deterministic renders — the
+/// Synthesize the fixture SigMF pairs in `fixtures/` (). Deterministic renders — the
 /// siggen for the record/replay fixture, and `channels::testgen`'s reference modulators for
 /// one fixture per wave-1 decoder — so the pairs are regenerated on demand and never
 /// committed (fixtures/README.md).
@@ -1054,7 +1054,7 @@ struct Fixture {
 }
 
 /// The APRS fixture's burst, keyed by the modulator that pairs with the decoder it is meant to
-/// feed (PLAN §20) — nothing here reaches an antenna; it is written to a file.
+/// feed () — nothing here reaches an antenna; it is written to a file.
 fn aprs_burst() -> Vec<Complex<f32>> {
     use sdrmm_channels::{AprsTx, ChannelCtx, ChannelTx, TxPayload, testgen};
     use sdrmm_wire::{AprsMode, AprsParams, ChannelParams, ChannelSettings};
@@ -1198,7 +1198,7 @@ fn decoder_fixtures() -> Vec<Fixture> {
         ),
         rate: ADSB_RATE,
         // 2 Msps is the *lowest* rate ADS-B runs at — one sample per half-chip. The decoder
-        // reads whatever the radio gives it up to 4 Msps (PLAN §18), so this fixture is the
+        // reads whatever the radio gives it up to 4 Msps (), so this fixture is the
         // floor of that range rather than the only point in it.
         note: "adsb channel at 0 Hz, device at 2 Msps -> 3C6444/DLH123 at FL380".to_string(),
     });

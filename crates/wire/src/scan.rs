@@ -1,4 +1,4 @@
-//! Frequency-scanner types (PLAN §13 P2, M5). The scanner is app-level, not a channel: it
+//! Frequency-scanner types ( P2, M5). The scanner is app-level, not a channel: it
 //! steps the *device* across a set of target frequencies, measures each one against the
 //! spectrum tap, and parks a hosted channel on anything that breaks the threshold.
 
@@ -19,7 +19,7 @@ pub struct ScanRange {
     pub step_hz: f64,
 }
 
-/// What a scan covers and how it behaves on a hit (PLAN §13: "frequency scanner").
+/// What a scan covers and how it behaves on a hit (: "frequency scanner").
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ScanSettings {
     /// Ranges to expand into targets. May be empty if `frequencies` is not.

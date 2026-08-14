@@ -12,7 +12,7 @@ build-dir = "book"
 create-missing = false
 
 [output.html]
-# Dark-first, matching the app's instrumentation palette (PLAN §10).
+# Dark-first, matching the app's instrumentation palette ().
 default-theme = "navy"
 preferred-dark-theme = "navy"
 additional-css = ["custom.css"]

@@ -1,4 +1,4 @@
-//! Closed-form error-rate oracles (MODEM-PLAN §3.1 `ber/theory`, §4.1) — the acceptance
+//! Closed-form error-rate oracles ( §3.1 `ber/theory`, §4.1) — the acceptance
 //! references every measured curve is held against. Each oracle takes Eb/N0 in dB per
 //! *information bit* (the crate-root accounting) and returns a probability, in f64 because
 //! this is the accounting side of the harness, not the signal path.
@@ -526,7 +526,7 @@ pub fn mfsk_noncoherent_ber(m: u32, ebn0_db: f64) -> f64 {
 
 // --- Table-driven nearest-neighbour bound -----------------------------------------------------
 
-/// The error rate of an *arbitrary* constellation, computed from the table itself (MODEM-PLAN
+/// The error rate of an *arbitrary* constellation, computed from the table itself (
 /// §3.3: constellations are data — so is their reference curve).
 ///
 /// The closed forms above exist because PAM, PSK and square QAM have regular geometries whose

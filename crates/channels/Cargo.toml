@@ -12,13 +12,13 @@ workspace = true
 
 [features]
 # Exposes `testgen`, the reference modulators the engine's end-to-end tests and
-# `cargo xtask fixtures` build signals with (PLAN §14). Test-only; never in a release build.
+# `cargo xtask fixtures` build signals with (). Test-only; never in a release build.
 test-signals = []
 
 [dependencies]
 sdrmm-wire.workspace = true
 sdrmm-dsp.workspace = true
-# The §3.2 `channels → modem` edge (MODEM-PLAN): symbol pulses come from `modem::pulse` — the
+# The §3.2 `channels → modem` edge (): symbol pulses come from `modem::pulse` — the
 # live matched filters use it today, the phase-3 engines land here too, so it is unconditional
 # even while `testgen` sits behind `test-signals`.
 sdrmm-modem.workspace = true

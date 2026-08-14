@@ -1,4 +1,4 @@
-//! Decoder end-to-end (PLAN §16 M4, §14: "engine end-to-end via `device-virtual`").
+//! Decoder end-to-end ( M4, §14: "engine end-to-end via `device-virtual`").
 //!
 //! Each case renders a reference transmission with `sdrmm_channels::testgen`, plants it as a
 //! SigMF pair, replays it through the `virtual:file:` playback device the M3 milestone built,
@@ -659,7 +659,7 @@ async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
 
 /// The rate an RTL-SDR actually offers. ADS-B reads the device's own samples, so 2.048 Msps —
 /// which no receiver can round to 2.000 — is a working ADS-B receiver rather than a refusal
-/// (PLAN §18, amended). This is the whole feature, end to end: capture at the radio's rate,
+/// (, amended). This is the whole feature, end to end: capture at the radio's rate,
 /// through the mixing-only DDC, into a decoder whose half-chips are 1.024 samples wide.
 /// The frames land off the sample grid, as the air always delivers them — grid-aligned e2e
 /// coverage is the other ADS-B test's job.
@@ -771,7 +771,6 @@ async fn rds_station_survives_the_ddc_and_reaches_the_decoded_stream() {
             squelch_db: None,
             params: ChannelParams::Wfm(WfmParams {
                 deemphasis_us: 50.0,
-                rds: true,
                 stereo: false,
             }),
         },
@@ -832,7 +831,6 @@ async fn retuning_resets_the_decoder_through_the_engine_path() {
         squelch_db: None,
         params: ChannelParams::Wfm(WfmParams {
             deemphasis_us: 50.0,
-            rds: true,
             stereo: false,
         }),
     };

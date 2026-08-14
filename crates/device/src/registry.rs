@@ -1,4 +1,4 @@
-//! Driver registry (PLAN §6): probes every registered backend and merges results, collapsing
+//! Driver registry (): probes every registered backend and merges results, collapsing
 //! cross-backend duplicates by serial with native drivers winning over Soapy. One backend may
 //! intentionally expose several addresses for a serial (the RSPduo's Soapy operating modes), so
 //! those remain separate. At M0 only `device-virtual` registers, but the merge policy is here
@@ -11,7 +11,7 @@ use sdrmm_wire::DeviceInfo;
 use crate::{DeviceDriver, DeviceError, SdrDevice};
 
 /// Priority when the same physical device is seen through multiple drivers: higher wins
-/// (native RTL/HackRF claim priority over Soapy, PLAN §6). Order of registration is the
+/// (native RTL/HackRF claim priority over Soapy, ). Order of registration is the
 /// tie-breaker for equal priority.
 #[derive(Default)]
 pub struct DeviceRegistry {
@@ -38,7 +38,7 @@ impl DeviceRegistry {
     }
 
     /// Probe all drivers and merge, collapsing cross-driver serial duplicates by priority while
-    /// retaining distinct keys a single driver exposes for one serial (PLAN §6).
+    /// retaining distinct keys a single driver exposes for one serial ().
     #[must_use]
     pub fn probe_all(&self) -> Vec<DeviceInfo> {
         let mut by_serial: HashMap<String, (u8, &'static str, Vec<DeviceInfo>)> = HashMap::new();
@@ -83,7 +83,7 @@ impl DeviceRegistry {
         out
     }
 
-    /// Open the device identified by `driver:key` (PLAN §5 `device_id`), returning the probed
+    /// Open the device identified by `driver:key` ( `device_id`), returning the probed
     /// [`DeviceInfo`] alongside it so callers keep the real label/serial instead of
     /// reconstructing one from the id string.
     ///

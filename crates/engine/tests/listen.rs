@@ -1,4 +1,4 @@
-//! Engine e2e (PLAN §14): virtual siggen → DDC channel → demod → squelch → Opus, asserted
+//! Engine e2e (): virtual siggen → DDC channel → demod → squelch → Opus, asserted
 //! on the decoded audio. Real-time paced by the virtual device, so waits are generous.
 
 // Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
@@ -146,7 +146,6 @@ async fn wfm_stereo_toggle_changes_the_layout_of_the_live_stream() {
         settings(
             ChannelParams::Wfm(WfmParams {
                 deemphasis_us: 50.0,
-                rds: false,
                 stereo,
             }),
             WFM_CARRIER_OFFSET_HZ,

@@ -1,4 +1,4 @@
-//! Complementary code keying (MODEM-PLAN §3.1 `spread/`, §6 frameworks table): eight complex
+//! Complementary code keying ( §3.1 `spread/`, §6 frameworks table): eight complex
 //! chips carrying eight bits, detected by correlating against the whole codebook at once.
 //!
 //! **What separates it from the direct-sequence entry beside it.** DSSS spends its chips on one

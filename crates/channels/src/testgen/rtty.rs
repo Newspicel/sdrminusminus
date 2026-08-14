@@ -1,4 +1,4 @@
-//! RTTY reference modulator (PLAN §14): ITA2 text → start/stop character frames → two-tone
+//! RTTY reference modulator (): ITA2 text → start/stop character frames → two-tone
 //! FSK at complex baseband, symmetric about DC.
 
 use num_complex::Complex;
@@ -87,7 +87,7 @@ pub fn encode_codes(codes: &[u8], stop_bits: f64) -> Vec<bool> {
 
 /// Key half-bit `cells` as continuous-phase FSK — mark at `+shift_hz/2`, space at
 /// `−shift_hz/2` — through the library's own modulator, built from the decoder's entry data
-/// (MODEM-PLAN §1.2: the two cannot drift apart).
+/// ( §1.2: the two cannot drift apart).
 #[must_use]
 pub fn modulate(cells: &[bool], baud: f64, shift_hz: f64, rate: f64) -> Vec<Complex<f32>> {
     let mut keyed = vec![true; LEAD_IN_BITS * 2];

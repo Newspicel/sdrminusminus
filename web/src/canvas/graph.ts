@@ -20,7 +20,6 @@ import type {
   PatchNode,
   PortRef,
   PortSpec,
-  Position,
   RackLayout,
   WorkspaceSnapshot,
 } from "../lib/types";
@@ -153,7 +152,7 @@ export function portsOf(context: GraphContext, graph: PatchGraph, node: PatchNod
           return descriptor?.has_video === true;
         case "device_is_tx_capable":
           // The reserved transmit input is drawn on a radio that *has* a send side, whatever
-          // PLAN §12a lets it do with one: `rx_only` is the wire default, so a radio that says
+          //  lets it do with one: `rx_only` is the wire default, so a radio that says
           // nothing gets no port.
           return hasTransmitter(capabilities?.duplex);
         default:
@@ -274,7 +273,7 @@ export function connectionRefusal(
  * a reason to refuse the connection — the operator meant to put ADS-B on that radio, and the
  * answer is to change the rate, not to pretend the two cannot be joined.
  *
- * The rule itself is the server's (PLAN §18), read off the descriptor rather than re-derived:
+ * The rule itself is the server's (), read off the descriptor rather than re-derived:
  * a decoder that reads the radio's own samples names the range it runs over, and a mode that
  * fills its whole channel names the one rate a resampling DDC could deliver.
  */
@@ -370,20 +369,6 @@ export function nodeMinSize(kind: NodeKind, ports: readonly PortSpec[]): { w: nu
 }
 
 /** Add a node. The caller supplies the id so the same call can be replayed optimistically. */
-/** Vertical stagger between nodes dropped in one session, so a run of them does not stack. */
-const DROP_STEP = 40;
-
-/** Where a node dropped from a palette or a library panel lands: to the right of everything
- * already drawn, so it is on screen and on top of nothing. CANVAS §9 left auto-placement to
- * feel; this is the feel, and it lives here so every drop site shares it. */
-export function dropPosition(graph: PatchGraph): Position {
-  const drawn = graph.nodes;
-  return {
-    x: drawn.reduce((max, node) => Math.max(max, node.position.x), 0) + 360,
-    y: drawn.length * DROP_STEP,
-  };
-}
-
 export function addNode(graph: PatchGraph, node: PatchNode): PatchGraph {
   return { ...graph, nodes: [...graph.nodes, node] };
 }

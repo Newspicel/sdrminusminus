@@ -1,4 +1,4 @@
-//! §5 measurement bundle for the CP-OFDM and DMT entries (MODEM-PLAN §7 phase 6): committed BER
+//! §5 measurement bundle for the CP-OFDM and DMT entries ( §7 phase 6): committed BER
 //! curves at four modulation orders on a subcarrier, the channel-estimation comparison that says
 //! what acquisition costs, the two §4.3 limits tables, level-1 E2E loopbacks, and the
 //! channel-estimation error read against its own closed form.
@@ -361,7 +361,7 @@ fn the_channel_estimate_carries_half_the_noise_variance_at_every_snr() {
     }
 }
 
-// --- Level-1 E2E (MODEM-PLAN §4.4) -----------------------------------------------------------
+// --- Level-1 E2E ( §4.4) -----------------------------------------------------------
 
 fn loopback_at_margin(mut link: Link, curve_name: &str, margin_db: f64, seed: u64) {
     let sensitivity = sensitivity(curve_name);
@@ -654,7 +654,7 @@ fn the_delay_spread_limit_is_the_cyclic_prefix() {
 /// RMS delay spread, long before any echo reaches the prefix. That is not a defect of the
 /// equaliser; it is why every OFDM system in the world pairs this waveform with coding and
 /// interleaving across subcarriers, which is channel coding and lives beside the FEC in
-/// `sdrmm-dsp` rather than here (MODEM-PLAN §1.1).
+/// `sdrmm-dsp` rather than here ( §1.1).
 #[test]
 fn the_frequency_selective_rows_are_fade_limited_not_delay_limited() {
     let table = limits::load_json(&baseline_path(LIMITS)).unwrap();

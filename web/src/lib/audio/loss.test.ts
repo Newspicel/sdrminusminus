@@ -26,7 +26,8 @@ describe("LossTracker", () => {
     const t = new LossTracker(MAX_GAP);
     t.next(0n);
     t.next(960n);
-    expect(t.next(960n + 960n + 20_000n)).toEqual({ kind: "reset" });
+    // The hole is still measured — it is the count the operator sees as audio that never came.
+    expect(t.next(960n + 960n + 20_000n)).toEqual({ kind: "reset", frames: 20_000 });
     expect(t.next(960n + 960n + 20_000n + 960n)).toEqual({ kind: "continuous" });
   });
 
@@ -34,7 +35,8 @@ describe("LossTracker", () => {
     const t = new LossTracker(MAX_GAP);
     t.next(0n);
     t.next(960n);
-    expect(t.next(0n)).toEqual({ kind: "reset" });
+    // A restarted clock says nothing about how much was missed: no count to report.
+    expect(t.next(0n)).toEqual({ kind: "reset", frames: 0 });
     expect(t.next(960n)).toEqual({ kind: "continuous" });
     expect(t.next(2_880n)).toEqual({ kind: "gap", frames: 960 });
   });

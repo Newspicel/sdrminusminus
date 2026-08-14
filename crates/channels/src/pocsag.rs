@@ -1,9 +1,9 @@
-//! POCSAG pager decoder (PLAN §13 P2): two-level FSK at 512/1200/2400 bit/s carrying
+//! POCSAG pager decoder ( P2): two-level FSK at 512/1200/2400 bit/s carrying
 //! BCH(31,21) codewords (ITU-R M.584).
 //!
 //! One `sdrmm_modem::cpm` two-level CPFSK front end per candidate bit rate (quadrature
 //! discriminator → integrate-and-dump matched filter → `SymbolSync` → normalised soft
-//! symbols; the entry is data alone, MODEM-PLAN §3.3). A candidate that finds the frame sync
+//! symbols; the entry is data alone,  §3.3). A candidate that finds the frame sync
 //! codeword takes the lock and the others' framing restarts; losing frame sync releases it,
 //! so the rate is re-detected on the next transmission. The channel produces decoder events
 //! only — no audio.
@@ -99,7 +99,7 @@ fn mapping() -> Mapping {
     Mapping::new(vec![1.0, -1.0])
 }
 
-/// The POCSAG waveform at one bit rate as `cpm/` entry data (MODEM-PLAN §3.3): two-level
+/// The POCSAG waveform at one bit rate as `cpm/` entry data ( §3.3): two-level
 /// CPFSK, NRZ (rect) frequency pulse, ±4.5 kHz nominal deviation.
 fn cpm_params(rate: f64, baud: u16) -> CpmParams {
     let sps = rate / f64::from(baud);

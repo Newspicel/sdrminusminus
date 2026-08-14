@@ -1,4 +1,4 @@
-//! The phase-modulation catalog entries (MODEM-PLAN §6, linear rows 2–5): coherent M-PSK, the
+//! The phase-modulation catalog entries ( §6, linear rows 2–5): coherent M-PSK, the
 //! DPSK family, the offset pair, and π/4-DQPSK on both of its tiers. Every one of them is the
 //! [`linear`](super::linear) substrate plus a table, a rotation and a detector — which is the
 //! claim the engine exists to support, and these rows are where it is measured.

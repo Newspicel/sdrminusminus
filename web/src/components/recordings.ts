@@ -24,7 +24,7 @@ export type RecordControl =
   | { kind: "recording"; status: RecordingStatus };
 
 // A faulted recording still reads as "recording": the writer has already stopped, but only an
-// explicit stop clears the surfaced error and frees the set for the next start (PLAN §5 — the
+// explicit stop clears the surfaced error and frees the set for the next start ( — the
 // fault must stay visible, not vanish on the next state refresh).
 export function deriveRecordControl(set: DeviceSet): RecordControl {
   if (set.recording != null) {

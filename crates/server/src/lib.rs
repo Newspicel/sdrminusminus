@@ -1,4 +1,4 @@
-//! `sdrmm-server` — the axum app as a *library* (PLAN §3, §10): `router()` builds the whole
+//! `sdrmm-server` — the axum app as a *library* (, §10): `router()` builds the whole
 //! HTTP+WS surface over a shared [`Engine`], and `serve()` binds it. The Tauri desktop app and
 //! the headless binary both consume this crate, so there is exactly one server implementation.
 
@@ -20,12 +20,12 @@ use tower_http::{
 };
 use utoipa_swagger_ui::SwaggerUi;
 
-/// Hotplug probe cadence (PLAN §16 M1). Public so the desktop shell, which embeds the router
+/// Hotplug probe cadence ( M1). Public so the desktop shell, which embeds the router
 /// without going through [`serve`], starts the same prober.
 pub const HOTPLUG_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Buffered pre-serialized decoder frames. Matches the engine's own fan-out depth: a client
-/// that falls further behind than this loses frames and is told how many (PLAN §5).
+/// that falls further behind than this loses frames and is told how many ().
 const DECODED_TEXT_CAP: usize = 1024;
 
 mod assets;
@@ -48,9 +48,9 @@ pub use store::{Store, StoreError};
 /// carries the bind address and the database path).
 #[derive(Clone, Debug, Default)]
 pub struct ServerOptions {
-    /// Relax CORS for the Vite dev origin (PLAN §10 dev mode).
+    /// Relax CORS for the Vite dev origin ( dev mode).
     pub dev_cors: bool,
-    /// Optional shared token (PLAN §12). `None` is the default LAN-trusted posture.
+    /// Optional shared token (). `None` is the default LAN-trusted posture.
     pub token: Option<String>,
 }
 
@@ -78,12 +78,12 @@ pub(crate) struct AppState {
     /// Decoder frames the log writer itself lost. Shared with the writer task and reported by
     /// `GET /api/decoderlog`.
     decoder_log_dropped: Arc<AtomicU64>,
-    /// Decoder frames serialized ONCE for every connection (PLAN §16 M5 multi-client): under
+    /// Decoder frames serialized ONCE for every connection ( M5 multi-client): under
     /// ADS-B traffic this is hundreds of frames a second, and serializing byte-identical JSON
     /// per socket multiplied the cost by the number of browsers watching.
     pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
     /// The recent past of every identified station, so a client that connects late is handed what
-    /// it missed instead of an empty map (PLAN §10). In memory only — the answer is worthless
+    /// it missed instead of an empty map (). In memory only — the answer is worthless
     /// after a restart, and the decoder log is what persists.
     pub(crate) tracks: Arc<tracks::Tracks>,
     /// Live WebSocket connections, reported by `GET /api/clients`.
@@ -118,11 +118,11 @@ impl AppState {
     }
 }
 
-/// Server configuration (PLAN §11, §12).
+/// Server configuration (, §12).
 #[derive(Clone, Debug)]
 pub struct Config {
     pub bind: SocketAddr,
-    /// SQLite database for presets/bookmarks/recordings index (PLAN §11); `None` = in-memory.
+    /// SQLite database for presets/bookmarks/recordings index (); `None` = in-memory.
     /// The recordings *directory* is not configured here: the [`Engine`] owns it
     /// (`Engine::new(recordings_dir)`), so REST and the playback probe share one source.
     pub db_path: Option<PathBuf>,
@@ -139,7 +139,7 @@ impl Default for Config {
     }
 }
 
-/// The OpenAPI document, produced without a running server (PLAN §4 step 1) — this is what
+/// The OpenAPI document, produced without a running server ( step 1) — this is what
 /// `cargo xtask codegen` serializes to `openapi.json`.
 #[must_use]
 pub fn openapi() -> utoipa::openapi::OpenApi {
@@ -148,7 +148,7 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 }
 
 /// Build the full axum app: REST + WebSocket + Swagger UI + embedded SPA, over `engine` and
-/// `store`, and start the decoder-log writer that feeds `GET /api/decoderlog` (PLAN §11).
+/// `store`, and start the decoder-log writer that feeds `GET /api/decoderlog` ().
 /// The writer is left running until `engine` is dropped; [`serve`] ties it to its handle
 /// instead.
 pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Router {
@@ -299,7 +299,7 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
     }
     match &config.options.token {
         Some(_) => tracing::info!("shared-token auth enabled"),
-        None => tracing::info!("no token configured: LAN-trusted, unauthenticated (PLAN §12)"),
+        None => tracing::info!("no token configured: LAN-trusted, unauthenticated ()"),
     }
     let store = Store::open(config.db_path.as_deref()).map_err(std::io::Error::other)?;
     // Before the first probe a client can see: a network receiver a stored workspace names is
@@ -340,7 +340,7 @@ mod tests {
     use super::*;
 
     /// Hermetic engine: virtual driver only — `Engine::new()` would register the Soapy driver,
-    /// whose probe enumerates live system modules (PLAN §14: no hardware in CI, ever).
+    /// whose probe enumerates live system modules (: no hardware in CI, ever).
     fn test_router() -> Router {
         test_router_with_store().0
     }
@@ -453,8 +453,8 @@ mod tests {
         serde_json::from_slice(&body).expect("json")
     }
 
-    /// OpenAPI snapshot (PLAN §14): the REST paths must be present, and the WS-only enums must
-    /// be force-registered as schema components (PLAN §4) or the generated TS client loses them.
+    /// OpenAPI snapshot (): the REST paths must be present, and the WS-only enums must
+    /// be force-registered as schema components () or the generated TS client loses them.
     #[test]
     fn openapi_registers_paths_and_ws_schemas() {
         let spec = openapi().to_pretty_json().expect("serialize");
@@ -1678,7 +1678,7 @@ mod tests {
     }
 
     /// The clear endpoint is the log's only structural change; clients only learn about it
-    /// through the DecoderLog scope (PLAN §10: WS invalidation is the sole refetch trigger).
+    /// through the DecoderLog scope (: WS invalidation is the sole refetch trigger).
     #[tokio::test]
     async fn decoder_log_clear_emits_the_decoder_log_scope() {
         let mut registry = sdrmm_device::DeviceRegistry::new();
@@ -2128,7 +2128,7 @@ mod tests {
         assert!(get_state(&app).await.device_sets.is_empty());
     }
 
-    /// The palette is backend-driven (PLAN §2): the canvas builds its "add node" menu and its
+    /// The palette is backend-driven (): the canvas builds its "add node" menu and its
     /// drag-time rules from this, so its shape is a contract.
     #[tokio::test]
     async fn the_patch_catalog_describes_the_node_palette() {
@@ -2346,7 +2346,7 @@ mod tests {
         serde_json::from_slice(&body).expect("json")
     }
 
-    /// PLAN §7: a workspace's tuning is part of the workspace. Apply used to rebuild the topology and
+    /// : a workspace's tuning is part of the workspace. Apply used to rebuild the topology and
     /// hand every channel back at its type's defaults, so a restart kept the patch and lost the
     /// work — the frequencies, the offset and the squelch.
     #[tokio::test]
@@ -2603,7 +2603,7 @@ mod tests {
         );
     }
 
-    /// Per-stream settings design §6.4: `streams` rides `WorkspaceState`'s `DeviceSettings`,
+    /// Per-stream settings : `streams` rides `WorkspaceState`'s `DeviceSettings`,
     /// but only if capture and restore actually round-trip it — an override lost here would
     /// bring lane 1 back on the radio-wide dial after a restart, silently.
     #[tokio::test]
@@ -2640,7 +2640,7 @@ mod tests {
         assert_eq!(set.settings.streams[0].center_hz, Some(433_920_000.0));
     }
 
-    /// The wire names the lane (design §5): `iq4` is stream 3, and apply must put the channel
+    /// The wire names the lane (): `iq4` is stream 3, and apply must put the channel
     /// there — and a second apply must find it there via the (type, stream) claim, or every
     /// reload would stack a copy on the lane it checked.
     #[tokio::test]
@@ -2667,7 +2667,7 @@ mod tests {
         );
     }
 
-    /// Design §10 case 3: a workspace drawn against a multi-stream radio, reopened on one with
+    ///  case 3: a workspace drawn against a multi-stream radio, reopened on one with
     /// fewer lanes. The wire's stream does not exist on this hardware — the channel is refused
     /// with the reason in the report, never silently moved to stream 0.
     #[tokio::test]

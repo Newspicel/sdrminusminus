@@ -1,4 +1,4 @@
-//! The frequency-allocation database (FEATURES §5): "what is this frequency?".
+//! The frequency-allocation database (): "what is this frequency?".
 //!
 //! **The tables are data, not code.** Each layer is a JSON document in `data/bandplan/`, and most
 //! of them are *generated* — `cargo xtask bandplan` fetches the regulator's own publication and
@@ -108,7 +108,7 @@ pub(crate) struct Layer {
     pub entries: Vec<Entry>,
 }
 
-/// The curated overlay that turns a regulator's wording into an operator's (FEATURES §5).
+/// The curated overlay that turns a regulator's wording into an operator's ().
 ///
 /// A regulator publishes allocations; nobody publishes "this is Marine VHF, channel 16 is
 /// distress, tune it in NFM". This is that, and it is the only hand-written band data left. An

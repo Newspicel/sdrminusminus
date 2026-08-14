@@ -1,4 +1,4 @@
-//! GFDM — generalised frequency division multiplexing (MODEM-PLAN §3.1 `multicarrier/`, §7 phase
+//! GFDM — generalised frequency division multiplexing ( §3.1 `multicarrier/`, §7 phase
 //! 9).
 //!
 //! **A block of `K` subcarriers by `M` subsymbols, pulse-shaped circularly.** Where OFDM sends one

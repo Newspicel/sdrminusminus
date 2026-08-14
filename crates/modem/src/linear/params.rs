@@ -1,4 +1,4 @@
-//! What distinguishes one linear entry from another, as data (MODEM-PLAN §3.3): the point
+//! What distinguishes one linear entry from another, as data ( §3.3): the point
 //! table, the amplitude pulse, the oversampling, an optional per-symbol rotation and an optional
 //! quadrature stagger. Nothing else. A `match` on a standard inside [`super`] is a defect, and
 //! the four axes below are what make that achievable — BPSK, 1024-QAM, π/2-BPSK, OQPSK and

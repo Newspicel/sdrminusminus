@@ -235,7 +235,7 @@ fn siggen_capabilities() -> Capabilities {
             max: 6_000_000_000.0,
             step: None,
         }],
-        // 2 Msps is here for one reason: it is the only rate ADS-B can run at (PLAN §18),
+        // 2 Msps is here for one reason: it is the only rate ADS-B can run at (),
         // so without it the demo radio cannot carry the mode its own fixture decodes.
         sample_rates: vec![
             250_000.0,
@@ -474,7 +474,7 @@ fn marker_offsets(settings: &DeviceSettings, capabilities: &Capabilities) -> Vec
 /// at the offset). On a shape with per-stream tuning, a lane tuned apart from the radio sees
 /// its marker displaced by the difference ([`marker_offsets`]) — the observable that proves a
 /// per-stream retune reached exactly one lane. The transmit side of the duplex-capable shapes
-/// is declared but inert — like every radio's, `tx_start` stays behind the PLAN §12a
+/// is declared but inert — like every radio's, `tx_start` stays behind the
 /// authorized-use gate nothing above the device crates crosses.
 pub struct MarkerGen {
     capabilities: Capabilities,

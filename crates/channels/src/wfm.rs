@@ -1,7 +1,8 @@
 //! WFM: 240 kHz IQ → quadrature discriminator → 5:1 decimate to 48 kHz → de-emphasis.
 //! With `stereo` set, the composite is also demultiplexed against the 19 kHz pilot into the
 //! L−R difference signal, and the channel's audio leaves as interleaved L/R.
-//! With `rds` set, the composite is tapped off into [`RdsDecoder`] as well.
+//! The composite is tapped off into [`RdsDecoder`] as well: RDS is the same signal's 57 kHz
+//! subcarrier, so there is nothing to switch on — a station without it simply decodes nothing.
 //!
 //! De-emphasis runs *after* the audio decimation, not on the composite: at 240 kHz it would
 //! flatten the 38 kHz difference subcarrier (−15 dB and rotated) before the stereo demux ever
@@ -79,7 +80,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     bandwidth_hz: 200_000.0,
     input_rate_hz: 240_000.0,
     has_audio: true,
-    // WFM is the only channel that is both: audio out, and RDS frames when `rds` is set.
+    // WFM is the only channel that is both: audio out, and RDS frames.
     decoder_kind: Some("rds".to_owned()),
     ..ChannelDescriptor::default()
 });
@@ -94,8 +95,7 @@ pub struct WfmChannel {
     sum: Vec<f32>,
     /// Present only while `stereo` is set. Holds the pilot loop and the difference path.
     stereo: Option<StereoDemux>,
-    /// Present only while `rds` is set — a disabled decoder costs neither state nor cycles.
-    rds: Option<RdsDecoder>,
+    rds: RdsDecoder,
 }
 
 /// Pilot recovery and L−R demodulation (ITU-R BS.450 pilot-tone system).
@@ -244,7 +244,7 @@ impl ChannelRx for WfmChannel {
                 .stereo
                 .then(|| StereoDemux::new(ctx.input_rate, deemphasis.clone())),
             deemphasis,
-            rds: p.rds.then(|| RdsDecoder::new(ctx.input_rate)),
+            rds: RdsDecoder::new(ctx.input_rate),
         })
     }
 
@@ -262,25 +262,16 @@ impl ChannelRx for WfmChannel {
         } else if let Some(stereo) = &mut self.stereo {
             stereo.deemphasis = deemphasis;
         }
-        if !p.rds {
-            self.rds = None;
-        } else if self.rds.is_none() {
-            self.rds = Some(RdsDecoder::new(rate));
-        }
         Ok(())
     }
 
     fn retuned(&mut self) {
-        if let Some(rds) = &mut self.rds {
-            rds.reset();
-        }
+        self.rds.reset();
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         self.demod.process(iq, &mut self.demod_buf);
-        if let Some(rds) = &mut self.rds {
-            rds.process(&self.demod_buf, &mut out.events);
-        }
+        self.rds.process(&self.demod_buf, &mut out.events);
         match &mut self.stereo {
             None => {
                 self.decim.process(&self.demod_buf, &mut out.audio_pcm);
@@ -320,10 +311,9 @@ mod tests {
     const LEFT_HZ: f64 = 1_000.0;
     const RIGHT_HZ: f64 = 3_000.0;
 
-    fn wfm_params(deemphasis_us: f32, rds: bool, stereo: bool) -> ChannelParams {
+    fn wfm_params(deemphasis_us: f32, stereo: bool) -> ChannelParams {
         ChannelParams::Wfm(WfmParams {
             deemphasis_us,
-            rds,
             stereo,
         })
     }
@@ -331,7 +321,7 @@ mod tests {
     fn channel(deemphasis_us: f32) -> WfmChannel {
         WfmChannel::new(
             ChannelCtx { input_rate: RATE },
-            settings(wfm_params(deemphasis_us, false, false)),
+            settings(wfm_params(deemphasis_us, false)),
         )
         .unwrap()
     }
@@ -339,17 +329,9 @@ mod tests {
     fn stereo_channel() -> WfmChannel {
         WfmChannel::new(
             ChannelCtx { input_rate: RATE },
-            settings(wfm_params(50.0, false, true)),
+            settings(wfm_params(50.0, true)),
         )
         .unwrap()
-    }
-
-    fn rds_settings(rds: bool, offset_hz: f64) -> ChannelSettings {
-        ChannelSettings {
-            offset_hz,
-            squelch_db: None,
-            params: wfm_params(50.0, rds, false),
-        }
     }
 
     /// A station carrying a different tone on each channel, `pilot` false making it mono.
@@ -429,8 +411,7 @@ mod tests {
     #[test]
     fn apply_75_us_deemphasis_keeps_demodulating() {
         let mut chan = channel(50.0);
-        chan.apply(settings(wfm_params(75.0, false, false)))
-            .unwrap();
+        chan.apply(settings(wfm_params(75.0, false))).unwrap();
         let audio = run_ragged(&mut chan, &fm_iq(RATE, 1_000.0, DEVIATION_HZ, 240_000));
         let (freq, ratio) = dominant_tone(&audio[2_000..14_000], f64::from(AUDIO_RATE));
         assert!((995.0..1_005.0).contains(&freq), "dominant {freq} Hz");
@@ -455,19 +436,20 @@ mod tests {
         assert!(matches!(built, Err(ChannelError::InvalidSettings(_))));
     }
 
+    /// The decoder always runs, so a station carrying no subcarrier must stay silent on the
+    /// event path rather than report a picture assembled out of noise.
     #[test]
-    fn a_station_with_rds_disabled_produces_no_events() {
+    fn a_station_without_rds_produces_no_events() {
         let mut chan = channel(50.0);
-        let iq = transmission(&station(), 2.0, Some(1_000.0), RATE);
+        let iq = two_tone_station(true);
         let (audio, events) = run_collecting(&mut chan, &iq);
-        assert!(events.is_empty(), "{} events with rds off", events.len());
+        assert!(events.is_empty(), "{} events without rds", events.len());
         assert_eq!(audio.len(), iq.len() / DECIM_FACTOR);
     }
 
     #[test]
     fn rds_decodes_the_station_while_the_audio_still_demodulates() {
-        let mut chan =
-            WfmChannel::new(ChannelCtx { input_rate: RATE }, rds_settings(true, 0.0)).unwrap();
+        let mut chan = channel(50.0);
         let (audio, events) = run_collecting(
             &mut chan,
             &transmission(&station(), 3.5, Some(1_000.0), RATE),
@@ -491,21 +473,32 @@ mod tests {
         assert!((0.26..0.34).contains(&amplitude), "rms {amplitude}");
     }
 
+    /// A settings change is not a station change: what the decoder has accreted must survive
+    /// one, or every touch of the de-emphasis knob would blank the panel. Told apart from a
+    /// reset by the group counter, which only `retuned` may zero.
     #[test]
-    fn apply_starts_and_stops_the_rds_decoder() {
+    fn apply_leaves_the_rds_picture_standing() {
         let mut chan = channel(50.0);
-        let iq = transmission(&station(), 3.5, None, RATE);
+        let (_, events) = run_collecting(&mut chan, &transmission(&station(), 3.5, None, RATE));
+        let before = last_update(&events);
+        assert_eq!(before.ps.as_deref(), Some("WFM+RDS"));
 
-        chan.apply(rds_settings(true, 0.0)).unwrap();
-        let (_, events) = run_collecting(&mut chan, &iq);
-        assert_eq!(last_update(&events).ps.as_deref(), Some("WFM+RDS"));
+        chan.apply(settings(wfm_params(75.0, false))).unwrap();
 
-        chan.apply(rds_settings(false, 0.0)).unwrap();
-        let (_, events) = run_collecting(&mut chan, &iq);
+        // A different PS, so the decoder has something to report on the far side of `apply`;
+        // an unchanged station emits nothing, having nothing to say.
+        let renamed = Station {
+            ps: "RENAMED".to_owned(),
+            ..station()
+        };
+        let (_, events) = run_collecting(&mut chan, &transmission(&renamed, 3.5, None, RATE));
+        let after = last_update(&events);
+        assert_eq!(after.ps.as_deref(), Some("RENAMED"));
         assert!(
-            events.is_empty(),
-            "{} events after rds was turned off",
-            events.len()
+            after.groups > before.groups,
+            "the group counter restarted across apply: {} then {}",
+            before.groups,
+            after.groups
         );
     }
 
@@ -514,8 +507,7 @@ mod tests {
     /// would prove nothing about the path production takes (see `DspCommand::Retune`).
     #[test]
     fn retuning_drops_the_previous_station() {
-        let mut chan =
-            WfmChannel::new(ChannelCtx { input_rate: RATE }, rds_settings(true, 0.0)).unwrap();
+        let mut chan = channel(50.0);
         let (_, events) = run_collecting(&mut chan, &transmission(&station(), 3.5, None, RATE));
         let before = last_update(&events);
         assert_eq!(before.ps.as_deref(), Some("WFM+RDS"));
@@ -632,7 +624,7 @@ mod tests {
         let mono = run_ragged(&mut chan, &iq);
         assert_eq!(mono.len(), iq.len() / DECIM_FACTOR);
 
-        chan.apply(settings(wfm_params(50.0, false, true))).unwrap();
+        chan.apply(settings(wfm_params(50.0, true))).unwrap();
         let audio = run_ragged(&mut chan, &iq);
         assert_eq!(audio.len(), 2 * (iq.len() / DECIM_FACTOR));
         let (left, _) = settled_channels(&audio);
@@ -640,8 +632,7 @@ mod tests {
             / tone_power(&left, RIGHT_HZ, f64::from(AUDIO_RATE));
         assert!(separation > 100.0, "separation after switching on");
 
-        chan.apply(settings(wfm_params(50.0, false, false)))
-            .unwrap();
+        chan.apply(settings(wfm_params(50.0, false))).unwrap();
         let audio = run_ragged(&mut chan, &iq);
         assert_eq!(audio.len(), iq.len() / DECIM_FACTOR);
         let (freq, _) = dominant_tone(&audio[audio.len() / 2..], f64::from(AUDIO_RATE));
@@ -653,11 +644,7 @@ mod tests {
     /// but no difference signal, so its two channels are the same programme.
     #[test]
     fn rds_and_stereo_run_on_the_same_pilot() {
-        let mut chan = WfmChannel::new(
-            ChannelCtx { input_rate: RATE },
-            settings(wfm_params(50.0, true, true)),
-        )
-        .unwrap();
+        let mut chan = stereo_channel();
         let (audio, events) = run_collecting(
             &mut chan,
             &transmission(&station(), 3.5, Some(1_000.0), RATE),

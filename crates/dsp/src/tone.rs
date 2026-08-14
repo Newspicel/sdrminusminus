@@ -1,4 +1,4 @@
-//! Tone and envelope detection (PLAN §7): the single-bin detectors behind AFSK/CTCSS/Selcall,
+//! Tone and envelope detection (): the single-bin detectors behind AFSK/CTCSS/Selcall,
 //! plus the envelope follower and adaptive keying slicer a CW decoder runs on. All state is
 //! per-sample and allocation-free — safe on the DSP thread.
 

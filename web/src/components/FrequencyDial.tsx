@@ -1,4 +1,4 @@
-// The tuning dial (DESIGN.md §9) — the signature control of the UI. Every digit is its own
+// The tuning dial () — the signature control of the UI. Every digit is its own
 // target: scroll it, arrow it, or type over it. The arithmetic lives in `dial.ts`;
 // this routes events and draws the place-value grouping.
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -19,7 +19,7 @@ export const DIAL_ID = "frequency-dial";
 /**
  * The dial sizes off the node, never off the viewport: the operator resizes the node, so the
  * digits follow the `@container` the face puts around them (CANVAS §6 — the dial is the face of
- * every device node, at whatever size that node has been given). Every step is on DESIGN.md §3's
+ * every device node, at whatever size that node has been given). Every step is on 's
  * scale.
  */
 const DIGIT_SIZE =
@@ -37,7 +37,7 @@ export function FrequencyDial({
   range: Range;
   onTune: (hz: number) => void;
   /** Something else owns the tuning: a running scanner drives the radio and the server refuses a
-   * client retune while it does (PLAN §18). The readout stays live; only the controls go. */
+   * client retune while it does (). The readout stays live; only the controls go. */
   disabled?: boolean;
   /** Whether a wheel over a digit tunes it. False while the dial's node is not the active face:
    * the camera owns the wheel there, and one notch must not tune the radio *and* pan the patch. */
@@ -157,7 +157,7 @@ export function FrequencyDial({
 /** Groups are drawn by the separators between digits, not by wrapper elements: a boundary that
  * is a margin cannot be clicked by mistake, and the digits stay one flat row for the arrows.
  *
- * Each digit is split across its own height (DESIGN.md §9): the upper half steps that decade up,
+ * Each digit is split across its own height (): the upper half steps that decade up,
  * the lower half down. The armed half is tinted and takes a directional cursor *before* the
  * press, because a control that retunes the radio has to say which way it is about to go. */
 function Digit({

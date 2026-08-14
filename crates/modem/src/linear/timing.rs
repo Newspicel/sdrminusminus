@@ -27,7 +27,7 @@
 //!
 //! **Blocks, not streams.** The estimate needs the burst before it can place the first symbol, so
 //! this tier is a block API by nature — which is exactly the burst/packet processing shape
-//! MODEM-PLAN §3.3 says lives behind the streaming channel interface, as ADS-B already does.
+//!  §3.3 says lives behind the streaming channel interface, as ADS-B already does.
 
 use num_complex::Complex;
 use sdrmm_dsp::{Decimator, farrow};

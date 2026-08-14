@@ -1,4 +1,4 @@
-//! M-PPM (MODEM-PLAN §3.1 `ppm/`): a symbol is *when* the transmitter radiated, so the whole
+//! M-PPM ( §3.1 `ppm/`): a symbol is *when* the transmitter radiated, so the whole
 //! engine is a comparison between M slots — and everything hard about it is the boundary
 //! between them.
 //!

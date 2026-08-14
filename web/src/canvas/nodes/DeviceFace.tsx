@@ -1,6 +1,6 @@
 // The device node. The tuning dial is the signature element of the whole UI and it is the face of
 // every device node; everything else the radio has is drawn from `Capabilities` alone, so a new
-// device setting still needs zero frontend work (PLAN §6).
+// device setting still needs zero frontend work ().
 //
 // Three states, each first-class (CANVAS §3): no radio named yet, and the node *is* the "open a
 // radio" invitation; named and attached, and it is the instrument; named and absent, and it is
@@ -8,7 +8,7 @@
 // is plugged in.
 //
 // Its left side is what is done *to* the radio — a scanner's control wire, and the transmit input
-// PLAN §12a reserves — while everything it produces leaves on the right.
+//  reserves — while everything it produces leaves on the right.
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BTN, BTN_QUIET, CHIP, LABEL } from "../../components/controls";
 import { isTunable, tuningRange } from "../../components/dial";
@@ -30,6 +30,7 @@ import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { deviceRefOf, refMatches, unboundChannels } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode, rxStreamCount, streamLabel } from "../graph";
+import { releaseRadio } from "../remove";
 import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
 
 /** An id has to be unique in the document. Stream 0's dial keeps the bare id — it is the one the
@@ -120,7 +121,7 @@ function Tuner({ node, set, scanning }: { node: string; set: DeviceSet; scanning
 }
 
 /** A running scan drives the tuning itself, and the server refuses ours while it does
- * (PLAN §18). A faulted scan has already stopped, so the dial comes back with it. */
+ * (). A faulted scan has already stopped, so the dial comes back with it. */
 export function scannerOwnsTuning(set: DeviceSet): boolean {
   return set.scanner != null && set.scanner.error == null;
 }
@@ -152,6 +153,16 @@ export function DeviceFace({ node }: { node: PatchNode }) {
         stored.kind === "device" ? { ...stored, data: { device: chosen } } : stored,
       ),
     }));
+
+  // Letting go of a radio closes it: leaving it open would keep the USB device claimed — no
+  // other app, and no other node, can have it — with nothing on the canvas pointing at it. The
+  // node and its wires stay, and this node's device settings are stored, so naming a radio here
+  // again reopens it exactly as it was.
+  const forget = useMutation({
+    mutationFn: () => releaseRadio(workspace, node.id, () => nameRadio(null)),
+    onError: (error: Error) => pushToast(error.message),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
+  });
 
   const bind = (device: DeviceInfo): void => {
     const chosen = deviceRefOf(device);
@@ -216,7 +227,8 @@ export function DeviceFace({ node }: { node: PatchNode }) {
               type="button"
               className={`${BTN} self-start`}
               title="Unbind this node so it can name another radio"
-              onClick={() => nameRadio(null)}
+              onClick={() => forget.mutate()}
+              disabled={forget.isPending}
             >
               Forget this radio
             </button>
@@ -283,10 +295,11 @@ export function DeviceFace({ node }: { node: PatchNode }) {
             <button
               type="button"
               className={BTN_QUIET}
-              title="Unbind this node; the radio stays open and the wires stay drawn"
-              onClick={() => nameRadio(null)}
+              title="Close this radio and unbind the node — the USB device is released and the wires stay drawn"
+              onClick={() => forget.mutate()}
+              disabled={forget.isPending}
             >
-              Forget radio
+              {forget.isPending ? "Closing…" : "Forget radio"}
             </button>
           </div>
         </div>

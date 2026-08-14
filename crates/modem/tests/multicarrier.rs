@@ -1,4 +1,4 @@
-//! §5 measurement bundle for the four multicarrier entries (MODEM-PLAN §7 phase 9): committed BER
+//! §5 measurement bundle for the four multicarrier entries ( §7 phase 9): committed BER
 //! curves for GFDM on both receivers, UFMC, FBMC/OQAM and OTFS; the §4.3 limits tables; and the
 //! level-1 E2E loopbacks.
 //!

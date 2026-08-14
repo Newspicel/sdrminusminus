@@ -1,4 +1,4 @@
-//! Direct-sequence spread spectrum (MODEM-PLAN §3.1 `spread/`, §6 frameworks table): one
+//! Direct-sequence spread spectrum ( §3.1 `spread/`, §6 frameworks table): one
 //! constellation point per PN period, recovered by correlating the period back.
 //!
 //! **A framework, not a mapper** (§3.3). Nothing here knows what a BPSK point is: the modulator

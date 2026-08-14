@@ -77,7 +77,7 @@ function wireScope(inputs: readonly Input[]): WireScope {
   };
 }
 
-/** Client-side mixing (PLAN §9): the server ships one stream per channel and the browser adds
+/** Client-side mixing (): the server ships one stream per channel and the browser adds
  * them up, so N listeners on one channel still cost one encode. */
 export function SpeakerFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "audio");
@@ -138,6 +138,28 @@ function AudioInput({ input }: { input: Input }) {
         <button type="button" className={BTN} onClick={audio.resumeOutput}>
           Audio is suspended — click to resume
         </button>
+      )}
+      {(audio.lostFrames > 0 || audio.underruns > 0) && (
+        <span className="flex flex-wrap gap-1">
+          {audio.lostFrames > 0 && (
+            <span
+              className={CHIP}
+              title="Audio that never reached the browser — dropped at the radio, the encoder or the link. Check the radio's overruns and the server, not this machine."
+            >
+              <span className="legend">Dropped</span>
+              {(audio.lostFrames / 48).toFixed(0)} ms
+            </span>
+          )}
+          {audio.underruns > 0 && (
+            <span
+              className={CHIP}
+              title="Audio arrived but playback ran dry before it could be played — this machine's scheduling or a clock the buffer could not track. The buffer holds more after each one."
+            >
+              <span className="legend">Stalls</span>
+              {audio.underruns}
+            </span>
+          )}
+        </span>
       )}
       {audio.error !== null && (
         <p role="alert" className="text-xs text-danger">
@@ -252,7 +274,7 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
   );
 }
 
-/** The raster a video channel scans out (PLAN §13). A subscription, not a filter: `VideoView`
+/** The raster a video channel scans out (). A subscription, not a filter: `VideoView`
  * asks the hub for one channel's pictures, so a node wired to two channels draws two. */
 export function VideoFace({ node }: { node: PatchNode }) {
   const inputs = useInputs(node.id, "video");
@@ -337,7 +359,7 @@ export function ExportFace({ node }: { node: PatchNode }) {
   );
 }
 
-/** The device-level SigMF recorder (PLAN §5), drawn as the sink it is. */
+/** The device-level SigMF recorder (), drawn as the sink it is. */
 export function RecorderFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
   const set = deviceSetOf(workspace, node.id);
@@ -435,7 +457,7 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
 /**
  * The scanner owns a radio's tuning while it runs, so its wire runs *into* the radio: the edge is
  * the ownership, which is the only way to see at a glance which radio a running sweep has taken
- * over — and client retunes on that radio are refused while it does (PLAN §18), which the face
+ * over — and client retunes on that radio are refused while it does (), which the face
  * says in words. It consumes nothing; the sweep reads the device set the engine already gave it.
  */
 export function ScannerFace({ node }: { node: PatchNode }) {

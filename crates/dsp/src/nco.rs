@@ -1,4 +1,4 @@
-//! Numerically-controlled oscillator / complex mixer (PLAN §7). The DDC front-end shifts a
+//! Numerically-controlled oscillator / complex mixer (). The DDC front-end shifts a
 //! channel to baseband by multiplying IQ with a rotating phasor; the same primitive drives
 //! test-signal generation. No allocation in `mix_into` — safe for the hot path.
 

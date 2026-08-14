@@ -1,4 +1,4 @@
-//! Environment diagnostics (PLAN §15: `sdrmm --doctor` prints what's found — Soapy modules,
+//! Environment diagnostics (: `sdrmm --doctor` prints what's found — Soapy modules,
 //! USB permissions, udev hints). The report is a wire type, not console text, so the CLI and
 //! the web UI render one source of truth.
 

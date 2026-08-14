@@ -144,7 +144,7 @@ describe("clampOffsetHz", () => {
 });
 
 describe("rateMismatch", () => {
-  // ADS-B reads the radio's own samples, so it names a range rather than one rate (PLAN §18).
+  // ADS-B reads the radio's own samples, so it names a range rather than one rate ().
   const adsb = descriptor({
     type_id: "adsb",
     name: "ADS-B",

@@ -3,7 +3,8 @@
 
 use sdrmm_device::{DeviceError, check_stream_settings};
 use sdrmm_wire::{
-    Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, Range, StreamScope,
+    ArgumentOption, Capabilities, DeviceSettings, Duplex, ExtraSetting, ExtraValue, Range,
+    StreamScope,
 };
 
 use crate::spyserver::proto::{ClientSync, DeviceInfo, IqFormat, Setting, ordered};
@@ -87,7 +88,10 @@ pub(crate) fn capabilities(
     if formats.len() > 1 {
         extra.push(ExtraSetting::Enum {
             name: IQ_FORMAT.to_string(),
-            options: formats.iter().map(|f| f.name().to_string()).collect(),
+            options: formats
+                .iter()
+                .map(|f| ArgumentOption::plain(f.name()))
+                .collect(),
             default: IqFormat::default().name().to_string(),
         });
     }

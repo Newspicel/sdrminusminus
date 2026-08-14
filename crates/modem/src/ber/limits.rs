@@ -1,4 +1,4 @@
-//! The resistance runner (MODEM-PLAN §4.3): *where an entry fails, measured*. For every
+//! The resistance runner ( §4.3): *where an entry fails, measured*. For every
 //! impairment axis the runner binary-searches the largest level the entry survives while held
 //! at a fixed operating point — its measured 1e-3 sensitivity plus [`SENSITIVITY_MARGIN_DB`] —
 //! and commits the result as the entry's limits table: robustness as numbers, not adjectives.

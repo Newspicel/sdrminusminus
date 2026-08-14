@@ -1,4 +1,4 @@
-//! The docs-row rule (MODEM-PLAN §5 item 8): `crates/modem/CATALOG.md` and the committed
+//! The docs-row rule ( §5 item 8): `crates/modem/CATALOG.md` and the committed
 //! measurement artifacts must move together, so the gate checks them against each other in
 //! both directions. An artifact no catalog row names is a measurement nobody can find — it
 //! stops gating anything the moment it is forgotten; a catalog path with no file behind it is
@@ -30,7 +30,7 @@ pub fn check(root: &Path) -> Result<()> {
             ensure!(
                 catalog.contains(name),
                 "{} is committed but {CATALOG} never names it. Every baseline artifact needs \
-                 its catalog row (MODEM-PLAN §5 item 8) — add the row, or delete the artifact \
+                 its catalog row ( §5 item 8) — add the row, or delete the artifact \
                  if the measurement is gone.",
                 rel.display()
             );

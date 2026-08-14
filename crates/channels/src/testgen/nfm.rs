@@ -1,4 +1,4 @@
-//! Subaudible-signalling reference modulator (PLAN §14): the CTCSS tone or DCS word a
+//! Subaudible-signalling reference modulator (): the CTCSS tone or DCS word a
 //! repeater keys under the voice, as the modulating waveform an FM transmitter carries.
 //!
 //! Deviations are expressed as a fraction of the channel's own full deviation, which is what

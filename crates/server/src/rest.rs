@@ -1,4 +1,4 @@
-//! REST handlers (PLAN §5). Each is a `#[utoipa::path]` so the OpenAPI — and therefore the
+//! REST handlers (). Each is a `#[utoipa::path]` so the OpenAPI — and therefore the
 //! generated TypeScript client — is produced from these signatures, never hand-written.
 
 use axum::{
@@ -37,7 +37,7 @@ use crate::{
     workspace,
 };
 
-/// Typed REST error → `(status, ApiError)` (PLAN §5). Declaring these in each path's responses
+/// Typed REST error → `(status, ApiError)` (). Declaring these in each path's responses
 /// is what gives the generated client a typed `error` branch.
 #[derive(Debug)]
 pub(crate) struct AppError {
@@ -924,7 +924,7 @@ async fn delete_recording(
         let name = store.recording_stem(id)?;
         // Files before row: if removal fails the recording stays listed and the delete can
         // be retried. A set replaying the pair faults via the probe-vanish path — accepted,
-        // honest (PLAN §16 M2 hotplug contract).
+        // honest ( M2 hotplug contract).
         if let Some(dir) = engine.recordings_dir() {
             let stem = dir.join(&name);
             for path in [meta_path(&stem), data_path(&stem)] {
@@ -1084,7 +1084,7 @@ pub(crate) fn lock_gate(gate: &std::sync::Mutex<()>) -> std::sync::MutexGuard<'_
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Disk → index reconciliation (PLAN §11: the files are the source of truth, the database is
+/// Disk → index reconciliation (: the files are the source of truth, the database is
 /// an index): upsert a row per finalized pair, prune rows whose pair vanished. Pairs that
 /// cannot be read (foreign datatype, torn meta, no sample rate) are skipped — and therefore
 /// delisted — since they cannot be played either. Callers hold the recordings gate.
@@ -1342,7 +1342,7 @@ fn apply_template_patch(
 /// `saved` is where those nodes were last tuned ([`crate::workspace`]). A radio this apply *opens*
 /// is handed its settings back before its channels are added, and a channel node is created with
 /// the offset, squelch and params it last had rather than its type's defaults — which is the
-/// difference between a workspace that survives a restart and one that comes back neutral (PLAN §7).
+/// difference between a workspace that survives a restart and one that comes back neutral ().
 fn bring_up(
     engine: &sdrmm_engine::Engine,
     snapshot: &WorkspaceSnapshot,
@@ -1387,7 +1387,7 @@ fn bring_up(
                 Ok(id) => {
                     report.opened += 1;
                     // Before any channel is added, because the saved sample rate is what decides
-                    // whether the wideband channels below are even legal (PLAN §21).
+                    // whether the wideband channels below are even legal ().
                     if let Err(reason) = workspace::restore_device(engine, id, &node.id, saved) {
                         report.refused.push(PatchRefusal {
                             node: node.id.clone(),
@@ -1446,7 +1446,7 @@ fn bring_up(
                 });
                 continue;
             };
-            // A refusal here is normally the wideband rule (PLAN §18: ADS-B needs the device at
+            // A refusal here is normally the wideband rule (: ADS-B needs the device at
             // exactly 2 Msps) or a wire naming a stream this radio does not have (a workspace
             // drawn against a 4-stream radio, reopened on fewer) — both true statements about
             // the workspace that belong in front of the operator, never a silent move to
@@ -1854,7 +1854,7 @@ async fn get_license_text(Path(id): Path<String>) -> Result<Json<LicenseTextResp
 }
 
 /// OpenAPI metadata plus the schemas no path references — the WS message enums and the stored
-/// preset blob — which must be force-registered as components (PLAN §4) to appear in the
+/// preset blob — which must be force-registered as components () to appear in the
 /// generated TypeScript.
 #[derive(OpenApi)]
 #[openapi(
@@ -1874,7 +1874,7 @@ async fn get_license_text(Path(id): Path<String>) -> Result<Json<LicenseTextResp
 struct ApiDoc;
 
 /// The REST surface as a utoipa-axum router; `split_for_parts` yields the axum `Router` and the
-/// merged `OpenApi` (PLAN §4: same service layer feeds REST and the spec).
+/// merged `OpenApi` (: same service layer feeds REST and the spec).
 pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(get_state))

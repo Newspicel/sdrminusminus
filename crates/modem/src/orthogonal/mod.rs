@@ -1,4 +1,4 @@
-//! Noncoherent orthogonal M-FSK (MODEM-PLAN §3.1 `orthogonal/`): M tones, one per symbol, read
+//! Noncoherent orthogonal M-FSK ( §3.1 `orthogonal/`): M tones, one per symbol, read
 //! as energies by a bank of matched filters — no carrier recovery anywhere in the chain.
 //!
 //! What separates this engine from the `cpm/` one, which also carries FSK: `cpm/` reads the

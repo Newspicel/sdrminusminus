@@ -1,5 +1,5 @@
-//! AIS reference modulator (PLAN §14): ITU-R M.1371 bursts as 9600 bit/s GMSK at complex
-//! baseband. The waveform comes from the library's own [`CpmMod`] (MODEM-PLAN §1.2: testgen
+//! AIS reference modulator (): ITU-R M.1371 bursts as 9600 bit/s GMSK at complex
+//! baseband. The waveform comes from the library's own [`CpmMod`] ( §1.2: testgen
 //! builds every demodulator's test signals from the library's modulators, so the two can
 //! never drift apart); the parameters feeding it are declared here from the spec rather than
 //! shared with the decoder, so a wrong constant cannot cancel out between the two.

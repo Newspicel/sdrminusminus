@@ -1,4 +1,4 @@
-//! §5 measurement bundle for the analog entries (MODEM-PLAN §7 phase 8): committed SINAD curves
+//! §5 measurement bundle for the analog entries ( §7 phase 8): committed SINAD curves
 //! for AM, DSB-SC, VSB, SSB, FM and PM, the §4.3 limits tables under the plan's documented
 //! analog override, and the level-1 loopbacks.
 //!

@@ -277,7 +277,7 @@ export function Canvas() {
         onPaneContextMenu={(event) => openMenu(event as React.MouseEvent, { kind: "pane" })}
         // Both keys, because both are what people press for "delete this".
         deleteKeyCode={DELETE_KEYS}
-        // Desktop-only (PLAN §18): a pointer and a keyboard are assumed.
+        // Desktop-only (): a pointer and a keyboard are assumed.
         panOnScroll
         panOnScrollSpeed={1}
         selectionOnDrag
@@ -432,7 +432,7 @@ function toFlowEdges(graph: PatchGraph, context: GraphContext): Edge[] {
     // A wire that exists but cannot carry what it says it carries is drawn as a fault on the
     // wire itself — the face at its end says what to do about it.
     const warning = edgeWarning(context, graph, edge.from, edge.to);
-    // Hue is the data type and nothing else (DESIGN.md §2), so the class comes off the port's
+    // Hue is the data type and nothing else (), so the class comes off the port's
     // *type* — a port whose name differs from what it carries would otherwise draw an uncoloured
     // wire, which is the one failure this rule cannot afford.
     const carried = portOf(context, graph, edge.from)?.port_type;

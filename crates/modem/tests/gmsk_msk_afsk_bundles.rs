@@ -1,4 +1,4 @@
-//! §5 bundles for three discriminator-tier CPM catalog rows (MODEM-PLAN §6 CPM rows 2–4):
+//! §5 bundles for three discriminator-tier CPM catalog rows ( §6 CPM rows 2–4):
 //! **GMSK/GFSK** (BT ∈ {0.3, 0.5}, h = ½), **MSK** (the LREC(1) h = ½ case), and
 //! **audio-domain AFSK** (Bell-202-like 1200/2200 Hz at 1200 baud, real-valued input through
 //! both of the engine's [`RealDetector`] options). Every chain is `cpm::CpmMod` →
@@ -951,7 +951,7 @@ fn compare_afsk_perf_baseline() {
 /// Writes the curve when its artifact is missing; asserts point-by-point reproduction when it
 /// exists (same seeds and budgets make each point a reproduction of the committed one; the
 /// ratio allowance absorbs cross-host float drift, nothing else). A superseding chain gets a
-/// NEW artifact name — committed files are never regenerated in place (MODEM-PLAN §8).
+/// NEW artifact name — committed files are never regenerated in place ( §8).
 fn remeasure_curve(link: &Link, template: &ChannelSpec, grid: &[f64], seed: u64, name: &str) {
     let curve = sweep::sweep_ber(link, template, grid, seed, FULL_ERRORS, FULL_CAP);
     for p in &curve.points {

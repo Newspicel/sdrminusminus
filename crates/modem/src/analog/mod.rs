@@ -1,4 +1,4 @@
-//! Analog modulation (MODEM-PLAN §3.1 `analog/`, §7 phase 8): the four families that carry a
+//! Analog modulation ( §3.1 `analog/`, §7 phase 8): the four families that carry a
 //! waveform rather than a symbol, and the seven detectors that read them back.
 //!
 //! **What makes an analog entry an entry.** Every other row in the catalog is judged by counting

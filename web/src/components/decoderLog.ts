@@ -1,4 +1,4 @@
-// Row model and filter plumbing for the decoder log (PLAN §11: the log is queryable and
+// Row model and filter plumbing for the decoder log (: the log is queryable and
 // exportable, not scroll-back-only). The panel renders two sources through one row shape: the
 // stored page from `GET /api/decoderlog`, and the live tail from the WS store. Everything here
 // is pure so the panel stays a rendering shell.
@@ -412,7 +412,7 @@ export function kindOptions(entries: readonly DecoderLogEntry[]): string[] {
   return [...DECODER_KINDS, ...[...extra].sort()];
 }
 
-/** Gaps are never hidden (PLAN §5): `lost` is what this browser's WS connection missed,
+/** Gaps are never hidden (): `lost` is what this browser's WS connection missed,
  * `dropped` what never reached the log server-side. `null` when nothing was lost. */
 export function droppedNotice(lost: number, dropped: number): string | null {
   if (lost <= 0 && dropped <= 0) {

@@ -1,4 +1,4 @@
-//! The one demapper (MODEM-PLAN §3.1): every linear entry — PSK, QAM, APSK, PAM, and every
+//! The one demapper ( §3.1): every linear entry — PSK, QAM, APSK, PAM, and every
 //! exotic table phase 4 adds — turns received points into per-bit LLRs through exactly this
 //! code, and the orthogonal M-FSK entry does the same through the energy path. A second
 //! demapper anywhere in the crate is a defect by §3.3.
@@ -97,7 +97,7 @@ pub fn exact_llrs(y: Complex<f32>, c: &Constellation, noise_var: f64, out: &mut 
     }
 }
 
-/// Max-log LLRs from tone energies — the noncoherent M-FSK demapper (MODEM-PLAN §7 phase 1).
+/// Max-log LLRs from tone energies — the noncoherent M-FSK demapper ( §7 phase 1).
 /// `energies[m]` is the filterbank output power of tone `m`, and the tone index *is* the bit
 /// label (natural binary, bit k = `(m >> k) & 1`); a standard whose tone numbering is Gray or
 /// otherwise permuted reorders its energies before this call — the permutation is that

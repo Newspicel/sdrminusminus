@@ -1,4 +1,4 @@
-//! UFMC — universal filtered multicarrier (MODEM-PLAN §3.1 `multicarrier/`, §7 phase 9).
+//! UFMC — universal filtered multicarrier ( §3.1 `multicarrier/`, §7 phase 9).
 //!
 //! **OFDM with the prefix replaced by a filter, applied per *subband* rather than per band.** A
 //! CP-OFDM symbol is a rectangle in time, so its spectrum is a sinc and its out-of-band leakage

@@ -1,4 +1,4 @@
-//! ACARS reference modulator (PLAN §14): an ARINC 618 block → odd-parity characters and a
+//! ACARS reference modulator (): an ARINC 618 block → odd-parity characters and a
 //! CRC-16 → MSK at 2400 bit/s → amplitude modulation onto a carrier at complex baseband.
 //!
 //! The field layout is written out here from the standard rather than shared with the decoder:

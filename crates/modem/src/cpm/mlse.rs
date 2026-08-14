@@ -1,4 +1,4 @@
-//! The sequence-detection tier (MODEM-PLAN §3.1 `cpm/`, §7 phase-3 follow-on): the detector
+//! The sequence-detection tier ( §3.1 `cpm/`, §7 phase-3 follow-on): the detector
 //! that reads a *partial-response* entry the way the discriminator tier cannot, by deciding a
 //! symbol from the whole span of observations its pulse touches instead of from the one sample
 //! its peak lands on.
@@ -31,7 +31,7 @@
 //! matched to the whole shape of it. An entry running this tier wants a disciplined clock, and
 //! now has the number that says how disciplined.
 //!
-//! **The trellis is over the correlative state, not the phase state.** MODEM-PLAN §3.1 names
+//! **The trellis is over the correlative state, not the phase state.**  §3.1 names
 //! "MLSE over the phase trellis"; that is the *coherent* reading, and it needs an absolute
 //! carrier phase reference this crate does not have yet — carrier recovery (Costas/FLL/
 //! decision-directed/pilot) is phase 4's `linear/` work, and no detector may merge ahead of the

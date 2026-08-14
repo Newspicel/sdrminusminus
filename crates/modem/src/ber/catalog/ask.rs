@@ -1,4 +1,4 @@
-//! The amplitude catalog entry (MODEM-PLAN §6, linear row 1): M-PAM, unipolar M-ASK and OOK, on
+//! The amplitude catalog entry ( §6, linear row 1): M-PAM, unipolar M-ASK and OOK, on
 //! both the coherent and the noncoherent envelope tier.
 //!
 //! **Three tables, not one, because they are three different modulations.** [`pam`] is bipolar —

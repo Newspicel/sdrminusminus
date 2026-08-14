@@ -1,8 +1,8 @@
-// App shell (PLAN §10, CANVAS §1). Owns the WebSocket, turns `StateChanged` events into
+// App shell (, CANVAS §1). Owns the WebSocket, turns `StateChanged` events into
 // TanStack Query invalidations (the only invalidation path — no polling), and frames the
 // workspace in one row of chrome above the patch or the rack.
 //
-// There is no device bar and no tab bar any more: identity is spatial (PLAN §18). Which radio
+// There is no device bar and no tab bar any more: identity is spatial (). Which radio
 // you are operating is the node you are looking at, and the wires leaving it.
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
@@ -81,11 +81,11 @@ export function App() {
       }
       up = now;
     };
-    // Decoder frames bypass TanStack Query entirely (PLAN §5): under ADS-B traffic they arrive
+    // Decoder frames bypass TanStack Query entirely (): under ADS-B traffic they arrive
     // hundreds a second, so they go straight into the batched store. The action identity is
     // stable, so this listener never needs re-registering.
     s.addEventListener(useDecodedStore.getState().observe);
-    // Scanner progress is its own high-rate event for the same reason (PLAN §13).
+    // Scanner progress is its own high-rate event for the same reason ().
     s.addEventListener(useScannerStore.getState().observe);
     // Spectrum and video are refcounted — per device set and per channel — so several faces
     // watching the same thing share one stream instead of replacing each other's.
@@ -167,6 +167,25 @@ export function App() {
 
   const devices = useMemo(() => bindDevices(graph, deviceSets), [graph, deviceSets]);
   const channels = useMemo(() => bindChannels(graph, devices), [graph, devices]);
+
+  // Every channel a node on the canvas can still reach. Audio outlives the face that started it
+  // on purpose (a remount must not cut it), so this is what draws the other line: a channel whose
+  // radio is no longer named by any node has no face left to stop it, and playing on would be
+  // sound the operator cannot turn off — with the server still encoding it.
+  const reachable = useMemo(
+    () =>
+      [...devices.values()].flatMap((set) =>
+        set.channels.map((channel) => ({ deviceSet: set.id, channel: channel.id })),
+      ),
+    [devices],
+  );
+  useEffect(() => {
+    // Before the first state answer there is nothing authoritative to reconcile against, and an
+    // empty list would read as "everything is gone".
+    if (state.data !== undefined) {
+      audioEngine.retain(reachable);
+    }
+  }, [reachable, state.data]);
 
   const context = useMemo(
     () => ({
@@ -309,24 +328,20 @@ export function App() {
               apply: workspace.apply,
             }}
           >
-            <WorkspaceBar
-              view={view}
-              onView={setView}
-              workspaces={workspace.workspaces}
-              activeWorkspace={workspace.active?.id ?? null}
-              onActivate={workspace.activate}
-              onCreate={workspace.create}
-              onRemove={workspace.remove}
-              onShowShortcuts={() => setShowShortcuts(true)}
-              onShowAbout={() => setShowAbout(true)}
-            />
-            {view === "patch" ? (
-              <ReactFlowProvider>
-                <Canvas />
-              </ReactFlowProvider>
-            ) : (
-              <Rack />
-            )}
+            <ReactFlowProvider>
+              <WorkspaceBar
+                view={view}
+                onView={setView}
+                workspaces={workspace.workspaces}
+                activeWorkspace={workspace.active?.id ?? null}
+                onActivate={workspace.activate}
+                onCreate={workspace.create}
+                onRemove={workspace.remove}
+                onShowShortcuts={() => setShowShortcuts(true)}
+                onShowAbout={() => setShowAbout(true)}
+              />
+              {view === "patch" ? <Canvas /> : <Rack />}
+            </ReactFlowProvider>
           </WorkspaceProvider>
         )}
 
@@ -352,7 +367,7 @@ export function App() {
   );
 }
 
-// PLAN §5: each `StateChanged` scope maps to exactly the query keys it invalidates.
+// : each `StateChanged` scope maps to exactly the query keys it invalidates.
 function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
   switch (scope.scope) {
     case "all":

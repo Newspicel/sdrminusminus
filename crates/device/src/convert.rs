@@ -1,5 +1,5 @@
 //! Device-edge sample conversion: interleaved 8-bit IQ to the one `cf32` format the rest of the
-//! pipeline speaks (PLAN §7).
+//! pipeline speaks ().
 //!
 //! Every 8-bit SDR needs the same two things — a 256-entry lookup instead of a per-sample
 //! convert-and-divide on a path that runs at twice the sample rate, and a carry byte so a block

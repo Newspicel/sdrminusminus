@@ -1,5 +1,5 @@
 //! Downloadable forms of a finalized recording. An export never rewrites what is on disk
-//! (PLAN §11: the files are the source of truth) — it frames them. Both containers are a
+//! (: the files are the source of truth) — it frames them. Both containers are a
 //! generated header followed by `.sigmf-data` copied verbatim, so exporting a multi-gigabyte
 //! pair costs no transcode and no memory: [`Export`] yields its blocks on demand and knows
 //! its exact length before the first one, which is what lets a caller commit to a

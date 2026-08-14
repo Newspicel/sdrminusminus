@@ -1,4 +1,4 @@
-// Preset save/apply/delete (PLAN §11). The list is WS-invalidated (scope "presets");
+// Preset save/apply/delete (). The list is WS-invalidated (scope "presets");
 // rejections surface inline like the device PATCH banner.
 //
 // A preset is the whole workspace, not one radio (`PresetSnapshot`): saving takes every radio the

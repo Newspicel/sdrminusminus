@@ -1,7 +1,7 @@
 //! D-Star reference transmitter: GMSK voice frames whose slow-data channel repeats the header,
 //! which is the path a receiver joining a call in progress actually reads.
 //!
-//! The waveform comes from the library's own [`CpmMod`] (MODEM-PLAN §1.2), with the shaping
+//! The waveform comes from the library's own [`CpmMod`] ( §1.2), with the shaping
 //! parameters declared here from the spec rather than shared with the decoder, so a wrong
 //! constant cannot cancel out between the two.
 

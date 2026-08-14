@@ -1,5 +1,5 @@
 //! The SpyServer client backend: an Airspy, Airspy HF+ or RTL-SDR published over Airspy's
-//! SpyServer protocol (PLAN §6).
+//! SpyServer protocol ().
 //!
 //! Layers, in dependency order:
 //!

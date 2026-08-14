@@ -1,4 +1,4 @@
-//! CP-OFDM and DMT (MODEM-PLAN §3.1 `ofdm/`, §7 phase 6): the framework that turns a
+//! CP-OFDM and DMT ( §3.1 `ofdm/`, §7 phase 6): the framework that turns a
 //! frequency-selective channel into a bank of flat ones, so that every constellation the linear
 //! engine already measures can be carried over a channel none of them survive alone.
 //!

@@ -1,4 +1,4 @@
-//! The quadrature-amplitude catalog entries (MODEM-PLAN §6, linear rows 6–10): square QAM from
+//! The quadrature-amplitude catalog entries ( §6, linear rows 6–10): square QAM from
 //! 16 to 1024, cross-QAM 32 and 128, star-QAM, DVB-T hierarchical QAM and DVB-S2 APSK.
 //!
 //! **These five rows are the same code.** That is not a remark, it is the acceptance: §3.3 says a

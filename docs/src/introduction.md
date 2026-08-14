@@ -29,6 +29,6 @@ wrappers over `server`.
 ## Reference
 
 - **API**: `/api/docs` on any running server — Swagger UI over the generated OpenAPI document.
-- **Architecture and design principles**: [`DESIGN.md`](https://github.com/Newspicel/sdrminusminus/blob/main/DESIGN.md)
+- **Architecture and design principles**: [``](https://github.com/Newspicel/sdrminusminus/blob/main/)
   in the repository.
-- **Feature list**: [`FEATURES.md`](https://github.com/Newspicel/sdrminusminus/blob/main/FEATURES.md).
+- **Feature list**: [`implemented behavior`](https://github.com/Newspicel/sdrminusminus/blob/main/implemented behavior).

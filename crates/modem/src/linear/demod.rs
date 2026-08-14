@@ -12,7 +12,7 @@
 //!   makes it exact instead of a fractional-delay filter with a passband of its own. Filtering is
 //!   linear, so doing it before the matched filter or after is the same signal; before is where
 //!   the delay line is one rail wide.
-//! - *Timing* is `sdrmm_dsp::SymbolSync` — the one timing stack in the workspace (MODEM-PLAN
+//! - *Timing* is `sdrmm_dsp::SymbolSync` — the one timing stack in the workspace (
 //!   §3.2). This module schedules it and never reimplements it.
 //! - *Blind power normalisation* puts the symbol stream at unit mean power, which is the
 //!   constellation's own scale. It is what makes a decision-directed carrier loop and a QAM

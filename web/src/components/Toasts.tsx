@@ -1,4 +1,4 @@
-// The error surface (DESIGN.md §7). Bottom-right, dismissible, and long-lived enough to read:
+// The error surface (). Bottom-right, dismissible, and long-lived enough to read:
 // a failure the operator missed is a silent failure.
 import { Toast } from "@base-ui/react/toast";
 import { type ToastData, toastManager } from "../lib/toasts";
@@ -16,7 +16,7 @@ export function Toasts() {
   return (
     <Toast.Provider toastManager={toastManager} timeout={LIFETIME_MS} limit={STACK_LIMIT}>
       <Toast.Portal>
-        {/* A flat column, not Base UI's stack: steady state is zero motion (DESIGN.md §11), and a
+        {/* A flat column, not Base UI's stack: steady state is zero motion (), and a
             card the operator has to hover to read is a card they will not read. */}
         <Toast.Viewport className="fixed right-3 bottom-3 z-50 flex w-80 max-w-[calc(100vw-1.5rem)] flex-col gap-2">
           <ToastList />

@@ -1,4 +1,4 @@
-//! RDS reference modulator (PLAN §14): the group sequence a station transmits, the shaped
+//! RDS reference modulator (): the group sequence a station transmits, the shaped
 //! 57 kHz DBPSK subcarrier it rides on, and the FM composite / transmission around it.
 //!
 //! Physical layer per EN 50067 (IEC 62106) §1.2 — 1187.5 bit/s differentially encoded biphase

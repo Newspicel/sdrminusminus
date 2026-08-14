@@ -1,4 +1,4 @@
-//! Per-device-set runtime (PLAN §7): one [`Lane`] per receive stream — the capture thread
+//! Per-device-set runtime (): one [`Lane`] per receive stream — the capture thread
 //! pushes that stream's IQ into an SPSC ring; a DSP thread drains it, runs the spectrum tap
 //! and the hosted channels, and broadcasts snapshots plus per-channel PCM. No locks and no
 //! steady-state allocation on the DSP hot path beyond the one documented per-block snapshot
@@ -35,9 +35,9 @@ use crate::{
     video::VideoPacket,
 };
 
-/// FFT size for the spectrum tap (PLAN §9: 1k–64k configurable; M0 fixes one size).
+/// FFT size for the spectrum tap (: 1k–64k configurable; M0 fixes one size).
 const FFT_SIZE: usize = 4096;
-/// Internal spectrum cadence; per-client fps throttling happens downstream (PLAN §9).
+/// Internal spectrum cadence; per-client fps throttling happens downstream ().
 const TARGET_FPS: f64 = 30.0;
 /// Ring depth in samples (~0.5 s at 2.4 Msps) — absorbs scheduling jitter before overrun.
 pub(crate) const RING_CAPACITY: usize = 1 << 20;
@@ -49,11 +49,11 @@ const SQUELCH_HYSTERESIS_DB: f32 = 6.0;
 const SQUELCH_HOLD_S: f32 = 0.1;
 
 /// One computed spectrum, broadcast to all subscribers of a device set. `db` is the full
-/// DC-centered FFT; each subscriber decimates/quantizes to its own bin count (PLAN §9).
+/// DC-centered FFT; each subscriber decimates/quantizes to its own bin count ().
 #[derive(Clone, Debug)]
 pub struct SpectrumSnapshot {
     pub seq: u32,
-    /// Sample count since capture start (PLAN §5 timestamp).
+    /// Sample count since capture start ( timestamp).
     pub timestamp: u64,
     pub center_hz: f64,
     pub span_hz: f32,
@@ -79,7 +79,7 @@ pub(crate) struct RawDecoded {
 
 /// The DSP plane's outlet for decoder frames. The queue is bounded, so a stalled control
 /// plane costs frames rather than blocking the DSP thread — and every loss is counted and
-/// surfaced (PLAN §5: bounded queue, never silent loss).
+/// surfaced (: bounded queue, never silent loss).
 #[derive(Clone)]
 pub(crate) struct DecodedSink {
     tx: mpsc::SyncSender<RawDecoded>,
@@ -272,7 +272,7 @@ impl ChannelHost {
             self.rx.process(&self.filtered, &mut self.outputs);
             self.publish_frames(center_hz, video_pos);
             if !self.outputs.audio_pcm.is_empty() {
-                // Deliberate bounded deviation from PLAN §7's "no allocation/locks" letter:
+                // Deliberate bounded deviation from  "no allocation/locks" letter:
                 // handing PCM to the encoder costs one Arc copy plus a tokio broadcast send
                 // (short internal critical section, bounded channel, no syscalls) per
                 // ~25 ms block, and no other thread ever holds that lock across blocking
@@ -328,7 +328,7 @@ impl ChannelHost {
     fn publish_frames(&mut self, center_hz: f64, video_pos: u64) {
         // Decoder frames are rare (a handful per second even under ADS-B traffic) and a picture
         // is one `Arc` fifty times a second, so draining owned output here costs the same
-        // bounded, documented deviation from PLAN §7's no-allocation letter as the PCM hand-off.
+        // bounded, documented deviation from  no-allocation letter as the PCM hand-off.
         if !self.outputs.events.is_empty() {
             let freq_hz = center_hz + self.offset_hz;
             for event in self.outputs.events.drain(..) {
@@ -378,7 +378,7 @@ impl ChannelHost {
     }
 }
 
-/// Control-plane → DSP-thread channel operations (PLAN §7: settings via command queue,
+/// Control-plane → DSP-thread channel operations (: settings via command queue,
 /// applied between blocks). Handling MAY allocate — these are rare control events.
 pub(crate) enum DspCommand {
     AddChannel {
@@ -425,7 +425,7 @@ struct Lane {
 pub struct CaptureRuntime {
     /// Taken by [`CaptureRuntime::stop`] so the device is *dropped* there, not merely told to
     /// stop streaming. A USB backend holds its interface claim for as long as the handle
-    /// lives, and auto-reconnect (PLAN §16 M5) re-opens the very same radio — leaving the
+    /// lives, and auto-reconnect ( M5) re-opens the very same radio — leaving the
     /// dead set's handle alive would make every replug recovery fail with "busy".
     device: Option<Box<dyn SdrDevice>>,
     /// Index is the stream: lane k drains the sink that was `sinks[k]` in `rx_start`.
@@ -448,7 +448,7 @@ impl CaptureRuntime {
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
         // A radio reporting zero rx streams still gets one lane, or its device set would
-        // have no spectrum and no channel host at all (design §10); the MAX_STREAMS ceiling
+        // have no spectrum and no channel host at all (); the MAX_STREAMS ceiling
         // bounds the thread count against a buggy backend, whose own sink-count check then
         // refuses the mismatch.
         let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
@@ -469,7 +469,7 @@ impl CaptureRuntime {
             let ov = overruns.clone();
             let fatal = fatal.clone();
             // Capture sink: lock-free write into the ring; dropped samples are counted,
-            // never silently lost (PLAN §5 backpressure, CLAUDE.md no-silent-failure).
+            // never silently lost ( backpressure, CLAUDE.md no-silent-failure).
             sinks.push(RxSink::with_fatal_handler(
                 move |samples: &[Complex<f32>]| {
                     let free = producer.slots();
@@ -623,7 +623,7 @@ impl Drop for CaptureRuntime {
     }
 }
 
-/// The DSP thread body (PLAN §7): drain commands, then drain the ring through the hosted
+/// The DSP thread body (): drain commands, then drain the ring through the hosted
 /// channels and a rolling FFT window emitting a spectrum every `hop` samples. `hop` derives
 /// from the live sample rate, so cadence stays ~`TARGET_FPS` regardless of tuning.
 fn dsp_loop(
@@ -649,7 +649,7 @@ fn dsp_loop(
     while !stop.load(Ordering::Acquire) {
         drain_commands(commands, &mut channels, &mut tap);
         // Ring overruns advance the sample clock too: `timestamp` stays aligned with real
-        // capture time across drops instead of silently compressing it (PLAN §5 sample-count
+        // capture time across drops instead of silently compressing it ( sample-count
         // timestamps; the control plane surfaces the same counter as `DeviceSet.overruns`).
         let dropped = overruns.load(Ordering::Relaxed);
         total += dropped - dropped_seen;
@@ -670,7 +670,7 @@ fn dsp_loop(
             // `total` is the stream position of `slice[0]` here — the per-sample advance
             // below runs within this same iteration. A failed push disarms the tap: the
             // fault is already in the recording's shared state, and a lossless recording
-            // must never continue with silent holes (PLAN §5).
+            // must never continue with silent holes ().
             if tap
                 .as_ref()
                 .is_some_and(|t| !t.push(slice, total, snapshot.center_hz))
@@ -750,7 +750,7 @@ fn drain_commands(
     }
 }
 
-/// The default adaptive dB window for a snapshot: `[peak - DEFAULT_DB_RANGE, peak]` (PLAN §9).
+/// The default adaptive dB window for a snapshot: `[peak - DEFAULT_DB_RANGE, peak]` ().
 #[must_use]
 pub fn adaptive_db_window(db: &[f32]) -> (f32, f32) {
     let peak = db.iter().copied().fold(f32::NEG_INFINITY, f32::max);
@@ -961,6 +961,57 @@ mod tests {
         assert_eq!(
             expected, 48_000,
             "both hosts' PCM must be stamped end to end"
+        );
+    }
+
+    /// The whole receive chain at a real radio's rate — DDC down from 2.4 MS/s, channel filter,
+    /// discriminator, audio decimation, PCM hand-off — must run far enough ahead of realtime
+    /// that the capture ring never backs up. This is the number behind "can the backend keep
+    /// up with an RTL-SDR": if it ever approaches 1x, audio gaps stop being a client problem.
+    ///
+    /// The margin is deliberately wide (measured ~20x on a laptop) so a loaded CI runner cannot
+    /// fail it for being slow — only a real regression in the signal path can. The DSP crates
+    /// are opt-level 3 in the dev profile too (see the workspace manifest), so this holds for
+    /// `cargo test` as much as for a release build.
+    #[test]
+    fn the_receive_chain_runs_well_ahead_of_realtime_at_a_radios_rate() {
+        const DEVICE_RATE: f64 = 2_400_000.0;
+        /// One SoapySDR read from an RTL-SDR: the block size the DSP thread really sees.
+        const MTU: usize = 131_072;
+        const SECONDS: f64 = 2.0;
+        const MIN_FACTOR: f64 = 3.0;
+
+        let settings = ChannelSettings {
+            offset_hz: 250_000.0,
+            squelch_db: None,
+            params: ChannelParams::Wfm(sdrmm_wire::WfmParams::default()),
+        };
+        let (pcm_tx, mut pcm_rx) = broadcast::channel::<PcmBlock>(4096);
+        let mut host = ChannelHost::build(
+            DEVICE_RATE,
+            &settings,
+            sinks(pcm_tx, Arc::new(AtomicU64::new(0))),
+            DecodedSink::null(),
+        )
+        .expect("host builds");
+        let block: Vec<Complex<f32>> = (0..MTU)
+            .map(|k| {
+                let p = TAU * 0.13 * k as f64;
+                Complex::new(p.cos() as f32 * 0.4, p.sin() as f32 * 0.4)
+            })
+            .collect();
+
+        let blocks = (DEVICE_RATE * SECONDS / MTU as f64) as usize;
+        let start = std::time::Instant::now();
+        for _ in 0..blocks {
+            host.process(&block, 100_000_000.0);
+            // Drained as the encoder thread would, so the broadcast never lags into the timing.
+            while pcm_rx.try_recv().is_ok() {}
+        }
+        let factor = SECONDS / start.elapsed().as_secs_f64();
+        assert!(
+            factor > MIN_FACTOR,
+            "wfm at {DEVICE_RATE} Sa/s ran at {factor:.1}x realtime, under the {MIN_FACTOR}x floor"
         );
     }
 }

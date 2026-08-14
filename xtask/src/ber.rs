@@ -1,5 +1,5 @@
 //! `cargo xtask ber <entry>` — run one measurement-harness entry and write its curves to disk
-//! (MODEM-PLAN §3.1: "`cargo xtask ber <entry>` → CSV/JSON").
+//! ( §3.1: "`cargo xtask ber <entry>` → CSV/JSON").
 //!
 //! The command is the local face of the harness's CI contract: the same sweeps the crate's own
 //! gate tests run, but with the curves landed as files — JSON as the committed-artifact format,
@@ -9,7 +9,7 @@
 //! measurement the crate gates on and not a second one wearing its name. Adding an entry is a
 //! line in that registry; this file does not change.
 //!
-//! Two tiers per entry, mirroring the crate's smoke/full split (MODEM-PLAN §4.4 CI policy): the
+//! Two tiers per entry, mirroring the crate's smoke/full split ( §4.4 CI policy): the
 //! default is the smoke prefix of each committed grid, `--full` the whole grid. Both run at the
 //! committed seed and budgets, so every point is a *reproduction* of its committed point rather
 //! than an independent measurement of the same quantity — which is what lets a drift be read as
@@ -53,7 +53,7 @@ pub fn run(root: &Path, entry: &str, out: Option<&Path>, full: bool) -> Result<(
     measure(root, entry, &dir, full)
 }
 
-/// The analog half of the command (MODEM-PLAN §5 item 4): the same shape as [`measure`], with a
+/// The analog half of the command ( §5 item 4): the same shape as [`measure`], with a
 /// SINAD curve against channel SNR in place of a BER curve against Eb/N0, and a figure of merit
 /// in place of an error-rate oracle. One command, because "run this catalog entry and land its
 /// curve" is one question whichever units the answer comes back in.

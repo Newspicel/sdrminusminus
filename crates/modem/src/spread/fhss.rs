@@ -1,4 +1,4 @@
-//! Frequency hopping (MODEM-PLAN §3.1 `spread/`, §6 frameworks table): the one entry in the
+//! Frequency hopping ( §3.1 `spread/`, §6 frameworks table): the one entry in the
 //! catalog that carries *another* entry.
 //!
 //! **What it is, stripped of folklore: a frequency schedule applied to somebody else's
@@ -27,7 +27,7 @@
 //! error rate is already 0.17, far past any sensible failure floor, so a hopped uncoded link fails
 //! at very nearly the jammer level that destroys those dwells at all — measured at a fraction of a
 //! dB. What recovers the other two thirds is coding and interleaving *across hops*, which is
-//! channel coding and belongs beside the FEC in `sdrmm-dsp` (MODEM-PLAN §1.1). Hopping is a
+//! channel coding and belongs beside the FEC in `sdrmm-dsp` ( §1.1). Hopping is a
 //! diversity mechanism, and diversity without a code to spend it is only a promise.
 
 use num_complex::Complex;

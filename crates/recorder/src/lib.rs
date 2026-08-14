@@ -1,8 +1,8 @@
-//! `sdrmm-recorder` — SigMF v1.2.6 IO (PLAN §3: this crate only reads and writes SigMF
+//! `sdrmm-recorder` — SigMF v1.2.6 IO (: this crate only reads and writes SigMF
 //! pairs; the recording tap lives in the engine, playback in `device-virtual`). One
 //! recording is `<stem>.sigmf-meta` + `<stem>.sigmf-data`, mono-channel `cf32_le`.
 //!
-//! Crash-safe finalize contract (PLAN §11: files on disk are the source of truth): while a
+//! Crash-safe finalize contract (: files on disk are the source of truth): while a
 //! recording streams, only a `<stem>.sigmf-meta.tmp` breadcrumb exists;
 //! [`SigmfWriter::finalize`] writes the real meta and removes the breadcrumb. Everything
 //! that lists recordings keys on the final `.sigmf-meta` (see [`scan_stems`]), so an
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// SigMF specification version written into `core:version`.
 pub const SIGMF_VERSION: &str = "1.2.6";
 /// The only datatype this build writes or reads: interleaved little-endian complex f32,
-/// matching the engine's internal sample format end-to-end (PLAN §7).
+/// matching the engine's internal sample format end-to-end ().
 pub const DATATYPE_CF32_LE: &str = "cf32_le";
 /// Bytes per `cf32_le` sample (two little-endian `f32`).
 pub const BYTES_PER_SAMPLE: u64 = 8;
@@ -700,7 +700,7 @@ mod tests {
     }
 
     /// A multi-stream radio's recording must say which stream it captured — the file is
-    /// otherwise indistinguishable from any other mono `cf32` pair (design §6b).
+    /// otherwise indistinguishable from any other mono `cf32` pair (b).
     #[test]
     fn rx_stream_is_stamped_into_the_final_meta_and_read_back() {
         let dir = TempDir::new().unwrap();

@@ -1,4 +1,4 @@
-// One WebSocket per client (PLAN §5): JSON `ServerEvent`s + binary frames in, JSON
+// One WebSocket per client (): JSON `ServerEvent`s + binary frames in, JSON
 // `ClientCommand`s out. Auto-reconnects. The app shell owns the single-handler fields
 // (`onEvent`/`onStatus`/`onAudio`); subsystems that must observe the same events without
 // stealing those use the add/remove listener methods.
@@ -194,7 +194,7 @@ export class SdrSocket {
         break;
       }
       default:
-        // Unknown kinds (e.g. future IQ_F32) are ignorable by design (PLAN §5).
+        // Unknown kinds (e.g. future IQ_F32) are ignorable by design ().
         break;
     }
   }

@@ -2,7 +2,7 @@
 // channel, hear the graph become a running workspace, pin a face and find it on the rack.
 //
 // This is the one suite that exercises the composition — canvas, faces, WebSocket, apply — that
-// the unit suite cannot reach (PLAN §14). It asserts behaviour, not markup: what an operator
+// the unit suite cannot reach (). It asserts behaviour, not markup: what an operator
 // would check after each gesture. The flow above runs first and the legs below build on the
 // workspace it leaves, which the single worker and the throwaway database below make sound.
 import { expect, type Locator, type Page, test } from "@playwright/test";
@@ -65,9 +65,7 @@ async function slots(page: Page): Promise<{ node: string; x: number; w: number }
   return detail.snapshot.rack.slots;
 }
 
-/** Bring every node into view. New nodes drop to the right of everything already drawn, which
- * after a few adds is outside the framed viewport — and a wire cannot be dragged to a handle
- * the pointer cannot reach. */
+/** Bring every node into view before wiring faces from opposite sides of a large patch. */
 async function fitPatch(page: Page): Promise<void> {
   const pane = page.locator(".react-flow__pane");
   const box = await pane.boundingBox();
@@ -131,7 +129,38 @@ test.describe("the workspace", () => {
     // A channel is added as a node, and the server's apply creates the engine channel behind it.
     await page.getByRole("button", { name: "+ Node" }).click();
     await page.getByRole("button", { name: "NFM", exact: true }).click();
-    await expect(page.locator('.react-flow__node[data-id^="channel:"]')).toBeVisible();
+    const channel = page.locator('.react-flow__node[data-id^="channel:"]');
+    await expect(channel).toBeVisible();
+
+    // A palette add belongs to the camera the operator is looking through, not to the graph's
+    // rightmost coordinate. Its rendered face is wholly reachable and, while this starter patch
+    // has room, does not cover any face already there.
+    const canvasBounds = await page.locator(".react-flow").boundingBox();
+    const channelBounds = await channel.boundingBox();
+    if (canvasBounds === null || channelBounds === null) {
+      throw new Error("a visible canvas and newly added channel");
+    }
+    expect(channelBounds.x).toBeGreaterThanOrEqual(canvasBounds.x);
+    expect(channelBounds.y).toBeGreaterThanOrEqual(canvasBounds.y);
+    expect(channelBounds.x + channelBounds.width).toBeLessThanOrEqual(
+      canvasBounds.x + canvasBounds.width,
+    );
+    expect(channelBounds.y + channelBounds.height).toBeLessThanOrEqual(
+      canvasBounds.y + canvasBounds.height,
+    );
+    for (const id of ["device", "scope", "speaker"]) {
+      const existing = await node(id).boundingBox();
+      if (existing === null) {
+        throw new Error(`a visible ${id} node`);
+      }
+      const overlapWidth =
+        Math.min(channelBounds.x + channelBounds.width, existing.x + existing.width) -
+        Math.max(channelBounds.x, existing.x);
+      const overlapHeight =
+        Math.min(channelBounds.y + channelBounds.height, existing.y + existing.height) -
+        Math.max(channelBounds.y, existing.y);
+      expect(overlapWidth > 0 && overlapHeight > 0).toBe(false);
+    }
 
     // Wiring the receiver to it is what makes it a channel on that radio, and apply creates it.
     // The drag needs intermediate moves: React Flow starts a connection on pointer *movement*
@@ -155,7 +184,6 @@ test.describe("the workspace", () => {
     // Cycling the mode has to move the node and its engine channel together: the node names the
     // type (CANVAS §4), so a patch left naming the old one unbinds the face and the next apply
     // adds a second channel for it.
-    const channel = page.locator('.react-flow__node[data-id^="channel:"]');
     await channel.getByText("NFM", { exact: true }).first().click();
     await page.keyboard.press("m");
     await expect
@@ -180,7 +208,7 @@ test.describe("the workspace", () => {
     // The squelch row: the box and its word are the label, the threshold beside them is not. A
     // row that labelled the whole line forwarded a click on the readout to the box and turned
     // the gate off. The cursors are the other half of the same claim — what acts says so, and
-    // says which way it acts (DESIGN.md §4, `index.css`).
+    // says which way it acts (, `index.css`).
     const squelch = channel.getByRole("checkbox", { name: /squelch/i });
     await squelch.click();
     const threshold = channel.getByRole("slider", { name: /squelch threshold/i });
@@ -300,7 +328,7 @@ test.describe("the workspace", () => {
       .poll(async () => (await slots(page)).map((slot) => slot.w))
       .toEqual([(before[0]?.w ?? 0) + 1, (before[1]?.w ?? 0) - 1]);
 
-    // The arrangement is server state, not browser state (PLAN §10): a reload restores it — and
+    // The arrangement is server state, not browser state (): a reload restores it — and
     // the workspace comes back bound, which is what applying on load buys.
     await page.reload();
     await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();

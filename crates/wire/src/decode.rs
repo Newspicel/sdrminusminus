@@ -1,15 +1,15 @@
-//! Decoder output types (PLAN §5: "decoder output events … typed JSON", §13 Phase 2).
+//! Decoder output types (: "decoder output events … typed JSON", §13 Phase 2).
 //!
 //! Every wave-1 decoder emits one variant of [`DecoderEvent`]; the engine wraps it in a
 //! [`DecodedRecord`] with the coordinates the DSP plane cannot know (wall-clock time) and
-//! pushes it to clients as `ServerEvent::Decoded` and to the decoder-log database (PLAN §11).
+//! pushes it to clients as `ServerEvent::Decoded` and to the decoder-log database ().
 //! One definition per decoder here is what makes the log table, the CSV export, the map, and
 //! the React panels share a single shape.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// RDS state after a group changed it (PLAN §13: 57 kHz BPSK, group/AF/RT decode). RDS is a
+/// RDS state after a group changed it (: 57 kHz BPSK, group/AF/RT decode). RDS is a
 /// slowly-accreting picture rather than a stream of independent frames, so an event is the
 /// current best view of the station, emitted only when a field actually changed.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -47,7 +47,7 @@ pub struct RdsUpdate {
     pub block_errors: u64,
 }
 
-/// POCSAG message class (PLAN §13: 512/1200/2400 baud pagers).
+/// POCSAG message class (: 512/1200/2400 baud pagers).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PocsagPayload {
@@ -74,7 +74,7 @@ pub struct PocsagMessage {
     pub errors_corrected: u32,
 }
 
-/// One decoded Mode S / ADS-B frame (PLAN §13: preamble correlation + Mode S CRC).
+/// One decoded Mode S / ADS-B frame (: preamble correlation + Mode S CRC).
 /// Fields are `Option` because which ones a frame carries depends on its type code — a
 /// position frame has no callsign, an identification frame has no altitude.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -109,7 +109,7 @@ pub struct AdsbMessage {
     pub raw: String,
 }
 
-/// One decoded AIS message (PLAN §13: GMSK/NRZI over HDLC framing).
+/// One decoded AIS message (: GMSK/NRZI over HDLC framing).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AisMessage {
     /// Maritime Mobile Service Identity — the vessel's identity across messages.
@@ -144,7 +144,7 @@ pub struct AisMessage {
 }
 
 /// One decoded AX.25 frame, with the APRS fields parsed out when the info field carries them
-/// (PLAN §13: AFSK1200 + 9600 G3RUH).
+/// (: AFSK1200 + 9600 G3RUH).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AprsPacket {
     /// Source callsign with SSID, e.g. `DL1ABC-9`.
@@ -180,7 +180,7 @@ pub struct AprsPacket {
     pub tnc2: String,
 }
 
-/// A run of decoded RTTY characters (PLAN §13: Baudot over FSK).
+/// A run of decoded RTTY characters (: Baudot over FSK).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct RttyText {
     pub text: String,
@@ -194,7 +194,7 @@ pub struct MorseText {
     pub wpm: f32,
 }
 
-/// One NAVTEX broadcast (PLAN §13: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
+/// One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
 /// parsed out because that is what a receiver filters on — station, subject and serial are how
 /// a ship decides whether it has already seen this message.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -254,7 +254,7 @@ impl NavtexMessage {
     }
 }
 
-/// One ACARS block (PLAN §13: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow
+/// One ACARS block (: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow
 /// the standard's, so a message here reads the same as in every other ACARS tool.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AcarsMessage {
@@ -281,7 +281,7 @@ pub struct AcarsMessage {
     pub more: bool,
 }
 
-/// What a decoded sub-GHz burst turned out to be (PLAN §8b).
+/// What a decoded sub-GHz burst turned out to be ().
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SubghzEncoding {
@@ -327,7 +327,7 @@ pub struct SubghzFrame {
     pub timings_us: Vec<u32>,
 }
 
-/// Subaudible signalling heard under an NFM channel's voice (PLAN §8).
+/// Subaudible signalling heard under an NFM channel's voice ().
 ///
 /// Emitted only when the picture changes. Both CTCSS and DCS run for the whole of a
 /// transmission, so an event per block would be the same event forty times a second.
@@ -344,7 +344,7 @@ pub struct ToneSquelchStatus {
     pub open: bool,
 }
 
-/// Which digital-voice mode a [`DvFrame`] was heard on (PLAN §13 wave 3). One event type
+/// Which digital-voice mode a [`DvFrame`] was heard on ( wave 3). One event type
 /// serves all of them because the *question* is the same in every mode — who is talking, to
 /// whom, on which network — and only the names for it differ.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -572,7 +572,7 @@ impl DvFrame {
     }
 }
 
-/// Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a
+/// Typed decoder output (). Adjacently tagged so the generated TypeScript is a
 /// discriminated union on `kind` that panels can exhaustively `switch` on, and so the log
 /// database can index on `kind` without parsing the blob.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -770,7 +770,7 @@ impl DecoderEvent {
         }
     }
 
-    /// `(lat, lon)` when the event places something on the map (PLAN §13: ADS-B/AIS/APRS
+    /// `(lat, lon)` when the event places something on the map (: ADS-B/AIS/APRS
     /// share one map feature), so the client never re-derives per-decoder position rules.
     #[must_use]
     pub fn position(&self) -> Option<(f64, f64)> {

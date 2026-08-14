@@ -1,4 +1,4 @@
-//! §5 measurement bundle for the noncoherent orthogonal M-FSK entry (MODEM-PLAN §7 phase 5
+//! §5 measurement bundle for the noncoherent orthogonal M-FSK entry ( §7 phase 5
 //! accept: "noncoherent M-FSK matches theory"): committed BER curves for M ∈ {2, 4, 8} against
 //! the *exact* closed form, the §4.3 limits table at the M = 4 reference configuration, and the
 //! level-1 E2E loopbacks. The chains under measurement live in `ber::catalog::orthogonal`; the
@@ -128,7 +128,7 @@ fn sensitivity_improves_with_the_alphabet() {
     assert!(m8 < m4 - 0.5, "M=4 {m4} dB, M=8 {m8} dB");
 }
 
-// --- Level-1 E2E (MODEM-PLAN §4.4) -----------------------------------------------------------
+// --- Level-1 E2E ( §4.4) -----------------------------------------------------------
 
 /// The §5 item-7 property: payloads survive bit-for-bit at a stated margin over the entry's own
 /// measured 1e-3 sensitivity (read off the committed curve, so the margin tightens if the

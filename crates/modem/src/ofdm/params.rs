@@ -1,12 +1,12 @@
 //! What an OFDM waveform *is*, as data: an FFT size, a cyclic prefix, which bins carry payload,
 //! which carry pilots, what the preamble repeats, and whether the spectrum is folded Hermitian
-//! (MODEM-PLAN §3.1 `ofdm/`: "pluggable pilot patterns and subcarrier maps").
+//! ( §3.1 `ofdm/`: "pluggable pilot patterns and subcarrier maps").
 //!
 //! Everything a standard would put in a table lives here, so the engine below never matches on
 //! one — the §3.3 rule that governs `constellation/` governs a framework the same way. The
 //! reference configuration this catalog measures at, [`OfdmParams::wifi_like`], is therefore a
 //! *function returning parameters*, not a type: 64-point FFT, 16-sample prefix, 48 data and 4
-//! pilot subcarriers, which is 802.11a/g's geometry (MODEM-PLAN §7 phase 6).
+//! pilot subcarriers, which is 802.11a/g's geometry ( §7 phase 6).
 //!
 //! **The training sequences are this crate's, not a standard's.** Nothing here interoperates
 //! with anything (§6's scope decision: the modulation is in scope, the protocol is not), and a
@@ -199,7 +199,7 @@ impl SubcarrierMap {
 
 /// Whether the transmitter emits complex baseband or a real-valued waveform.
 ///
-/// [`Domain::RealHermitian`] is the DMT flag (MODEM-PLAN §3.1: "a Hermitian-symmetry flag
+/// [`Domain::RealHermitian`] is the DMT flag ( §3.1: "a Hermitian-symmetry flag
 /// yields real-baseband DMT from the same engine"), and it is deliberately a *transmitter*
 /// property alone: the modulator mirrors each occupied bin onto its conjugate partner, and the
 /// receiver reads exactly the map it was given, which is the lower half either way. There is no
@@ -395,7 +395,7 @@ impl OfdmParams {
         })
     }
 
-    /// The catalog's reference configuration (MODEM-PLAN §7 phase 6): a 64-point transform with
+    /// The catalog's reference configuration ( §7 phase 6): a 64-point transform with
     /// a 16-sample prefix, 48 data subcarriers and 4 pilots at ±7 and ±21, DC and the band edges
     /// left empty — 802.11a/g's geometry, measured on synthetic vectors only, with no protocol
     /// attached (§6's scope decision).

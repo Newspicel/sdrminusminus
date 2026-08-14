@@ -1,5 +1,5 @@
-// Shared-token storage (PLAN §12: "UI prompts and stores it per saved connection"). The token
-// is the only thing the browser persists besides UI preferences (PLAN §11), and it is scoped
+// Shared-token storage (: "UI prompts and stores it per saved connection"). The token
+// is the only thing the browser persists besides UI preferences (), and it is scoped
 // to the origin it was entered for so a saved token never leaks to another server.
 //
 // Kept out of TanStack Query and out of React state on purpose: `api.ts`'s fetch middleware

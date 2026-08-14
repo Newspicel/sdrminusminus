@@ -1,4 +1,4 @@
-// Per-decoder live readouts (PLAN §13). All of them read the decoded store, never TanStack Query:
+// Per-decoder live readouts (). All of them read the decoded store, never TanStack Query:
 // decoder frames are a stream, not server state. The projection/format/sort logic lives in
 // `decoderViews.ts`; these components only render it.
 //
@@ -57,7 +57,7 @@ export function RdsView({ scope = {} }: { scope?: DecoderScope }) {
   if (rds === null) {
     return (
       <div className={PANE}>
-        <span className={EMPTY}>No RDS yet — tune a WFM channel with RDS enabled.</span>
+        <span className={EMPTY}>No RDS yet — tune a WFM channel to a station that carries it.</span>
       </div>
     );
   }

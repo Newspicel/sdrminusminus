@@ -1,4 +1,4 @@
-// Opening a device (PLAN §10, M5). One surface asks: an unbound device node, which *is* the
+// Opening a device (, M5). One surface asks: an unbound device node, which *is* the
 // invitation rather than a panel with an empty state (CANVAS §3). The discovery list, its
 // ranking and the diagnostics behind it live here because what a choice *means* is the node's
 // business, not the list's.

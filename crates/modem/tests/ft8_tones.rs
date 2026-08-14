@@ -1,4 +1,4 @@
-//! The orthogonal entry's golden-vector test (MODEM-PLAN §7 phase 5 accept): FT8 tone
+//! The orthogonal entry's golden-vector test ( §7 phase 5 accept): FT8 tone
 //! demodulation against the published WSJT-X waveform definition.
 //!
 //! **What is published and therefore golden here** (Franke, Somerville & Taylor, *"The FT4 and
@@ -15,7 +15,7 @@
 //!
 //! **What is not here, and why.** The 58 data symbols of a *particular* message are the output
 //! of FT8's source encoding — 77 message bits, a CRC-14, and an LDPC(174, 91) whose parity
-//! matrix is the protocol's, not this library's. That encoder is squarely out of MODEM-PLAN's
+//! matrix is the protocol's, not this library's. That encoder is squarely out of
 //! scope (§1.1: the library ends at recovered bits; channel coding lives beside the FEC in
 //! `sdrmm-dsp`), so this file validates the *waveform and its demodulation* against the
 //! published definition and stops there: no claim is made that any particular WSJT-X message

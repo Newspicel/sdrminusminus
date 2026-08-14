@@ -11,9 +11,7 @@ import type {
 } from "../lib/types";
 import {
   addEdge,
-  addNode,
   connectionRefusal,
-  dropPosition,
   edgeKey,
   edgeWarning,
   type GraphContext,
@@ -56,7 +54,7 @@ const CATALOG: PatchCatalog = {
           direction: "in",
           multi: false,
           condition: "device_is_tx_capable",
-          note: "reserved: transmit is not built (PLAN §12a)",
+          note: "reserved: transmit is not built ()",
           repeat: "per_tx_stream",
         },
         { name: "iq", port_type: "iq", direction: "out", multi: true, repeat: "per_rx_stream" },
@@ -362,7 +360,7 @@ describe("connectionRefusal", () => {
     );
   });
 
-  // Two devices into one channel is refused until `CoherentArray` exists (PLAN §6).
+  // Two devices into one channel is refused until `CoherentArray` exists ().
   it("refuses a second device on a channel and names why", () => {
     const graph = {
       ...workspace(),
@@ -398,7 +396,7 @@ describe("connectionRefusal", () => {
     ).toMatch(/takes one wire/);
   });
 
-  /** The transmit input is reserved (PLAN §12a): nothing emits its type, and what the operator
+  /** The transmit input is reserved (): nothing emits its type, and what the operator
    * gets for trying is the server's own reason rather than a type-mismatch line. Only a radio
    * that can transmit has the input at all — on a receiver there is nothing there to aim at. */
   it("refuses everything at the reserved transmit input, with the reason", () => {
@@ -415,7 +413,7 @@ describe("connectionRefusal", () => {
     );
   });
 
-  /// PLAN §18: the rate rule is a fault *on* the wire, not a refusal of it — the rate is one
+  /// : the rate rule is a fault *on* the wire, not a refusal of it — the rate is one
   /// setting away, and the face at the end of the wire offers that setting.
   it("allows a wideband channel on a rate outside its range and marks the wire instead", () => {
     const graph = {
@@ -592,20 +590,5 @@ describe("the rack", () => {
     // rather than left to make every later write fail validation.
     const stale = { slots: [{ node: "nfm", x: 12, y: 12, w: 12, h: 8 }] };
     expect(pruneRack(stale, workspace()).slots).toEqual([{ node: "nfm", x: 0, y: 0, w: 6, h: 4 }]);
-  });
-});
-
-// One placement rule, shared by the palette and the recordings drawer: a drop lands clear of
-// everything already drawn, and a run of them staggers instead of stacking.
-describe("dropPosition", () => {
-  it("lands right of everything drawn and staggers down as the patch fills", () => {
-    const g = workspace();
-    const first = dropPosition(g);
-    const rightmost = g.nodes.reduce((max, drawn) => Math.max(max, drawn.position.x), 0);
-    expect(first.x).toBeGreaterThan(rightmost);
-    expect(dropPosition({ nodes: [], edges: [] })).toEqual({ x: 360, y: 0 });
-
-    const fuller = addNode(g, node("extra", { kind: "scope" }));
-    expect(dropPosition(fuller).y).toBeGreaterThan(first.y);
   });
 });

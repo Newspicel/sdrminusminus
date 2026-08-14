@@ -1,4 +1,4 @@
-// Aircraft (ADS-B), ships (AIS) and APRS stations on one MapLibre map (PLAN §10 Maps, §13 P2).
+// Aircraft (ADS-B), ships (AIS) and APRS stations on one MapLibre map ( Maps, §13 P2).
 // Targets come from the decoded store, never from TanStack Query — this is the high-rate plane.
 // There is deliberately no React element per target: MapLibre owns one GeoJSON source per wired
 // kind and gets a `setData` on the `DRAW_TICK_MS` tick, so a thousand aircraft cost one source
@@ -46,7 +46,7 @@ import { formatMhz } from "./format";
 // sibling chunk that a verbatim asset copy would leave behind.
 setWorkerUrl(workerUrl);
 
-/** PLAN §10: OpenFreeMap vector tiles — free, no API key, no usage cap. A self-hosted PMTiles
+/** : OpenFreeMap vector tiles — free, no API key, no usage cap. A self-hosted PMTiles
  * basemap replaces this URL when the server grows one; nothing else here changes. */
 const BASEMAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
@@ -583,7 +583,7 @@ const PLANE_PX = 26;
 const SHIP_PX = 22;
 
 /** The raster a heading-bearing target draws: kind read off the shape before the colour
- * (DESIGN.md §2 — every colour paired with a marker). */
+ * ( — every colour paired with a marker). */
 const KIND_ICON: Record<MapKind, (color: string, edge: string) => ImageData | null> = {
   adsb: planeImage,
   ais: shipImage,

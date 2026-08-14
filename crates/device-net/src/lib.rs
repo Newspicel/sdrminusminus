@@ -1,4 +1,4 @@
-//! `sdrmm-device-net` — receivers reached over a network rather than a bus (PLAN §6): the
+//! `sdrmm-device-net` — receivers reached over a network rather than a bus (): the
 //! **rtl_tcp** and **SpyServer** client backends, pure Rust over `std::net`, no new dependency of
 //! any kind.
 //!

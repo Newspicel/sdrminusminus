@@ -1,4 +1,4 @@
-//! Audio AGC (PLAN §7): smoothed power envelope, asymmetric gain smoothing toward
+//! Audio AGC (): smoothed power envelope, asymmetric gain smoothing toward
 //! `target_rms / envelope`, clamped to `max_gain`.
 
 use crate::iir::one_pole_coeff;

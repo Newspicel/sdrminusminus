@@ -1,4 +1,4 @@
-//! The noncoherent envelope tier (MODEM-PLAN §6, the M-PAM/M-ASK/OOK row): magnitude detection
+//! The noncoherent envelope tier ( §6, the M-PAM/M-ASK/OOK row): magnitude detection
 //! with an adaptive threshold, for a receiver that never recovers the carrier at all.
 //!
 //! **Why a separate chain rather than a mode of [`demod`](super::demod).** Everything downstream

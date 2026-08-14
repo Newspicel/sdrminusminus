@@ -1,4 +1,4 @@
-// SigMF recordings browser (PLAN §11: files on disk are the source of truth; the list is the
+// SigMF recordings browser (: files on disk are the source of truth; the list is the
 // reconciled index, WS-invalidated on scope "recordings"). A recording plays back through a
 // `virtual:file:` device, so opening one is the same gesture as opening a radio: it draws a
 // source node on the canvas, and apply is what starts it.

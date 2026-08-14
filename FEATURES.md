@@ -3,19 +3,8 @@
 - **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
 - **[planned]** A native Save-As dialog for downloads in the desktop shell. The shell installs no `on_download` handler, so wry's default applies: a recording lands silently in the OS download directory (`~/Downloads`, `$XDG_DOWNLOAD_DIR`, `%USERPROFILE%\Downloads`), deduplicated as `name (1)`, with no dialog and no progress — and on Windows wry's `SetHandled(true)` suppresses even WebView2's own flyout. The gap that matters is failure: an export aborts its body rather than truncate, and that abort is invisible here. A Rust-side `tauri-plugin-dialog` handler would keep the shell's no-IPC stance, but a blocking dialog on the main thread needs care
 
-## 2. Device support
 
-- **[shipped]** SoapySDR is the canonical local-hardware layer, with directional RX/TX
-  capabilities, explicit multi-channel streams, generic module settings, reconnect supervision,
-  and pinned private runtimes in desktop installers and containers
-- **[shipped]** Base packages include RTL-SDR, HackRF, Airspy/AirspyHF, bladeRF, LimeSDR,
-  PlutoSDR/libiio, and SoapyRemote modules; SDRplay RSP devices are supported through a
-  user-installed SDRplay API and SoapySDRPlay3 module, while UHD remains an optional pack
-- **[planned]** KiwiSDR client device
-- **[planned]** Remote source/sink between sdr-- instances; local routing between device sets
-- **[planned]** Audio-input device (`cpal`) — soundcard as a receiver
-
-## 3. Many radios at once & coherent arrays
+## 2. Many radios at once & coherent arrays
 
 - **[planned]** Cross-device features: a scanner spanning devices, multi-VOR fix, diversity
 - **[planned]** `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output
@@ -28,7 +17,7 @@
 - **[planned]** Interferometer
 - **[planned]** TDoA geolocation across distributed sdr-- nodes
 
-## 4. Spectrum, tuning & navigation
+## 3. Spectrum, tuning & navigation
 
 - **[planned]** Better Frequency scanner
 - **[planned]** Hardware-assisted wideband sweep — the scanner still sweeps by retuning; a
@@ -42,7 +31,7 @@
 - **[planned]** 3D spectrogram view
 - **[planned]** Band occupancy analytics over time
 
-## 5. Frequency-allocation database — "what is this frequency?"
+## 4. Frequency-allocation database — "what is this frequency?"
 
 The dial and the plot were built so this could hang off them without rework, and it did.
 
@@ -50,7 +39,7 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** A CEPT importer — EFIS publishes the ECA table and may expose it machine-readably (`efis.cept.org`, unreachable from the network this was written on). CEPT and IARU R1 are curated meanwhile
 - **[planned]** User-extendable and override-able entries
 
-## 6. Recording, capture & replay
+## 5. Recording, capture & replay
 
 - **[planned]** Per-channel sinks — audio recording, baseband file, UDP out to external tools
 - **[planned]** RF replay-capture workflow — record a burst, annotate it, analyze it
@@ -60,23 +49,25 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** Wideband recording + offline re-channelization
 - **[planned]** Session/replay sharing as one openable bundle
 
-## 7. UI, workspaces & onboarding
+## 6. UI, workspaces & onboarding
 
 - **[shipped]** An About panel carrying the build's version, sdr--'s own MIT license, and every
   third-party component it distributes, with each license text readable in the app. The list is
   harvested from the workspace lockfiles by `cargo xtask licenses`, compiled into the binary, and
   gated against drift by `cargo xtask check`
+- **[shipped]** New canvas nodes land deterministically inside the current viewport and take the
+  nearest clear space when one is available
 - **[planned]** Node kinds whose backends do not exist yet: GPS source, UDP sink, WAV sink, and the `iq-tap`/`position` port types that go with them
 - **[planned]** A scope on a channel tap — a scope only takes a device today
 - **[planned]** Theme/skin system and a layout marketplace
 
-## 8. Voice & analog channels
+## 7. Voice & analog channels
 
 - **[planned]** ATV colour and the sound subcarrier — luma only today; chroma is left where it is in the video band
 - **[planned]** Notch and audio filters per channel
 - **[planned]** Selcall (CCIR/ZVEI)
 
-## 9. Digital voice
+## 8. Digital voice
 
 - **[planned]** NXDN SACCH/FACCH addressing and YSF callsigns — the signalling layers below
   each mode's voice framing
@@ -85,14 +76,14 @@ The dial and the plot were built so this could hang off them without rework, and
   voice channels. Needs the control-channel payloads above first
 - **[planned]** Hardware AMBE dongle/server support
 
-## 10. Aviation & marine
+## 9. Aviation & marine
 
 - **[planned]** VOR, VOR localizer (multi-VOR fix), ILS, DSC
 - **[planned]** Inmarsat STD-C / AERO
 - **[planned]** VDL Mode 2; HFDL; Iridium bursts
 - **[planned]** ADS-B / AIS log enrichment against offline aircraft and ship databases
 
-## 11. Data, text & paging
+## 10. Data, text & paging
 
 - **[planned]** APRS *feature* — station/position collection, distinct from the channel
 - **[planned]** FLEX and further pager formats, ERMES
@@ -100,7 +91,7 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** Tetrapol, STANAG modem ID, GSM downlink analysis, OsmocomBB-style monitoring
 - **[planned]** Off-air proof — as above, all four are specification-proven only
 
-## 12. Sub-GHz, ISM & IoT
+## 11. Sub-GHz, ISM & IoT
 
 - **[shipped]** No chip is named — a 24-bit frame carries both the EV1527 reading (address + button) and the PT2262 tri-state string where every bit pair is a legal symbol
 - **[shipped]** Repeats inside 500 ms collapse into one counted event, and a better-classified frame supersedes a held one only while that one is a single sighting — which is what stops a capture that started mid-burst from logging its fragment
@@ -113,27 +104,27 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** BLE advertisements, 2.4 GHz survey, Wi-Fi channel occupancy (energy only)
 - **[planned]** Off-air proof — never yet tested against a real remote
 
-## 13. Weather, satellite & imaging
+## 12. Weather, satellite & imaging
 
 - **[planned]** NOAA APT; Meteor M-2 LRPT
 - **[planned]** Radiosonde (RS41 …) + map/log feature; later DFM, M10/M20, iMet
 - **[planned]** HF WEFAX — the DSP is the easy half; the picture transport ATV shipped (§8) is now the half that exists, so what is left is the decoder plus a server-side page store for a mode whose picture takes minutes rather than milliseconds
 - **[planned]** SSTV RX; APRS weather aggregation
 
-## 14. Broadcast & wideband digital
+## 13. Broadcast & wideband digital
 
 - **[planned]** DAB / DAB+
 - **[planned]** DATV (DVB-S / S2)
 - **[planned]** TETRA
 - **[planned]** DRM30 / DRM+
 
-## 15. Amateur & weak-signal
+## 14. Amateur & weak-signal
 
 - **[planned]** FT8 / FT4
 - **[planned]** PSK31 / PSK63; WSPR
 - **[planned]** Radio clock (DCF77 / WWVB / MSF / JJY)
 
-## 16. Analysis & measurement
+## 15. Analysis & measurement
 
 - **[planned]** Channel analyzer (scope, constellation) — also the prerequisite for wiring a scope to a channel tap
 - **[planned]** Demod analyzer; channel power meter; heat map channel
@@ -144,12 +135,12 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
 - **[planned]** Seeing stuff like 4fsk directly without being behind a decoder. 
 
-## 17. Audio processing
+## 16. Audio processing
 
 - **[planned]** Spectral noise reduction, noise blanker, auto-notch, AGC as advanced processing inside **every** voice channel rather than a separate channel type
 - **[planned]** Adaptive/auto DSP — auto-notch, auto-squelch, auto-gain, per-mode click and noise removal
 
-## 18. Station services & hardware integration
+## 17. Station services & hardware integration
 
 - **[planned]** Satellite tracker (TLE fetch, pass prediction, Doppler-corrected channels)
 - **[planned]** Rotator control (GS-232, rotctld); rigctld-compatible rig control server
@@ -159,16 +150,16 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** Map layers — sondes, satellites, beacons, MUF
 - **[planned]** TinySA import, bias-T presets, Hamlib CAT control
 
-## 19. API, automation & access
+## 18. API, automation & access
 
 - **[planned]** Scripting recipes on the existing REST + MCP surface (scanner bots, "ping me when this callsign appears")
 - **[planned]** Alerting/notifications — rule engine on decoder events → desktop, push, webhook
 - **[planned]** Plugin SDK via WASM
 - **[planned]** Multi-user roles; remote fleet management across several Pi nodes
 - **[planned]** Offline reference bundles — band plans, TLE snapshots, callsign prefixes, PMTiles maps
-- **[planned]** Output Nodes for like Discord
+- **[planned]** Output Nodes for like Discord and Matrix
 
-## 20. Legitimate Security research
+## 19. Legitimate Security research
 
 - **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
 - **[planned]** Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use on licensed bands
@@ -181,7 +172,7 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** Simple PTT
 - **[planned]** Beam-steering CW modulator (TX MIMO)
 
-## 21. Cross-cutting engine capabilities
+## 20. Cross-cutting engine capabilities
 
-- **[planned]** GPU spectrum path (wgpu) for very large FFTs or many channels
+- **[planned]** GPU FFT compute path (wgpu) in the engine, for very large FFTs or many channels
 - **[planned]** Diversity combine / noise cancelling with a reference antenna
