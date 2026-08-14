@@ -4,8 +4,14 @@ set -euo pipefail
 prefix="${1:?radioconda prefix}"
 destination="${2:?staging destination}"
 script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-export LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export DYLD_LIBRARY_PATH="$prefix/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+# Linux only, and only because `ldd` resolves a library's dependencies by loading it. The macOS
+# walk reads recorded names out of the file with `otool` and needs no loader path — while
+# DYLD_LIBRARY_PATH would apply to every tool this script runs, python3 and otool included,
+# handing each of them this environment's libc++ and libiconv in place of the system's. That is
+# what killed gtar in the release job (559a669); here it segfaulted python3 on the first line.
+if [ "$(uname -s)" != Darwin ]; then
+  export LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 destination="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$destination")"
 working_directory="$(pwd -P)"
 case "$destination" in
@@ -59,7 +65,14 @@ copy_dependencies_macos() {
       case "$dependency" in
         "$prefix"/*) source="$dependency" ;;
         @rpath/*|@loader_path/*|@executable_path/*)
-          source="$(find "$prefix/lib" -type f -name "$(basename "$dependency")" -print -quit)"
+          # `-type l` as well as `-type f`: a library's install name is usually its soname, and
+          # conda ships that as a symlink onto the fully versioned file — `librtlsdr.0.dylib`
+          # onto `librtlsdr.0.6.0.dylib`. Matching files alone silently staged no driver library
+          # at all for rtlsdr, hackrf, airspy, LimeSuite or Pluto, and none of them missed a
+          # thing until a radio was plugged in. `cp -L` below copies the content under the name
+          # the module asks for.
+          source="$(find "$prefix/lib" \( -type f -o -type l \) \
+            -name "$(basename "$dependency")" -print -quit)"
           ;;
       esac
       if [ -n "$source" ]; then

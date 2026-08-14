@@ -167,9 +167,14 @@ jobs:
           environment-name: sdrmm-soapy-${{ matrix.target }}
           create-args: --platform ${{ matrix.conda-platform }}
           cache-environment: true
-      # Linking is driven by pkg-config, so the loader paths are deliberately *not* part of it.
-      # On macOS a job-wide DYLD_LIBRARY_PATH reaches every process the runner starts and hands
-      # them this environment's libiconv/libz instead of the system ones: gtar died on
+      # The build is pointed at a prefix holding SoapySDR alone, never at the environment: the
+      # linker searches whatever prefix `soapysdr-sys` reports for every `-l` on the line, and
+      # 0.1.2 shipped a macOS binary bound to conda's libiconv because of it — see
+      # packaging/soapy/link-prefix.sh.
+      #
+      # The loader paths are deliberately not job-wide either. On macOS a job-wide
+      # DYLD_LIBRARY_PATH reaches every process the runner starts and hands them this
+      # environment's libiconv/libz instead of the system ones: gtar died on
       # `Symbol not found: _iconv` and lost every cache, and cargo segfaulted before printing a
       # line. Whatever needs the pinned runtime at *run* time asks for it per step.
       - name: Configure pinned Soapy build runtime
@@ -181,8 +186,9 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then
             echo "$PREFIX/Library/bin" >> "$GITHUB_PATH"
           else
-            echo "SOAPY_SDR_ROOT=$PREFIX" >> "$GITHUB_ENV"
-            echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
+            packaging/soapy/link-prefix.sh "$PREFIX" "$RUNNER_TEMP/soapy-link"
+            echo "SOAPY_SDR_ROOT=$RUNNER_TEMP/soapy-link" >> "$GITHUB_ENV"
+            echo "PKG_CONFIG_PATH=$RUNNER_TEMP/soapy-link/lib/pkgconfig" >> "$GITHUB_ENV"
             if [ "$RUNNER_OS" = Linux ]; then
               echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
             fi
@@ -218,6 +224,11 @@ jobs:
           staged="dist/sdrmm-${VERSION}-${TARGET}"
           ls -l "$staged"
           test -s "$staged.tar.gz" || test -s "$staged.zip"
+          # Reads the binary rather than running it, so the Intel slice is checked on the arm64
+          # runner too. SoapySDR is the one library this archive expects the host to bring.
+          if [ "$RUNNER_OS" = macOS ]; then
+            cargo xtask link-check "$staged/sdrmm" --external libSoapySDR
+          fi
           if [ "$TARGET" = x86_64-apple-darwin ]; then exit 0; fi
           bin="$staged/sdrmm"
           if [ -f "$bin.exe" ]; then bin="$bin.exe"; fi
@@ -407,11 +418,12 @@ jobs:
             powershell -NoProfile -File packaging/soapy/stage-windows.ps1 \
               -Prefix "$PREFIX" -Destination apps/desktop/resources/soapy
           else
-            echo "SOAPY_SDR_ROOT=$PREFIX" >> "$GITHUB_ENV"
-            echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
-            # Not DYLD_LIBRARY_PATH — for the reason spelled out in the binaries job. The
-            # bundle carries its own copy of this runtime anyway; nothing here runs against
-            # the environment's.
+            # SoapySDR alone on the link line, and not DYLD_LIBRARY_PATH — both for the reasons
+            # spelled out in the binaries job. The bundle carries its own copy of this runtime
+            # anyway; nothing here runs against the environment's.
+            packaging/soapy/link-prefix.sh "$PREFIX" "$RUNNER_TEMP/soapy-link"
+            echo "SOAPY_SDR_ROOT=$RUNNER_TEMP/soapy-link" >> "$GITHUB_ENV"
+            echo "PKG_CONFIG_PATH=$RUNNER_TEMP/soapy-link/lib/pkgconfig" >> "$GITHUB_ENV"
             if [ "$RUNNER_OS" = Linux ]; then
               echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
             fi
@@ -598,6 +610,11 @@ jobs:
             app="$(find "$bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
             test -n "$app"
             carries "$(find "$app/Contents/Resources/soapy")" "$app"
+            # Carrying the runtime is half of it. This is the other half: every library the
+            # bundle's binaries name has to resolve from inside the bundle or out of the shared
+            # cache, which is what 0.1.2 got wrong — it shipped a complete Soapy payload and a
+            # main binary that asked for a libiconv nobody had.
+            cargo xtask link-check "$app"
           elif [ "$RUNNER_OS" = Linux ]; then
             deb="$(find "$bundle/deb" -name '*.deb' -print -quit)"
             carries "$(dpkg-deb --contents "$deb")" "$deb"

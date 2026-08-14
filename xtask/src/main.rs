@@ -17,6 +17,7 @@ mod bandplan;
 mod ber;
 mod catalog;
 mod icons;
+mod linkage;
 mod updater;
 
 #[derive(Parser)]
@@ -90,6 +91,16 @@ enum Cmd {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+    /// Resolve every library a built macOS artifact loads, the way the loader will on a machine
+    /// that did not build it. Reads `.app` bundles, staged directories and loose binaries.
+    LinkCheck {
+        /// Artifact to walk.
+        path: PathBuf,
+        /// Leaf-name fragment of a library the artifact is not meant to carry (repeatable) —
+        /// the headless archive links the pinned SoapySDR and leaves it to the host.
+        #[arg(long = "external")]
+        external: Vec<String>,
+    },
     /// Stamp a release version across the workspace (PLAN §15). CI runs this from the tag.
     SetVersion {
         /// Semver, with or without a leading `v`.
@@ -131,6 +142,7 @@ fn main() -> Result<()> {
             dir.unwrap_or_else(|| root().join("apps/desktop/resources/soapy"))
                 .as_path(),
         ),
+        Cmd::LinkCheck { path, external } => linkage::check(&path, &external),
         Cmd::SetVersion { version } => set_version(&root(), &version),
         Cmd::UpdaterManifest {
             version,
@@ -758,6 +770,48 @@ fn soapy_bundle_check(dir: &Path) -> Result<()> {
         "{} contains no curated Airspy module",
         dir.display()
     );
+    // A module is a wrapper around a driver library that ships as its own file, and the two are
+    // staged by different rules — the modules by name, their libraries by walking what each one
+    // records. 0.1.2 shipped every module on macOS and not one driver library, which no check
+    // then in place could see and no user could either until they plugged a radio in.
+    let outside_modules: Vec<&String> = files
+        .iter()
+        .zip(&names)
+        .filter(|(path, name)| {
+            let inside = |part: &str| path.components().any(|c| c.as_os_str() == part);
+            // Not the notices: conda's own metadata is named after the packages it records, so
+            // `librtlsdr-0.6.0-….json` would answer for the library it is only the receipt for.
+            !inside("modules0.8")
+                && !inside("licenses")
+                && [".dylib", ".so", ".dll"]
+                    .iter()
+                    .any(|ext| name.contains(ext))
+        })
+        .map(|(_, name)| name)
+        .collect();
+    for driver in [
+        "rtlsdr",
+        "hackrf",
+        "airspyhf",
+        "airspy",
+        "bladerf",
+        "limesuite",
+        "iio",
+        "ad9361",
+        "usb",
+    ] {
+        ensure!(
+            outside_modules.iter().any(|name| name.contains(driver)),
+            "{} carries a module for {driver} but not the library it loads. Staged beside the \
+             modules: {}",
+            dir.display(),
+            outside_modules
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     ensure!(
         files
             .iter()
