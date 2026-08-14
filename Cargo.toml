@@ -38,7 +38,7 @@ default-members = [
 [workspace.package]
 edition = "2024"
 version = "0.0.0"
-license = "MIT"
+license = "GPL-3.0-or-later"
 authors = ["sdr-- contributors"]
 repository = "https://github.com/newspicel/sdrminusminus"
 rust-version = "1.99"

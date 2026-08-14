@@ -7,8 +7,8 @@
       "name": "sdr-- contributors"
     },
     "license": {
-      "name": "MIT",
-      "identifier": "MIT"
+      "name": "GPL-3.0-or-later",
+      "identifier": "GPL-3.0-or-later"
     },
     "version": "0.0.0"
   },
