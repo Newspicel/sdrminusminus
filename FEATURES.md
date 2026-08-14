@@ -25,7 +25,6 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 - **[planned]** Passive radar (range-Doppler)
 - **[planned]** Beamforming and diversity combine
 - **[planned]** Interferometer
-- **[planned]** TDoA geolocation across distributed sdr-- nodes
 
 ## 3. Spectrum, tuning & navigation
 
@@ -43,8 +42,6 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 4. Frequency-allocation database — "what is this frequency?"
 
-The dial and the plot were built so this could hang off them without rework, and it did.
-
 - **[planned]** The FCC importer — one PDF yields ITU Regions 1/2/3 *and* the US table, but `pdftotext -layout` lays each page out independently, so its columns shift between a header page and its continuation. It needs word coordinates (`-bbox-layout`); until then ITU and US stay curated
 - **[planned]** A CEPT importer — EFIS publishes the ECA table and may expose it machine-readably (`efis.cept.org`, unreachable from the network this was written on). CEPT and IARU R1 are curated meanwhile
 - **[planned]** User-extendable and override-able entries
@@ -61,12 +58,6 @@ The dial and the plot were built so this could hang off them without rework, and
 
 ## 6. UI, workspaces & onboarding
 
-- **[shipped]** An About panel carrying the build's version, sdr--'s own MIT license, and every
-  third-party component it distributes, with each license text readable in the app. The list is
-  harvested from the workspace lockfiles by `cargo xtask licenses`, compiled into the binary, and
-  gated against drift by `cargo xtask check`
-- **[shipped]** New canvas nodes land deterministically inside the current viewport and take the
-  nearest clear space when one is available
 - **[shipped]** Typed live-position wiring with device, gpsd, and serial NMEA GPS source nodes
 - **[planned]** Node kinds whose backends do not exist yet: UDP sink, WAV sink, and the `iq-tap` port type that goes with them
 - **[planned]** A scope on a channel tap — a scope only takes a device today
@@ -187,5 +178,6 @@ The dial and the plot were built so this could hang off them without rework, and
 
 ## 20. Cross-cutting engine capabilities
 
-- **[planned]** GPU FFT compute path (wgpu) in the engine, for very large FFTs or many channels
+- **[shipped]** GPU FFT compute path (wgpu) for large transforms or many receive lanes,
+  with automatic CPU selection and fallback on headless hosts
 - **[planned]** Diversity combine / noise cancelling with a reference antenna

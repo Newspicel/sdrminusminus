@@ -141,15 +141,43 @@ mod tests {
     #[test]
     fn validates_complete_finite_fixes() {
         assert_eq!(fix().validate(), Ok(()));
-        let mut bad = fix();
-        bad.longitude = 181.0;
-        assert!(bad.validate().is_err());
-        let mut bad = fix();
-        bad.accuracy_m = Some(-1.0);
-        assert!(bad.validate().is_err());
-        let mut bad = fix();
-        bad.time = "not a timestamp".to_owned();
-        assert!(bad.validate().is_err());
+        let invalid = [
+            PositionFix {
+                latitude: -91.0,
+                ..fix()
+            },
+            PositionFix {
+                longitude: 181.0,
+                ..fix()
+            },
+            PositionFix {
+                altitude_m: Some(f64::NAN),
+                ..fix()
+            },
+            PositionFix {
+                accuracy_m: Some(f64::INFINITY),
+                ..fix()
+            },
+            PositionFix {
+                accuracy_m: Some(-1.0),
+                ..fix()
+            },
+            PositionFix {
+                speed_mps: Some(-1.0),
+                ..fix()
+            },
+            PositionFix {
+                track_deg: Some(361.0),
+                ..fix()
+            },
+            PositionFix {
+                time: "not a timestamp".to_owned(),
+                ..fix()
+            },
+        ];
+        for bad in invalid {
+            assert!(bad.validate().is_err(), "accepted invalid fix {bad:?}");
+        }
     }
 
     #[test]

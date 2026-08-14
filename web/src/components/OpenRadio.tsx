@@ -19,9 +19,11 @@ export function rankDevices(devices: readonly DeviceInfo[]): readonly DeviceInfo
 
 export function visibleDevices(
   devices: readonly DeviceInfo[],
-  devMode = import.meta.env.DEV,
+  showSynthetic = import.meta.env.DEV || import.meta.env.VITE_ENABLE_SYNTHETIC_DEVICES === "true",
 ): readonly DeviceInfo[] {
-  return rankDevices(devMode ? devices : devices.filter((device) => device.driver !== "virtual"));
+  return rankDevices(
+    showSynthetic ? devices : devices.filter((device) => device.driver !== "virtual"),
+  );
 }
 
 export function deviceId(device: DeviceInfo): string {

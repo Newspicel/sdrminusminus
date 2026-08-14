@@ -1917,6 +1917,23 @@ mod tests {
             };
         }
         assert!(matches!(graph.validate(), Err(PatchError::Gps(_))));
+        for address in [
+            "localhost:0",
+            "localhost:gps",
+            "[::1:2947",
+            "[::1]]:2947",
+            "bad host:2947",
+        ] {
+            if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
+                gps.source = PositionSource::Gpsd {
+                    address: address.to_owned(),
+                };
+            }
+            assert!(
+                matches!(graph.validate(), Err(PatchError::Gps(_))),
+                "accepted invalid GPSD endpoint {address}"
+            );
+        }
         if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
             gps.source = PositionSource::Gpsd {
                 address: "[::1]:2947".to_owned(),

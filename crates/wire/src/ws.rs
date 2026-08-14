@@ -114,8 +114,8 @@ pub enum ServerEvent {
         device_set: u32,
         status: Box<crate::scan::ScannerStatus>,
     },
-    /// Latest state of one GPS source node. `fix: None` carries a surfaced provider error or a
-    /// source that has gone unavailable; connected consumers stop using its previous fix.
+    /// Latest state of one GPS source node. Exactly one of `fix` and `error` is present; an error
+    /// means the source has gone unavailable and consumers stop using its previous fix.
     PositionChanged {
         node: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

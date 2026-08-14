@@ -30,7 +30,7 @@ RUN test -f dist/index.html
 
 
 # --- pinned Soapy runtime ---------------------------------------------------------------
-FROM mambaorg/micromamba:2.8.1 AS soapy
+FROM mambaorg/micromamba:2.9.0 AS soapy
 ARG TARGETARCH
 COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-64.lock /tmp/conda-linux-64.lock
 COPY --chown=$MAMBA_USER:$MAMBA_USER packaging/soapy/conda-linux-aarch64.lock /tmp/conda-linux-aarch64.lock
@@ -107,7 +107,7 @@ WORKDIR /src
 COPY --from=planner /plan/ ./
 RUN rustup show
 
-ARG FEATURES=soapy,net-client
+ARG FEATURES=soapy,net-client,gpu-fft
 # Dependency compilation against the stubs: invalidated only by Cargo.lock or a manifest, never
 # by a source edit. The stubs reference nothing, so each workspace crate compiles empty while
 # cargo still builds every external dependency it declares.

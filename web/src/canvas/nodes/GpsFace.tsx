@@ -92,8 +92,12 @@ function SourceSettings({
             defaultValue={source.address}
             onBlur={(event) => {
               const address = event.currentTarget.value.trim();
-              if (address !== "" && address !== source.address) {
+              if (!validGpsdAddress(address)) {
+                event.currentTarget.value = source.address;
+              } else if (address !== source.address) {
                 onChange({ type: "gpsd", address });
+              } else {
+                event.currentTarget.value = source.address;
               }
             }}
           />
@@ -127,8 +131,12 @@ function NmeaSettings({
           placeholder="Choose a detected device or enter a path"
           onBlur={(event) => {
             const device = event.currentTarget.value.trim();
-            if (device !== "" && device !== source.device) {
+            if (device === "") {
+              event.currentTarget.value = source.device;
+            } else if (device !== source.device) {
               onChange({ ...source, device, update_interval_ms: updateInterval });
+            } else {
+              event.currentTarget.value = source.device;
             }
           }}
         />
@@ -161,6 +169,8 @@ function NmeaSettings({
                 baud !== source.baud
               ) {
                 onChange({ ...source, baud, update_interval_ms: updateInterval });
+              } else {
+                event.currentTarget.value = String(source.baud);
               }
             }}
           />
@@ -192,6 +202,22 @@ function NmeaSettings({
       </span>
     </div>
   );
+}
+
+export function validGpsdAddress(address: string): boolean {
+  const separator = address.lastIndexOf(":");
+  if (separator <= 0) {
+    return false;
+  }
+  const host = address.slice(0, separator);
+  const port = Number(address.slice(separator + 1));
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    return false;
+  }
+  if (host.startsWith("[") || host.endsWith("]")) {
+    return /^\[[0-9a-f:]+\]$/i.test(host) && host.includes(":");
+  }
+  return /^[a-z0-9._-]+$/i.test(host);
 }
 
 function nmeaDeviceLabel(device: NmeaDeviceInfo): string {

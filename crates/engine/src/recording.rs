@@ -61,7 +61,7 @@ impl RecordingPosition {
     /// Routing must not wait behind a slow disk: a full queue is already a recording failure.
     pub(crate) fn update(&self, fix: Option<PositionFix>) -> Result<(), PositionUpdateError> {
         self.tx
-            .try_send(RecMessage::Position(fix))
+            .try_send(RecMessage::Position(fix.map(Box::new)))
             .map_err(|error| match error {
                 mpsc::TrySendError::Full(_) => PositionUpdateError::Full,
                 mpsc::TrySendError::Disconnected(_) => PositionUpdateError::Disconnected,
@@ -102,7 +102,7 @@ pub(crate) struct RecBlock {
 #[derive(Debug)]
 pub(crate) enum RecMessage {
     Block(RecBlock),
-    Position(Option<PositionFix>),
+    Position(Option<Box<PositionFix>>),
 }
 
 pub(crate) struct RecorderTap {
@@ -186,7 +186,7 @@ fn write_loop(
         let block = match message {
             RecMessage::Block(block) => block,
             RecMessage::Position(fix) => {
-                writer.set_position(fix.as_ref());
+                writer.set_position(fix.as_deref());
                 continue;
             }
         };
@@ -320,9 +320,10 @@ mod tests {
 
         let reader = SigmfReader::open(&stem).unwrap();
         let capture = &reader.meta().captures[0];
-        assert_eq!(capture.latitude, Some(52.52));
-        assert_eq!(capture.longitude, Some(13.405));
-        assert_eq!(capture.altitude, Some(40.0));
+        assert_eq!(
+            capture.geolocation.as_ref().unwrap().coordinates,
+            vec![13.405, 52.52, 40.0]
+        );
     }
 
     #[test]
@@ -351,9 +352,16 @@ mod tests {
 
         let reader = SigmfReader::open(&stem).unwrap();
         assert_eq!(reader.meta().captures.len(), 2);
-        assert_eq!(reader.meta().captures[0].latitude, None);
+        assert_eq!(reader.meta().captures[0].geolocation, None);
         assert_eq!(reader.meta().captures[1].sample_start, 16);
-        assert_eq!(reader.meta().captures[1].latitude, Some(52.52));
+        assert_eq!(
+            reader.meta().captures[1]
+                .geolocation
+                .as_ref()
+                .unwrap()
+                .coordinates,
+            vec![13.405, 52.52]
+        );
     }
 
     #[test]

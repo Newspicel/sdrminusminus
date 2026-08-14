@@ -140,7 +140,7 @@ export function App() {
       return;
     }
     return watchDevicePosition(socket, deviceGpsNodeIds);
-  }, [socket, deviceGpsNodeIds]);
+  }, [socket, deviceGpsNodeIds, workspace.active?.revision]);
   useEffect(() => {
     for (const refusal of workspace.applied?.refused ?? []) {
       const node = graph.nodes.find((candidate) => candidate.id === refusal.node);

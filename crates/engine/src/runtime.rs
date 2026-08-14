@@ -15,7 +15,7 @@ use sdrmm_channels::{
     AUDIO_RATE, ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx,
 };
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
-use sdrmm_dsp::{Ddc, SpectrumAnalyzer, Squelch};
+use sdrmm_dsp::{Ddc, Squelch};
 use sdrmm_wire::{
     ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings, MAX_STREAMS, PositionFix,
     StreamScope,
@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 use crate::{
     audio::{PcmBlock, PcmPayload},
     recording::RecorderTap,
+    spectrum::{SpectrumAnalyzer, SpectrumFrame, SpectrumPlan},
     video::VideoPacket,
 };
 
@@ -430,15 +431,28 @@ impl CaptureRuntime {
         on_fatal: impl FnOnce(DeviceError) + Send + 'static,
     ) -> Result<Self, DeviceError> {
         let lane_count = device.capabilities().rx_streams.clamp(1, MAX_STREAMS) as usize;
+        // Adapter discovery happens before capture begins, so a cold graphics driver can never
+        // consume the ring's finite headroom. Every lane then shares the resulting device/queue.
+        let spectrum_plan = SpectrumPlan::new(FFT_SIZE, lane_count);
         let per_stream = device.capabilities().per_stream;
-        let sample_rate = crate::sample_rate_of(settings);
+        // Every DDC ratio, symbol clock, spectrum span and recorded `core:sample_rate` derives
+        // from this; a default stood in here runs the whole chain mistuned and silent.
+        let Some(sample_rate) = settings.sample_rate else {
+            return Err(DeviceError::Unsupported(
+                "device did not report a sample rate; everything downstream is derived from it"
+                    .to_string(),
+            ));
+        };
         let fatal: Arc<Mutex<Option<FatalReport>>> = Arc::new(Mutex::new(Some(Box::new(on_fatal))));
 
         let mut sinks: Vec<RxSink> = Vec::with_capacity(lane_count);
         let mut lanes: Vec<Lane> = Vec::with_capacity(lane_count);
         // The per-lane halves that move onto the DSP thread, parallel to `lanes`.
-        let mut tails: Vec<(rtrb::Consumer<Complex<f32>>, mpsc::Receiver<DspCommand>)> =
-            Vec::with_capacity(lane_count);
+        let mut tails: Vec<(
+            rtrb::Consumer<Complex<f32>>,
+            mpsc::Receiver<DspCommand>,
+            SpectrumAnalyzer,
+        )> = Vec::with_capacity(lane_count);
         for stream in 0..lane_count {
             let (mut producer, consumer) = RingBuffer::<Complex<f32>>::new(RING_CAPACITY);
             let overruns = Arc::new(AtomicU64::new(0));
@@ -486,7 +500,7 @@ impl CaptureRuntime {
                 stop: Arc::new(AtomicBool::new(false)),
                 dsp: None,
             });
-            tails.push((consumer, cmd_rx));
+            tails.push((consumer, cmd_rx, spectrum_plan.analyzer()));
         }
 
         device.rx_start(sinks)?;
@@ -496,7 +510,7 @@ impl CaptureRuntime {
             per_stream,
         };
 
-        for (index, (mut consumer, cmd_rx)) in tails.into_iter().enumerate() {
+        for (index, (mut consumer, cmd_rx, analyzer)) in tails.into_iter().enumerate() {
             let lane = &runtime.lanes[index];
             let meta = lane.meta.clone();
             let tx = lane.spectrum_tx.clone();
@@ -504,7 +518,17 @@ impl CaptureRuntime {
             let overruns = lane.overruns.clone();
             let spawned = std::thread::Builder::new()
                 .name(format!("sdrmm-dsp-{index}"))
-                .spawn(move || dsp_loop(&mut consumer, &cmd_rx, &meta, &tx, &stop, &overruns));
+                .spawn(move || {
+                    dsp_loop(
+                        &mut consumer,
+                        &cmd_rx,
+                        &meta,
+                        &tx,
+                        &stop,
+                        &overruns,
+                        analyzer,
+                    )
+                });
             match spawned {
                 Ok(handle) => runtime.lanes[index].dsp = Some(handle),
                 Err(e) => {
@@ -596,8 +620,8 @@ fn dsp_loop(
     tx: &broadcast::Sender<SpectrumSnapshot>,
     stop: &AtomicBool,
     overruns: &AtomicU64,
+    mut analyzer: SpectrumAnalyzer,
 ) {
-    let mut analyzer = SpectrumAnalyzer::new(FFT_SIZE);
     let mut hist = vec![Complex::new(0.0, 0.0); FFT_SIZE];
     let mut window = vec![Complex::new(0.0, 0.0); FFT_SIZE];
     let mut db = vec![0.0f32; FFT_SIZE];
@@ -649,15 +673,22 @@ fn dsp_loop(
                     for (i, w) in window.iter_mut().enumerate() {
                         *w = hist[(write_pos + i) % FFT_SIZE];
                     }
-                    analyzer.power_db(&window, &mut db);
-                    seq = seq.wrapping_add(1);
-                    let _ = tx.send(SpectrumSnapshot {
-                        seq,
+                    let frame = SpectrumFrame {
                         timestamp: total,
                         center_hz: snapshot.center_hz,
                         span_hz: snapshot.sample_rate as f32,
-                        db: Arc::from(db.as_slice()),
-                    });
+                    };
+                    if let Some(completed) = analyzer.power_db(&window, &mut db, frame) {
+                        seq = seq.wrapping_add(1);
+                        // send() only errors when there are no receivers — expected and fine.
+                        let _ = tx.send(SpectrumSnapshot {
+                            seq,
+                            timestamp: completed.timestamp,
+                            center_hz: completed.center_hz,
+                            span_hz: completed.span_hz,
+                            db: Arc::from(db.as_slice()),
+                        });
+                    }
                 }
             }
         }

@@ -96,6 +96,9 @@ num-complex = "0.4"
 rustfft = "6"
 realfft = "3"
 rtrb = "0.3"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "1"
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "gles", "vulkan", "wgsl"] }
 
 # Audio (libopus via vendored build, )
 opus = "0.3"
@@ -133,7 +136,7 @@ clap = { version = "4", features = ["derive", "env"] }
 tempfile = "3"
 
 # Performance baselines for the modem catalog ( §4.2); dev-dependency only.
-criterion = "0.7"
+criterion = "0.8"
 cc = "1"
 
 # `cargo xtask icons` rasterises assets/icon.svg; xtask only, nothing shipped links it.

@@ -3,6 +3,9 @@ import type { PatchGraph, PositionFix, ServerEvent } from "./types";
 import type { SdrSocket } from "./ws";
 
 const HISTORY_CAPACITY = 5_000;
+const DEVICE_FIX_REPLAY_MS = 75;
+let cachedDeviceFix: PositionFix | null = null;
+let cachedDeviceError: string | null = null;
 
 export interface PositionSample extends PositionFix {
   receivedAt: number;
@@ -73,8 +76,6 @@ export function watchDevicePosition(socket: SdrSocket, nodes: readonly string[])
     return () => {};
   }
 
-  let latest: PositionFix | null = null;
-  let latestError: string | null = null;
   const publish = (fix: PositionFix | null, error: string | null): void => {
     for (const node of nodes) {
       socket.send({
@@ -87,23 +88,29 @@ export function watchDevicePosition(socket: SdrSocket, nodes: readonly string[])
     if (!connected) {
       return;
     }
-    if (latest !== null) {
-      publish(latest, null);
-    } else if (latestError !== null) {
-      publish(null, latestError);
+    if (cachedDeviceFix !== null) {
+      publish(cachedDeviceFix, null);
+    } else if (cachedDeviceError !== null) {
+      publish(null, cachedDeviceError);
     }
   };
   socket.addStatusListener(status);
+  status(socket.isConnected());
+  const replay = window.setTimeout(() => status(socket.isConnected()), DEVICE_FIX_REPLAY_MS);
+  const cleanup = (): void => {
+    window.clearTimeout(replay);
+    socket.removeStatusListener(status);
+  };
 
   if (navigator.geolocation === undefined) {
-    latestError = "this device has no geolocation provider";
-    publish(null, latestError);
-    return () => socket.removeStatusListener(status);
+    cachedDeviceError = "this device has no geolocation provider";
+    publish(null, cachedDeviceError);
+    return cleanup;
   }
   const watch = navigator.geolocation.watchPosition(
     (position) => {
-      latestError = null;
-      latest = {
+      cachedDeviceError = null;
+      cachedDeviceFix = {
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
         altitude_m: position.coords.altitude ?? undefined,
@@ -112,22 +119,21 @@ export function watchDevicePosition(socket: SdrSocket, nodes: readonly string[])
         track_deg: position.coords.heading ?? undefined,
         time: new Date(position.timestamp).toISOString(),
       };
-      publish(latest, null);
+      publish(cachedDeviceFix, null);
     },
     (error) => {
-      latest = null;
-      latestError = error.message;
-      publish(null, latestError);
+      cachedDeviceFix = null;
+      cachedDeviceError = error.message;
+      publish(null, cachedDeviceError);
     },
     { enableHighAccuracy: true, maximumAge: 1_000, timeout: 20_000 },
   );
   return () => {
     navigator.geolocation.clearWatch(watch);
-    socket.removeStatusListener(status);
+    cleanup();
   };
 }
 
-/** Six-character Maidenhead locator (roughly 5 × 2.5 km), suitable for a live station readout. */
 export function gridLocator(latitude: number, longitude: number): string {
   const lon = Math.min(359.999_999, Math.max(0, longitude + 180));
   const lat = Math.min(179.999_999, Math.max(0, latitude + 90));

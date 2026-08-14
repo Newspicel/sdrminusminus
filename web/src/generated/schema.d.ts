@@ -2791,8 +2791,8 @@ export interface components {
             type: "ScannerUpdate";
         } | {
             /**
-             * @description Latest state of one GPS source node. `fix: None` carries a surfaced provider error or a
-             *     source that has gone unavailable; connected consumers stop using its previous fix.
+             * @description Latest state of one GPS source node. Exactly one of `fix` and `error` is present; an error
+             *     means the source has gone unavailable and consumers stop using its previous fix.
              */
             data: {
                 error?: string | null;

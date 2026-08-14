@@ -1021,7 +1021,14 @@ fn normalize_timestamp(at: &str) -> Result<String, StoreError> {
     let ts: jiff::Timestamp = at
         .parse()
         .map_err(|_| StoreError::Timestamp(at.to_string()))?;
-    Ok(format!("{ts:.9}"))
+    Ok(rfc3339(ts))
+}
+
+/// Fixed-width fractional seconds. Every timestamp column is ordered and range-compared as
+/// text by SQLite, and jiff's own `Display` trims trailing zeros — `.9812Z` then compares
+/// greater than the later `.98125Z`.
+fn rfc3339(ts: jiff::Timestamp) -> String {
+    format!("{ts:.9}")
 }
 
 fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
@@ -1038,7 +1045,7 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
 }
 
 fn now_rfc3339() -> String {
-    jiff::Timestamp::now().to_string()
+    rfc3339(jiff::Timestamp::now())
 }
 
 #[cfg(test)]
@@ -1488,6 +1495,24 @@ mod tests {
     /// The whole point of the node column: an engine channel id is reused between runs, so a
     /// scope built on one hands a node whatever else has held that id. The node id is stable for
     /// the node's life, and it wins wherever a row carries one.
+    /// `run_start` is compared against stored `at` values as text, so the two have to be written
+    /// to the same width. They were not: stored rows were normalized to nine fractional digits
+    /// while `run_start` took jiff's trimmed `Display`, and a `run_start` whose microseconds
+    /// ended in a zero compared greater than rows logged after it.
+    #[test]
+    fn a_trimmed_fraction_never_outsorts_a_later_timestamp() {
+        let trimmed = jiff::Timestamp::from_nanosecond(1_000_000_000_981_200_000).expect("ts");
+        let later = jiff::Timestamp::from_nanosecond(1_000_000_000_981_250_000).expect("ts");
+        assert!(trimmed < later);
+        assert!(rfc3339(trimmed) < rfc3339(later));
+        assert_eq!(
+            normalize_timestamp(&rfc3339(trimmed)).expect("normalize"),
+            rfc3339(trimmed),
+            "a stored timestamp and the run start it is compared against must agree"
+        );
+        assert_eq!(now_rfc3339().len(), rfc3339(trimmed).len());
+    }
+
     #[test]
     fn decoder_log_scope_prefers_the_node_over_the_reused_channel_id() {
         let store = Store::open(None).expect("open");

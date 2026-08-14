@@ -11,6 +11,7 @@ import {
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { useEffect, useRef, useState } from "react";
 import { useDecodedStore } from "../lib/decoded";
+import { trailBounds, unwrapTrail } from "../lib/map/bounds";
 import {
   AGE_OUT_INTERVAL_MS,
   DRAW_TICK_MS,
@@ -95,7 +96,8 @@ export function MapPanel({
   // only when that kind changed) keeps an idle map from re-serialising GeoJSON twice a second.
   const drawnRef = useRef<Partial<Record<MapKind, readonly Target[]>>>({});
   const selectedRef = useRef<{ kind: MapKind; id: string } | null>(null);
-  const framedRef = useRef(false);
+  const targetFramedRef = useRef(false);
+  const positionFramedRef = useRef(false);
   // The map is built once and outlives any number of wire changes, so the listeners and the draw
   // tick read the wired kinds, the references and the theme colours from here rather than
   // closing over them.
@@ -168,7 +170,8 @@ export function MapPanel({
       // view back off them.
       map.on("movestart", (event) => {
         if (event.originalEvent !== undefined) {
-          framedRef.current = true;
+          targetFramedRef.current = true;
+          positionFramedRef.current = true;
         }
       });
 
@@ -215,17 +218,13 @@ export function MapPanel({
         .join("|");
       if (positionKey !== positionDrawnRef.current) {
         positionDrawnRef.current = positionKey;
-        const collection = positionCollection(tracks);
-        void map.getSource<GeoJSONSource>(POSITION_SOURCE)?.setData(collection.points);
-        void map.getSource<GeoJSONSource>(POSITION_ROUTE_SOURCE)?.setData(collection.route);
+        const collection = updatePositionSources(
+          map.getSource<GeoJSONSource>(POSITION_SOURCE),
+          map.getSource<GeoJSONSource>(POSITION_ROUTE_SOURCE),
+          tracks,
+        );
         setPositionCount(collection.points.features.length);
-        if (!framedRef.current && collection.points.features.length > 0) {
-          framedRef.current = true;
-          framePoints(
-            map,
-            collection.points.features.map((feature) => feature.geometry.coordinates),
-          );
-        }
+        framePositionOnce(map, collection.points, positionFramedRef);
       }
 
       for (const kind of kindsRef.current) {
@@ -239,10 +238,7 @@ export function MapPanel({
         void map.getSource<GeoJSONSource>(sourceId(kind))?.setData(collection);
         next[kind] = collection.features.length;
         changed = true;
-        if (!framedRef.current && collection.features.length > 0) {
-          framedRef.current = true;
-          frame(map, collection);
-        }
+        frameTargetsOnce(map, collection, targetFramedRef);
       }
 
       if (changed && !sameCounts(countsRef.current, next)) {
@@ -341,7 +337,7 @@ export function MapPanel({
       return;
     }
     installPositionLayers(map, accentRef.current, edgeRef.current, positionNodesKey !== "");
-    positionDrawnRef.current = "";
+    positionDrawnRef.current = "\0";
   }, [positionNodesKey]);
 
   return (
@@ -431,12 +427,12 @@ interface PositionFeature {
   properties: { latest: boolean; at: number };
 }
 
-interface PositionCollection {
+export interface PositionCollection {
   type: "FeatureCollection";
   features: PositionFeature[];
 }
 
-interface PositionRouteCollection {
+export interface PositionRouteCollection {
   type: "FeatureCollection";
   features: {
     type: "Feature";
@@ -445,7 +441,7 @@ interface PositionRouteCollection {
   }[];
 }
 
-function positionCollection(
+export function positionCollection(
   tracks: readonly { samples: readonly PositionSample[]; active: boolean }[],
 ): {
   points: PositionCollection;
@@ -473,8 +469,10 @@ function positionCollection(
                 type: "Feature" as const,
                 geometry: {
                   type: "LineString" as const,
-                  coordinates: samples.map(
-                    (sample) => [sample.longitude, sample.latitude] as [number, number],
+                  coordinates: unwrapTrail(
+                    samples.map(
+                      (sample) => [sample.longitude, sample.latitude] as [number, number],
+                    ),
                   ),
                 },
                 properties: {},
@@ -483,6 +481,17 @@ function positionCollection(
       ),
     },
   };
+}
+
+export function updatePositionSources(
+  pointsSource: Pick<GeoJSONSource, "setData"> | undefined,
+  routeSource: Pick<GeoJSONSource, "setData"> | undefined,
+  tracks: readonly { samples: readonly PositionSample[]; active: boolean }[],
+): { points: PositionCollection; route: PositionRouteCollection } {
+  const collection = positionCollection(tracks);
+  void pointsSource?.setData(collection.points);
+  void routeSource?.setData(collection.route);
+  return collection;
 }
 
 const LAYER_PARTS = ["dot", "heading", "label"] as const;
@@ -716,7 +725,7 @@ function highlight(
 }
 
 /** Opens on the targets instead of on the whole globe, once, when the first ones land. */
-function frame(map: MapLibreMap, collection: TargetCollection): void {
+function frame(map: Pick<MapLibreMap, "fitBounds">, collection: TargetCollection): void {
   let west = Number.POSITIVE_INFINITY;
   let south = Number.POSITIVE_INFINITY;
   let east = Number.NEGATIVE_INFINITY;
@@ -737,27 +746,46 @@ function frame(map: MapLibreMap, collection: TargetCollection): void {
   );
 }
 
-function framePoints(map: MapLibreMap, coordinates: readonly [number, number][]): void {
-  if (coordinates.length === 0) {
+interface FrameFlag {
+  current: boolean;
+}
+
+export function frameTargetsOnce(
+  map: Pick<MapLibreMap, "fitBounds">,
+  collection: TargetCollection,
+  framed: FrameFlag,
+): void {
+  if (framed.current || collection.features.length === 0) {
     return;
   }
-  let west = Number.POSITIVE_INFINITY;
-  let south = Number.POSITIVE_INFINITY;
-  let east = Number.NEGATIVE_INFINITY;
-  let north = Number.NEGATIVE_INFINITY;
-  for (const [lon, lat] of coordinates) {
-    west = Math.min(west, lon);
-    east = Math.max(east, lon);
-    south = Math.min(south, lat);
-    north = Math.max(north, lat);
+  framed.current = true;
+  frame(map, collection);
+}
+
+export function framePositionOnce(
+  map: Pick<MapLibreMap, "fitBounds">,
+  collection: PositionCollection,
+  framed: FrameFlag,
+): void {
+  if (framed.current || collection.features.length === 0) {
+    return;
   }
-  map.fitBounds(
-    [
-      [west, south],
-      [east, north],
-    ],
-    { padding: 56, maxZoom: 14, duration: 0 },
+  framed.current = true;
+  framePoints(
+    map,
+    collection.features.map((feature) => feature.geometry.coordinates),
   );
+}
+
+function framePoints(
+  map: Pick<MapLibreMap, "fitBounds">,
+  coordinates: readonly [number, number][],
+): void {
+  const bounds = trailBounds(coordinates);
+  if (bounds === null) {
+    return;
+  }
+  map.fitBounds(bounds, { padding: 56, maxZoom: 14, duration: 0 });
 }
 
 const ICON_SCALE = 2;

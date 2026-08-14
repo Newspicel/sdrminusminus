@@ -7447,7 +7447,7 @@
           },
           {
             "type": "object",
-            "description": "Latest state of one GPS source node. `fix: None` carries a surfaced provider error or a\nsource that has gone unavailable; connected consumers stop using its previous fix.",
+            "description": "Latest state of one GPS source node. Exactly one of `fix` and `error` is present; an error\nmeans the source has gone unavailable and consumers stop using its previous fix.",
             "required": [
               "data",
               "type"
@@ -7455,7 +7455,7 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Latest state of one GPS source node. `fix: None` carries a surfaced provider error or a\nsource that has gone unavailable; connected consumers stop using its previous fix.",
+                "description": "Latest state of one GPS source node. Exactly one of `fix` and `error` is present; an error\nmeans the source has gone unavailable and consumers stop using its previous fix.",
                 "required": [
                   "node"
                 ],

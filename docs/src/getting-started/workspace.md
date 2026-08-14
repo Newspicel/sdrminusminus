@@ -17,7 +17,7 @@ to pin or unpin it. Moving or resizing a face on the rack does not change its si
 
 | Group | Nodes | Role |
 |---|---|---|
-| Sources | Device, Device GPS, GPSD, NMEA serial | Radio IQ or a live station position |
+| Sources | Device, GPS position (device, GPSD, or NMEA serial) | Radio IQ or a live station position |
 | Channels | AM, NFM, WFM, SSB, decoders | Select and process one signal from device IQ |
 | Displays | Scope, Map, Readout, Decoder log, Video | Visualize spectrum or channel output |
 | Sinks | Speaker, Recorder, Export | Play audio, save IQ, or export decoded rows |
@@ -28,8 +28,8 @@ channel type, the interface follows it rather than maintaining a second hard-cod
 
 ## Live position wiring
 
-Position is a typed stream in the patch, not a workspace setting. Add one of the GPS sources and
-wire its **position** output only to the consumers that need it:
+Position is a typed stream in the patch, not a workspace setting. Add a **GPS position** node,
+choose its position source, and wire its **position** output only to the consumers that need it:
 
 - **Device GPS** uses the desktop WebView's location provider and appears in the palette only when
   that provider exists. The application requests high-accuracy, continuously updated fixes.

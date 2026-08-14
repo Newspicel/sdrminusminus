@@ -358,6 +358,138 @@ test.describe("the workspace", () => {
     await expect(attribution.getByText("Stub basemap credits")).toBeVisible();
   });
 
+  test("configures NMEA GPS and renders a live device fix", async ({ page }) => {
+    await page.route("**/api/position/nmea-devices", (route) =>
+      route.fulfill({ status: 500, json: { error: "serial discovery unavailable" } }),
+    );
+    await page.goto("/");
+    await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
+
+    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "NMEA serial" }).click();
+    const nmea = page.locator('.react-flow__node[data-id^="gps:"]', { hasText: "NMEA" });
+    await expect(nmea).toBeVisible();
+    await expect(nmea.getByText("Serial device discovery failed")).toBeVisible();
+
+    const device = nmea.getByRole("combobox", { name: "Serial device" });
+    await device.fill("/dev/ttyACM7");
+    await device.blur();
+    const baud = nmea.getByRole("spinbutton", { name: "Baud" });
+    await baud.fill("38400");
+    await baud.blur();
+    await nmea.getByRole("combobox", { name: "Update rate" }).selectOption("200");
+    await device.fill(" ");
+    await device.blur();
+    await expect(device).toHaveValue("/dev/ttyACM7");
+    await baud.fill("100");
+    await baud.blur();
+    await expect(baud).toHaveValue("38400");
+
+    await expect
+      .poll(async () => {
+        const list = await page.request.get("/api/workspaces").then((response) => response.json());
+        const detail: WorkspaceDetail = await page.request
+          .get(`/api/workspaces/${list.active}`)
+          .then((response) => response.json());
+        return detail.snapshot.graph.nodes
+          .filter((node) => node.kind === "gps")
+          .map((node) => JSON.stringify(node.data.source));
+      })
+      .toContain(
+        JSON.stringify({
+          type: "nmea",
+          device: "/dev/ttyACM7",
+          baud: 38_400,
+          update_interval_ms: 200,
+        }),
+      );
+
+    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "GPSD" }).click();
+    const gpsd = page.locator('.react-flow__node[data-id^="gps:"]', { hasText: "gpsd" });
+    const address = gpsd.getByRole("textbox", { name: "GPSD address" });
+    await address.fill("not-an-endpoint");
+    await address.blur();
+    await expect(address).toHaveValue("127.0.0.1:2947");
+
+    await page.getByRole("button", { name: "+ Node" }).click();
+    await page.getByRole("button", { name: "Device GPS" }).click();
+    let deviceNode = "";
+    await expect
+      .poll(async () => {
+        const list = await page.request.get("/api/workspaces").then((response) => response.json());
+        const detail: WorkspaceDetail = await page.request
+          .get(`/api/workspaces/${list.active}`)
+          .then((response) => response.json());
+        deviceNode =
+          detail.snapshot.graph.nodes.find(
+            (node) => node.kind === "gps" && node.data.source?.type === "device",
+          )?.id ?? "";
+        return deviceNode;
+      })
+      .not.toBe("");
+    await page.evaluate(async (node) => {
+      await new Promise<void>((resolve, reject) => {
+        const socket = new WebSocket(`ws://${window.location.host}/api/ws`);
+        let published = false;
+        let finished = false;
+        const publishFix = (): void => {
+          if (finished || socket.readyState !== WebSocket.OPEN) {
+            return;
+          }
+          published = true;
+          socket.send(
+            JSON.stringify({
+              type: "PublishPosition",
+              data: {
+                node,
+                fix: {
+                  latitude: 52.52,
+                  longitude: 13.405,
+                  accuracy_m: 4,
+                  time: "2026-08-14T12:00:00Z",
+                },
+              },
+            }),
+          );
+        };
+        const timeout = window.setTimeout(() => {
+          socket.close();
+          reject(new Error("position subscription was not ready"));
+        }, 10_000);
+        socket.onerror = () => {
+          window.clearTimeout(timeout);
+          reject(new Error("position test socket failed"));
+        };
+        socket.onmessage = (message) => {
+          const event = JSON.parse(String(message.data));
+          if (event.type === "Hello" && !published) {
+            publishFix();
+            return;
+          }
+          if (event.type === "Error" && published) {
+            published = false;
+            window.setTimeout(publishFix, 75);
+            return;
+          }
+          if (
+            event.type === "PositionChanged" &&
+            event.data.node === node &&
+            event.data.fix?.latitude === 52.52
+          ) {
+            finished = true;
+            window.clearTimeout(timeout);
+            socket.close();
+            resolve();
+          }
+        };
+      });
+    }, deviceNode);
+    const deviceGps = page.locator(`.react-flow__node[data-id="${deviceNode}"]`);
+    await expect(deviceGps.getByText("52.520000, 13.405000")).toBeVisible();
+    await expect(deviceGps.getByText("JO62qm")).toBeVisible();
+  });
+
   test("keeps the band plan in the workspace, not in the browser", async ({ page }) => {
     // The region and the ruler moved out of `localStorage` and into the snapshot, so that two
     // operators on one server stop drawing two different rulers over one signal. What proves it

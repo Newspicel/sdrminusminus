@@ -2,10 +2,10 @@ use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{SyncSender, TrySendError},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use sdrmm_wire::{
@@ -19,13 +19,15 @@ use tokio::{
 };
 use tokio_serial::{SerialPortBuilderExt, SerialPortInfo, SerialPortType};
 
-use crate::{AppState, workspace};
+use crate::{AppState, Store, workspace};
 
 const EVENT_CAPACITY: usize = 128;
 const RETRY_DELAY: Duration = Duration::from_secs(3);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
 const STABLE_SESSION: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
+const MIN_DEVICE_PUBLISH_INTERVAL: Duration = Duration::from_millis(50);
 const GPSD_MAX_LINE: usize = 16 * 1024;
 const NMEA_MAX_LINE: usize = 512;
 const MAX_ERROR_LEN: usize = 256;
@@ -47,11 +49,29 @@ struct SourceTask {
     handle: JoinHandle<()>,
 }
 
+#[derive(Clone)]
+struct RouteState {
+    engine: Arc<sdrmm_engine::Engine>,
+    store: Arc<Store>,
+}
+
+impl From<&AppState> for RouteState {
+    fn from(state: &AppState) -> Self {
+        Self {
+            engine: state.engine.clone(),
+            store: state.store.clone(),
+        }
+    }
+}
+
 pub(crate) struct GpsHub {
     latest: Arc<Mutex<HashMap<String, PositionState>>>,
+    device_publish_at: Mutex<HashMap<String, Instant>>,
+    device_publish_interval_ms: AtomicU64,
     tasks: Mutex<HashMap<String, SourceTask>>,
     configuration: Mutex<GpsConfiguration>,
-    route_signal: SyncSender<AppState>,
+    route_signal: Option<SyncSender<RouteState>>,
+    route_worker: Option<std::thread::JoinHandle<()>>,
     clear_before_route: Arc<AtomicBool>,
     events: broadcast::Sender<ServerEvent>,
 }
@@ -64,8 +84,8 @@ impl Default for GpsHub {
         let route_clear = clear_before_route.clone();
         // Capacity one deliberately coalesces bursts: each wake reads the entire latest-state
         // table, so another queued wake represents every fix that arrived behind it.
-        let (route_signal, route_rx) = std::sync::mpsc::sync_channel::<AppState>(1);
-        if let Err(error) = std::thread::Builder::new()
+        let (route_signal, route_rx) = std::sync::mpsc::sync_channel::<RouteState>(1);
+        let route_worker = match std::thread::Builder::new()
             .name("sdrmm-gps-route".to_owned())
             .spawn(move || {
                 while let Ok(state) = route_rx.recv() {
@@ -80,15 +100,23 @@ impl Default for GpsHub {
                         route_position(&state, &node, current.fix);
                     }
                 }
-            })
-        {
-            tracing::error!(%error, "could not start GPS routing thread");
-        }
+            }) {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::error!(%error, "could not start GPS routing thread");
+                None
+            }
+        };
         Self {
             latest,
+            device_publish_at: Mutex::new(HashMap::new()),
+            device_publish_interval_ms: AtomicU64::new(
+                MIN_DEVICE_PUBLISH_INTERVAL.as_millis() as u64
+            ),
             tasks: Mutex::new(HashMap::new()),
             configuration: Mutex::new(GpsConfiguration::default()),
-            route_signal,
+            route_signal: Some(route_signal),
+            route_worker,
             clear_before_route,
             events: broadcast::channel(EVENT_CAPACITY).0,
         }
@@ -96,6 +124,12 @@ impl Default for GpsHub {
 }
 
 impl GpsHub {
+    #[cfg(test)]
+    pub(crate) fn set_device_publish_interval(&self, interval: Duration) {
+        self.device_publish_interval_ms
+            .store(interval.as_millis() as u64, Ordering::Relaxed);
+    }
+
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<ServerEvent> {
         self.events.subscribe()
     }
@@ -183,6 +217,10 @@ impl GpsHub {
                 latest.remove(node);
             }
         }
+        self.device_publish_at
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|node, _| matches!(wanted.get(node), Some(PositionSource::Device)));
         for node in &changed_sources {
             self.publish_state(
                 state,
@@ -292,6 +330,24 @@ impl GpsHub {
             );
         }
         validate_update(fix.as_ref(), error.as_deref())?;
+        let too_fast = {
+            let mut published = self
+                .device_publish_at
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if published.get(node).is_some_and(|last| {
+                last.elapsed()
+                    < Duration::from_millis(self.device_publish_interval_ms.load(Ordering::Relaxed))
+            }) {
+                true
+            } else {
+                published.insert(node.to_owned(), Instant::now());
+                false
+            }
+        };
+        if too_fast {
+            return Err("position updates are limited to 20 Hz per node".to_owned());
+        }
         self.publish_state(state, node, fix, error.map(limit_error));
         Ok(())
     }
@@ -327,11 +383,25 @@ impl GpsHub {
     }
 
     fn queue_route(&self, state: &AppState) {
-        match self.route_signal.try_send(state.clone()) {
+        let Some(route_signal) = &self.route_signal else {
+            return;
+        };
+        match route_signal.try_send(RouteState::from(state)) {
             Ok(()) | Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => {
                 tracing::error!("GPS routing thread stopped");
             }
+        }
+    }
+}
+
+impl Drop for GpsHub {
+    fn drop(&mut self) {
+        self.route_signal.take();
+        if let Some(worker) = self.route_worker.take()
+            && worker.join().is_err()
+        {
+            tracing::error!("GPS routing thread panicked");
         }
     }
 }
@@ -357,7 +427,7 @@ fn position_event(node: &str, state: &PositionState) -> ServerEvent {
     }
 }
 
-fn route_position(state: &AppState, source: &str, fix: Option<PositionFix>) {
+fn route_position(state: &RouteState, source: &str, fix: Option<PositionFix>) {
     let Ok(Some(active)) = state.store.active_workspace() else {
         return;
     };
@@ -414,7 +484,7 @@ fn route_position(state: &AppState, source: &str, fix: Option<PositionFix>) {
 /// A removed/repointed wire must not leave a decoder or recording using its final fix forever.
 /// Clear every live consumer once when GPS topology changes, then `route_current` reapplies the
 /// fixes that are still wired according to the new graph.
-fn clear_position_consumers(state: &AppState) {
+fn clear_position_consumers(state: &RouteState) {
     let snapshot = state.engine.snapshot();
     for set in snapshot.device_sets {
         for channel in set.channels {
@@ -467,9 +537,11 @@ async fn gpsd_session(
         .await
         .map_err(|error| format!("gpsd watch: {error}"))?;
     let mut reader = BufReader::new(read);
-    while let Some(line) = read_bounded_line(&mut reader, GPSD_MAX_LINE)
-        .await
-        .map_err(|error| format!("gpsd read: {error}"))?
+    while let Some(line) =
+        tokio::time::timeout(READ_TIMEOUT, read_bounded_line(&mut reader, GPSD_MAX_LINE))
+            .await
+            .map_err(|_| "gpsd read timed out".to_owned())?
+            .map_err(|error| format!("gpsd read: {error}"))?
     {
         let Ok(tpv) = serde_json::from_str::<GpsdTpv>(&line) else {
             continue;
@@ -553,15 +625,22 @@ async fn nmea_session(
     baud: u32,
     update_interval: Duration,
 ) -> Result<(), String> {
-    let serial = tokio_serial::new(device, baud)
-        .open_native_async()
-        .map_err(|error| format!("NMEA {device}: {error}"))?;
+    let device_name = device.to_owned();
+    let open_device = device_name.clone();
+    let serial = tokio::task::spawn_blocking(move || {
+        tokio_serial::new(open_device, baud).open_native_async()
+    })
+    .await
+    .map_err(|error| format!("NMEA {device_name}: open task failed: {error}"))?
+    .map_err(|error| format!("NMEA {device_name}: {error}"))?;
     let mut reader = BufReader::new(serial);
     let mut parser = NmeaState::default();
     let mut published_at: Option<std::time::Instant> = None;
-    while let Some(line) = read_bounded_line(&mut reader, NMEA_MAX_LINE)
-        .await
-        .map_err(|error| format!("NMEA read: {error}"))?
+    while let Some(line) =
+        tokio::time::timeout(READ_TIMEOUT, read_bounded_line(&mut reader, NMEA_MAX_LINE))
+            .await
+            .map_err(|_| "NMEA read timed out".to_owned())?
+            .map_err(|error| format!("NMEA read: {error}"))?
     {
         if let Some(fix) = parser.parse(&line)
             && published_at.is_none_or(|last| last.elapsed() >= update_interval)
