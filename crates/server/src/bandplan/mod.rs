@@ -836,8 +836,28 @@ mod tests {
                 for block in &lane.blocks {
                     assert!(block.stop_hz > block.start_hz);
                     let of = &plan.allocations[block.of as usize];
-                    assert!(of.start_hz <= block.start_hz);
-                    assert!(of.stop_hz >= block.stop_hz);
+                    assert!(
+                        of.start_hz <= block.start_hz,
+                        "{}/{}: block {}-{} starts before {} {}-{}",
+                        plan.region.id,
+                        lane.id,
+                        block.start_hz,
+                        block.stop_hz,
+                        of.id,
+                        of.start_hz,
+                        of.stop_hz
+                    );
+                    assert!(
+                        of.stop_hz >= block.stop_hz,
+                        "{}/{}: block {}-{} ends after {} {}-{}",
+                        plan.region.id,
+                        lane.id,
+                        block.start_hz,
+                        block.stop_hz,
+                        of.id,
+                        of.start_hz,
+                        of.stop_hz
+                    );
                 }
             }
         }

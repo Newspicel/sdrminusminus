@@ -42,8 +42,6 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 4. Frequency-allocation database — "what is this frequency?"
 
-- **[planned]** The FCC importer — one PDF yields ITU Regions 1/2/3 *and* the US table, but `pdftotext -layout` lays each page out independently, so its columns shift between a header page and its continuation. It needs word coordinates (`-bbox-layout`); until then ITU and US stay curated
-- **[planned]** A CEPT importer — EFIS publishes the ECA table and may expose it machine-readably (`efis.cept.org`, unreachable from the network this was written on). CEPT and IARU R1 are curated meanwhile
 - **[planned]** User-extendable and override-able entries
 
 ## 5. Recording, capture & replay

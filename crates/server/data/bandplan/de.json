@@ -1127,7 +1127,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "64001",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 4063000.0,
       "stop_hz": 4123000.0
     },
@@ -1151,7 +1151,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "64004",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 4130000.0,
       "stop_hz": 4438000.0
     },
@@ -1418,7 +1418,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "80002",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 5900000.0,
       "stop_hz": 5950000.0
     },
@@ -1445,7 +1445,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "82001",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 6200000.0,
       "stop_hz": 6213500.0
     },
@@ -1462,7 +1462,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "82004",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 6220500.0,
       "stop_hz": 6525000.0
     },
@@ -1537,7 +1537,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "88002",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 7300000.0,
       "stop_hz": 7350000.0
     },
@@ -1658,7 +1658,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "98002",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 9400000.0,
       "stop_hz": 9500000.0
     },
@@ -1784,7 +1784,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "109002",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 11600000.0,
       "stop_hz": 11650000.0
     },
@@ -1810,7 +1810,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "111002",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 12050000.0,
       "stop_hz": 12100000.0
     },
@@ -1985,7 +1985,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "121001",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 13570000.0,
       "stop_hz": 13600000.0
     },
@@ -2011,7 +2011,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "123002",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 13800000.0,
       "stop_hz": 13870000.0
     },
@@ -2130,7 +2130,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "132002",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 15600000.0,
       "stop_hz": 15800000.0
     },
@@ -2220,7 +2220,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "140002",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 17480000.0,
       "stop_hz": 17550000.0
     },
@@ -2311,7 +2311,7 @@
       "notes": "Funknachrichten an einen oder mehrere Empfänger.",
       "primary": false,
       "reference": "148002",
-      "service": "other",
+      "service": "mobile",
       "start_hz": 18900000.0,
       "stop_hz": 19020000.0
     },
@@ -11370,7 +11370,7 @@
       "notes": "Speiseverbindungen im Satellitenfunk.",
       "primary": false,
       "reference": "383002",
-      "service": "other",
+      "service": "satellite",
       "start_hz": 17300000000.0,
       "stop_hz": 17700000000.0
     },
