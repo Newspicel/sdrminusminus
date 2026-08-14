@@ -2,10 +2,10 @@
 # can run unchanged — `check`, `test`, `smoke`, `desktop`, `audit`. No hardware — everything runs
 # on `device-virtual`.
 #
-# Pull requests pay for Linux only. macOS bills at 10x the Linux minute rate for a job that has
-# never once failed on its own, so it runs on `main` and on release tags, where a platform-
-# specific break still gets caught before it can ship. `workflow_dispatch` forces the full set
-# onto a branch when a change is genuinely platform-shaped.
+# Pull requests pay for Linux only. macOS bills at 10x the Linux minute rate and Windows at 2x,
+# so both run on `main` and on release tags, where a platform-specific break still gets caught
+# before it can ship. `workflow_dispatch` forces the full set onto a branch when a change is
+# genuinely platform-shaped.
 name: CI
 
 on:
@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       all-platforms:
-        description: "Run the macOS jobs on this branch too"
+        description: "Run the macOS and Windows jobs on this branch too"
         type: boolean
         default: true
 
@@ -262,3 +262,41 @@ jobs:
         with:
           shared-key: macos
       - run: cargo xtask test
+
+  desktop-windows:
+    name: Desktop shell (windows)
+    # Same rule as macOS above, for the same reason at 2x instead of 10x. Windows is the one
+    # platform whose dependency graph nothing else compiles: `windows-rs` appears in it twice
+    # (Tauri's 0.61 next to wgpu's 0.62), so a lockfile that unifies the two wrongly still
+    # builds cleanly on Linux and macOS and only fails here. Before this job the release matrix
+    # was the first thing to find that out, on tag day.
+    if: github.event_name == 'push' || inputs.all-platforms
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop-windows
+      # device-soapy links SoapySDR. The same pinned conda lock the release jobs build against,
+      # so the gate and the artifact see one runtime; nothing is loaded, only linked.
+      - id: soapy
+        uses: mamba-org/setup-micromamba@v3
+        with:
+          micromamba-version: 2.8.1-0
+          environment-file: packaging/soapy/conda-win-64.lock
+          environment-name: sdrmm-soapy-x86_64-pc-windows-msvc
+          create-args: --platform win-64
+          cache-environment: true
+      # soapysdr-sys finds Windows installs by walking PATH for SoapySDR.dll with ../include and
+      # ../lib beside it — the conda prefix's layout, which is why this needs no SOAPY_SDR_ROOT.
+      - name: Configure pinned Soapy build runtime
+        shell: bash
+        env:
+          PREFIX: ${{ steps.soapy.outputs.environment-path }}
+        run: echo "$PREFIX/Library/bin" >> "$GITHUB_PATH"
+      # `desktop` rather than `test`: it compiles the Tauri shell and the whole engine/server
+      # chain under it — both halves of the Windows graph in one command — and needs neither
+      # Node nor a browser to do it.
+      - name: cargo xtask desktop
+        run: cargo xtask desktop
