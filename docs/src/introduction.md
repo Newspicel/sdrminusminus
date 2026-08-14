@@ -1,34 +1,57 @@
-<img src="icon.svg" alt="" width="96" height="96">
+<p align="center">
+  <img src="icon.svg" alt="sdr-- logo" width="96" height="96">
+</p>
 
-# sdr--
+# Welcome to sdr--
 
-A modular, client–server software-defined radio receiver.
+sdr-- is a modular software-defined radio receiver. It turns an SDR, a network receiver, or a
+recording into a visual signal-processing workspace you can operate from a desktop app or web
+browser.
 
-A Rust server owns the hardware and does all the DSP — channelization, demodulation, decoding,
-spectrum, recording. A React client renders what the server describes and never touches a
-sample of IQ. The same frontend ships two ways: as a Tauri desktop app that embeds the server
-in-process, and as static assets served by the server itself, so a Raspberry Pi on the roof and
-a browser on the couch run the identical UI.
+The project separates the real-time radio work from the interface:
 
-## Where things are
+```text
+SDR or recording → Rust DSP server → REST, WebSocket, and MCP → desktop app or browser
+```
 
-The server is split so that each crate has one job and the hot signal path has no I/O in it:
+The server owns hardware access, tuning, channelization, demodulation, decoding, spectrum,
+scanning, and recording. The client renders the server's capabilities and connects those pieces
+on a patch canvas. This design lets a small computer sit beside the antenna while you operate it
+from somewhere more comfortable.
 
-| Crate | Owns |
-|---|---|
-| `dsp` | Signal primitives. No I/O, no internal dependencies. |
-| `wire` | Every DTO, WebSocket message and settings type, once. The TypeScript client is generated from it. |
-| `device-*` | Hardware backends, each behind its own feature flag. `device-virtual` is the one CI uses. |
-| `channels` | One module per demodulator/decoder. |
-| `engine` | The DSP plane: devices in, channels and spectrum out. |
-| `server` | HTTP, WebSocket, OpenAPI and the embedded UI. A library, not a binary. |
+## Highlights
 
-`apps/sdrmm` is the headless binary and `apps/desktop` is the Tauri shell; both are thin
-wrappers over `server`.
+- **Visual receiver building.** Connect a radio to channels, scopes, speakers, maps, logs,
+  recorders, scanners, and exports.
+- **Useful on the first launch.** The built-in signal generator exercises the entire receive
+  path without radio hardware.
+- **Analog and digital reception.** Listen to common analog modes and decode aviation, marine,
+  amateur, paging, telemetry, sub-GHz, video, and digital voice signals.
+- **Repeatable setups.** Workspaces save the whole bench; templates configure common activities;
+  presets and bookmarks capture settings you want to reuse.
+- **Record once, inspect again.** Capture device IQ as SigMF and reopen it as a source through the
+  same processing graph.
+- **Automation-ready.** A typed REST API, WebSocket event stream, generated OpenAPI document, and
+  MCP server expose the same engine used by the interface.
 
-## Reference
+## Choose a path
 
-- **API**: `/api/docs` on any running server — Swagger UI over the generated OpenAPI document.
-- **Architecture and design principles**: [``](https://github.com/Newspicel/sdrminusminus/blob/main/)
-  in the repository.
-- **Feature list**: [`implemented behavior`](https://github.com/Newspicel/sdrminusminus/blob/main/implemented behavior).
+If this is your first time using sdr--, start with [Install sdr--](getting-started/install.md) and
+[Your first receiver](getting-started/first-receiver.md).
+
+If you are deploying a receiver beside an antenna, read
+[Configuration and security](server/configuration.md) and
+[Containers and remote radios](server/deployment.md).
+
+If you want to contribute, begin with [Build and test](development/building.md), then read the
+[architecture guide](development/architecture.md).
+
+## Project status
+
+sdr-- is under active development. Nightly builds track the latest `main` branch and can change
+without migration guarantees. Stable releases are the better choice for saved stations and
+unattended deployments. The repository's [feature roadmap](https://github.com/Newspicel/sdrminusminus/blob/main/FEATURES.md)
+distinguishes shipped work from future ideas.
+
+Always follow the radio regulations that apply where you operate, especially around restricted
+traffic, recording, and transmission. sdr-- currently focuses on reception.

@@ -12,10 +12,11 @@ build-dir = "book"
 create-missing = false
 
 [output.html]
-# Dark-first, matching the app's instrumentation palette ().
+# Dark-first, matching the app's instrumentation palette.
 default-theme = "navy"
 preferred-dark-theme = "navy"
 additional-css = ["custom.css"]
+no-section-label = true
 git-repository-url = "https://github.com/Newspicel/sdrminusminus"
 edit-url-template = "https://github.com/Newspicel/sdrminusminus/edit/main/docs/{path}"
 # Project Pages site: https://newspicel.github.io/sdrminusminus/

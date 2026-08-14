@@ -1,13 +1,13 @@
-/* Minimal overlay on the built-in theme: the app's accent, and tabular numerals wherever
-   the docs print frequencies, rates and bandwidths (). Deliberately plain element
-   selectors so a theme change in mdBook cannot break the page — at worst a rule stops
-   matching. */
+/* A small overlay on mdBook's theme, using the same cyan accent and instrument-like numerals as
+   the application. Plain element selectors keep this resilient across mdBook theme updates. */
 
 main a:not(.header) {
   color: #21b0b0;
 }
 
 main table {
+  display: table;
+  width: 100%;
   font-variant-numeric: tabular-nums;
 }
 
@@ -17,4 +17,12 @@ main table th {
 
 main code {
   font-variant-ligatures: none;
+}
+
+main pre {
+  border-radius: 6px;
+}
+
+main blockquote {
+  border-left-color: #21b0b0;
 }
