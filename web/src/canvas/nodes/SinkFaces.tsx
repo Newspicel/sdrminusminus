@@ -139,6 +139,28 @@ function AudioInput({ input }: { input: Input }) {
           Audio is suspended — click to resume
         </button>
       )}
+      {(audio.lostFrames > 0 || audio.underruns > 0) && (
+        <span className="flex flex-wrap gap-1">
+          {audio.lostFrames > 0 && (
+            <span
+              className={CHIP}
+              title="Audio that never reached the browser — dropped at the radio, the encoder or the link. Check the radio's overruns and the server, not this machine."
+            >
+              <span className="legend">Dropped</span>
+              {(audio.lostFrames / 48).toFixed(0)} ms
+            </span>
+          )}
+          {audio.underruns > 0 && (
+            <span
+              className={CHIP}
+              title="Audio arrived but playback ran dry before it could be played — this machine's scheduling or a clock the buffer could not track. The buffer holds more after each one."
+            >
+              <span className="legend">Stalls</span>
+              {audio.underruns}
+            </span>
+          )}
+        </span>
+      )}
       {audio.error !== null && (
         <p role="alert" className="text-xs text-danger">
           {audio.error}

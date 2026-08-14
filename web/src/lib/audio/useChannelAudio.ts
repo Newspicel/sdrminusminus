@@ -22,6 +22,14 @@ export interface ChannelAudio {
   /** Client-side gain, 0..1. */
   volume: number;
   setVolume: (v: number) => void;
+  /**
+   * Why the sound broke up, split by who is responsible. `lostFrames` is audio that never
+   * reached the browser — dropped at the radio, the encoder or the socket. `underruns` is audio
+   * that did arrive and still could not be played in time, which is this machine's scheduling.
+   * One is a reason to look at the server or the link; the other is not.
+   */
+  lostFrames: number;
+  underruns: number;
 }
 
 /** Exported so the app shell can route `ServerEvent::Error` through `claimServerError`. */
@@ -53,6 +61,12 @@ export function useChannelAudio(
   );
   const volume = useSyncExternalStore(audioEngine.subscribe, () =>
     audioEngine.getVolume(deviceSet, channelId),
+  );
+  const lostFrames = useSyncExternalStore(audioEngine.subscribe, () =>
+    audioEngine.getLostFrames(deviceSet, channelId),
+  );
+  const underruns = useSyncExternalStore(audioEngine.subscribe, () =>
+    audioEngine.getUnderruns(deviceSet, channelId),
   );
 
   const start = useCallback(() => {
@@ -89,5 +103,7 @@ export function useChannelAudio(
     resumeOutput: resumeAudioOutput,
     volume,
     setVolume,
+    lostFrames,
+    underruns,
   };
 }

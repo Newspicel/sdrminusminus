@@ -168,6 +168,25 @@ export function App() {
   const devices = useMemo(() => bindDevices(graph, deviceSets), [graph, deviceSets]);
   const channels = useMemo(() => bindChannels(graph, devices), [graph, devices]);
 
+  // Every channel a node on the canvas can still reach. Audio outlives the face that started it
+  // on purpose (a remount must not cut it), so this is what draws the other line: a channel whose
+  // radio is no longer named by any node has no face left to stop it, and playing on would be
+  // sound the operator cannot turn off — with the server still encoding it.
+  const reachable = useMemo(
+    () =>
+      [...devices.values()].flatMap((set) =>
+        set.channels.map((channel) => ({ deviceSet: set.id, channel: channel.id })),
+      ),
+    [devices],
+  );
+  useEffect(() => {
+    // Before the first state answer there is nothing authoritative to reconcile against, and an
+    // empty list would read as "everything is gone".
+    if (state.data !== undefined) {
+      audioEngine.retain(reachable);
+    }
+  }, [reachable, state.data]);
+
   const context = useMemo(
     () => ({
       catalog: catalog.data ?? { nodes: [] },

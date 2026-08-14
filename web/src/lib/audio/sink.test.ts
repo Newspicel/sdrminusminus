@@ -91,7 +91,13 @@ describe("createWebAudioSink", () => {
     createDecoder.mockRejectedValue(new Error("wasm fetch failed"));
     const { createWebAudioSink } = await importSink();
 
-    await expect(createWebAudioSink(0.5, () => {})).rejects.toThrow("wasm fetch failed");
+    await expect(
+      createWebAudioSink(
+        0.5,
+        () => {},
+        () => {},
+      ),
+    ).rejects.toThrow("wasm fetch failed");
 
     const node = FakeWorkletNode.instances[0];
     const gain = FakeGainNode.instances[0];
@@ -107,7 +113,11 @@ describe("createWebAudioSink", () => {
     const reported: boolean[] = [];
     sinkModule.onOutputStateChange((running) => reported.push(running));
 
-    await sinkModule.createWebAudioSink(1, () => {});
+    await sinkModule.createWebAudioSink(
+      1,
+      () => {},
+      () => {},
+    );
     const context = FakeAudioContext.instances[0];
     expect(sinkModule.isOutputRunning()).toBe(true);
 
@@ -129,7 +139,11 @@ describe("createWebAudioSink", () => {
     const reported: boolean[] = [];
     sinkModule.onOutputStateChange((running) => reported.push(running));
 
-    await sinkModule.createWebAudioSink(1, () => {});
+    await sinkModule.createWebAudioSink(
+      1,
+      () => {},
+      () => {},
+    );
     const context = FakeAudioContext.instances[0];
     expect(context?.resume).toHaveBeenCalled();
     // Health is published immediately, not deferred to a statechange that may never fire.
@@ -144,7 +158,11 @@ describe("createWebAudioSink", () => {
     createDecoder.mockResolvedValue({ channels: 1, decode: vi.fn(), close: vi.fn() });
     const { createWebAudioSink } = await importSink();
 
-    const sink = await createWebAudioSink(1, () => {});
+    const sink = await createWebAudioSink(
+      1,
+      () => {},
+      () => {},
+    );
     const node = FakeWorkletNode.instances[0];
     node?.port.postMessage.mockClear();
 
@@ -164,7 +182,11 @@ describe("createWebAudioSink", () => {
     });
     const { createWebAudioSink } = await importSink();
 
-    await createWebAudioSink(1, () => {});
+    await createWebAudioSink(
+      1,
+      () => {},
+      () => {},
+    );
     const node = FakeWorkletNode.instances[0];
     node?.port.postMessage.mockClear();
 
@@ -190,7 +212,11 @@ describe("createWebAudioSink", () => {
     });
     const { createWebAudioSink } = await importSink();
 
-    const sink = await createWebAudioSink(1, () => {});
+    const sink = await createWebAudioSink(
+      1,
+      () => {},
+      () => {},
+    );
     const packet = Uint8Array.from([1, 2, 3]);
 
     // The packet that announces the new layout is dropped, not decoded with the wrong one.

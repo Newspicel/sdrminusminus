@@ -4,7 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelInfo, DeviceSet, PatchGraph, PatchNode } from "../lib/types";
 import type { Workspace } from "./context";
-import { closeEngineObjects } from "./remove";
+import { closeEngineObjects, releaseRadio } from "./remove";
 
 const api = vi.hoisted(() => ({
   deleteChannel: vi.fn(async () => {}),
@@ -54,5 +54,47 @@ describe("closeEngineObjects", () => {
     await closeEngineObjects(workspace, ["dev"]);
     expect(api.deleteDeviceSet).toHaveBeenCalledWith(4);
     expect(api.deleteChannel).not.toHaveBeenCalled();
+  });
+});
+
+describe("releaseRadio", () => {
+  beforeEach(() => {
+    api.deleteChannel.mockClear();
+    api.deleteDeviceSet.mockClear();
+  });
+
+  it("closes the radio before unbinding the node", async () => {
+    const order: string[] = [];
+    api.deleteDeviceSet.mockImplementation(async () => {
+      order.push("closed");
+    });
+
+    await releaseRadio(workspace, "dev", () => order.push("unbound"));
+
+    // The other order cannot work: once the node names no radio, the binding that finds the
+    // set to close is gone.
+    expect(order).toEqual(["closed", "unbound"]);
+  });
+
+  it("leaves the node bound when the radio refuses to close", async () => {
+    api.deleteDeviceSet.mockRejectedValue(new Error("device busy"));
+    let unbound = false;
+
+    await expect(releaseRadio(workspace, "dev", () => (unbound = true))).rejects.toThrow(
+      "device busy",
+    );
+    // A patch that has forgotten a radio which is still streaming is the one state worse than
+    // the failure itself.
+    expect(unbound).toBe(false);
+  });
+
+  it("unbinds a node whose radio is not attached, with nothing to close", async () => {
+    let unbound = false;
+    const detached = { ...workspace, devices: new Map() } as unknown as Workspace;
+
+    await releaseRadio(detached, "dev", () => (unbound = true));
+
+    expect(unbound).toBe(true);
+    expect(api.deleteDeviceSet).not.toHaveBeenCalled();
   });
 });

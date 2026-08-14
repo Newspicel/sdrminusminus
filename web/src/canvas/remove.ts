@@ -15,6 +15,27 @@ import { nodeOf } from "./graph";
  * still streaming. Every path that removes a node goes through here (the face's ✕, Backspace,
  * the context menu), so the three cannot drift into meaning different things.
  */
+/**
+ * Let go of the radio a device node names: close it in the engine, then unbind the node.
+ *
+ * Unbinding alone would leave the radio open with nothing on the canvas pointing at it — still
+ * claiming the USB device (exclusive, so nothing else can open it), still streaming, still
+ * costing a DSP thread, and reachable only by binding a node back to it. Nothing about the
+ * patch is lost by closing: the node and its wires stay, and this node's device settings are
+ * saved per node, so naming a radio again re-opens it and `restore_device` puts them back.
+ *
+ * The close comes first and its failure propagates, exactly as node removal does: the unbind
+ * must not happen if the radio is still running, or the patch would draw a radio nobody owns.
+ */
+export async function releaseRadio(
+  workspace: Workspace,
+  node: string,
+  unbind: () => void,
+): Promise<void> {
+  await closeEngineObjects(workspace, [node]);
+  unbind();
+}
+
 export async function closeEngineObjects(
   workspace: Workspace,
   ids: readonly string[],

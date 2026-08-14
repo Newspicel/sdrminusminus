@@ -48,6 +48,10 @@ class FakeSink implements AudioSink {
   volume: number;
   resets = 0;
   closed = false;
+  /** Flip to make the next pushes read as refused (decoder backlogged, layout swapping). */
+  accept = true;
+  /** The playback buffer's channel back to the engine, as the worklet's port would be. */
+  report: (report: { underruns: number }) => void = () => {};
 
   constructor(
     volume: number,
@@ -55,8 +59,9 @@ class FakeSink implements AudioSink {
   ) {
     this.volume = volume;
   }
-  push(opus: Uint8Array, timestampUs: number, channels: number): void {
+  push(opus: Uint8Array, timestampUs: number, channels: number): boolean {
     this.pushed.push({ opus: Array.from(opus), timestampUs, channels });
+    return this.accept;
   }
   conceal(frames: number): void {
     this.conceals.push(frames);
@@ -74,8 +79,9 @@ class FakeSink implements AudioSink {
 
 function makeFactory(): { factory: SinkFactory; sinks: FakeSink[] } {
   const sinks: FakeSink[] = [];
-  const factory: SinkFactory = (volume, onError) => {
+  const factory: SinkFactory = (volume, onError, onReport) => {
     const sink = new FakeSink(volume, onError);
+    sink.report = onReport;
     sinks.push(sink);
     return Promise.resolve(sink);
   };
@@ -402,6 +408,86 @@ describe("AudioEngine", () => {
     expect(sinks[0]?.resets).toBe(resetsAfterBind + 1);
     // Every received frame still reaches the decoder, in order.
     expect(sinks[0]?.pushed).toHaveLength(5);
+  });
+
+  it("keeps stream loss and local starvation apart, and accumulates both across sinks", async () => {
+    engine.start(1, 2);
+    await flush();
+    socket.emit(started(1, 2, 10));
+    expect(engine.getLostFrames(1, 2)).toBe(0);
+    expect(engine.getUnderruns(1, 2)).toBe(0);
+
+    socket.onAudio(audioFrame(10, 0n, [1]));
+    socket.onAudio(audioFrame(10, 960n, [2]));
+    // One 960-frame packet never arrived: that is the stream's loss, not this machine's.
+    socket.onAudio(audioFrame(10, 2_880n, [3]));
+    expect(engine.getLostFrames(1, 2)).toBe(960);
+    expect(engine.getUnderruns(1, 2)).toBe(0);
+
+    // The buffer's count is cumulative per sink, so only the increment is new news.
+    sinks[0]?.report({ underruns: 2 });
+    sinks[0]?.report({ underruns: 3 });
+    expect(engine.getUnderruns(1, 2)).toBe(3);
+    expect(engine.getLostFrames(1, 2)).toBe(960);
+
+    // Stop/start builds a fresh sink whose buffer counts from zero again — the channel's
+    // history must not restart with it.
+    engine.stop(1, 2);
+    engine.start(1, 2);
+    await flush();
+    sinks[1]?.report({ underruns: 1 });
+    expect(engine.getUnderruns(1, 2)).toBe(4);
+  });
+
+  it("retain stops the channels the canvas can no longer reach, and only those", async () => {
+    engine.start(1, 2);
+    engine.start(1, 3);
+    await flush();
+    socket.emit(started(1, 2, 10));
+    socket.emit(started(1, 3, 11));
+    socket.sent.length = 0;
+
+    // The radio behind channel 3 was forgotten; 2 is still on the canvas.
+    engine.retain([{ deviceSet: 1, channel: 2 }]);
+
+    expect(engine.isPlaying(1, 2)).toBe(true);
+    expect(engine.isPlaying(1, 3)).toBe(false);
+    expect(engine.isPending(1, 3)).toBe(false);
+    expect(socket.sent).toEqual([
+      { type: "UnsubscribeAudio", data: { device_set: 1, channel: 3 } },
+    ]);
+    expect(sinks[1]?.closed).toBe(true);
+    expect(sinks[0]?.closed).toBe(false);
+  });
+
+  it("retain leaves a stopped channel alone rather than resubscribing or re-erroring", async () => {
+    engine.start(1, 2);
+    await flush();
+    socket.emit(started(1, 2, 10));
+    engine.stop(1, 2);
+    socket.sent.length = 0;
+
+    engine.retain([]);
+    expect(socket.sent).toEqual([]);
+  });
+
+  it("conceals a packet the sink refuses, so the loss cannot pass as an underrun", async () => {
+    engine.start(1, 2);
+    await flush();
+    socket.emit(started(1, 2, 10));
+    const sink = sinks[0];
+
+    socket.onAudio(audioFrame(10, 0n, [1]));
+    socket.onAudio(audioFrame(10, 960n, [2]));
+    expect(sink?.conceals).toEqual([]);
+
+    // Decoder backlogged (or mid layout swap): the packet is gone, and only a conceal keeps
+    // the buffer's depth honest about it.
+    if (sink) {
+      sink.accept = false;
+    }
+    socket.onAudio(audioFrame(10, 1_920n, [3]));
+    expect(sink?.conceals).toEqual([960]);
   });
 
   it("a stop/start race during sink creation still ends with a live sink", async () => {

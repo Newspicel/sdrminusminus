@@ -30,6 +30,7 @@ import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { deviceRefOf, refMatches, unboundChannels } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { patchNode, rxStreamCount, streamLabel } from "../graph";
+import { releaseRadio } from "../remove";
 import { FaceBody, NodeShell, useFaceActive } from "./NodeShell";
 
 /** An id has to be unique in the document. Stream 0's dial keeps the bare id — it is the one the
@@ -153,6 +154,16 @@ export function DeviceFace({ node }: { node: PatchNode }) {
       ),
     }));
 
+  // Letting go of a radio closes it: leaving it open would keep the USB device claimed — no
+  // other app, and no other node, can have it — with nothing on the canvas pointing at it. The
+  // node and its wires stay, and this node's device settings are stored, so naming a radio here
+  // again reopens it exactly as it was.
+  const forget = useMutation({
+    mutationFn: () => releaseRadio(workspace, node.id, () => nameRadio(null)),
+    onError: (error: Error) => pushToast(error.message),
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: STATE_KEY }),
+  });
+
   const bind = (device: DeviceInfo): void => {
     const chosen = deviceRefOf(device);
     nameRadio(chosen);
@@ -216,7 +227,8 @@ export function DeviceFace({ node }: { node: PatchNode }) {
               type="button"
               className={`${BTN} self-start`}
               title="Unbind this node so it can name another radio"
-              onClick={() => nameRadio(null)}
+              onClick={() => forget.mutate()}
+              disabled={forget.isPending}
             >
               Forget this radio
             </button>
@@ -283,10 +295,11 @@ export function DeviceFace({ node }: { node: PatchNode }) {
             <button
               type="button"
               className={BTN_QUIET}
-              title="Unbind this node; the radio stays open and the wires stay drawn"
-              onClick={() => nameRadio(null)}
+              title="Close this radio and unbind the node — the USB device is released and the wires stay drawn"
+              onClick={() => forget.mutate()}
+              disabled={forget.isPending}
             >
-              Forget radio
+              {forget.isPending ? "Closing…" : "Forget radio"}
             </button>
           </div>
         </div>

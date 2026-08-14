@@ -877,3 +877,51 @@ mod tests {
         assert_eq!(decoder.frames.station.ps_text, None);
     }
 }
+
+#[cfg(test)]
+mod tmp_bench {
+    use std::time::Instant;
+
+    use super::*;
+    use crate::testgen::{rds::composite, tone_audio, wfm::composite as wfm_composite};
+
+    const RATE: f64 = 240_000.0;
+
+    fn timed(label: &str, mpx: &[f32]) {
+        let mut decoder = RdsDecoder::new(RATE);
+        let mut events = Vec::new();
+        let start = Instant::now();
+        for chunk in mpx.chunks(4_096) {
+            decoder.process(chunk, &mut events);
+        }
+        let dt = start.elapsed();
+        let audio_s = mpx.len() as f64 / RATE;
+        println!(
+            "{label}: {:?} for {audio_s:.1} s → {:.4}x realtime, {} events",
+            dt,
+            dt.as_secs_f64() / audio_s,
+            events.len()
+        );
+    }
+
+    #[test]
+    fn tmp_measure() {
+        let secs = 20.0;
+        let n = (secs * RATE) as usize;
+        let left = tone_audio(1_000.0, 1.0, RATE, n);
+        let right = tone_audio(3_000.0, 1.0, RATE, n);
+        timed("no pilot ", &wfm_composite(&left, &right, false, RATE));
+        timed("pilot    ", &wfm_composite(&left, &right, true, RATE));
+        let station = crate::testgen::rds::Station {
+            pi: 0xD3C2,
+            ps: "SDR--FM".to_owned(),
+            radiotext: "sdr-- reference transmission".to_owned(),
+            pty: 10,
+            tp: true,
+            ta: false,
+            music: true,
+            alt_freqs_hz: vec![89_800_000.0],
+        };
+        timed("rds      ", &composite(&station, secs, Some(1_000.0), RATE));
+    }
+}

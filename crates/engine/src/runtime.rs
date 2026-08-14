@@ -963,4 +963,55 @@ mod tests {
             "both hosts' PCM must be stamped end to end"
         );
     }
+
+    /// The whole receive chain at a real radio's rate — DDC down from 2.4 MS/s, channel filter,
+    /// discriminator, audio decimation, PCM hand-off — must run far enough ahead of realtime
+    /// that the capture ring never backs up. This is the number behind "can the backend keep
+    /// up with an RTL-SDR": if it ever approaches 1x, audio gaps stop being a client problem.
+    ///
+    /// The margin is deliberately wide (measured ~20x on a laptop) so a loaded CI runner cannot
+    /// fail it for being slow — only a real regression in the signal path can. The DSP crates
+    /// are opt-level 3 in the dev profile too (see the workspace manifest), so this holds for
+    /// `cargo test` as much as for a release build.
+    #[test]
+    fn the_receive_chain_runs_well_ahead_of_realtime_at_a_radios_rate() {
+        const DEVICE_RATE: f64 = 2_400_000.0;
+        /// One SoapySDR read from an RTL-SDR: the block size the DSP thread really sees.
+        const MTU: usize = 131_072;
+        const SECONDS: f64 = 2.0;
+        const MIN_FACTOR: f64 = 3.0;
+
+        let settings = ChannelSettings {
+            offset_hz: 250_000.0,
+            squelch_db: None,
+            params: ChannelParams::Wfm(sdrmm_wire::WfmParams::default()),
+        };
+        let (pcm_tx, mut pcm_rx) = broadcast::channel::<PcmBlock>(4096);
+        let mut host = ChannelHost::build(
+            DEVICE_RATE,
+            &settings,
+            sinks(pcm_tx, Arc::new(AtomicU64::new(0))),
+            DecodedSink::null(),
+        )
+        .expect("host builds");
+        let block: Vec<Complex<f32>> = (0..MTU)
+            .map(|k| {
+                let p = TAU * 0.13 * k as f64;
+                Complex::new(p.cos() as f32 * 0.4, p.sin() as f32 * 0.4)
+            })
+            .collect();
+
+        let blocks = (DEVICE_RATE * SECONDS / MTU as f64) as usize;
+        let start = std::time::Instant::now();
+        for _ in 0..blocks {
+            host.process(&block, 100_000_000.0);
+            // Drained as the encoder thread would, so the broadcast never lags into the timing.
+            while pcm_rx.try_recv().is_ok() {}
+        }
+        let factor = SECONDS / start.elapsed().as_secs_f64();
+        assert!(
+            factor > MIN_FACTOR,
+            "wfm at {DEVICE_RATE} Sa/s ran at {factor:.1}x realtime, under the {MIN_FACTOR}x floor"
+        );
+    }
 }

@@ -13,16 +13,37 @@ export const SAMPLE_RATE = 48_000;
  * cost a gap. Mono streams are duplicated into both channels on the way in instead.
  */
 export const CHANNELS = 2;
-/** ~100 ms pre-buffer (PLAN §9: 60–100 ms jitter buffer), in sample frames. */
+/**
+ * ~100 ms pre-buffer (PLAN §9: 60–100 ms jitter buffer), in sample frames. It is the floor
+ * the buffer adapts up from when a path underruns, not a fixed depth.
+ */
 export const TARGET_FRAMES = 4_800;
-/** ~400 ms cap; a burst past it (tab sleep) sheds back to `TARGET_FRAMES`, not to the cap. */
-export const MAX_FRAMES = 19_200;
+/**
+ * ~1 s ring: room for the adaptive target's ceiling (3× the floor) plus jitter on top of it.
+ * A burst past the cap (tab sleep) sheds back to the target, not to the cap.
+ */
+export const MAX_FRAMES = 48_000;
+/**
+ * Largest hole in the packet clock that is concealed with silence rather than restarted from
+ * (~400 ms). Concealing keeps timing honest; past this the stream is better rebuffered than
+ * padded, and the pad itself would be latency the buffer then has to walk back off.
+ */
+export const MAX_GAP_FRAMES = 19_200;
 
 /**
- * Port protocol: Float32Array = interleaved PCM at `CHANNELS`, "reset" = clear buffer,
- * "close" = end the processor.
+ * Port protocol, main → worklet: Float32Array = interleaved PCM at `CHANNELS`, "reset" = clear
+ * buffer, "close" = end the processor.
  */
 export type WorkletMessage = Float32Array | "reset" | "close";
+
+/**
+ * Port protocol, worklet → main: the running underrun count, posted only when it changes.
+ * Playback running dry is the one thing the audio thread knows and nothing upstream can infer —
+ * it is what separates "the audio never arrived" from "it arrived and we could not play it".
+ */
+export interface WorkletReport {
+  underruns: number;
+}
 
 const processorSource = `
 "use strict";
@@ -33,6 +54,7 @@ class PlaybackProcessor extends AudioWorkletProcessor {
     const { targetFrames, maxFrames, channels } = options.processorOptions;
     this.jitter = new JitterBuffer(targetFrames, maxFrames, channels);
     this.ended = false;
+    this.reported = 0;
     this.port.onmessage = (event) => {
       const data = event.data;
       if (data === "close") {
@@ -48,6 +70,11 @@ class PlaybackProcessor extends AudioWorkletProcessor {
     const channels = outputs[0];
     if (channels && channels.length > 0) {
       this.jitter.read(channels);
+      // Only on change, so the steady state posts nothing at all from the audio thread.
+      if (this.jitter.underruns !== this.reported) {
+        this.reported = this.jitter.underruns;
+        this.port.postMessage({ underruns: this.reported });
+      }
     }
     return !this.ended;
   }

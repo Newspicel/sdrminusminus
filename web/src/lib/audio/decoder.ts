@@ -6,13 +6,20 @@ import { SAMPLE_RATE } from "./worklet";
 export interface OpusPacketDecoder {
   /** Channel count this decoder was configured for; interleave of what it emits. */
   readonly channels: number;
-  decode(packet: Uint8Array, timestampUs: number): void;
+  /** False when the packet was refused (decoder full or closed) — the caller owes a conceal. */
+  decode(packet: Uint8Array, timestampUs: number): boolean;
   close(): void;
 }
 
-// Opus decode is far faster than realtime, so a growing WebCodecs queue means the pipeline
-// is stuck; drop instead of queueing unboundedly (PLAN §5: UI streams are drop-oldest).
-const MAX_DECODE_QUEUE = 16;
+/**
+ * Opus decode is far faster than realtime, so a queue that stays deep means the pipeline is
+ * stuck; drop instead of queueing unboundedly (PLAN §5: UI streams are drop-oldest). The cap is
+ * ~1.3 s rather than a handful of packets because WebCodecs delivers its output on the main
+ * thread: anything that blocks that thread (a render burst, GC) lets the socket queue packets,
+ * which then all submit before a single output can come back. Cutting that burst off at the
+ * knees would drop audio that had already arrived intact.
+ */
+const MAX_DECODE_QUEUE = 64;
 
 function config(channels: number): AudioDecoderConfig {
   return { codec: "opus", sampleRate: SAMPLE_RATE, numberOfChannels: channels };
@@ -82,10 +89,11 @@ function createWebCodecsDecoder(
     channels,
     decode(packet, timestampUs) {
       if (decoder.state !== "configured" || decoder.decodeQueueSize > MAX_DECODE_QUEUE) {
-        return;
+        return false;
       }
       // Every Opus packet is independently submittable, so "key" is always correct.
       decoder.decode(new EncodedAudioChunk({ type: "key", timestamp: timestampUs, data: packet }));
+      return true;
     },
     close() {
       if (decoder.state !== "closed") {
@@ -115,16 +123,16 @@ async function createWasmDecoder(
     channels,
     decode(packet) {
       if (closed) {
-        return;
+        return false;
       }
       try {
         const { channelData, samplesDecoded, errors } = decoder.decodeFrame(packet);
         if (errors.length > 0) {
           onError(new Error(errors.map((e) => e.message).join("; ")));
-          return;
+          return false;
         }
         if (samplesDecoded <= 0) {
-          return;
+          return false;
         }
         // The decoder owns its planar buffers, so the interleave doubles as the copy the
         // worklet transfer needs.
@@ -132,15 +140,17 @@ async function createWasmDecoder(
         for (let c = 0; c < channels; c++) {
           const plane = channelData[c];
           if (!plane) {
-            return;
+            return false;
           }
           for (let f = 0; f < samplesDecoded; f++) {
             pcm[f * channels + c] = plane[f] ?? 0;
           }
         }
         onPcm(pcm);
+        return true;
       } catch (err) {
         onError(err);
+        return false;
       }
     },
     close() {
