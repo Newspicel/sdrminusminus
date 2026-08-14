@@ -9,16 +9,37 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise, resolve };
 }
 
+async function hitPoint(port: Locator): Promise<{ x: number; y: number }> {
+  return port.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const points = [0.5, 0.25, 0.75].flatMap((x) =>
+      [0.5, 0.25, 0.75].map((y) => ({
+        x: bounds.left + bounds.width * x,
+        y: bounds.top + bounds.height * y,
+      })),
+    );
+    const point = points.find(({ x, y }) => {
+      const hit = document.elementFromPoint(x, y);
+      return hit === element || (hit !== null && element.contains(hit));
+    });
+    if (point === undefined) {
+      const center = document.elementFromPoint(
+        bounds.left + bounds.width / 2,
+        bounds.top + bounds.height / 2,
+      );
+      throw new Error(`port is covered by ${center?.className || center?.tagName || "nothing"}`);
+    }
+    return point;
+  });
+}
+
 /** Draw a wire between two ports the way a pointer does. */
 async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
-  const start = await from.boundingBox();
-  const end = await to.boundingBox();
-  if (start === null || end === null) {
-    throw new Error("a port to wire from and one to wire to");
-  }
-  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  const start = await hitPoint(from);
+  const end = await hitPoint(to);
+  await page.mouse.move(start.x, start.y);
   await page.mouse.down();
-  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 12 });
+  await page.mouse.move(end.x, end.y, { steps: 12 });
   await page.mouse.up();
 }
 
@@ -73,16 +94,7 @@ async function slots(page: Page): Promise<{ node: string; x: number; w: number }
 
 /** Bring every node into view before wiring faces from opposite sides of a large patch. */
 async function fitPatch(page: Page): Promise<void> {
-  const pane = page.locator(".react-flow__pane");
-  const box = await pane.boundingBox();
-  if (box === null) {
-    throw new Error("a pane to right-click");
-  }
-  await page.mouse.click(box.x + 40, box.y + box.height - 40, { button: "right" });
-  await page
-    .getByRole("menu")
-    .getByRole("button", { name: /fit the patch/i })
-    .click();
+  await page.getByRole("button", { name: "Fit patch" }).click();
 }
 
 /** Drag a rack grip by whole cells. The grid is `RACK_COLS` wide, so a cell is the container's
@@ -106,6 +118,7 @@ test.describe("the workspace", () => {
   test.describe.configure({ mode: "serial" });
 
   test("binds a radio, adds a channel and pins a face", async ({ page }) => {
+    test.setTimeout(120_000);
     // The tile CDN is cut off, not awaited: CI must not lean on a third party, and the offline
     // fallback the map leg below lands in is itself behaviour the map owes a field workspace.
     await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
@@ -138,6 +151,12 @@ test.describe("the workspace", () => {
     await expect(receiver).toBeVisible();
     await expect(node("scope")).toBeVisible();
     await expect(node("speaker")).toBeVisible();
+
+    const separators = page.locator('[data-slot="separator"][data-orientation="vertical"]');
+    await expect(separators.first()).toBeVisible();
+    const separatorBox = await separators.first().boundingBox();
+    expect(separatorBox?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(1.5);
+    expect(separatorBox?.height ?? 0).toBeGreaterThan(1.5);
 
     const recordings = receiver.getByRole("button", { name: "Recordings (100)" });
     await expect(receiver.getByRole("button", { name: /capture-099/i })).toHaveCount(0);
@@ -220,13 +239,37 @@ test.describe("the workspace", () => {
     const squelch = channel.getByRole("checkbox", { name: /squelch/i });
     await squelch.click();
     const threshold = channel.getByRole("slider", { name: /squelch threshold/i });
-    await expect(threshold).toBeAttached();
+    await expect(threshold).toHaveCount(1);
+    await threshold.focus();
+    await threshold.press("ArrowRight");
+    await expect(channel.getByText("-59", { exact: true })).toBeVisible();
     expect(await cursor(squelch)).toBe("pointer");
     expect(await cursor(threshold.locator("xpath=.."))).toBe("grab");
-    await channel.getByText("-60", { exact: true }).click();
+    await channel.getByText("-59", { exact: true }).click();
     await expect(squelch).toBeChecked();
     await squelch.click();
     await expect(threshold).toHaveCount(0);
+
+    let channelPatches = 0;
+    const countChannelPatch = (request: import("@playwright/test").Request): void => {
+      if (
+        request.method() === "PATCH" &&
+        /\/api\/devicesets\/\d+\/channels\/\d+$/.test(request.url())
+      ) {
+        channelPatches += 1;
+      }
+    };
+    page.on("request", countChannelPatch);
+    const offset = channel.getByRole("spinbutton", { name: "Offset (kHz)" });
+    await offset.fill("1.5");
+    await offset.press("Enter");
+    await expect.poll(() => channelPatches).toBe(1);
+    await offset.fill("2.5");
+    await offset.press("Escape");
+    await expect(offset).toHaveValue("1.5");
+    await page.waitForTimeout(100);
+    expect(channelPatches).toBe(1);
+    page.off("request", countChannelPatch);
 
     await expect(node("scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
 
@@ -311,6 +354,17 @@ test.describe("the workspace", () => {
       scopePlot.locator('button[aria-haspopup="dialog"]', { hasText: /^viridis$/i }),
     ).toBeVisible();
 
+    const bandLane = scopePlot
+      .getByRole("button", { name: /click to identify a frequency/i })
+      .first();
+    await bandLane.focus();
+    await bandLane.press("Enter");
+    const allocation = scopePlot.getByRole("dialog", { name: /allocation at/i });
+    await expect(allocation).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(allocation).toBeHidden();
+    await expect(bandLane).toBeFocused();
+
     expect(await tunedTo()).toBe(tuning);
 
     const before = await slots(page);
@@ -362,6 +416,27 @@ test.describe("the workspace", () => {
       .poll(async () => (await map.locator(".maplibregl-canvas").boundingBox())?.height ?? 0)
       .toBeGreaterThan(0);
     expect(styleErrors).toEqual([]);
+  });
+
+  test("surfaces a rejected numeric edit as a toast", async ({ page }) => {
+    await page.route(/\/api\/devicesets\/\d+\/channels\/\d+$/, async (route) => {
+      if (route.request().method() === "PATCH") {
+        await route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Toast regression", detail: "rejected by test" }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+    await page.goto("/");
+    const channel = page.locator('.react-flow__node[data-id^="channel:"]', { hasText: "WFM" });
+    await fitPatch(page);
+    const offset = channel.getByRole("spinbutton", { name: "Offset (kHz)" });
+    await offset.fill("3.5");
+    await offset.press("Enter");
+    await expect(page.getByText(/Toast regression: rejected by test/i)).toBeVisible();
   });
 
   test("opens the map's basemap credits collapsed", async ({ page }) => {
@@ -434,6 +509,12 @@ test.describe("the workspace", () => {
       renderedScale(detectedDevice),
     ]);
     expect(Math.abs(fieldScale - popupScale)).toBeLessThan(0.05);
+    await device.press("ArrowDown");
+    await device.press("Enter");
+    await expect(device).toHaveValue("/dev/cu.usbmodem11401");
+    await device.fill("");
+    await device.click();
+    await expect(detectedDevice).toBeVisible();
     await detectedDevice.click();
     await expect(device).toHaveValue("/dev/cu.usbmodem11401");
     await device.fill("/dev/ttyACM7");

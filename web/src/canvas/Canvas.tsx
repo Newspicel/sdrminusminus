@@ -9,12 +9,14 @@ import {
   type Node,
   type NodeChange,
   type OnBeforeDelete,
+  Panel,
   ReactFlow,
   useEdgesState,
   useNodesState,
   useReactFlow,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -25,6 +27,7 @@ import {
 import { pushToast } from "../lib/toasts";
 import type { PatchEdge, PatchGraph, PatchNode, PortRef } from "../lib/types";
 import { useWorkspaceContext } from "./context";
+import { runPatchMenuAction } from "./contextMenu";
 import {
   addEdge,
   connectionRefusal,
@@ -34,14 +37,11 @@ import {
   isPinned,
   NODE_SIZE,
   nodeOf,
-  patchNode,
-  pin,
   portOf,
   pruneRack,
   removeEdge,
   removeNode,
   sameGraph,
-  unpin,
 } from "./graph";
 import { NODE_TYPES } from "./nodes";
 import { closeEngineObjects } from "./remove";
@@ -59,6 +59,7 @@ const DELETE_KEYS = ["Backspace", "Delete"];
 
 export function Canvas() {
   const workspace = useWorkspaceContext();
+  const { fitView } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData>>(
     toFlowNodes(workspace.graph),
   );
@@ -232,9 +233,6 @@ export function Canvas() {
   // asked: it has no chrome of its own, so without a menu the only way to cut one is to select
   // it and reach for a key nobody was told about.
   const [menu, setMenu] = useState<Menu | null>(null);
-  const openMenu = useCallback((_event: React.MouseEvent, target: Menu["target"]) => {
-    setMenu({ target });
-  }, []);
 
   return (
     <ShadcnContextMenu onOpenChange={(open) => !open && setMenu(null)}>
@@ -250,14 +248,23 @@ export function Canvas() {
           onConnectEnd={onConnectEnd}
           onBeforeDelete={onBeforeDelete}
           isValidConnection={isValidConnection}
+          onNodeContextMenu={(event, node) => {
+            event.preventDefault();
+            setMenu({ target: { kind: "node", id: node.id } });
+          }}
+          onEdgeContextMenu={(event, edge) => {
+            event.preventDefault();
+            setMenu({ target: { kind: "edge", id: edge.id } });
+          }}
+          onPaneContextMenu={(event) => {
+            event.preventDefault();
+            setMenu({ target: PANE_MENU_TARGET });
+          }}
           onPaneClick={() => {
             workspace.select(null);
             setMenu(null);
           }}
           onNodeClick={() => setMenu(null)}
-          onNodeContextMenu={(event, node) => openMenu(event, { kind: "node", id: node.id })}
-          onEdgeContextMenu={(event, edge) => openMenu(event, { kind: "edge", id: edge.id })}
-          onPaneContextMenu={(event) => openMenu(event as React.MouseEvent, { kind: "pane" })}
           // Both keys, because both are what people press for "delete this".
           deleteKeyCode={DELETE_KEYS}
           panOnScroll
@@ -278,9 +285,19 @@ export function Canvas() {
             size={1}
             className="!bg-background"
           />
+          <Panel position="top-right">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void fitView(FIT_VIEW)}
+            >
+              Fit patch
+            </Button>
+          </Panel>
         </ReactFlow>
       </ContextMenuTrigger>
-      {menu !== null && <PatchContextMenu target={menu.target} />}
+      {menu !== null && <PatchContextMenu target={menu.target} onClose={() => setMenu(null)} />}
     </ShadcnContextMenu>
   );
 }
@@ -289,40 +306,32 @@ interface Menu {
   target: { kind: "node"; id: string } | { kind: "edge"; id: string } | { kind: "pane" };
 }
 
+const PANE_MENU_TARGET = { kind: "pane" } as const;
+
 /** What right-clicking offers, per thing clicked. Deliberately short: everything here is also
  * reachable from the node's own chrome or a key, and a menu that lists the whole application is
  * one nobody reads. */
-function PatchContextMenu({ target }: { target: Menu["target"] }) {
+function PatchContextMenu({ target, onClose }: { target: Menu["target"]; onClose: () => void }) {
   const workspace = useWorkspaceContext();
   const { fitView } = useReactFlow();
   const node = target.kind === "node" ? nodeOf(workspace.graph, target.id) : undefined;
   const pinned = node !== undefined && isPinned(workspace.rack, node.id);
+  const run = (action: Parameters<typeof runPatchMenuAction>[0]): void =>
+    runPatchMenuAction(action, {
+      edit: workspace.edit,
+      fit: () => void fitView(FIT_VIEW),
+      close: onClose,
+    });
 
   return (
     <ContextMenuContent className="w-52">
       {node !== undefined && (
         <>
-          <ContextMenuItem
-            onClick={() =>
-              workspace.edit((snapshot) => ({
-                ...snapshot,
-                rack: pinned
-                  ? unpin(snapshot.rack ?? {}, node.id)
-                  : pin(snapshot.rack ?? {}, node.id),
-              }))
-            }
-          >
+          <ContextMenuItem onClick={() => run({ kind: "toggle-pin", node: node.id })}>
             {pinned ? "Unpin from the rack" : "Pin to the rack"}
           </ContextMenuItem>
           {node.size != null && (
-            <ContextMenuItem
-              onClick={() =>
-                workspace.edit((snapshot) => ({
-                  ...snapshot,
-                  graph: patchNode(snapshot.graph, node.id, ({ size: _size, ...rest }) => rest),
-                }))
-              }
-            >
+            <ContextMenuItem onClick={() => run({ kind: "reset-size", node: node.id })}>
               Reset size
             </ContextMenuItem>
           )}
@@ -331,18 +340,13 @@ function PatchContextMenu({ target }: { target: Menu["target"] }) {
       {target.kind === "edge" && (
         <ContextMenuItem
           variant="destructive"
-          onClick={() =>
-            workspace.edit((snapshot) => ({
-              ...snapshot,
-              graph: removeEdge(snapshot.graph, target.id),
-            }))
-          }
+          onClick={() => run({ kind: "delete-edge", edge: target.id })}
         >
           Delete wire
         </ContextMenuItem>
       )}
       {target.kind === "pane" && (
-        <ContextMenuItem onClick={() => void fitView(FIT_VIEW)}>
+        <ContextMenuItem onClick={() => run({ kind: "fit" })}>
           Fit the patch on screen
         </ContextMenuItem>
       )}

@@ -40,6 +40,7 @@ export function BandRuler({
   const { plan, ruler } = useBandPlan();
   const [picked, setPicked] = useState<{ hz: number; at: number } | null>(null);
   const rulerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   // A pan or a zoom moves the spectrum out from under an open popover, and a card still naming
   // the old frequency is worse than no card. The view is the trigger, not the pointer, so this
@@ -54,13 +55,18 @@ export function BandRuler({
   const lowHz = centerHz + spanToOffset(view.start, spanHz);
   const hzAt = (fraction: number): number => lowHz + fraction * visibleHz;
 
-  const onPick = (event: React.MouseEvent<HTMLElement>): void => {
+  const onPick = (event: React.MouseEvent<HTMLButtonElement>): void => {
     const rect = rulerRef.current?.getBoundingClientRect();
     if (rect === undefined || rect.width === 0) {
       return;
     }
     const at = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    triggerRef.current = event.currentTarget;
     setPicked({ hz: hzAt(at), at });
+  };
+  const closePicked = (): void => {
+    setPicked(null);
+    requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
   return (
@@ -110,7 +116,7 @@ export function BandRuler({
           found={identify(plan, picked.hz)}
           layerName={(id) => plan.layers.find((layer) => layer.id === id)?.authority ?? id}
           onTune={onTune}
-          onClose={() => setPicked(null)}
+          onClose={closePicked}
         />
       )}
     </div>
@@ -136,12 +142,22 @@ function IdentifyCard({
   onClose: () => void;
 }) {
   const suggested = suggestedAt(found);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => cardRef.current?.focus(), []);
   return (
     <Card
+      ref={cardRef}
+      tabIndex={-1}
       size="sm"
       className="absolute top-full z-20 mt-1 w-64 -translate-x-1/2 gap-1.5 p-2"
       style={{ left: `clamp(8rem, ${at * 100}%, calc(100% - 8rem))` }}
-      onKeyDown={(event) => event.key === "Escape" && onClose()}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+        }
+      }}
       role="dialog"
       aria-label={`Allocation at ${formatHz(hz)}`}
     >

@@ -702,18 +702,55 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [zmij](https://github.com/dtolnay/zmij) | 1.0.23 | MIT |
 | [zopfli](https://github.com/zopfli-rs/zopfli) | 0.8.3 | Apache-2.0 |
 
-## Web packages (65)
+## Web packages (355)
 
 | Component | Version | License |
 | --- | --- | --- |
+| [@babel/code-frame](https://babel.dev/docs/en/next/babel-code-frame) | 7.29.7 | MIT |
+| [@babel/compat-data](https://github.com/babel/babel#readme) | 7.29.7 | MIT |
+| [@babel/core](https://babel.dev/docs/en/next/babel-core) | 7.29.7 | MIT |
+| [@babel/generator](https://babel.dev/docs/en/next/babel-generator) | 7.29.8 | MIT |
+| [@babel/helper-annotate-as-pure](https://babel.dev/docs/en/next/babel-helper-annotate-as-pure) | 7.29.7 | MIT |
+| [@babel/helper-compilation-targets](https://github.com/babel/babel#readme) | 7.29.7 | MIT |
+| [@babel/helper-create-class-features-plugin](https://github.com/babel/babel#readme) | 7.29.7 | MIT |
+| [@babel/helper-globals](https://github.com/babel/babel#readme) | 7.29.7 | MIT |
+| [@babel/helper-member-expression-to-functions](https://babel.dev/docs/en/next/babel-helper-member-expression-to-functions) | 7.29.7 | MIT |
+| [@babel/helper-module-imports](https://babel.dev/docs/en/next/babel-helper-module-imports) | 7.29.7 | MIT |
+| [@babel/helper-module-transforms](https://babel.dev/docs/en/next/babel-helper-module-transforms) | 7.29.7 | MIT |
+| [@babel/helper-optimise-call-expression](https://babel.dev/docs/en/next/babel-helper-optimise-call-expression) | 7.29.7 | MIT |
+| [@babel/helper-plugin-utils](https://babel.dev/docs/en/next/babel-helper-plugin-utils) | 7.29.7 | MIT |
+| [@babel/helper-replace-supers](https://babel.dev/docs/en/next/babel-helper-replace-supers) | 7.29.7 | MIT |
+| [@babel/helper-skip-transparent-expression-wrappers](https://github.com/babel/babel#readme) | 7.29.7 | MIT |
+| [@babel/helper-string-parser](https://babel.dev/docs/en/next/babel-helper-string-parser) | 7.29.7 | MIT |
+| [@babel/helper-validator-identifier](https://github.com/babel/babel#readme) | 7.29.7 | MIT |
+| [@babel/helper-validator-option](https://github.com/babel/babel#readme) | 7.29.7 | MIT |
+| [@babel/helpers](https://babel.dev/docs/en/next/babel-helpers) | 7.29.7 | MIT |
+| [@babel/parser](https://babel.dev/docs/en/next/babel-parser) | 7.29.8 | MIT |
+| [@babel/plugin-syntax-jsx](https://babel.dev/docs/en/next/babel-plugin-syntax-jsx) | 7.29.7 | MIT |
+| [@babel/plugin-syntax-typescript](https://babel.dev/docs/en/next/babel-plugin-syntax-typescript) | 7.29.7 | MIT |
+| [@babel/plugin-transform-modules-commonjs](https://babel.dev/docs/en/next/babel-plugin-transform-modules-commonjs) | 7.29.7 | MIT |
+| [@babel/plugin-transform-typescript](https://babel.dev/docs/en/next/babel-plugin-transform-typescript) | 7.29.7 | MIT |
+| [@babel/preset-typescript](https://babel.dev/docs/en/next/babel-preset-typescript) | 7.29.7 | MIT |
 | [@babel/runtime](https://babel.dev/docs/en/next/babel-runtime) | 7.29.7 | MIT |
+| [@babel/template](https://babel.dev/docs/en/next/babel-template) | 7.29.7 | MIT |
+| [@babel/traverse](https://babel.dev/docs/en/next/babel-traverse) | 7.29.8 | MIT |
+| [@babel/types](https://babel.dev/docs/en/next/babel-types) | 7.29.8 | MIT |
 | [@base-ui/react](https://base-ui.com) | 1.7.0 | MIT |
 | [@base-ui/utils](https://github.com/mui/base-ui#readme) | 0.3.2 | MIT |
+| [@dotenvx/dotenvx](https://github.com/dotenvx/dotenvx) | 1.75.1 | BSD-3-Clause |
+| [@dotenvx/primitives](https://github.com/dotenvx/dotenvx) | 0.8.0 | BSD-3-Clause |
 | [@eshaz/web-worker](https://github.com/eshaz/web-worker) | 1.2.2 | Apache-2.0 |
 | [@floating-ui/core](https://floating-ui.com) | 1.8.0 | MIT |
 | [@floating-ui/dom](https://floating-ui.com) | 1.8.0 | MIT |
 | [@floating-ui/react-dom](https://floating-ui.com/docs/react-dom) | 2.1.9 | MIT |
 | [@floating-ui/utils](https://floating-ui.com) | 0.2.12 | MIT |
+| [@fontsource-variable/geist](https://fontsource.org/fonts/geist) | 5.3.0 | OFL-1.1 |
+| [@hono/node-server](https://github.com/honojs/node-server) | 2.1.0 | MIT |
+| [@jridgewell/gen-mapping](https://github.com/jridgewell/sourcemaps/tree/main/packages/gen-mapping) | 0.3.13 | MIT |
+| [@jridgewell/remapping](https://github.com/jridgewell/sourcemaps/tree/main/packages/remapping) | 2.3.5 | MIT |
+| [@jridgewell/resolve-uri](https://github.com/jridgewell/resolve-uri#readme) | 3.1.2 | MIT |
+| [@jridgewell/sourcemap-codec](https://github.com/jridgewell/sourcemaps/tree/main/packages/sourcemap-codec) | 1.5.5 | MIT |
+| [@jridgewell/trace-mapping](https://github.com/jridgewell/sourcemaps/tree/main/packages/trace-mapping) | 0.3.31 | MIT |
 | [@mapbox/jsonlint-lines-primitives](https://github.com/mapbox/jsonlint#readme) | 2.0.3 | MIT |
 | [@mapbox/point-geometry](https://github.com/mapbox/point-geometry) | 1.1.0 | ISC |
 | [@mapbox/tiny-sdf](https://github.com/mapbox/tiny-sdf#readme) | 2.2.0 | BSD-2-Clause |
@@ -723,8 +760,15 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [@maplibre/maplibre-gl-style-spec](https://maplibre.org/maplibre-style-spec/) | 26.2.1 | ISC |
 | [@maplibre/mlt](https://github.com/maplibre/maplibre-tile-spec/#readme) | 1.1.12 | (MIT OR Apache-2.0) |
 | [@maplibre/vt-pbf](https://github.com/maplibre/vt-pbf#readme) | 4.3.2 | MIT |
+| [@modelcontextprotocol/sdk](https://modelcontextprotocol.io) | 1.30.0 | MIT |
+| [@nodelib/fs.scandir](https://github.com/nodelib/nodelib/tree/master#readme) | 2.1.5 | MIT |
+| [@nodelib/fs.stat](https://github.com/nodelib/nodelib/tree/master#readme) | 2.0.5 | MIT |
+| [@nodelib/fs.walk](https://github.com/nodelib/nodelib/tree/master#readme) | 1.2.8 | MIT |
+| [@sec-ant/readable-stream](https://github.com/Sec-ant/readable-stream) | 0.4.1 | MIT |
+| [@sindresorhus/merge-streams](https://github.com/sindresorhus/merge-streams#readme) | 4.0.0 | MIT |
 | [@tanstack/query-core](https://tanstack.com/query) | 5.101.4 | MIT |
 | [@tanstack/react-query](https://tanstack.com/query) | 5.101.4 | MIT |
+| [@ts-morph/common](https://github.com/dsherret/ts-morph#readme) | 0.27.0 | MIT |
 | [@types/d3-color](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-color) | 3.1.3 | MIT |
 | [@types/d3-drag](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-drag) | 3.0.7 | MIT |
 | [@types/d3-interpolate](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/d3-interpolate) | 3.0.4 | MIT |
@@ -734,10 +778,48 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [@types/geojson](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/geojson) | 7946.0.16 | MIT |
 | [@types/react](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react) | 19.2.18 | MIT |
 | [@types/react-dom](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react-dom) | 19.2.4 | MIT |
+| [@types/validate-npm-package-name](https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/validate-npm-package-name) | 4.0.2 | MIT |
 | [@wasm-audio-decoders/common](https://github.com/eshaz/wasm-audio-decoders/tree/master/src/common) | 9.0.7 | MIT |
-| [@xyflow/react](https://reactflow.dev) | 12.11.2 | MIT |
-| [@xyflow/system](https://github.com/xyflow/xyflow#readme) | 0.0.79 | MIT |
+| [@xyflow/react](https://reactflow.dev) | 12.11.3 | MIT |
+| [@xyflow/system](https://github.com/xyflow/xyflow#readme) | 0.0.80 | MIT |
+| [accepts](https://github.com/jshttp/accepts#readme) | 2.0.0 | MIT |
+| [ajv](https://ajv.js.org) | 8.20.0 | MIT |
+| [ajv-formats](https://github.com/ajv-validator/ajv-formats#readme) | 2.1.1, 3.0.1 | MIT |
+| [ansi-colors](https://github.com/doowb/ansi-colors) | 4.1.3 | MIT |
+| [ansi-regex](https://github.com/chalk/ansi-regex#readme) | 5.0.1, 6.3.0 | MIT |
+| [argparse](https://github.com/nodeca/argparse#readme) | 2.0.1 | Python-2.0 |
+| [ast-types](http://github.com/benjamn/ast-types) | 0.16.1 | MIT |
+| [atomically](https://github.com/fabiospampinato/atomically#readme) | 1.7.0 | MIT |
+| [balanced-match](https://github.com/juliangruber/balanced-match#readme) | 4.0.4 | MIT |
+| [baseline-browser-mapping](https://github.com/web-platform-dx/baseline-browser-mapping#readme) | 2.11.14 | Apache-2.0 |
+| [body-parser](https://github.com/expressjs/body-parser#readme) | 2.3.0 | MIT |
+| [brace-expansion](https://github.com/juliangruber/brace-expansion#readme) | 5.0.9 | MIT |
+| [braces](https://github.com/micromatch/braces) | 3.0.3 | MIT |
+| [browserslist](https://github.com/browserslist/browserslist#readme) | 4.28.8 | MIT |
+| [bundle-name](https://github.com/sindresorhus/bundle-name#readme) | 4.1.0 | MIT |
+| [bytes](https://github.com/visionmedia/bytes.js#readme) | 3.1.2 | MIT |
+| [call-bind-apply-helpers](https://github.com/ljharb/call-bind-apply-helpers#readme) | 1.0.2 | MIT |
+| [call-bound](https://github.com/ljharb/call-bound#readme) | 1.0.4 | MIT |
+| [callsites](https://github.com/sindresorhus/callsites#readme) | 3.1.0 | MIT |
+| [caniuse-lite](https://github.com/browserslist/caniuse-lite#readme) | 1.0.30001809 | CC-BY-4.0 |
+| [chalk](https://github.com/chalk/chalk#readme) | 5.6.2 | MIT |
+| [class-variance-authority](https://github.com/joe-bell/cva#readme) | 0.7.1 | Apache-2.0 |
 | [classcat](https://github.com/jorgebucaran/classcat#readme) | 5.0.5 | MIT |
+| [cli-cursor](https://github.com/sindresorhus/cli-cursor#readme) | 5.0.0 | MIT |
+| [cli-spinners](https://github.com/sindresorhus/cli-spinners#readme) | 2.9.2 | MIT |
+| [clsx](https://github.com/lukeed/clsx#readme) | 2.1.1 | MIT |
+| [code-block-writer](https://github.com/dsherret/code-block-writer#readme) | 13.0.3 | MIT |
+| [commander](https://github.com/tj/commander.js#readme) | 11.1.0, 14.0.3 | MIT |
+| [conf](https://github.com/sindresorhus/conf#readme) | 10.2.0 | MIT |
+| [content-disposition](https://github.com/jshttp/content-disposition#readme) | 1.1.0 | MIT |
+| [content-type](https://github.com/jshttp/content-type#readme) | 1.0.5, 2.0.0 | MIT |
+| [convert-source-map](https://github.com/thlorenz/convert-source-map) | 2.0.0 | MIT |
+| [cookie](https://github.com/jshttp/cookie#readme) | 0.7.2 | MIT |
+| [cookie-signature](https://github.com/visionmedia/node-cookie-signature#readme) | 1.2.2 | MIT |
+| [cors](https://github.com/expressjs/cors#readme) | 2.8.6 | MIT |
+| [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig#readme) | 9.0.2 | MIT |
+| [cross-spawn](https://github.com/moxystudio/node-cross-spawn) | 7.0.6 | MIT |
+| [cssesc](https://mths.be/cssesc) | 3.0.0 | MIT |
 | [csstype](https://github.com/frenic/csstype#readme) | 3.2.3 | MIT |
 | [d3-color](https://d3js.org/d3-color/) | 3.1.0 | ISC |
 | [d3-dispatch](https://d3js.org/d3-dispatch/) | 3.0.1 | ISC |
@@ -748,29 +830,237 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [d3-timer](https://d3js.org/d3-timer/) | 3.0.1 | ISC |
 | [d3-transition](https://d3js.org/d3-transition/) | 3.0.1 | ISC |
 | [d3-zoom](https://d3js.org/d3-zoom/) | 3.0.0 | ISC |
+| [debounce-fn](https://github.com/sindresorhus/debounce-fn#readme) | 4.0.0 | MIT |
+| [debug](https://github.com/debug-js/debug#readme) | 4.4.3 | MIT |
+| [dedent](https://github.com/dmnd/dedent) | 1.7.2 | MIT |
+| [deepmerge](https://github.com/TehShrike/deepmerge) | 4.3.1 | MIT |
+| [default-browser](https://github.com/sindresorhus/default-browser#readme) | 5.5.0 | MIT |
+| [default-browser-id](https://github.com/sindresorhus/default-browser-id#readme) | 5.0.1 | MIT |
+| [define-lazy-prop](https://github.com/sindresorhus/define-lazy-prop#readme) | 2.0.0, 3.0.0 | MIT |
+| [depd](https://github.com/dougwilson/nodejs-depd#readme) | 2.0.0 | MIT |
+| [diff](https://github.com/kpdecker/jsdiff#readme) | 8.0.4 | BSD-3-Clause |
+| [dot-prop](https://github.com/sindresorhus/dot-prop#readme) | 6.0.1 | MIT |
+| [dotenv](https://github.com/motdotla/dotenv#readme) | 17.4.2 | BSD-2-Clause |
+| [dunder-proto](https://github.com/es-shims/dunder-proto#readme) | 1.0.1 | MIT |
 | [earcut](https://github.com/mapbox/earcut#readme) | 3.2.3 | ISC |
+| [ee-first](https://github.com/jonathanong/ee-first#readme) | 1.1.1 | MIT |
+| [electron-to-chromium](https://github.com/Kilian/electron-to-chromium#readme) | 1.5.405 | ISC |
+| [emoji-regex](https://mths.be/emoji-regex) | 10.6.0 | MIT |
+| [encodeurl](https://github.com/pillarjs/encodeurl#readme) | 2.0.0 | MIT |
+| [enquirer](https://github.com/enquirer/enquirer) | 2.4.1 | MIT |
+| [env-paths](https://github.com/sindresorhus/env-paths#readme) | 2.2.1 | MIT |
+| [error-ex](https://github.com/qix-/node-error-ex#readme) | 1.3.4 | MIT |
+| [es-define-property](https://github.com/ljharb/es-define-property#readme) | 1.0.1 | MIT |
+| [es-errors](https://github.com/ljharb/es-errors#readme) | 1.3.0 | MIT |
+| [es-object-atoms](https://github.com/ljharb/es-object-atoms#readme) | 1.1.2 | MIT |
+| [escalade](https://github.com/lukeed/escalade#readme) | 3.2.0 | MIT |
+| [escape-html](https://github.com/component/escape-html#readme) | 1.0.3 | MIT |
+| [esprima](http://esprima.org) | 4.0.1 | BSD-2-Clause |
+| [etag](https://github.com/jshttp/etag#readme) | 1.8.1 | MIT |
+| [eventsource](https://github.com/EventSource/eventsource#readme) | 3.0.7 | MIT |
+| [eventsource-parser](https://github.com/rexxars/eventsource-parser#readme) | 3.1.1 | MIT |
+| [execa](https://github.com/sindresorhus/execa#readme) | 5.1.1, 9.6.1 | MIT |
+| [express](https://expressjs.com/) | 5.2.1 | MIT |
+| [express-rate-limit](https://github.com/express-rate-limit/express-rate-limit) | 8.6.2 | MIT |
+| [fast-deep-equal](https://github.com/epoberezkin/fast-deep-equal#readme) | 3.1.3 | MIT |
+| [fast-glob](https://github.com/mrmlnc/fast-glob#readme) | 3.3.3 | MIT |
+| [fast-uri](https://github.com/fastify/fast-uri) | 3.1.5 | BSD-3-Clause |
+| [fastq](https://github.com/mcollina/fastq#readme) | 1.20.1 | ISC |
+| [fdir](https://github.com/thecodrr/fdir#readme) | 6.5.0 | MIT |
+| [figures](https://github.com/sindresorhus/figures#readme) | 6.1.0 | MIT |
+| [fill-range](https://github.com/jonschlinkert/fill-range) | 7.1.1 | MIT |
+| [finalhandler](https://github.com/pillarjs/finalhandler#readme) | 2.1.1 | MIT |
+| [find-up](https://github.com/sindresorhus/find-up#readme) | 3.0.0 | MIT |
+| [forwarded](https://github.com/jshttp/forwarded#readme) | 0.2.0 | MIT |
+| [fresh](https://github.com/jshttp/fresh#readme) | 2.0.0 | MIT |
+| [fs-extra](https://github.com/jprichardson/node-fs-extra) | 11.4.0 | MIT |
+| [function-bind](https://github.com/Raynos/function-bind) | 1.1.2 | MIT |
+| [fuzzysort](https://github.com/farzher/fuzzysort#readme) | 3.1.0 | MIT |
+| [gensync](https://github.com/loganfsmyth/gensync) | 1.0.0-beta.2 | MIT |
+| [get-east-asian-width](https://github.com/sindresorhus/get-east-asian-width#readme) | 1.6.0 | MIT |
+| [get-intrinsic](https://github.com/ljharb/get-intrinsic#readme) | 1.3.0 | MIT |
+| [get-own-enumerable-keys](https://github.com/sindresorhus/get-own-enumerable-keys#readme) | 1.0.0 | MIT |
+| [get-proto](https://github.com/ljharb/get-proto#readme) | 1.0.1 | MIT |
+| [get-stream](https://github.com/sindresorhus/get-stream#readme) | 6.0.1, 9.0.1 | MIT |
 | [gl-matrix](http://glmatrix.net) | 3.4.4 | MIT |
+| [glob-parent](https://github.com/gulpjs/glob-parent#readme) | 5.1.2 | ISC |
+| [gopd](https://github.com/ljharb/gopd#readme) | 1.2.0 | MIT |
+| [graceful-fs](https://github.com/isaacs/node-graceful-fs#readme) | 4.2.11 | ISC |
+| [has-symbols](https://github.com/ljharb/has-symbols#readme) | 1.1.0 | MIT |
+| [hasown](https://github.com/inspect-js/hasOwn#readme) | 2.0.4 | MIT |
+| [hono](https://hono.dev) | 4.13.2 | MIT |
+| [http-errors](https://github.com/jshttp/http-errors#readme) | 2.0.1 | MIT |
+| [human-signals](https://www.github.com/ehmicky/human-signals) | 2.1.0, 8.0.1 | Apache-2.0 |
+| [iconv-lite](https://github.com/pillarjs/iconv-lite) | 0.7.3 | MIT |
+| [ignore](https://github.com/kaelzhang/node-ignore#readme) | 5.3.2 | MIT |
+| [import-fresh](https://github.com/sindresorhus/import-fresh#readme) | 3.3.1 | MIT |
+| [inherits](https://github.com/isaacs/inherits#readme) | 2.0.4 | ISC |
+| [ip-address](https://github.com/beaugunderson/ip-address#readme) | 10.5.0 | MIT |
+| [ipaddr.js](https://github.com/whitequark/ipaddr.js#readme) | 1.9.1 | MIT |
+| [is-arrayish](https://github.com/qix-/node-is-arrayish#readme) | 0.2.1 | MIT |
+| [is-docker](https://github.com/sindresorhus/is-docker#readme) | 2.2.1, 3.0.0 | MIT |
+| [is-extglob](https://github.com/jonschlinkert/is-extglob) | 2.1.1 | MIT |
+| [is-glob](https://github.com/micromatch/is-glob) | 4.0.3 | MIT |
+| [is-in-ssh](https://github.com/sindresorhus/is-in-ssh#readme) | 1.0.0 | MIT |
+| [is-inside-container](https://github.com/sindresorhus/is-inside-container#readme) | 1.0.0 | MIT |
+| [is-interactive](https://github.com/sindresorhus/is-interactive#readme) | 2.0.0 | MIT |
+| [is-number](https://github.com/jonschlinkert/is-number) | 7.0.0 | MIT |
+| [is-obj](https://github.com/sindresorhus/is-obj#readme) | 2.0.0, 3.0.0 | MIT |
+| [is-plain-obj](https://github.com/sindresorhus/is-plain-obj#readme) | 4.1.0 | MIT |
+| [is-promise](https://github.com/then/is-promise#readme) | 4.0.0 | MIT |
+| [is-regexp](https://github.com/sindresorhus/is-regexp#readme) | 3.1.0 | MIT |
+| [is-stream](https://github.com/sindresorhus/is-stream#readme) | 2.0.1, 4.0.1 | MIT |
+| [is-unicode-supported](https://github.com/sindresorhus/is-unicode-supported#readme) | 1.3.0, 2.1.0 | MIT |
+| [is-wsl](https://github.com/sindresorhus/is-wsl#readme) | 2.2.0, 3.1.1 | MIT |
+| [isexe](https://github.com/isaacs/isexe#readme) | 2.0.0 | ISC |
+| [isexe](https://github.com/isaacs/isexe#readme) | 3.1.5 | BlueOak-1.0.0 |
+| [jose](https://github.com/panva/jose) | 6.2.8 | MIT |
+| [js-tokens](https://github.com/lydell/js-tokens#readme) | 4.0.0 | MIT |
+| [js-yaml](https://github.com/nodeca/js-yaml#readme) | 4.3.1 | MIT |
+| [jsesc](https://mths.be/jsesc) | 3.1.0 | MIT |
+| [json-parse-even-better-errors](https://github.com/npm/json-parse-even-better-errors#readme) | 2.3.1 | MIT |
+| [json-schema-traverse](https://github.com/epoberezkin/json-schema-traverse#readme) | 1.0.0 | MIT |
+| [json-schema-typed](https://github.com/RemyRylan/json-schema-typed/tree/main/dist/node) | 7.0.3, 8.0.2 | BSD-2-Clause |
 | [json-stringify-pretty-compact](https://github.com/lydell/json-stringify-pretty-compact#readme) | 4.0.0 | MIT |
+| [json5](http://json5.org/) | 2.2.3 | MIT |
+| [jsonfile](https://github.com/jprichardson/node-jsonfile#readme) | 6.2.1 | MIT |
 | [kdbush](https://github.com/mourner/kdbush#readme) | 4.1.0 | ISC |
+| [kleur](https://github.com/lukeed/kleur#readme) | 3.0.3, 4.1.5 | MIT |
+| [lines-and-columns](https://github.com/eventualbuddha/lines-and-columns#readme) | 1.2.4 | MIT |
+| [locate-path](https://github.com/sindresorhus/locate-path#readme) | 3.0.0 | MIT |
+| [log-symbols](https://github.com/sindresorhus/log-symbols#readme) | 6.0.0 | MIT |
+| [lru-cache](https://github.com/isaacs/node-lru-cache#readme) | 5.1.1 | ISC |
+| [lucide-react](https://lucide.dev) | 1.31.0 | ISC |
 | [maplibre-gl](https://maplibre.org/) | 6.3.0 | BSD-3-Clause |
+| [math-intrinsics](https://github.com/es-shims/math-intrinsics#readme) | 1.1.0 | MIT |
+| [media-typer](https://github.com/jshttp/media-typer#readme) | 1.1.1 | MIT |
+| [merge-descriptors](https://github.com/sindresorhus/merge-descriptors#readme) | 2.0.0 | MIT |
+| [merge-stream](https://github.com/grncdr/merge-stream#readme) | 2.0.0 | MIT |
+| [merge2](https://github.com/teambition/merge2) | 1.4.1 | MIT |
+| [micromatch](https://github.com/micromatch/micromatch) | 4.0.8 | MIT |
+| [mime-db](https://github.com/jshttp/mime-db#readme) | 1.54.0 | MIT |
+| [mime-types](https://github.com/jshttp/mime-types#readme) | 3.0.2 | MIT |
+| [mimic-fn](https://github.com/sindresorhus/mimic-fn#readme) | 2.1.0, 3.1.0 | MIT |
+| [mimic-function](https://github.com/sindresorhus/mimic-function#readme) | 5.0.1 | MIT |
+| [minimatch](https://github.com/isaacs/minimatch#readme) | 10.2.6 | BlueOak-1.0.0 |
 | [minimist](https://github.com/minimistjs/minimist) | 1.2.8 | MIT |
+| [ms](https://github.com/vercel/ms#readme) | 2.1.3 | MIT |
 | [murmurhash-js](https://github.com/mikolalysenko/murmurhash-js#readme) | 1.0.0 | MIT |
+| [nanoid](https://github.com/ai/nanoid#readme) | 3.3.18 | MIT |
+| [negotiator](https://github.com/jshttp/negotiator#readme) | 1.0.0 | MIT |
+| [node-releases](https://github.com/chicoxyzzy/node-releases#readme) | 2.0.53 | MIT |
+| [npm-run-path](https://github.com/sindresorhus/npm-run-path#readme) | 4.0.1, 6.0.0 | MIT |
+| [object-assign](https://github.com/sindresorhus/object-assign#readme) | 4.1.1 | MIT |
+| [object-inspect](https://github.com/inspect-js/object-inspect) | 1.13.4 | MIT |
+| [object-treeify](https://github.com/blackflux/object-treeify#readme) | 1.1.33 | MIT |
+| [on-finished](https://github.com/jshttp/on-finished#readme) | 2.4.1 | MIT |
+| [once](https://github.com/isaacs/once#readme) | 1.4.0 | ISC |
+| [onetime](https://github.com/sindresorhus/onetime#readme) | 5.1.2, 7.0.0 | MIT |
+| [open](https://github.com/sindresorhus/open#readme) | 8.4.2, 11.0.0 | MIT |
 | [openapi-fetch](https://openapi-ts.dev) | 0.17.0 | MIT |
 | [openapi-typescript-helpers](https://openapi-ts.dev) | 0.1.0 | MIT |
 | [opus-decoder](https://github.com/eshaz/wasm-audio-decoders/tree/main/src/opus-decoder) | 0.7.11 | MIT |
+| [ora](https://github.com/sindresorhus/ora#readme) | 8.2.0 | MIT |
+| [p-limit](https://github.com/sindresorhus/p-limit#readme) | 2.3.0 | MIT |
+| [p-locate](https://github.com/sindresorhus/p-locate#readme) | 3.0.0 | MIT |
+| [p-try](https://github.com/sindresorhus/p-try#readme) | 2.2.0 | MIT |
+| [parent-module](https://github.com/sindresorhus/parent-module#readme) | 1.0.1 | MIT |
+| [parse-json](https://github.com/sindresorhus/parse-json#readme) | 5.2.0 | MIT |
+| [parse-ms](https://github.com/sindresorhus/parse-ms#readme) | 4.0.0 | MIT |
+| [parseurl](https://github.com/pillarjs/parseurl#readme) | 1.3.3 | MIT |
+| [path-browserify](https://github.com/browserify/path-browserify) | 1.0.1 | MIT |
+| [path-exists](https://github.com/sindresorhus/path-exists#readme) | 3.0.0 | MIT |
+| [path-key](https://github.com/sindresorhus/path-key#readme) | 3.1.1, 4.0.0 | MIT |
+| [path-to-regexp](https://github.com/pillarjs/path-to-regexp#readme) | 8.4.2 | MIT |
 | [pbf](https://github.com/mapbox/pbf) | 5.1.2 | BSD-3-Clause |
+| [picocolors](https://github.com/alexeyraspopov/picocolors#readme) | 1.1.1 | ISC |
+| [picomatch](https://github.com/micromatch/picomatch) | 2.3.2, 4.0.5 | MIT |
+| [pkce-challenge](https://github.com/crouchcd/pkce-challenge#readme) | 5.0.1 | MIT |
+| [pkg-up](https://github.com/sindresorhus/pkg-up#readme) | 3.1.0 | MIT |
+| [postcss](https://postcss.org/) | 8.5.26 | MIT |
+| [postcss-selector-parser](https://github.com/postcss/postcss-selector-parser) | 7.1.5 | MIT |
 | [potpack](https://mapbox.github.io/potpack/) | 2.1.0 | ISC |
+| [powershell-utils](https://github.com/sindresorhus/powershell-utils#readme) | 0.1.0 | MIT |
+| [pretty-ms](https://github.com/sindresorhus/pretty-ms#readme) | 9.3.0 | MIT |
+| [prompts](https://github.com/terkelg/prompts#readme) | 2.4.2 | MIT |
 | [protocol-buffers-schema](https://github.com/mafintosh/protocol-buffers-schema) | 3.6.1 | MIT |
+| [proxy-addr](https://github.com/jshttp/proxy-addr#readme) | 2.0.7 | MIT |
+| [qs](https://github.com/ljharb/qs) | 6.15.3 | BSD-3-Clause |
+| [queue-microtask](https://github.com/feross/queue-microtask) | 1.2.3 | MIT |
 | [quickselect](https://github.com/mourner/quickselect#readme) | 3.0.0 | ISC |
+| [range-parser](https://github.com/jshttp/range-parser#readme) | 1.3.0 | MIT |
+| [raw-body](https://github.com/stream-utils/raw-body#readme) | 3.0.2 | MIT |
 | [react](https://react.dev/) | 19.2.8 | MIT |
 | [react-dom](https://react.dev/) | 19.2.8 | MIT |
+| [recast](http://github.com/benjamn/recast) | 0.23.21 | MIT |
+| [require-from-string](https://github.com/floatdrop/require-from-string#readme) | 2.0.2 | MIT |
 | [reselect](https://github.com/reduxjs/reselect#readme) | 5.2.0 | MIT |
+| [resolve-from](https://github.com/sindresorhus/resolve-from#readme) | 4.0.0 | MIT |
 | [resolve-protobuf-schema](https://github.com/mafintosh/resolve-protobuf-schema) | 2.1.0 | MIT |
+| [restore-cursor](https://github.com/sindresorhus/restore-cursor#readme) | 5.1.0 | MIT |
+| [reusify](https://github.com/mcollina/reusify#readme) | 1.1.0 | MIT |
+| [router](https://github.com/pillarjs/router#readme) | 2.2.0 | MIT |
+| [run-applescript](https://github.com/sindresorhus/run-applescript#readme) | 7.1.0 | MIT |
+| [run-parallel](https://github.com/feross/run-parallel) | 1.2.0 | MIT |
+| [safer-buffer](https://github.com/ChALkeR/safer-buffer#readme) | 2.1.2 | MIT |
 | [scheduler](https://react.dev/) | 0.27.0 | MIT |
+| [semver](https://github.com/npm/node-semver#readme) | 6.3.1, 7.8.5 | ISC |
+| [send](https://github.com/pillarjs/send#readme) | 1.2.1 | MIT |
+| [serve-static](https://github.com/expressjs/serve-static#readme) | 2.2.1 | MIT |
+| [setprototypeof](https://github.com/wesleytodd/setprototypeof) | 1.2.0 | ISC |
+| [shadcn](https://github.com/shadcn-ui/ui#readme) | 4.17.0 | MIT |
+| [shebang-command](https://github.com/kevva/shebang-command#readme) | 2.0.0 | MIT |
+| [shebang-regex](https://github.com/sindresorhus/shebang-regex#readme) | 3.0.0 | MIT |
+| [side-channel](https://github.com/ljharb/side-channel#readme) | 1.1.1 | MIT |
+| [side-channel-list](https://github.com/ljharb/side-channel-list#readme) | 1.0.1 | MIT |
+| [side-channel-map](https://github.com/ljharb/side-channel-map#readme) | 1.0.1 | MIT |
+| [side-channel-weakmap](https://github.com/ljharb/side-channel-weakmap#readme) | 1.0.2 | MIT |
+| [signal-exit](https://github.com/tapjs/signal-exit#readme) | 3.0.7, 4.1.0 | ISC |
 | [simple-yenc](https://github.com/eshaz/simple-yenc#readme) | 1.0.4 | MIT |
+| [sisteransi](https://github.com/terkelg/sisteransi#readme) | 1.0.5 | MIT |
+| [smart-buffer](https://github.com/JoshGlazebrook/smart-buffer/) | 4.2.0 | MIT |
+| [socks](https://github.com/JoshGlazebrook/socks/) | 2.8.9 | MIT |
+| [sonner](https://sonner.emilkowal.ski/) | 2.0.8 | MIT |
+| [source-map](https://github.com/mozilla/source-map) | 0.6.1 | BSD-3-Clause |
+| [source-map-js](https://github.com/7rulnik/source-map-js) | 1.2.1 | BSD-3-Clause |
+| [statuses](https://github.com/jshttp/statuses#readme) | 2.0.2 | MIT |
+| [stdin-discarder](https://github.com/sindresorhus/stdin-discarder#readme) | 0.2.2 | MIT |
+| [string-width](https://github.com/sindresorhus/string-width#readme) | 7.2.0 | MIT |
+| [stringify-object](https://github.com/yeoman/stringify-object#readme) | 5.0.0 | BSD-2-Clause |
+| [strip-ansi](https://github.com/chalk/strip-ansi#readme) | 6.0.1, 7.2.0 | MIT |
+| [strip-bom](https://github.com/sindresorhus/strip-bom#readme) | 3.0.0 | MIT |
+| [strip-final-newline](https://github.com/sindresorhus/strip-final-newline#readme) | 2.0.0, 4.0.0 | MIT |
+| [supports-color](https://github.com/chalk/supports-color#readme) | 10.2.2 | MIT |
+| [systeminformation](https://systeminformation.io) | 5.33.1 | MIT |
+| [tailwind-merge](https://github.com/dcastil/tailwind-merge) | 3.6.0 | MIT |
+| [tiny-invariant](https://github.com/alexreardon/tiny-invariant#readme) | 1.3.3 | MIT |
 | [tinyqueue](https://github.com/mourner/tinyqueue) | 3.0.0 | ISC |
+| [to-regex-range](https://github.com/micromatch/to-regex-range) | 5.0.1 | MIT |
+| [toidentifier](https://github.com/component/toidentifier#readme) | 1.0.1 | MIT |
+| [ts-morph](https://github.com/dsherret/ts-morph#readme) | 26.0.0 | MIT |
+| [tsconfig-paths](https://github.com/dividab/tsconfig-paths#readme) | 4.2.0 | MIT |
+| [tslib](https://www.typescriptlang.org/) | 2.8.1 | 0BSD |
+| [tw-animate-css](https://github.com/Wombosvideo/tw-animate-css#readme) | 1.4.0 | MIT |
+| [type-is](https://github.com/jshttp/type-is#readme) | 2.1.0 | MIT |
+| [typescript](https://www.typescriptlang.org/) | 5.9.3 | Apache-2.0 |
+| [undici](https://undici.nodejs.org) | 7.29.0 | MIT |
+| [unicorn-magic](https://github.com/sindresorhus/unicorn-magic#readme) | 0.3.0 | MIT |
+| [universalify](https://github.com/RyanZim/universalify#readme) | 2.0.1 | MIT |
+| [unpipe](https://github.com/stream-utils/unpipe#readme) | 1.0.0 | MIT |
+| [update-browserslist-db](https://github.com/browserslist/update-db#readme) | 1.3.1 | MIT |
 | [use-sync-external-store](https://github.com/facebook/react#readme) | 1.6.0 | MIT |
-| [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.14 | MIT |
+| [util-deprecate](https://github.com/TooTallNate/util-deprecate) | 1.0.2 | MIT |
+| [validate-npm-package-name](https://github.com/npm/validate-npm-package-name) | 7.0.2 | ISC |
+| [vary](https://github.com/jshttp/vary#readme) | 1.1.2 | MIT |
+| [which](https://github.com/npm/node-which#readme) | 2.0.2, 4.0.0 | ISC |
+| [wrappy](https://github.com/npm/wrappy) | 1.0.2 | ISC |
+| [wsl-utils](https://github.com/sindresorhus/wsl-utils#readme) | 0.3.1 | MIT |
+| [yallist](https://github.com/isaacs/yallist#readme) | 3.1.1 | ISC |
+| [yocto-spinner](https://github.com/sindresorhus/yocto-spinner#readme) | 1.2.2 | MIT |
+| [yoctocolors](https://github.com/sindresorhus/yoctocolors#readme) | 2.2.0 | MIT |
+| [zod](https://zod.dev) | 3.25.76 | MIT |
+| [zod-to-json-schema](https://github.com/StefanTerdell/zod-to-json-schema#readme) | 3.25.2 | ISC |
+| [zustand](https://github.com/pmndrs/zustand) | 4.5.7, 5.0.15 | MIT |
 
 ## Bundled native libraries (7)
 

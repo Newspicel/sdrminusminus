@@ -44,7 +44,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
     inherit pnpm;
     sourceRoot = "${finalAttrs.src.name}/web";
     fetcherVersion = 4;
-    hash = "sha256-mVLsNgc71tUhDzfxrfAVBvqRiAZ4dSYEmhINfg2V/AM=";
+    hash = "sha256-0EISTOes7WnkZQ2p249D0p+KA6mxkynLehPO6v3kqQ0=";
   };
   pnpmRoot = "web";
 

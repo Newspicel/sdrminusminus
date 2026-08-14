@@ -32,18 +32,20 @@ export function Slider({
       data-hotkeys="off"
       aria-label={label}
       className={className ?? "w-24"}
-      value={value}
+      value={[value]}
       min={min}
       max={max}
       step={step}
       onValueChange={(next) => {
-        if (typeof next === "number") {
-          onChange(next);
+        const nextValue = Array.isArray(next) ? next[0] : next;
+        if (nextValue !== undefined) {
+          onChange(nextValue);
         }
       }}
       onValueCommitted={(next) => {
-        if (typeof next === "number") {
-          onCommit?.(next);
+        const nextValue = Array.isArray(next) ? next[0] : next;
+        if (nextValue !== undefined) {
+          onCommit?.(nextValue);
         }
       }}
     />

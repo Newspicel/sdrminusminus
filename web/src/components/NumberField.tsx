@@ -2,7 +2,7 @@
 // PATCHes would flood the server and fight the WS-refreshed value. Commits clamp to the declared
 // range.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { fractionDigits } from "./format";
 
@@ -110,6 +110,7 @@ function Field({
   onCommit: (value: number | null) => void;
   onRevert: () => void;
 }) {
+  const skipBlurCommit = useRef(false);
   return (
     <Input
       type="number"
@@ -122,12 +123,22 @@ function Field({
       placeholder={placeholder}
       className={`font-mono tabular-nums ${className ?? "w-20"}`}
       onChange={(event) => onDraft(parseDraft(event.currentTarget.value))}
-      onBlur={() => onCommit(clamp(value, min, max, step))}
+      onBlur={() => {
+        if (skipBlurCommit.current) {
+          skipBlurCommit.current = false;
+          return;
+        }
+        onCommit(clamp(value, min, max, step));
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
+          event.preventDefault();
+          skipBlurCommit.current = true;
           onCommit(clamp(value, min, max, step));
           event.currentTarget.blur();
         } else if (event.key === "Escape") {
+          event.preventDefault();
+          skipBlurCommit.current = true;
           onRevert();
           event.currentTarget.blur();
         }

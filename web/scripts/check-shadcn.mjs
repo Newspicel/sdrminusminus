@@ -1,6 +1,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { findDirectBaseUiImports, findUnwrappedControls } from "./shadcn-guard.mjs";
+import {
+  findDirectBaseUiImports,
+  findUnwrappedControls,
+  isInsideDirectory,
+} from "./shadcn-guard.mjs";
 
 const sourceRoot = new URL("../src/", import.meta.url);
 const uiRoot = join(sourceRoot.pathname, "components", "ui");
@@ -11,7 +15,7 @@ async function inspect(directory) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
       await inspect(path);
-    } else if (entry.name.endsWith(".tsx") && !path.startsWith(uiRoot)) {
+    } else if (entry.name.endsWith(".tsx") && !isInsideDirectory(path, uiRoot)) {
       const source = await readFile(path, "utf8");
       const controls = findUnwrappedControls(source);
       const imports = findDirectBaseUiImports(source);

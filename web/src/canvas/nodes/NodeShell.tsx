@@ -120,8 +120,8 @@ export function NodeShell({
           <NodeResizer
             minWidth={minimum.w}
             minHeight={minimum.h}
-            lineClassName="!border-primary/40"
-            handleClassName="!size-2 !rounded-none !border-primary !bg-card"
+            lineClassName="border-primary/40!"
+            handleClassName="size-2! rounded-none! border-primary! bg-card!"
           />
         )}
         {/* The one place the node can be dragged from, so the one place that says so: the grab
@@ -251,7 +251,7 @@ function PortHandle({
         style={{ top: offset }}
         title={description}
         aria-label={`${out ? "output" : "input"} ${description}`}
-        className={`!size-3 !border-0 !bg-transparent ${PORT_COLOR[port.port_type]}`}
+        className={`size-3! border-0! bg-transparent! ${PORT_COLOR[port.port_type]}`}
       >
         <PortGlyph type={port.port_type} />
       </Handle>

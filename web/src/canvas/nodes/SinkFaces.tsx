@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { LABEL } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
@@ -388,14 +388,14 @@ export function ExportFace({ node }: { node: PatchNode }) {
             <span className={LABEL}>Stored rows</span>
             <div className="flex gap-2">
               {(["csv", "json"] as const).map((format) => (
-                <Button
+                <a
                   key={format}
-                  render={<a href={decoderLogExportUrl(format, wires)} download />}
-                  variant="outline"
-                  size="sm"
+                  href={decoderLogExportUrl(format, wires)}
+                  download
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
                 >
                   {format.toUpperCase()}
-                </Button>
+                </a>
               ))}
             </div>
           </div>
