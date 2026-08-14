@@ -2680,7 +2680,7 @@ mod tests {
         );
     }
 
-    ///  case 3: a workspace drawn against a multi-stream radio, reopened on one with
+    /// A workspace drawn against a multi-stream radio, reopened on one with
     /// fewer lanes. The wire's stream does not exist on this hardware — the channel is refused
     /// with the reason in the report, never silently moved to stream 0.
     #[tokio::test]

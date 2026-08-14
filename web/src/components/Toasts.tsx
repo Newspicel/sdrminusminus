@@ -14,7 +14,7 @@ export function Toasts() {
   return (
     <Toast.Provider toastManager={toastManager} timeout={LIFETIME_MS} limit={STACK_LIMIT}>
       <Toast.Portal>
-        {/* A flat column, not Base UI's stack: steady state is zero motion (), and a
+        {/* A flat column, not Base UI's stack: steady state is zero motion, and a
             card the operator has to hover to read is a card they will not read. */}
         <Toast.Viewport className="fixed right-3 bottom-3 z-50 flex w-80 max-w-[calc(100vw-1.5rem)] flex-col gap-2">
           <ToastList />

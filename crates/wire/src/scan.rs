@@ -1,4 +1,4 @@
-//! Frequency-scanner types ( P2, M5). The scanner is app-level, not a channel: it
+//! Frequency-scanner types. The scanner is app-level, not a channel: it
 //! steps the *device* across a set of target frequencies, measures each one against the
 //! spectrum tap, and parks a hosted channel on anything that breaks the threshold.
 

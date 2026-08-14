@@ -241,7 +241,7 @@ async fn flush(
 }
 
 /// Enforce the row budget. A prune changes the log structurally, so clients holding a page
-/// must refetch — hence the scope emit (individual decodes never invalidate, ).
+/// must refetch — hence the scope emit (individual decodes never invalidate).
 async fn prune(store: &Arc<Store>, engine: &Weak<Engine>, max_rows: u64) {
     let owned = store.clone();
     match tokio::task::spawn_blocking(move || owned.prune_decoder_log(max_rows)).await {

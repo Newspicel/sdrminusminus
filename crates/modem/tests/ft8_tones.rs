@@ -1,4 +1,4 @@
-//! The orthogonal entry's golden-vector test ( §7 phase 5 accept): FT8 tone
+//! The orthogonal entry's golden-vector test: FT8 tone
 //! demodulation against the published WSJT-X waveform definition.
 //!
 //! **What is published and therefore golden here** (Franke, Somerville & Taylor, *"The FT4 and

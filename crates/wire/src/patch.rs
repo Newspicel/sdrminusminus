@@ -59,18 +59,18 @@ pub fn port_stream(base: &str, name: &str) -> Option<u32> {
 pub enum PortType {
     /// Wideband complex baseband at the device rate.
     Iq,
-    /// 48 kHz demodulated audio (Opus on the wire, ).
+    /// 48 kHz demodulated audio (Opus on the wire).
     Audio,
     /// Typed decoder frames ([`crate::DecodedRecord`]).
     Events,
-    /// Scanned pictures, one raster per field (`VIDEO_GRAY` on the wire,  ATV).
+    /// Scanned pictures, one raster per field (`VIDEO_GRAY` on the wire, ATV).
     Video,
     Control,
     /// Complex baseband to be transmitted at the device rate.
     ///
     /// **Reserved, and inert by construction.** No node kind in this build emits it, so no edge
     /// into a transmit input can validate — the port is the shape transmit will arrive in, not a
-    /// path to it.  owns what has to exist first: the authorized-use gate.
+    /// path to it. The authorized-use gate has to exist first.
     ///
     /// The input it sits on is [`PortCondition::DeviceIsTxCapable`], so it is drawn on the radios
     /// that have a send side and nowhere else — an RTL-SDR node has no transmit input at all.

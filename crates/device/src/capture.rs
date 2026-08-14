@@ -66,7 +66,6 @@ pub trait CaptureStream: Send + 'static {
     /// Handle that ends this stream from another thread.
     type Stop: StopHandle;
 
-    /// A handle that stops this stream.
     fn stop_handle(&self) -> Self::Stop;
     /// Wait up to `timeout` for the next block.
     fn next_block(&self, timeout: Duration) -> Next<Self::Block>;

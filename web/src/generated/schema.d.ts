@@ -1057,7 +1057,7 @@ export interface components {
             /**
              * @description Which directions this radio has, and whether it can run them together. Receive-only
              *     unless a backend says otherwise, so a device cannot advertise a transmitter by omission.
-             *     This is the *hardware's* shape, not a permission:  gates transmit behind an
+             *     This is the *hardware's* shape, not a permission: transmit stays behind an
              *     authorized-use switch that does not exist, so a `half` radio still transmits nothing.
              */
             duplex?: components["schemas"]["Duplex"];
@@ -1098,7 +1098,7 @@ export interface components {
              * Format: int32
              * @description How many independent transmit streams it accepts. Reported for symmetry and for the
              *     device picker; the canvas still draws a single reserved transmit input, because there is
-             *     nothing to wire into it until  lands.
+             *     nothing to wire into it until transmit lands.
              */
             tx_streams?: number;
         };
@@ -1147,7 +1147,7 @@ export interface components {
             has_audio?: boolean;
             /**
              * @description Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames
-             *     rather than as decoder events (ATV, ). The client subscribes and mounts a video
+             *     rather than as decoder events (ATV). The client subscribes and mounts a video
              *     panel on the channel's face when this is set. Defaults to `false`, which is every mode
              *     that predates the video transport.
              */
@@ -1165,7 +1165,7 @@ export interface components {
              *     resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
              *     highest, so a receiver is set anywhere in that range rather than to one exact number.
              *
-             *     ADS-B is the one such type (, amended): a 0.5 µs pulse is a single sample at
+             *     ADS-B is the one such type: a 0.5 µs pulse is a single sample at
              *     2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
              *     meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
              */
@@ -1312,7 +1312,7 @@ export interface components {
             data: {
                 /**
                  * Format: int32
-                 * @description Requested display bins (≤ 4096, ); server clamps.
+                 * @description Requested display bins (≤ 4096); server clamps.
                  */
                 bins: number;
                 /** Format: int32 */
@@ -1568,7 +1568,7 @@ export interface components {
             /** @description Human label for the device picker. */
             label: string;
             profile?: null | components["schemas"]["DeviceProfile"];
-            /** @description Serial number when the driver exposes one (used to collapse probe duplicates, ). */
+            /** @description Serial number when the driver exposes one (used to collapse probe duplicates). */
             serial?: string | null;
         };
         DeviceNode: {
@@ -2687,7 +2687,7 @@ export interface components {
             type: "DecodedLost";
         } | {
             /**
-             * @description Live frequency-scanner progress (M5). Its own event rather than a `StateChanged`:
+             * @description Live frequency-scanner progress. Its own event rather than a `StateChanged`:
              *     a scan retunes the device every dwell, and one full-state refetch per step would
              *     cost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which
              *     this mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.

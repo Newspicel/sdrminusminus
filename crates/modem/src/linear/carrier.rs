@@ -1,4 +1,4 @@
-//! Carrier recovery for the linear engine ( §6: "coherent (Costas/FLL/DD/pilot)").
+//! Carrier recovery for the linear engine: Costas, FLL, decision-directed and pilot.
 //! One second-order loop — `sdrmm_dsp::LoopFilter`, the crate's only loop filter (§3.2) — driven
 //! at *symbol* rate by a pluggable phase-error detector, optionally aided by a frequency
 //! detector for cold acquisition. The pilot/known-symbol arm of that list is

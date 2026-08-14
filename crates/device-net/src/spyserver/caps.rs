@@ -139,7 +139,6 @@ impl Remote {
         }
     }
 
-    /// The sample rate this decimation produces.
     fn sample_rate(self, info: DeviceInfo) -> f64 {
         f64::from(info.max_sample_rate >> self.decimation.min(MAX_DECIMATION_STAGES))
     }

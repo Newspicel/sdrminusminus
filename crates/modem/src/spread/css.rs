@@ -1,4 +1,4 @@
-//! Chirp spread spectrum ( §3.1 `spread/`, §6 frameworks table): a symbol is *which
+//! Chirp spread spectrum: a symbol is *which
 //! cyclic shift* of one chirp was transmitted, read by multiplying the chirp back out and
 //! transforming.
 //!

@@ -3026,7 +3026,7 @@
           },
           "duplex": {
             "$ref": "#/components/schemas/Duplex",
-            "description": "Which directions this radio has, and whether it can run them together. Receive-only\nunless a backend says otherwise, so a device cannot advertise a transmitter by omission.\nThis is the *hardware's* shape, not a permission:  gates transmit behind an\nauthorized-use switch that does not exist, so a `half` radio still transmits nothing."
+            "description": "Which directions this radio has, and whether it can run them together. Receive-only\nunless a backend says otherwise, so a device cannot advertise a transmitter by omission.\nThis is the *hardware's* shape, not a permission: transmit stays behind an\nauthorized-use switch that does not exist, so a `half` radio still transmits nothing."
           },
           "extra": {
             "type": "array",
@@ -3082,7 +3082,7 @@
           "tx_streams": {
             "type": "integer",
             "format": "int32",
-            "description": "How many independent transmit streams it accepts. Reported for symmetry and for the\ndevice picker; the canvas still draws a single reserved transmit input, because there is\nnothing to wire into it until  lands.",
+            "description": "How many independent transmit streams it accepts. Reported for symmetry and for the\ndevice picker; the canvas still draws a single reserved transmit input, because there is\nnothing to wire into it until transmit lands.",
             "minimum": 0
           }
         }
@@ -3233,7 +3233,7 @@
           },
           "has_video": {
             "type": "boolean",
-            "description": "Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames\nrather than as decoder events (ATV, ). The client subscribes and mounts a video\npanel on the channel's face when this is set. Defaults to `false`, which is every mode\nthat predates the video transport."
+            "description": "Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames\nrather than as decoder events (ATV). The client subscribes and mounts a video\npanel on the channel's face when this is set. Defaults to `false`, which is every mode\nthat predates the video transport."
           },
           "input_rate_hz": {
             "type": "number",
@@ -3250,7 +3250,7 @@
               "null"
             ],
             "format": "double",
-            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B is the one such type (, amended): a 0.5 µs pulse is a single sample at\n2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder\nmeets the radio at its rate instead. Mutually exclusive with `exact_rate_only`."
+            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B is the one such type: a 0.5 µs pulse is a single sample at\n2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder\nmeets the radio at its rate instead. Mutually exclusive with `exact_rate_only`."
           },
           "type_id": {
             "type": "string",
@@ -3748,7 +3748,7 @@
                   "bins": {
                     "type": "integer",
                     "format": "int32",
-                    "description": "Requested display bins (≤ 4096, ); server clamps.",
+                    "description": "Requested display bins (≤ 4096); server clamps.",
                     "minimum": 0
                   },
                   "device_set": {
@@ -4498,7 +4498,7 @@
               "string",
               "null"
             ],
-            "description": "Serial number when the driver exposes one (used to collapse probe duplicates, )."
+            "description": "Serial number when the driver exposes one (used to collapse probe duplicates)."
           }
         }
       },
@@ -4656,7 +4656,7 @@
               },
               {
                 "$ref": "#/components/schemas/RecordingStatus",
-                "description": "Active IQ recording, if any (M3, )."
+                "description": "Active IQ recording, if any."
               }
             ]
           },
@@ -4667,7 +4667,7 @@
               },
               {
                 "$ref": "#/components/schemas/ScannerStatus",
-                "description": "Running frequency scan, if any (M5, ). While a scan runs the set's\n`settings.center_hz` moves every dwell, so live progress arrives as\n[`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step."
+                "description": "Running frequency scan, if any. While a scan runs the set's\n`settings.center_hz` moves every dwell, so live progress arrives as\n[`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step."
               }
             ]
           },
@@ -7131,7 +7131,7 @@
           },
           {
             "type": "object",
-            "description": "Live frequency-scanner progress (M5). Its own event rather than a `StateChanged`:\na scan retunes the device every dwell, and one full-state refetch per step would\ncost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which\nthis mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.",
+            "description": "Live frequency-scanner progress. Its own event rather than a `StateChanged`:\na scan retunes the device every dwell, and one full-state refetch per step would\ncost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which\nthis mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.",
             "required": [
               "data",
               "type"
@@ -7139,7 +7139,7 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Live frequency-scanner progress (M5). Its own event rather than a `StateChanged`:\na scan retunes the device every dwell, and one full-state refetch per step would\ncost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which\nthis mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.",
+                "description": "Live frequency-scanner progress. Its own event rather than a `StateChanged`:\na scan retunes the device every dwell, and one full-state refetch per step would\ncost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which\nthis mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.",
                 "required": [
                   "device_set",
                   "status"

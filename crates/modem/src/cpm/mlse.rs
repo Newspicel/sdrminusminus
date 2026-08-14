@@ -1,4 +1,4 @@
-//! The sequence-detection tier ( §3.1 `cpm/`, §7 phase-3 follow-on): the detector
+//! The sequence-detection tier: the detector
 //! that reads a *partial-response* entry the way the discriminator tier cannot, by deciding a
 //! symbol from the whole span of observations its pulse touches instead of from the one sample
 //! its peak lands on.

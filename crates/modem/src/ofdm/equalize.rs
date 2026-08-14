@@ -52,7 +52,6 @@ impl ChannelEstimate {
         self.noise_var = 0.0;
     }
 
-    /// Records one bin's estimate.
     pub fn set(&mut self, bin: usize, h: Complex<f32>) {
         self.h[bin] = h;
         self.known[bin] = true;

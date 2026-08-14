@@ -916,7 +916,7 @@ mod tests {
         messages.into_iter().next().unwrap()
     }
 
-    /// The rule  wrote — "ADS-B needs the device at exactly 2 Msps" — cost the commonest
+    /// The old rule — "ADS-B needs the device at exactly 2 Msps" — cost the commonest
     /// ADS-B receiver there is: no RTL-SDR can produce 2.000 Msps, and its nearest rate is 2.048.
     /// The decoder runs at the radio's rate now, so these are the rates a real one offers — and
     /// the phases: a frame off the sample grid is what the air always sends, and the alignment

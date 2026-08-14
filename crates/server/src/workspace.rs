@@ -119,7 +119,6 @@ fn bind_channels(graph: &PatchGraph, device_node: &str, set: &DeviceSet) -> Vec<
     bound
 }
 
-/// Bind the whole graph against the engine's current state.
 pub(crate) fn bind(graph: &PatchGraph, state: &StateSnapshot) -> Vec<DeviceBinding> {
     bind_devices(graph, state)
         .into_iter()

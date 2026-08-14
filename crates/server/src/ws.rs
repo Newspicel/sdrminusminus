@@ -636,7 +636,7 @@ fn spawn_audio(
                     .encode();
 
                     // Awaited on purpose: backpressure lags the broadcast receiver and the
-                    // oldest packets are shed (drop-oldest, ).
+                    // oldest packets are shed (drop-oldest).
                     if out_tx.send(Message::Binary(frame.into())).await.is_err() {
                         break;
                     }
@@ -695,7 +695,7 @@ fn spawn_video(
                     .encode();
 
                     // Awaited on purpose: backpressure lags the broadcast receiver and the
-                    // oldest pictures are shed (drop-oldest, ).
+                    // oldest pictures are shed (drop-oldest).
                     if out_tx.send(Message::Binary(frame.into())).await.is_err() {
                         break;
                     }

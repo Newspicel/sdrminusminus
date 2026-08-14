@@ -253,7 +253,6 @@ impl FhssDemod {
 /// [`HopSequence::from_m_sequence`] is the implementation this crate ships; a protocol attachment
 /// with a standard's own generator implements this and hands the order to [`HopSequence::new`].
 pub trait HopSequencer {
-    /// The channel dwell `hop` visits.
     fn channel(&self, hop: usize) -> usize;
 
     /// The first `hops` channels as an order [`HopSequence::new`] takes.

@@ -11,7 +11,7 @@ pub struct DeviceInfo {
     pub key: String,
     /// Human label for the device picker.
     pub label: String,
-    /// Serial number when the driver exposes one (used to collapse probe duplicates, ).
+    /// Serial number when the driver exposes one (used to collapse probe duplicates).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
     /// What the driver can say about this radio *without opening it* — enough to tell whether a
@@ -420,7 +420,7 @@ pub struct Capabilities {
     pub ppm: bool,
     /// Which directions this radio has, and whether it can run them together. Receive-only
     /// unless a backend says otherwise, so a device cannot advertise a transmitter by omission.
-    /// This is the *hardware's* shape, not a permission:  gates transmit behind an
+    /// This is the *hardware's* shape, not a permission: transmit stays behind an
     /// authorized-use switch that does not exist, so a `half` radio still transmits nothing.
     #[serde(default)]
     pub duplex: Duplex,
@@ -431,7 +431,7 @@ pub struct Capabilities {
     pub rx_streams: u32,
     /// How many independent transmit streams it accepts. Reported for symmetry and for the
     /// device picker; the canvas still draws a single reserved transmit input, because there is
-    /// nothing to wire into it until  lands.
+    /// nothing to wire into it until transmit lands.
     #[serde(default)]
     pub tx_streams: u32,
     /// Which settings each receive stream holds on its own. Which settings are per-stream is a

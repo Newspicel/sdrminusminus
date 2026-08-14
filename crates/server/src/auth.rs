@@ -1,4 +1,4 @@
-//! Optional shared-token auth (, M5). One middleware covers REST, the WebSocket and
+//! Optional shared-token auth. One middleware covers REST, the WebSocket and
 //! the MCP mount; without a configured token it is a pass-through, which is the documented
 //! default posture (LAN-trusted, same as SDRangel/rtl_tcp).
 use axum::{

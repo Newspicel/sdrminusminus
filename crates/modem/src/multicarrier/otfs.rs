@@ -1,4 +1,4 @@
-//! OTFS — orthogonal time–frequency space ( §3.1 `multicarrier/`, §7 phase 9).
+//! OTFS — orthogonal time–frequency space.
 //!
 //! **OTFS is a precoder, not a carrier**, and saying so is most of understanding it. The points do
 //! not ride subcarriers; they ride a **delay–Doppler grid**, and a two-dimensional transform — the

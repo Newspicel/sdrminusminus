@@ -21,7 +21,7 @@ pub struct ChannelDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decoder_kind: Option<String>,
     /// Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames
-    /// rather than as decoder events (ATV, ). The client subscribes and mounts a video
+    /// rather than as decoder events (ATV). The client subscribes and mounts a video
     /// panel on the channel's face when this is set. Defaults to `false`, which is every mode
     /// that predates the video transport.
     #[serde(default)]
@@ -32,7 +32,7 @@ pub struct ChannelDescriptor {
     /// resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
     /// highest, so a receiver is set anywhere in that range rather than to one exact number.
     ///
-    /// ADS-B is the one such type (, amended): a 0.5 µs pulse is a single sample at
+    /// ADS-B is the one such type: a 0.5 µs pulse is a single sample at
     /// 2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
     /// meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

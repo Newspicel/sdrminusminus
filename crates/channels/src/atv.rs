@@ -1,4 +1,4 @@
-//! ATV — analog television (). Envelope or discriminator → level clamp → sync
+//! ATV — analog television. Envelope or discriminator → level clamp → sync
 //! separator → per-line resampler → one 8-bit luma picture per field.
 //!
 //! The whole mode is a clock-recovery problem wearing a picture: a raster is a stream whose
@@ -498,7 +498,7 @@ impl AtvChannel {
             return;
         }
         self.written = 0;
-        // The one allocation on this path, and the same bounded deviation from  the PCM
+        // The one allocation on this path, and the same bounded deviation the PCM
         // hand-off takes: a picture per field is 50 a second, and the alternative is a pool the
         // host would have to hand back on a thread it does not own.
         out.video.push(VideoPicture {

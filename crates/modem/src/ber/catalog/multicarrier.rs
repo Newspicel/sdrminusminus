@@ -1,4 +1,4 @@
-//! The four multicarrier catalog entries ( §6, frameworks table; §7 phase 9): GFDM on
+//! The four multicarrier catalog entries: GFDM on
 //! both receivers, UFMC, FBMC/OQAM and OTFS — all carrying **QPSK over 48 subcarriers**, the same
 //! constellation and the same allocation `ofdm/`'s 802.11a/g-like row carries, so the five
 //! frameworks' curves sit on one axis and the differences between them are the waveforms' own.

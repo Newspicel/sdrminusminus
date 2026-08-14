@@ -9,7 +9,7 @@ use sdrmm_server::{Config, ServerOptions, serve};
 #[derive(Parser, Debug)]
 #[command(name = "sdrmm", version, about)]
 struct Args {
-    /// Address to bind (LAN-trusted by default, ).
+    /// Address to bind (LAN-trusted by default).
     #[arg(long, default_value = "0.0.0.0:8080")]
     bind: SocketAddr,
     #[arg(long)]

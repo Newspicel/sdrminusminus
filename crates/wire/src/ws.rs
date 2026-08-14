@@ -106,7 +106,7 @@ pub enum ServerEvent {
     DecodedLost {
         count: u64,
     },
-    /// Live frequency-scanner progress (M5). Its own event rather than a `StateChanged`:
+    /// Live frequency-scanner progress. Its own event rather than a `StateChanged`:
     /// a scan retunes the device every dwell, and one full-state refetch per step would
     /// cost more than the scan does. The authoritative copy is `DeviceSet.scanner`, which
     /// this mirrors; a `StateChanged { DeviceSet }` still fires when a scan starts or stops.
@@ -128,7 +128,7 @@ pub enum ClientCommand {
         device_set: u32,
         /// Requested frame rate; server clamps to its supported range.
         fps: u16,
-        /// Requested display bins (≤ 4096, ); server clamps.
+        /// Requested display bins (≤ 4096); server clamps.
         bins: u16,
         /// Which receive stream's spectrum. Defaults to 0 so a client that predates
         /// multi-stream devices keeps its subscription; which stream a binary frame carries is

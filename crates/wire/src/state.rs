@@ -74,10 +74,10 @@ pub struct DeviceSet {
     pub overruns: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Active IQ recording, if any (M3, ).
+    /// Active IQ recording, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<RecordingStatus>,
-    /// Running frequency scan, if any (M5, ). While a scan runs the set's
+    /// Running frequency scan, if any. While a scan runs the set's
     /// `settings.center_hz` moves every dwell, so live progress arrives as
     /// [`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step.
     #[serde(default, skip_serializing_if = "Option::is_none")]

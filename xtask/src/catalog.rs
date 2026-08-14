@@ -22,7 +22,7 @@ pub fn check(root: &Path) -> Result<()> {
             ensure!(
                 catalog.contains(name),
                 "{} is committed but {CATALOG} never names it. Every baseline artifact needs \
-                 its catalog row ( §5 item 8) — add the row, or delete the artifact \
+                 its catalog row — add the row, or delete the artifact \
                  if the measurement is gone.",
                 rel.display()
             );

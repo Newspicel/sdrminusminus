@@ -345,7 +345,6 @@ pub const SQUARE: &[Measurement] = &[
     ),
 ];
 
-/// Cross-QAM.
 pub const CROSS: &[Measurement] = &[
     oracle_row(
         CROSS32_AWGN,
@@ -398,7 +397,6 @@ pub const HIERARCHICAL: &[Measurement] = &[oracle_row(
     NEAREST_NEIGHBOUR_TOLERANCE_DB,
 )];
 
-/// APSK.
 pub const APSK: &[Measurement] = &[
     oracle_row(
         APSK16_AWGN,

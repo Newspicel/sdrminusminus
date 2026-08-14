@@ -15,7 +15,6 @@ pub enum LinearError {
     /// [`LinearParams::with_offset`] on an odd `sps`. The stagger is exactly half a symbol, and
     /// the receiver undoes it with an integer-sample delay; an odd `sps` has no such delay.
     OffsetNeedsEvenSps(usize),
-    /// A rotation that is not a finite number of radians.
     RotationNotFinite,
 }
 

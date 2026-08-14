@@ -1,4 +1,4 @@
-//! Built-in workspace templates (, M5): one click configures the device and its
+//! Built-in workspace templates: one click configures the device and its
 //! channels for a known activity, with a short "what am I looking at" explainer.
 use std::sync::LazyLock;
 
@@ -174,8 +174,8 @@ static TEMPLATES: &[Entry] = &[
         shape: Shape::Map,
         readout: true,
         // Not exact, despite reading like it: ADS-B takes the device's own samples over a
-        // *range* (2–4 Msps, `ChannelDescriptor::native_rate_range`), and  was amended
-        // so no channel type is exact-rate any more. Demanding 2.000 exactly would refuse every
+        // *range* (2–4 Msps, `ChannelDescriptor::native_rate_range`), so no channel type is
+        // exact-rate any more. Demanding 2.000 exactly would refuse every
         // RTL-SDR, whose advertised menu jumps 1.92 → 2.048.
         exact_rate: false,
     },

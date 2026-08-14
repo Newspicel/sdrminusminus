@@ -1,5 +1,5 @@
 // Pure helpers for the scanner panel, kept out of the component so the parsing and the
-// readout logic are testable without a DOM (, and the pattern the decoder views use).
+// readout logic are testable without a DOM (and the pattern the decoder views use).
 import type { ChannelInfo, DeviceSet, ScannerStatus, ScanRange } from "../lib/types";
 
 /** One line of the range editor: three MHz/kHz fields as the user typed them. */

@@ -669,7 +669,7 @@ mod tests {
         }
     }
 
-    /// The two rate rules the canvas draws (, amended). ADS-B is the one type handed the
+    /// The two rate rules the canvas draws. ADS-B is the one type handed the
     /// device's own samples, and *because* it is, no type is exact-rate any more: the flag and
     /// the range are mutually exclusive, and a type claiming both would leave the canvas telling
     /// the operator to set a rate the engine then refuses.

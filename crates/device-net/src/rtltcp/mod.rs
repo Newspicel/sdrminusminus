@@ -1,5 +1,5 @@
 //! The rtl_tcp client backend: an RTL-SDR on someone else's machine, driven over the protocol
-//! osmocom's `rtl_tcp` speaks ().
+//! osmocom's `rtl_tcp` speaks.
 //!
 //! Layers, in dependency order:
 //!
@@ -108,7 +108,6 @@ impl DeviceDriver for RtlTcpDriver {
     }
 }
 
-/// Dial the endpoint and read the greeting.
 fn connect(endpoint: &Endpoint) -> Result<(Connection, Greeting), DeviceError> {
     let connection = Connection::new(endpoint.connect()?);
     let mut bytes = [0u8; GREETING_LEN];
@@ -200,7 +199,6 @@ impl CaptureRadio for RtlRadio {
     }
 }
 
-/// An RTL-SDR reached over rtl_tcp.
 pub struct RtlTcpDevice {
     radio: Arc<RtlRadio>,
     capabilities: Capabilities,

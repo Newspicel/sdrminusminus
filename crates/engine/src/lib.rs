@@ -193,7 +193,7 @@ fn validate_channel(
     }
     // A native-rate channel takes the device's samples as they are, so there is no DDC
     // conversion to refuse — only a ceiling, because the scan costs a magnitude per sample and
-    // the Pi 4 is the budget floor (, amended).
+    // the Pi 4 is the budget floor.
     if let Some((low, high)) = descriptor.native_rate_range() {
         if device_rate > high {
             return Err(ChannelError::InvalidSettings(format!(
@@ -353,7 +353,7 @@ struct DeviceSetState {
     next_channel_id: u32,
     error: Option<String>,
     recording: Option<RecordingState>,
-    /// Running frequency scan (M5). The scan thread drives this set's centre frequency, so
+    /// Running frequency scan. The scan thread drives this set's centre frequency, so
     /// while it is present client retunes are refused rather than fought over.
     scanner: Option<ScannerState>,
     /// In-flight `patch_device` calls that will change the sample rate (pre-validated, device
@@ -1881,7 +1881,7 @@ impl Engine {
         sdrmm_channels::descriptors()
     }
 
-    /// Start a frequency scan on a device set ( P2, M5). The scan owns the set's
+    /// Start a frequency scan on a device set. The scan owns the set's
     /// centre frequency until it is stopped, so client retunes are refused meanwhile.
     pub fn start_scan(
         self: &Arc<Self>,
@@ -2080,7 +2080,6 @@ impl Engine {
         self.patch_channel(ds, ch, settings)
     }
 
-    /// Subscribe to one rx stream of a device set's spectrum ( SubscribeSpectrum).
     pub fn subscribe_spectrum(
         &self,
         ds: u32,

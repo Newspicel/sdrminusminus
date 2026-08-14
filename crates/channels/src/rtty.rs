@@ -8,7 +8,7 @@
 //! and the standard 1.5-bit stop element shifts the bit lattice half a period per character —
 //! so timing re-anchors on every start-bit edge and one clean edge decodes the very next
 //! character with no acquisition run-in; the engine's one continuous-clock timing stack
-//! (`SymbolSync`,  §3.2) cannot re-phase per character. And the traffic is
+//! (`SymbolSync`) cannot re-phase per character. And the traffic is
 //! mark-biased (idle is *continuous* mark), which statically biases `CpmDemod`'s
 //! data-mean-learning centre estimate — the failure NAVTEX measured on its milder 4-of-7
 //! bias is documented at `navtex::cpm_params`.
@@ -134,19 +134,19 @@ pub(crate) fn channel_filter(p: &RttyParams) -> Result<ChannelFilter, ChannelErr
 }
 
 /// One bit of integrate-and-dump — NRZ keying's own matched filter, from the shared pulse
-/// library ( §3.1), sized from the current baud so 45.45 and 75 get the same shape.
+/// library, sized from the current baud so 45.45 and 75 get the same shape.
 fn post_filter(p: &RttyParams) -> RealDecimator {
     let sps = (DESCRIPTOR.input_rate_hz / p.baud).min(MAX_POST_TAPS as f64);
     RealDecimator::new(&pulse::rect(sps, Norm::Area), 1)
 }
 
-/// The RTTY waveform as `cpm/` entry data ( §3.3), stated at the half-bit *cell*
+/// The RTTY waveform as `cpm/` entry data, stated at the half-bit *cell*
 /// rate: 1.5 stop bits has no whole-bit representation, and at two cells per bit every
 /// element of the start/stop frame is a whole number of symbols. Mark — the upper tone — is
 /// index 1, so a cell's symbol index is its keyed level. Only the reference modulator rides
 /// this entry (the module docs say why the receiver cannot); building the test signals from
 /// it keeps the transmitted waveform and the receiver's numbers from drifting apart
-/// ( §1.2).
+///.
 #[cfg(any(test, feature = "test-signals"))]
 pub(crate) fn cell_params(baud: f64, shift_hz: f64, rate: f64) -> CpmParams {
     let cell_baud = 2.0 * baud;

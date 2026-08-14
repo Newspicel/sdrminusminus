@@ -254,7 +254,7 @@ impl ChannelHost {
             self.rx.process(&self.filtered, &mut self.outputs);
             self.publish_frames(center_hz, video_pos);
             if !self.outputs.audio_pcm.is_empty() {
-                // Deliberate bounded deviation from  "no allocation/locks" letter:
+                // Deliberate bounded deviation from the "no allocation/locks" letter:
                 // handing PCM to the encoder costs one Arc copy plus a tokio broadcast send
                 // (short internal critical section, bounded channel, no syscalls) per
                 // ~25 ms block, and no other thread ever holds that lock across blocking
@@ -305,7 +305,7 @@ impl ChannelHost {
     fn publish_frames(&mut self, center_hz: f64, video_pos: u64) {
         // Decoder frames are rare (a handful per second even under ADS-B traffic) and a picture
         // is one `Arc` fifty times a second, so draining owned output here costs the same
-        // bounded, documented deviation from  no-allocation letter as the PCM hand-off.
+        // bounded, documented deviation from the no-allocation letter as the PCM hand-off.
         if !self.outputs.events.is_empty() {
             let freq_hz = center_hz + self.offset_hz;
             for event in self.outputs.events.drain(..) {

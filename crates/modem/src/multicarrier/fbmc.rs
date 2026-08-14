@@ -1,5 +1,4 @@
-//! FBMC/OQAM — filter-bank multicarrier with offset QAM ( §3.1 `multicarrier/`, §7
-//! phase 9).
+//! FBMC/OQAM — filter-bank multicarrier with offset QAM.
 //!
 //! **No prefix, no rectangle, and no complex orthogonality.** FBMC shapes every subcarrier with a
 //! long prototype filter — four symbol periods here, the PHYDYAS design's overlapping factor — so

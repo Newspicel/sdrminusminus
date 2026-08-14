@@ -249,7 +249,6 @@ fn psk8_ber(ebn0_db: f64) -> f64 {
     theory::mpsk_ser(8, ebn0_db) / 3.0
 }
 
-/// The coherent M-PSK entry.
 pub const COHERENT: &[Measurement] = &[
     oracle_row(
         BPSK_AWGN,
