@@ -16,9 +16,10 @@ workspace = true
 
 # Passthrough so specialized builds may deliberately omit local hardware support.
 [features]
-default = ["soapy", "net-client"]
+default = ["soapy", "net-client", "gpu-fft"]
 soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy"]
 net-client = ["sdrmm-server/net-client", "sdrmm-engine/net-client"]
+gpu-fft = ["sdrmm-server/gpu-fft", "sdrmm-engine/gpu-fft"]
 
 [dependencies]
 sdrmm-server.workspace = true
