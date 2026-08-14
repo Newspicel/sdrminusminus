@@ -1,4 +1,3 @@
-
 export const PROTOCOL_VERSION = 1;
 export const FRAME_KIND_SPECTRUM = 0;
 export const FRAME_KIND_AUDIO_OPUS = 1;

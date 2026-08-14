@@ -1,4 +1,3 @@
-
 const KEY = "sdrmm.v1.token";
 
 let cached: string | null = null;

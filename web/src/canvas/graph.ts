@@ -1,4 +1,3 @@
-
 import { rateMismatch } from "../components/channelSettings";
 import type {
   Capabilities,
@@ -281,7 +280,6 @@ function mhz(hz: number): string {
   return (hz / 1e6).toFixed(3);
 }
 
-
 export const NODE_SIZE: Record<NodeKind, { w: number; h?: number }> = {
   device: { w: 360 },
   channel: { w: 380 },
@@ -433,7 +431,6 @@ function migrateGraph(graph: PatchGraph): PatchGraph {
   }
   return { ...graph, edges: migrated };
 }
-
 
 export const RACK_COLS = 12;
 export const RACK_ROWS = 8;

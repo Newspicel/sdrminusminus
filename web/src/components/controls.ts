@@ -1,4 +1,3 @@
-
 const INTERACTIVE =
   "inline-flex items-center gap-1.5 rounded-[3px] transition-colors duration-100 " +
   "disabled:opacity-45 disabled:pointer-events-none pointer-coarse:min-h-10";

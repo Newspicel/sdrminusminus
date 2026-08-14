@@ -43,7 +43,6 @@ export function stationsInScope<S extends { deviceSet: number; channel: number }
   return stations.filter((s) => inScope(s.deviceSet, s.channel, scope));
 }
 
-
 /** A target that has not been heard for this long is no longer "live" — it is dimmed rather
  * than removed, because silence is the only thing a transmitter out of range reports. */
 export const TARGET_STALE_MS = 30_000;
@@ -66,7 +65,6 @@ export function formatAge(ageMs: number): string {
   const m = Math.floor(seconds / 60);
   return m < 60 ? `${m}:${pad2(seconds % 60)}` : `${Math.floor(m / 60)}h${pad2(m % 60)}`;
 }
-
 
 export interface TargetRow {
   id: string;
@@ -121,7 +119,6 @@ export function sortTargets(
   );
 }
 
-
 export function formatAltitudeFt(ft: number | null | undefined): string {
   return ft == null ? "—" : `${groupThousands(Math.round(ft))} ft`;
 }
@@ -152,7 +149,6 @@ export function formatClock(at: string): string {
   }
   return `${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`;
 }
-
 
 /** Folds the scoped frames into one picture. The store merges forward per PI, but a transmitter
  * whose PI has not been received yet has no station row at all, and that is exactly when the
@@ -211,7 +207,6 @@ export function formatAltFreqs(hz: readonly number[] | undefined): string[] {
   return (hz ?? []).toSorted((a, b) => a - b).map(formatHz);
 }
 
-
 /** Characters kept in a transcript pane. Beyond this the head is dropped — the pane is a live
  * tail; the stored history is `GET /api/decoderlog`. */
 export const TRANSCRIPT_LIMIT = 20_000;
@@ -258,7 +253,6 @@ export function isAtBottom(m: ScrollMetrics, tolerancePx = 8): boolean {
   return m.scrollHeight - m.scrollTop - m.clientHeight <= tolerancePx;
 }
 
-
 /** What is under the carrier, named the way a radio names it: a CTCSS tone in Hz to one
  * decimal, a DCS code as its three octal digits. Empty when there is nothing under it. */
 export function toneLabel(status: { ctcss_hz?: number | null; dcs_code?: number | null }): string {
@@ -267,7 +261,6 @@ export function toneLabel(status: { ctcss_hz?: number | null; dcs_code?: number 
     status.dcs_code == null ? "" : `DCS ${String(status.dcs_code).padStart(3, "0")}`,
   );
 }
-
 
 function compareIds(a: string, b: string): number {
   if (a.length !== b.length) {
@@ -288,7 +281,6 @@ function groupThousands(n: number): string {
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
-
 
 /** Mode names as operators write them, which is not how the wire spells them. */
 const DV_MODE_LABELS: Record<DvFrame["mode"], string> = {

@@ -1,4 +1,3 @@
-
 export function formatHz(hz: number): string {
   return hz >= 1e6
     ? `${trimZeros((hz / 1e6).toFixed(3))} MHz`

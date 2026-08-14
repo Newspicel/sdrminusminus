@@ -1,4 +1,3 @@
-
 export type LossAction =
   | { kind: "continuous" }
   | { kind: "gap"; frames: number }

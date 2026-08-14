@@ -1,4 +1,3 @@
-
 /** Retina is worth the fill rate; past 2× the extra samples are below the resolution of the eye
  * and a Pi-class browser pays for them anyway (: the Pi is the floor). */
 const MAX_DPR = 2;

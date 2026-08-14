@@ -1,4 +1,3 @@
-
 export interface SpectrumView {
   start: number;
   end: number;

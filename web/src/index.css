@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@xyflow/react/dist/base.css";
 
+/* The instrument palette. Authored in OKLCH so the light theme is the same role
    table re-anchored rather than a second set of hand-picked values, and so elevation is a
    lightness step — on an L≈.2 ground a drop shadow cannot reach popover-grade edge contrast at
    any alpha, so depth has to live in the surface itself.
@@ -39,9 +40,10 @@
   --color-plot-ink: oklch(0.97 0.01 85);
   --color-plot-ink-dim: oklch(0.72 0.01 85);
 
+  /* Hue encodes the data type a port and its wire carry, and nothing else. Each is
      paired with a marker shape in `NodeShell`, so the graph reads by shape alone; the set stays
      small on purpose — four streams the engine moves, tuning ownership, and the transmit input
-     reserved by , which is drawn hollow because nothing can fill it yet.
+     reserved for transmit, which is drawn hollow because nothing can fill it yet.
      Chroma is held below the accent's so a lit wire never outshouts a tuned control. */
   --color-port-iq: oklch(0.72 0.11 235);
   --color-port-audio: oklch(0.74 0.12 158);
@@ -58,6 +60,7 @@
   --color-cat-feature: oklch(0.62 0.07 60);
   --color-cat-sink: oklch(0.58 0.03 80);
 
+  /* Service categories on the band ruler. The ruler is a gutter *beside* the
      plot rectangle, not an overlay on it, which is the only reason hue is licensed here at all —
      inside the plot the colormap still owns the whole budget. Nine hues plus a neutral is more
      than any other family in this file carries, so every block also states its service in words
@@ -75,6 +78,7 @@
 
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
 
+  /* Elevation 3 only: popovers and menus. A tight contact shadow plus a long
      falloff, led by the 1px top highlight — light catching the upper edge is the physically
      honest inverse of a shadow, and on an L≈.3 surface it does more of the work than either
      dark layer can. */
@@ -82,6 +86,7 @@
     inset 0 1px 0 oklch(1 0 0 / 0.06), 0 1px 2px oklch(0 0 0 / 0.4), 0 8px 24px oklch(0 0 0 / 0.44);
 }
 
+/* Light is the same role table re-anchored: surfaces to L .92–1.0, ink to L .27–.53, accents
    darkened and de-chromatised to stay legible on a light ground. The plot tokens are absent on
    purpose — they are theme-independent. */
 @layer base {
@@ -221,6 +226,7 @@
   }
 }
 
+/* The canvas ground and its wires. React Flow's base stylesheet carries layout
    only; every colour here is a role token, so the graph follows the theme like everything else.
 
    A wire is drawn in the hue of what it carries and nothing else, and it is the *only* place

@@ -899,11 +899,6 @@ export interface components {
              * @description Channel raster, where the band is channelized.
              */
             channel_step_hz?: number | null;
-            /**
-             * @description Stable and unique within a plan. Derived from the source's own row id where it has one
-             *     (`de:27002`, `gb:FREQ_00001`) — a range is *not* enough, because a table routinely gives
-             *     one range to several services at once.
-             */
             id: string;
             /** @description [`BandLayerInfo::id`] this entry came from. */
             layer: string;
@@ -938,14 +933,6 @@ export interface components {
             stop_hz: number;
             suggested?: null | components["schemas"]["ChannelParams"];
         };
-        /**
-         * @description One resolved stretch: what wins here, and everything else that covers it.
-         *
-         *     Allocations travel once in [`BandPlan::allocations`] and are referenced by index. A single
-         *     band is split into a block per boundary any *other* layer introduces, and an imported note
-         *     can be a paragraph, so carrying the payload inline multiplied the document by an order of
-         *     magnitude for no new information.
-         */
         BandBlock: {
             /**
              * @description Everything else covering it, most specific first — co-allocations from the winner's own
@@ -953,10 +940,7 @@ export interface components {
              *     calls it X, over ITU's Y", and what keeps a co-primary service from vanishing.
              */
             covered?: number[];
-            /**
-             * Format: int32
-             * @description Index into [`BandPlan::allocations`]: the winner over this stretch.
-             */
+            /** Format: int32 */
             of: number;
             /** Format: double */
             start_hz: number;
@@ -987,11 +971,6 @@ export interface components {
         BandLayerInfo: {
             /** @description Who publishes it — "ITU", "BNetzA", "Ofcom", "IARU Region 1". */
             authority: string;
-            /**
-             * @description What wrote this layer: `curated`, or the importer that generated it from the regulator's
-             *     own publication (`bnetza`, `ofcom`, `fcc`). Worth showing: "this came out of the
-             *     Frequenzplan" and "somebody typed this in" are different kinds of claim.
-             */
             generator?: string;
             /** @description Stable id, referenced by [`BandAllocation::layer`] and [`BandRegion::layers`]. */
             id: string;
@@ -1009,15 +988,8 @@ export interface components {
              */
             source: string;
         };
-        /**
-         * @description What kind of authority a layer speaks with. This is not decoration: it is why the amateur
-         *     plan renders as a separate lane instead of overriding the regulator — IARU band plans are
-         *     agreements between operators, not allocations, and they subdivide a band the regulator has
-         *     already given to the amateur service.
-         * @enum {string}
-         */
+        /** @enum {string} */
         BandLayerKind: "world" | "regulatory" | "amateur";
-        /** @description `GET /api/bandplan/regions/{region}` — the whole region, already layered. */
         BandPlan: {
             /**
              * @description Every allocation the lanes reference, once. [`BandBlock::of`] and [`BandBlock::covered`]
@@ -1042,10 +1014,8 @@ export interface components {
             /** @description Layer ids, least specific first. */
             layers: string[];
             name: string;
-            /** @description Overlay layer ids — the amateur plans that apply here. */
             overlays?: string[];
         };
-        /** @description `GET /api/bandplan/locate` — which region a coordinate falls in. */
         BandRegionMatch: {
             /**
              * @description True when only the ITU region could be decided — the coordinate is outside every
@@ -1059,7 +1029,6 @@ export interface components {
              */
             region: string;
         };
-        /** @description `GET /api/bandplan/regions`. */
         BandRegionsResponse: {
             /** @description What a client with no stored preference should select. */
             default_region: string;
@@ -1071,7 +1040,6 @@ export interface components {
          * @enum {string}
          */
         BandService: "amateur" | "broadcast" | "aeronautical" | "maritime" | "mobile" | "satellite" | "navigation" | "science" | "ism" | "other";
-        /** @description A stored frequency bookmark (). */
         Bookmark: {
             /** Format: double */
             freq_hz: number;
@@ -1082,7 +1050,6 @@ export interface components {
             /** @description Suggested channel type id (e.g. `"nfm"`), if any. */
             mode?: string | null;
         };
-        /** @description Everything the client needs to render device controls without hand-written DTOs (). */
         Capabilities: {
             antennas: string[];
             bandwidths: number[];
@@ -1159,32 +1126,18 @@ export interface components {
             stream_args?: components["schemas"]["ArgumentInfo"][];
             stream_formats?: string[];
         };
-        /** @description Static description of a channel type, surfaced to drive the "add channel" UI (). */
         ChannelDescriptor: {
             /**
              * Format: double
              * @description Nominal RF bandwidth the channel needs, in Hz.
              */
             bandwidth_hz: number;
-            /**
-             * @description The type ships a modulator as well as a demodulator, so a transmit channel of it can be
-             *     built (). Says only that the waveform exists — whether it may ever reach an
-             *     antenna is the authorized-use gate's question, and that gate has not been built.
-             *     Defaults to `false`, which is every receive-only type.
-             */
             can_transmit?: boolean;
             /**
              * @description [`crate::DecoderEvent::kind`] this channel emits, when it is a decoder — the client
              *     uses it to pick the panel that renders the events.
              */
             decoder_kind?: string | null;
-            /**
-             * @description The type occupies its whole channel rate, so it runs only with the device tuned to
-             *     exactly `input_rate_hz` — a resampling DDC has no guard band left to give it ().
-             *     Reported so the canvas can refuse the wire where the operator draws it, naming the rate
-             *     that works, instead of letting the engine reject it after the fact. Defaults to `false`,
-             *     which is every type that leaves a guard band.
-             */
             exact_rate_only?: boolean;
             /**
              * @description Whether the channel produces listenable audio. Data decoders ( wave 1) do
@@ -1345,7 +1298,6 @@ export interface components {
              */
             squelch_db?: number | null;
         };
-        /** @description The channel types this server build offers, driving the "add channel" UI (). */
         ChannelTypesResponse: {
             types: components["schemas"]["ChannelDescriptor"][];
         };
@@ -1355,10 +1307,6 @@ export interface components {
          * @enum {string}
          */
         CheckStatus: "ok" | "warn" | "fail";
-        /**
-         * @description Client → server commands over the same socket (). Stream subscriptions are
-         *     per-connection, so a phone can request a lighter stream than a desktop.
-         */
         ClientCommand: {
             /** @description Start receiving spectrum frames for a device set at the requested rate/resolution. */
             data: {
@@ -1505,11 +1453,6 @@ export interface components {
             name: string;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
-        /**
-         * @description A decoder event with the coordinates the DSP plane cannot supply. The engine stamps `at`
-         *     on the control plane (the DSP thread never formats time) and computes `freq_hz` from the
-         *     device center plus the channel offset at the moment the frame was produced.
-         */
         DecodedRecord: {
             /** @description RFC3339 UTC. */
             at: string;
@@ -1524,11 +1467,6 @@ export interface components {
              */
             freq_hz: number;
         };
-        /**
-         * @description Typed decoder output (). Adjacently tagged so the generated TypeScript is a
-         *     discriminated union on `kind` that panels can exhaustively `switch` on, and so the log
-         *     database can index on `kind` without parsing the blob.
-         */
         DecoderEvent: {
             data: components["schemas"]["RdsUpdate"];
             /** @enum {string} */
@@ -1597,16 +1535,6 @@ export interface components {
             id: number;
             /** @description [`crate::DecoderEvent::kind`] of `event`. */
             kind: string;
-            /**
-             * @description [`crate::PatchNode::id`] of the channel node this frame came from, resolved against the
-             *     active workspace when the row was written. This is the row's durable identity: `channel`
-             *     above is an engine id, allocated per run and reused (CANVAS §3), so it names this frame's
-             *     origin only for as long as that run lasted.
-             *
-             *     Absent on rows written before the log recorded it, and on rows written while the channel
-             *     was not bound to any node — a channel created outside a workspace, or one the binding had
-             *     not caught up with yet.
-             */
             node?: string | null;
             /** @description Emitter identity within the decoder (ICAO, MMSI, callsign, pager address). */
             station?: string | null;
@@ -1632,7 +1560,6 @@ export interface components {
             /** Format: int64 */
             deleted: number;
         };
-        /** @description A discovered receiver, produced by a driver's probe (). */
         DeviceInfo: {
             /** @description Driver id that produced this entry: `"virtual"`, `"soapy"`, `"rtlsdr"`, … */
             driver: string;
@@ -1644,13 +1571,6 @@ export interface components {
             /** @description Serial number when the driver exposes one (used to collapse probe duplicates, ). */
             serial?: string | null;
         };
-        /**
-         * @description A device node's payload: the radio it names, or nothing yet.
-         *
-         *     Unbound is a first-class state, not an error — it is the empty node a fresh workspace starts on,
-         *     and it renders the device picker. Bound-but-absent is the other one: controls disabled,
-         *     wires kept, never silently rebound (CANVAS §3).
-         */
         DeviceNode: {
             device?: null | components["schemas"]["DeviceRef"];
         };
@@ -1679,18 +1599,6 @@ export interface components {
             /** Format: int32 */
             tx_streams: number;
         };
-        /**
-         * @description A device named by durable identity (CANVAS §3), never by an engine or probe id: those are
-         *     allocated per run and reused, so a stored engine id would silently bind a node to whichever
-         *     radio opened first — the kind of failure that looks like a working panel.
-         *
-         *     `key` is the tie-break CANVAS §3 does not name. It normally matters only when there is no
-         *     serial: the virtual backend's key is `siggen` or the stem of a recording, both durable, and
-         *     without it a patch could not say *which* capture it plays. It is also retained when a backend
-         *     deliberately exposes several durable addresses for one serial, such as the RSPduo's SDRplay
-         *     operating modes. Variant keys use the `serial@variant` form; every other key is omitted when
-         *     there is a serial, which keeps a transient USB index from overriding it on ordinary radios.
-         */
         DeviceRef: {
             /** @description Driver id, matching [`DeviceInfo::driver`]: `"rtlsdr"`, `"hackrf"`, `"soapy"`, `"virtual"`. */
             backend: string;
@@ -1746,7 +1654,6 @@ export interface components {
              */
             streams?: components["schemas"]["StreamSettings"][];
         };
-        /** @description `GET /api/devices` — discovered hardware across all drivers (). */
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
         };
@@ -1819,16 +1726,6 @@ export interface components {
          * @enum {string}
          */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
-        /**
-         * @description One decoded digital-voice frame — the metadata of a call. Audio travels through the channel's
-         *     PCM output rather than inside this event.
-         *
-         *     Every digital-voice mode decodes its AMBE, AMBE+2, IMBE or Codec2 payload to the channel PCM
-         *     plane. This event carries the signalling around that audio — who keyed up, on which
-         *     talkgroup, over which repeater, with what encryption. Fields are `Option` because which of
-         *     them exist is a property of the mode and frame: a D-Star header has callsigns and no
-         *     talkgroup, a DMR voice header the reverse.
-         */
         DvFrame: {
             /** Format: int32 */
             algorithm_id?: number | null;
@@ -1872,10 +1769,7 @@ export interface components {
             lat?: number | null;
             /** Format: double */
             lon?: number | null;
-            /**
-             * Format: int32
-             * @description Raw DMR FID or P25 MFID. One manufacturer may own several feature sets.
-             */
+            /** Format: int32 */
             manufacturer_id?: number | null;
             /** @description P25 encryption message indicator as the 72-bit hexadecimal value on the wire. */
             message_indicator?: string | null;
@@ -1998,12 +1892,7 @@ export interface components {
             /** Format: double */
             value_db: number;
         };
-        /**
-         * @description The three ITU radio regions (Radio Regulations Art. 5 §1). Region 1 is Europe, Africa, the
-         *     Middle East west of the Persian Gulf and northern Asia; Region 2 the Americas; Region 3 the
-         *     rest of Asia and Oceania.
-         * @enum {string}
-         */
+        /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
         /**
          * @description `GET /api/about/licenses/{id}` — one license text, addressed by content.
@@ -2100,22 +1989,8 @@ export interface components {
             dcs_code?: number | null;
             tone_mode?: components["schemas"]["NfmToneMode"];
         };
-        /**
-         * @description What an NFM channel does about the subaudible signalling under the voice ().
-         *     CTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating
-         *     under it at 134.4 bit/s. Both are how a repeater tells its own users apart from the
-         *     co-channel traffic 50 km away.
-         * @enum {string}
-         */
+        /** @enum {string} */
         NfmToneMode: "off" | "detect" | "ctcss" | "dcs";
-        /**
-         * @description What a node is. Adjacently tagged like [`crate::ChannelParams`], so the generated TypeScript
-         *     is a union the client can exhaustively switch on.
-         *
-         *     The catalog is deliberately shorter than CANVAS §1's table: the GPS source, the UDP sink and
-         *     the WAV audio-file sink need server features that do not exist ( Phase 2/4), and a
-         *     node whose backend is unbuilt is a face that can only apologise.
-         */
         NodeBody: {
             data: components["schemas"]["DeviceNode"];
             /** @enum {string} */
@@ -2152,11 +2027,7 @@ export interface components {
             /** @enum {string} */
             kind: "scanner";
         };
-        /**
-         * @description The band a node's header strip carries (CANVAS §6): what the operator is looking at before
-         *     they read the label.
-         * @enum {string}
-         */
+        /** @enum {string} */
         NodeCategory: "source" | "channel" | "display" | "feature" | "sink";
         /**
          * @description One entry of the node palette the client renders its "add node" menu from (: the client
@@ -2194,7 +2065,6 @@ export interface components {
          *     "close that operator's radio".
          */
         PatchApplyReport: {
-            /** @description Device nodes whose radio is not attached; they render disconnected (CANVAS §3). */
             absent?: string[];
             /** @description Every device node that now has a running device set. */
             bound: components["schemas"]["PatchBinding"][];
@@ -2208,16 +2078,8 @@ export interface components {
              * @description Device sets opened by this call.
              */
             opened: number;
-            /**
-             * @description Nodes apply could not satisfy, with the reason — a wideband channel on a device running
-             *     at the wrong rate is the common one (). Reported, never silently skipped.
-             */
             refused?: components["schemas"]["PatchRefusal"][];
         };
-        /**
-         * @description One device node now driving an engine device set (CANVAS §3). Bindings are recomputed per run
-         *     and never stored.
-         */
         PatchBinding: {
             /** Format: int32 */
             device_set: number;
@@ -2232,7 +2094,6 @@ export interface components {
             from: components["schemas"]["PortRef"];
             to: components["schemas"]["PortRef"];
         };
-        /** @description The workspace as a graph (CANVAS §1). */
         PatchGraph: {
             edges?: components["schemas"]["PatchEdge"][];
             nodes: components["schemas"]["PatchNode"][];
@@ -2383,24 +2244,11 @@ export interface components {
             multi: boolean;
             /** @description Stable slug, unique within its node and direction; this is what an edge names. */
             name: string;
-            /**
-             * @description Why this port refuses everything, for the ports that do. The client renders what the
-             *     server describes (), and a port with no wire and no explanation reads as broken.
-             */
             note?: string | null;
             port_type: components["schemas"]["PortType"];
             repeat?: components["schemas"]["PortRepeat"];
         };
-        /**
-         * @description What a wire carries. Hue encodes this and only this (), so the set stays small
-         *     and every member is something the engine actually moves today — with one named exception,
-         *     [`PortType::Tx`], which is reserved and unwireable until transmit exists ().
-         *
-         *     `iq-tap` (decimated channel IQ) and `position` (GPS) stay absent for the reason that exception
-         *     does *not* apply to them: the channel analyzer is  Phase 2 and the GPS source Phase 4,
-         *     so a port for either would be a wire that dangles with nothing reserving it.
-         * @enum {string}
-         */
+        /** @enum {string} */
         PortType: "iq" | "audio" | "events" | "video" | "control" | "tx";
         /** @description Canvas position of a node, in React Flow's coordinate space. */
         Position: {
@@ -2437,14 +2285,6 @@ export interface components {
             id: number;
             name: string;
         };
-        /**
-         * @description The stored body of a preset: where every radio a workspace draws was tuned, and what hung off
-         *     them ().
-         *
-         *     A preset is workspace-wide because a workspace is: an operator who saved "the morning airband
-         *     bench" means every radio on it, and a per-device preset made that several saves that could be
-         *     restored in the wrong order or half-applied. Applying one is one gesture over the whole patch.
-         */
         PresetSnapshot: {
             devices?: components["schemas"]["PresetDevice"][];
             /**
@@ -2467,7 +2307,6 @@ export interface components {
             /** Format: int32 */
             y: number;
         };
-        /** @description The operate view: faces on a snapping grid, no pan, no zoom, no wires (CANVAS §5). */
         RackLayout: {
             slots?: components["schemas"]["RackSlot"][];
         };
@@ -2581,11 +2420,7 @@ export interface components {
             error?: string | null;
             /** @description Recording stem: file name without directory or `.sigmf-*` extension. */
             file: string;
-            /**
-             * Format: int64
-             * @description Capture-ring drops while this recording ran. The file stays contiguous as the DSP
-             *     plane saw the stream, so growth means the recording has upstream gaps ().
-             */
+            /** Format: int64 */
             overruns: number;
             /**
              * Format: int64
@@ -2741,7 +2576,6 @@ export interface components {
          * @enum {string}
          */
         ScanState: "scanning" | "holding";
-        /** @description Server → client push (). Adjacently tagged so unit variants stay compact. */
         ServerEvent: {
             /** @description First frame after connect: current state revision so the client can detect gaps. */
             data: {
@@ -2821,14 +2655,6 @@ export interface components {
             /** @enum {string} */
             type: "StreamStopped";
         } | {
-            /**
-             * @description A decoder produced a frame (: typed JSON decoder output). Pushed to every
-             *     connected client; the same record is persisted to the decoder log ().
-             *
-             *     Boxed so one rare variant does not set the size of every `ServerEvent`: the control
-             *     broadcast carries hundreds of buffered `StateChanged`s, which would each pay for a
-             *     record they never hold. `Box` is transparent to serde and to the schema.
-             */
             data: components["schemas"]["DecodedRecord"];
             /** @enum {string} */
             type: "Decoded";
@@ -2853,10 +2679,6 @@ export interface components {
             /** @enum {string} */
             type: "DecodedBacklog";
         } | {
-            /**
-             * @description Decoder frames were dropped before reaching clients or the log because a consumer
-             *     fell behind. Loss is surfaced, never silent ().
-             */
             data: {
                 /** Format: int64 */
                 count: number;
@@ -2988,10 +2810,7 @@ export interface components {
             /** Format: int32 */
             stream: number;
         };
-        /**
-         * @description What a decoded sub-GHz burst turned out to be ().
-         * @enum {string}
-         */
+        /** @enum {string} */
         SubghzEncoding: "pwm" | "manchester" | "raw";
         /**
          * @description One sub-GHz burst: a remote, a sensor, a TPMS. Repeats of the same payload inside a short
@@ -3036,12 +2855,7 @@ export interface components {
             /** @description PT2262 reading: 12 tri-state symbols as `0`, `1` and `F`, when every bit pair is one. */
             tri_state?: string | null;
         };
-        /**
-         * @description How a sub-GHz device keys its carrier (). The two need different front ends —
-         *     an envelope detector versus a discriminator — but produce the same pulse-width stream, so
-         *     everything above the detector is shared.
-         * @enum {string}
-         */
+        /** @enum {string} */
         SubghzModulation: "ook" | "fsk";
         SubghzParams: {
             /**
@@ -3082,14 +2896,7 @@ export interface components {
              *     transmit template must not be offered on a receiver the day one exists.
              */
             direction?: components["schemas"]["Direction"];
-            /**
-             * @description Whether `sample_rate` is the only rate that works, rather than a starting point. ADS-B
-             *     fills its whole 2 MHz channel, so a resampled one decodes nothing () — a radio
-             *     whose rate menu misses 2 Msps cannot run it at all, while an FM template is happy at
-             *     anything wide enough.
-             */
             exact_rate?: boolean;
-            /** @description The "what am I looking at" text shown once it is applied (). */
             explainer: string;
             /** @description Stable slug used in `POST /api/templates/{id}/apply`. */
             id: string;
@@ -3124,12 +2931,6 @@ export interface components {
         TemplatesResponse: {
             templates: components["schemas"]["TemplateInfo"][];
         };
-        /**
-         * @description Subaudible signalling heard under an NFM channel's voice ().
-         *
-         *     Emitted only when the picture changes. Both CTCSS and DCS run for the whole of a
-         *     transmission, so an event per block would be the same event forty times a second.
-         */
         ToneSquelchStatus: {
             /**
              * Format: double
@@ -3157,10 +2958,7 @@ export interface components {
             revision: number;
             snapshot?: null | components["schemas"]["WorkspaceSnapshot"];
         };
-        /**
-         * @description Manufacturer feature set carried by DMR FID and P25 MFID fields.
-         * @enum {string}
-         */
+        /** @enum {string} */
         Vendor: "standard" | "etsi" | "motorola" | "hytera" | "harris" | "tait" | "jvc_kenwood" | "emc" | "radio_activity" | "flyde_micro" | "prod_el" | "unknown";
         WfmParams: {
             /**
@@ -3200,23 +2998,9 @@ export interface components {
             /** @description RFC3339 UTC. */
             updated_at: string;
         };
-        /**
-         * @description Choices that belong to the workspace rather than to a node on it or to the browser looking at
-         *     it.
-         *
-         *     The band plan is the whole of it today. It lives here because which plan is in force is a
-         *     property of the bench the patch describes — an aviation workspace and a marine one read
-         *     different tables of the same air — and because the ruler is drawn on the scope faces the
-         *     workspace itself draws. It was per-browser until M7 (`web/src/lib/bandRegion.ts`), which meant
-         *     two operators on one server saw two different rulers over one signal.
-         */
         WorkspaceSettings: {
             /** @description [`crate::BandRegion::id`], or `None` to follow the server's default for this install. */
             band_region?: string | null;
-            /**
-             * @description Whether scope faces draw the band ruler. Absent means drawn: the plan is the reason the
-             *     region is stored at all, so a snapshot that predates this field opts in.
-             */
             band_ruler?: boolean;
         };
         /**
@@ -3225,10 +3009,6 @@ export interface components {
          */
         WorkspaceSnapshot: {
             graph: components["schemas"]["PatchGraph"];
-            /**
-             * @description Faces pinned to the operate view. May be empty — the canvas alone is a complete UI
-             *     (CANVAS §5).
-             */
             rack?: components["schemas"]["RackLayout"];
             settings?: components["schemas"]["WorkspaceSettings"];
             /**
@@ -3556,47 +3336,11 @@ export interface operations {
                 kind?: string;
                 /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
                 limit?: number;
-                /**
-                 * @description Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated
-                 *     (`channel:a1b2,channel:c3d4`).
-                 *
-                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export
-                 *     node shows the decoders wired into it, and "wired into it" is a *set of channels*, which
-                 *     neither `kind` nor `device_set` can name. The node id is the durable half of that — engine
-                 *     channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
-                 *     hand a node another node's history after a restart.
-                 *
-                 *     Read against the *active* workspace, which is the one whose canvas drew the scope. A node
-                 *     id is unique only within a workspace — templates author theirs as slugs and
-                 *     [`crate::WorkspaceSnapshot::merge_patch`] deduplicates only inside the workspace it merges
-                 *     into — so ids alone would let two workspaces built from the same template read each
-                 *     other's history. Rows written before the server recorded the workspace answer to no id.
-                 *
-                 *     Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
-                 *     channel, and *both* empty means none, so a node with nothing wired in matches nothing
-                 *     rather than everything.
-                 *
-                 *     A node id containing a comma cannot be named here. Nothing generates one — ids are
-                 *     `kind:uuid` from the client and slugs from the templates — and the fallback below still
-                 *     reaches such a node's rows for the run they were written in.
-                 */
                 nodes?: string;
                 /** @description Substring match against `station` and `summary`, case-insensitive. */
                 q?: string;
                 /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
-                /**
-                 * @description Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
-                 *     (`0:1,0:2`), matched only against rows whose `node` is null *and* that this server run
-                 *     wrote.
-                 *
-                 *     Two kinds of row have none. Rows written before the log recorded one, and rows written in
-                 *     the window between a channel starting to decode and the workspace binding catching up with
-                 *     it. Both are attributable only by the coordinates they *do* carry, and only for the run
-                 *     that wrote them — engine channel ids are allocated per run and reused (CANVAS §3), so `0:1`
-                 *     names a different decoder in every run that had one. Hence the run bound, and hence this
-                 *     being the fallback rather than the filter.
-                 */
                 sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
                 until?: string;
@@ -3636,47 +3380,11 @@ export interface operations {
                 kind?: string;
                 /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
                 limit?: number;
-                /**
-                 * @description Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated
-                 *     (`channel:a1b2,channel:c3d4`).
-                 *
-                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export
-                 *     node shows the decoders wired into it, and "wired into it" is a *set of channels*, which
-                 *     neither `kind` nor `device_set` can name. The node id is the durable half of that — engine
-                 *     channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
-                 *     hand a node another node's history after a restart.
-                 *
-                 *     Read against the *active* workspace, which is the one whose canvas drew the scope. A node
-                 *     id is unique only within a workspace — templates author theirs as slugs and
-                 *     [`crate::WorkspaceSnapshot::merge_patch`] deduplicates only inside the workspace it merges
-                 *     into — so ids alone would let two workspaces built from the same template read each
-                 *     other's history. Rows written before the server recorded the workspace answer to no id.
-                 *
-                 *     Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
-                 *     channel, and *both* empty means none, so a node with nothing wired in matches nothing
-                 *     rather than everything.
-                 *
-                 *     A node id containing a comma cannot be named here. Nothing generates one — ids are
-                 *     `kind:uuid` from the client and slugs from the templates — and the fallback below still
-                 *     reaches such a node's rows for the run they were written in.
-                 */
                 nodes?: string;
                 /** @description Substring match against `station` and `summary`, case-insensitive. */
                 q?: string;
                 /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
-                /**
-                 * @description Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
-                 *     (`0:1,0:2`), matched only against rows whose `node` is null *and* that this server run
-                 *     wrote.
-                 *
-                 *     Two kinds of row have none. Rows written before the log recorded one, and rows written in
-                 *     the window between a channel starting to decode and the workspace binding catching up with
-                 *     it. Both are attributable only by the coordinates they *do* carry, and only for the run
-                 *     that wrote them — engine channel ids are allocated per run and reused (CANVAS §3), so `0:1`
-                 *     names a different decoder in every run that had one. Hence the run bound, and hence this
-                 *     being the fallback rather than the filter.
-                 */
                 sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
                 until?: string;
@@ -3716,47 +3424,11 @@ export interface operations {
                 kind?: string;
                 /** @description Maximum rows returned by the list endpoint (server-clamped). Ignored by export. */
                 limit?: number;
-                /**
-                 * @description Restrict to the channels named by patch node — [`crate::PatchNode::id`]s, comma separated
-                 *     (`channel:a1b2,channel:c3d4`).
-                 *
-                 *     This is the filter a canvas node draws with its wires (CANVAS §1): a decoder-log or export
-                 *     node shows the decoders wired into it, and "wired into it" is a *set of channels*, which
-                 *     neither `kind` nor `device_set` can name. The node id is the durable half of that — engine
-                 *     channel ids are allocated per run and reused (CANVAS §3), so a scope built from them would
-                 *     hand a node another node's history after a restart.
-                 *
-                 *     Read against the *active* workspace, which is the one whose canvas drew the scope. A node
-                 *     id is unique only within a workspace — templates author theirs as slugs and
-                 *     [`crate::WorkspaceSnapshot::merge_patch`] deduplicates only inside the workspace it merges
-                 *     into — so ids alone would let two workspaces built from the same template read each
-                 *     other's history. Rows written before the server recorded the workspace answer to no id.
-                 *
-                 *     Composes with [`Self::sources`] as an OR, and the pair is one filter: absent means every
-                 *     channel, and *both* empty means none, so a node with nothing wired in matches nothing
-                 *     rather than everything.
-                 *
-                 *     A node id containing a comma cannot be named here. Nothing generates one — ids are
-                 *     `kind:uuid` from the client and slugs from the templates — and the fallback below still
-                 *     reaches such a node's rows for the run they were written in.
-                 */
                 nodes?: string;
                 /** @description Substring match against `station` and `summary`, case-insensitive. */
                 q?: string;
                 /** @description Only entries at or after this RFC3339 timestamp. */
                 since?: string;
-                /**
-                 * @description Fallback for rows that carry no node: `device_set:channel` pairs, comma separated
-                 *     (`0:1,0:2`), matched only against rows whose `node` is null *and* that this server run
-                 *     wrote.
-                 *
-                 *     Two kinds of row have none. Rows written before the log recorded one, and rows written in
-                 *     the window between a channel starting to decode and the workspace binding catching up with
-                 *     it. Both are attributable only by the coordinates they *do* carry, and only for the run
-                 *     that wrote them — engine channel ids are allocated per run and reused (CANVAS §3), so `0:1`
-                 *     names a different decoder in every run that had one. Hence the run bound, and hence this
-                 *     being the fallback rather than the filter.
-                 */
                 sources?: string;
                 /** @description Only entries at or before this RFC3339 timestamp. */
                 until?: string;
