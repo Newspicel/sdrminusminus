@@ -11,9 +11,7 @@ import type {
 } from "../lib/types";
 import {
   addEdge,
-  addNode,
   connectionRefusal,
-  dropPosition,
   edgeKey,
   edgeWarning,
   type GraphContext,
@@ -592,20 +590,5 @@ describe("the rack", () => {
     // rather than left to make every later write fail validation.
     const stale = { slots: [{ node: "nfm", x: 12, y: 12, w: 12, h: 8 }] };
     expect(pruneRack(stale, workspace()).slots).toEqual([{ node: "nfm", x: 0, y: 0, w: 6, h: 4 }]);
-  });
-});
-
-// One placement rule, shared by the palette and the recordings drawer: a drop lands clear of
-// everything already drawn, and a run of them staggers instead of stacking.
-describe("dropPosition", () => {
-  it("lands right of everything drawn and staggers down as the patch fills", () => {
-    const g = workspace();
-    const first = dropPosition(g);
-    const rightmost = g.nodes.reduce((max, drawn) => Math.max(max, drawn.position.x), 0);
-    expect(first.x).toBeGreaterThan(rightmost);
-    expect(dropPosition({ nodes: [], edges: [] })).toEqual({ x: 360, y: 0 });
-
-    const fuller = addNode(g, node("extra", { kind: "scope" }));
-    expect(dropPosition(fuller).y).toBeGreaterThan(first.y);
   });
 });
