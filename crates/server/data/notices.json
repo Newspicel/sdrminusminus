@@ -6639,7 +6639,7 @@
     },
     {
       "name": "maplibre-gl",
-      "version": "6.2.0",
+      "version": "6.3.0",
       "license": "BSD-3-Clause",
       "source": "web",
       "url": "https://maplibre.org/",
