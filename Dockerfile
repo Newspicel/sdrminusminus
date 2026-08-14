@@ -107,7 +107,7 @@ WORKDIR /src
 COPY --from=planner /plan/ ./
 RUN rustup show
 
-ARG FEATURES=soapy,net-client
+ARG FEATURES=soapy,net-client,gpu-fft
 # Dependency compilation against the stubs: invalidated only by Cargo.lock or a manifest, never
 # by a source edit. The stubs reference nothing, so each workspace crate compiles empty while
 # cargo still builds every external dependency it declares.

@@ -16,9 +16,10 @@ path = "src/main.rs"
 workspace = true
 
 [features]
-default = ["soapy", "net-client"]
+default = ["soapy", "net-client", "gpu-fft"]
 soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy", "dep:sdrmm-device-soapy"]
 net-client = ["sdrmm-server/net-client", "sdrmm-engine/net-client"]
+gpu-fft = ["sdrmm-server/gpu-fft", "sdrmm-engine/gpu-fft"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

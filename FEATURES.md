@@ -175,5 +175,6 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 20. Cross-cutting engine capabilities
 
-- **[planned]** GPU FFT compute path (wgpu) in the engine, for very large FFTs or many channels
+- **[implemented]** GPU FFT compute path (wgpu) for very large transforms or many receive lanes,
+  with automatic CPU selection and fallback on headless hosts
 - **[planned]** Diversity combine / noise cancelling with a reference antenna

@@ -25,6 +25,7 @@ pub mod audio;
 pub mod recording;
 pub mod runtime;
 pub mod scanner;
+mod spectrum;
 pub mod video;
 pub use audio::AudioPacket;
 pub use recording::FinalizedRecording;

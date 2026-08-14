@@ -11,11 +11,14 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-default = ["soapy", "net-client"]
+default = ["soapy", "net-client", "gpu-fft"]
 soapy = ["dep:sdrmm-device-soapy"]
 # rtl_tcp and SpyServer clients. Pure `std::net`, so it costs a release artifact nothing and is
 # part of the minimal build.
 net-client = ["dep:sdrmm-device-net"]
+# Headless wgpu compute. Runtime selection still keeps small transforms on rustfft and falls
+# back to it when the host has no suitable hardware adapter.
+gpu-fft = ["dep:bytemuck", "dep:pollster", "dep:wgpu"]
 
 [dependencies]
 sdrmm-wire.workspace = true
@@ -34,6 +37,9 @@ jiff.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio = { workspace = true, features = ["sync"] }
+bytemuck = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
