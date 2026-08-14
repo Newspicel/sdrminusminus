@@ -1761,7 +1761,7 @@ export interface components {
             retention_seconds?: number;
         };
         /** @enum {string} */
-        DmrTrunkProtocol: "auto" | "capacity_plus" | "tier_three";
+        DmrTrunkProtocol: "auto" | "capacity_plus" | "hytera_xpt" | "tier_three";
         /** @description One diagnostic line. */
         DoctorCheck: {
             /** @description What was actually found. */
@@ -1931,7 +1931,7 @@ export interface components {
          *     [`crate::DmrTrunkProtocol`] is what an operator asks the node for.
          * @enum {string}
          */
-        DvTrunkProtocol: "capacity_plus" | "tier_three";
+        DvTrunkProtocol: "capacity_plus" | "hytera_xpt" | "tier_three";
         EventAudio: {
             media_type: string;
             url: string;

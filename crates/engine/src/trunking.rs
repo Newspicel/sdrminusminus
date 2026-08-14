@@ -55,8 +55,7 @@ struct Carrier {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum FollowerKey {
-    /// Capacity Plus grants no frequency: every carrier is itself a traffic channel.
-    CapacityPlus {
+    KnownCarrier {
         system_node: String,
         device_set: u32,
         carrier: u32,
@@ -72,7 +71,7 @@ enum FollowerKey {
 impl FollowerKey {
     fn system_node(&self) -> &str {
         match self {
-            Self::CapacityPlus { system_node, .. } | Self::TierThree { system_node, .. } => {
+            Self::KnownCarrier { system_node, .. } | Self::TierThree { system_node, .. } => {
                 system_node
             }
         }
@@ -80,13 +79,13 @@ impl FollowerKey {
 
     fn slot(&self) -> u8 {
         match self {
-            Self::CapacityPlus { slot, .. } | Self::TierThree { slot, .. } => *slot,
+            Self::KnownCarrier { slot, .. } | Self::TierThree { slot, .. } => *slot,
         }
     }
 
     fn logical_channel(&self) -> Option<u16> {
         match self {
-            Self::CapacityPlus { .. } => None,
+            Self::KnownCarrier { .. } => None,
             Self::TierThree {
                 logical_channel, ..
             } => Some(*logical_channel),
@@ -220,6 +219,7 @@ impl Follower {
     ) -> Option<DvTrunkProtocol> {
         match configured {
             DmrTrunkProtocol::CapacityPlus => Some(DvTrunkProtocol::CapacityPlus),
+            DmrTrunkProtocol::HyteraXpt => Some(DvTrunkProtocol::HyteraXpt),
             DmrTrunkProtocol::TierThree => Some(DvTrunkProtocol::TierThree),
             DmrTrunkProtocol::Auto => self.detected.get(system_node).copied(),
         }
@@ -250,8 +250,9 @@ impl Follower {
             }
             match self.protocol_of(&carrier.system_node, carrier.protocol) {
                 Some(DvTrunkProtocol::CapacityPlus) => {
-                    self.provision_capacity_plus(&engine, carrier)
+                    self.provision_known_carrier(&engine, carrier)
                 }
+                Some(DvTrunkProtocol::HyteraXpt) => self.provision_known_carrier(&engine, carrier),
                 Some(DvTrunkProtocol::TierThree) => {
                     self.observe_tier_three(&engine, carrier, frame)
                 }
@@ -302,14 +303,12 @@ impl Follower {
         );
     }
 
-    /// Capacity Plus carriers are themselves traffic channels, so both slots of every carrier
-    /// get a follower without any grant.
-    fn provision_capacity_plus(&mut self, engine: &Engine, carrier: &Carrier) {
+    fn provision_known_carrier(&mut self, engine: &Engine, carrier: &Carrier) {
         for slot in [1, 2] {
             self.ensure_follower(
                 engine,
                 carrier,
-                FollowerKey::CapacityPlus {
+                FollowerKey::KnownCarrier {
                     system_node: carrier.system_node.clone(),
                     device_set: carrier.device_set,
                     carrier: carrier.channel,
@@ -496,10 +495,11 @@ impl Follower {
         self.problems
             .retain(|key, _| nodes.contains(&key.system_node()));
         for carrier in &live {
-            if self.protocol_of(&carrier.system_node, carrier.protocol)
-                == Some(DvTrunkProtocol::CapacityPlus)
-            {
-                self.provision_capacity_plus(&engine, carrier);
+            if matches!(
+                self.protocol_of(&carrier.system_node, carrier.protocol),
+                Some(DvTrunkProtocol::CapacityPlus | DvTrunkProtocol::HyteraXpt)
+            ) {
+                self.provision_known_carrier(&engine, carrier);
             }
         }
         self.publish();
@@ -507,7 +507,7 @@ impl Follower {
 
     fn system_holds(&self, live: &[Carrier], key: &FollowerKey) -> bool {
         match key {
-            FollowerKey::CapacityPlus {
+            FollowerKey::KnownCarrier {
                 system_node,
                 device_set,
                 carrier,
@@ -516,8 +516,10 @@ impl Follower {
                 source.system_node == *system_node
                     && source.device_set == *device_set
                     && source.channel == *carrier
-                    && self.protocol_of(system_node, source.protocol)
-                        == Some(DvTrunkProtocol::CapacityPlus)
+                    && matches!(
+                        self.protocol_of(system_node, source.protocol),
+                        Some(DvTrunkProtocol::CapacityPlus | DvTrunkProtocol::HyteraXpt)
+                    )
             }),
             FollowerKey::TierThree { system_node, .. } => live.iter().any(|source| {
                 source.system_node == *system_node
@@ -775,6 +777,53 @@ mod tests {
         assert_eq!(set.channels.len(), 3, "both slots were not provisioned");
         let status = status(&follower);
         assert_eq!(status.detected, Some(DvTrunkProtocol::CapacityPlus));
+        assert_eq!(status.followers.len(), 2);
+        assert_eq!(status.followers[0].slot, 1);
+        assert_eq!(status.followers[1].slot, 2);
+    }
+
+    #[test]
+    fn auto_follows_hytera_xpt_once_its_signalling_identifies_it() {
+        let engine = engine();
+        let (device_set, channel, _) = control_channel(&engine);
+        let carrier = (device_set, channel);
+        let mut follower = follower(&engine, DmrTrunkProtocol::Auto, carrier);
+        assert!(
+            follower.followers.is_empty(),
+            "auto followed before it knew"
+        );
+
+        follower.observe(&record(
+            carrier,
+            DvFrame {
+                trunk_protocol: Some(DvTrunkProtocol::HyteraXpt),
+                crc_verified: Some(true),
+                ..DvFrame::new(DvMode::Dmr, DvFrameKind::Control)
+            },
+        ));
+
+        let set = engine.snapshot().device_sets.remove(0);
+        assert_eq!(set.channels.len(), 3, "both slots were not provisioned");
+        assert!(set.channels.iter().any(|channel| {
+            matches!(
+                channel.settings.params,
+                ChannelParams::Dmr(DmrParams {
+                    slots: DmrSlots::One,
+                    ..
+                })
+            )
+        }));
+        assert!(set.channels.iter().any(|channel| {
+            matches!(
+                channel.settings.params,
+                ChannelParams::Dmr(DmrParams {
+                    slots: DmrSlots::Two,
+                    ..
+                })
+            )
+        }));
+        let status = status(&follower);
+        assert_eq!(status.detected, Some(DvTrunkProtocol::HyteraXpt));
         assert_eq!(status.followers.len(), 2);
         assert_eq!(status.followers[0].slot, 1);
         assert_eq!(status.followers[1].slot, 2);

@@ -446,6 +446,7 @@ pub struct DvChannelDefinition {
 #[serde(rename_all = "snake_case")]
 pub enum DvTrunkProtocol {
     CapacityPlus,
+    HyteraXpt,
     TierThree,
 }
 
