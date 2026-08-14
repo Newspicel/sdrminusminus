@@ -1,8 +1,8 @@
-// The smoke flow the web suite owed since M6 (PLAN §14, CANVAS §8). One browser, one server,
+// The smoke flow the web suite owed since M6 (, CANVAS §8). One browser, one server,
 // one path through the workspace — enough to catch the class of break vitest cannot see, where
 // every pure transform is right and the composition above them never mounts.
 //
-// The server under test is the real one on `device-virtual` (PLAN §14: no hardware in CI, ever)
+// The server under test is the real one on `device-virtual` (: no hardware in CI, ever)
 // with a throwaway database, so the run starts from the seeded default workspace every time and
 // leaves nothing behind.
 import { defineConfig, devices } from "@playwright/test";

@@ -1,4 +1,4 @@
-//! Spectrum tap (PLAN §7, §9): windowed complex FFT of an IQ block → DC-centered power in
+//! Spectrum tap (, §9): windowed complex FFT of an IQ block → DC-centered power in
 //! dBFS → max-decimation to display bins → `u8` quantization over an adaptive dB window.
 //!
 //! IQ is complex, so this is a full complex FFT (bins span `[0, fs)`), fft-shifted so DC lands
@@ -68,7 +68,7 @@ impl SpectrumAnalyzer {
     }
 }
 
-/// Reduce `db` to `bins` display points by max-hold decimation (PLAN §9: peaks must survive
+/// Reduce `db` to `bins` display points by max-hold decimation (: peaks must survive
 /// downsampling so narrow signals stay visible). `out.len()` must equal `bins`.
 pub fn decimate_max(db: &[f32], out: &mut [f32]) {
     let bins = out.len();
@@ -97,7 +97,7 @@ pub fn decimate_max(db: &[f32], out: &mut [f32]) {
     }
 }
 
-/// Quantize dB values to `u8` over `[db_min, db_max]` (PLAN §9: the window travels in the
+/// Quantize dB values to `u8` over `[db_min, db_max]` (: the window travels in the
 /// frame header so the client can map bytes back to dB). Values clamp to the range.
 pub fn quantize_db(db: &[f32], db_min: f32, db_max: f32, out: &mut [u8]) {
     assert_eq!(db.len(), out.len(), "quantize length mismatch");

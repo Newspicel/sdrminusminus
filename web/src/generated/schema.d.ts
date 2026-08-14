@@ -602,7 +602,7 @@ export interface components {
             version: string;
         };
         /**
-         * @description One ACARS block (PLAN §13: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow
+         * @description One ACARS block (: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow
          *     the standard's, so a message here reads the same as in every other ACARS tool.
          */
         AcarsMessage: {
@@ -630,7 +630,7 @@ export interface components {
             bandwidth_hz?: number;
         };
         /**
-         * @description One decoded Mode S / ADS-B frame (PLAN §13: preamble correlation + Mode S CRC).
+         * @description One decoded Mode S / ADS-B frame (: preamble correlation + Mode S CRC).
          *     Fields are `Option` because which ones a frame carries depends on its type code — a
          *     position frame has no callsign, an identification frame has no altitude.
          */
@@ -689,7 +689,7 @@ export interface components {
          * @enum {string}
          */
         AisChannel: "a" | "b";
-        /** @description One decoded AIS message (PLAN §13: GMSK/NRZI over HDLC framing). */
+        /** @description One decoded AIS message (: GMSK/NRZI over HDLC framing). */
         AisMessage: {
             /** @description Which of the two AIS channels the burst arrived on (`A` = 161.975 MHz). */
             ais_channel: string;
@@ -749,13 +749,13 @@ export interface components {
             device_set: number;
         };
         /**
-         * @description AX.25 physical layer (PLAN §13: AFSK1200 + 9600 G3RUH).
+         * @description AX.25 physical layer (: AFSK1200 + 9600 G3RUH).
          * @enum {string}
          */
         AprsMode: "afsk1200" | "g3ruh9600";
         /**
          * @description One decoded AX.25 frame, with the APRS fields parsed out when the info field carries them
-         *     (PLAN §13: AFSK1200 + 9600 G3RUH).
+         *     (: AFSK1200 + 9600 G3RUH).
          */
         AprsPacket: {
             /** Format: int32 */
@@ -845,7 +845,7 @@ export interface components {
         };
         /**
          * @description How an analog television transmission carries its video, and with it the polarity the
-         *     demodulated signal arrives in (PLAN §13: ATV).
+         *     demodulated signal arrives in (: ATV).
          * @enum {string}
          */
         AtvModulation: "am" | "fm";
@@ -881,7 +881,7 @@ export interface components {
         AtvStandard: "ccir625" | "eia525" | "system_a405";
         /**
          * @description `GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before
-         *     its first real request (PLAN §12: optional single shared token).
+         *     its first real request (: optional single shared token).
          */
         AuthInfo: {
             /** @description Whether this server rejects requests without the shared token. */
@@ -981,7 +981,7 @@ export interface components {
         };
         /**
          * @description One source of allocations: a table someone published, identified so a block can say where it
-         *     came from. Adding a region is adding one of these plus its entries (FEATURES §5's "pluggable
+         *     came from. Adding a region is adding one of these plus its entries ('s "pluggable
          *     importers"); nothing else in the resolution knows the difference.
          */
         BandLayerInfo: {
@@ -1071,7 +1071,7 @@ export interface components {
          * @enum {string}
          */
         BandService: "amateur" | "broadcast" | "aeronautical" | "maritime" | "mobile" | "satellite" | "navigation" | "science" | "ism" | "other";
-        /** @description A stored frequency bookmark (PLAN §11). */
+        /** @description A stored frequency bookmark (). */
         Bookmark: {
             /** Format: double */
             freq_hz: number;
@@ -1082,7 +1082,7 @@ export interface components {
             /** @description Suggested channel type id (e.g. `"nfm"`), if any. */
             mode?: string | null;
         };
-        /** @description Everything the client needs to render device controls without hand-written DTOs (PLAN §6). */
+        /** @description Everything the client needs to render device controls without hand-written DTOs (). */
         Capabilities: {
             antennas: string[];
             bandwidths: number[];
@@ -1090,7 +1090,7 @@ export interface components {
             /**
              * @description Which directions this radio has, and whether it can run them together. Receive-only
              *     unless a backend says otherwise, so a device cannot advertise a transmitter by omission.
-             *     This is the *hardware's* shape, not a permission: PLAN §12a gates transmit behind an
+             *     This is the *hardware's* shape, not a permission:  gates transmit behind an
              *     authorized-use switch that does not exist, so a `half` radio still transmits nothing.
              */
             duplex?: components["schemas"]["Duplex"];
@@ -1131,7 +1131,7 @@ export interface components {
              * Format: int32
              * @description How many independent transmit streams it accepts. Reported for symmetry and for the
              *     device picker; the canvas still draws a single reserved transmit input, because there is
-             *     nothing to wire into it until PLAN §12a lands.
+             *     nothing to wire into it until  lands.
              */
             tx_streams?: number;
         };
@@ -1159,7 +1159,7 @@ export interface components {
             stream_args?: components["schemas"]["ArgumentInfo"][];
             stream_formats?: string[];
         };
-        /** @description Static description of a channel type, surfaced to drive the "add channel" UI (PLAN §8). */
+        /** @description Static description of a channel type, surfaced to drive the "add channel" UI (). */
         ChannelDescriptor: {
             /**
              * Format: double
@@ -1168,7 +1168,7 @@ export interface components {
             bandwidth_hz: number;
             /**
              * @description The type ships a modulator as well as a demodulator, so a transmit channel of it can be
-             *     built (PLAN §20). Says only that the waveform exists — whether it may ever reach an
+             *     built (). Says only that the waveform exists — whether it may ever reach an
              *     antenna is the authorized-use gate's question, and that gate has not been built.
              *     Defaults to `false`, which is every receive-only type.
              */
@@ -1180,21 +1180,21 @@ export interface components {
             decoder_kind?: string | null;
             /**
              * @description The type occupies its whole channel rate, so it runs only with the device tuned to
-             *     exactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18).
+             *     exactly `input_rate_hz` — a resampling DDC has no guard band left to give it ().
              *     Reported so the canvas can refuse the wire where the operator draws it, naming the rate
              *     that works, instead of letting the engine reject it after the fact. Defaults to `false`,
              *     which is every type that leaves a guard band.
              */
             exact_rate_only?: boolean;
             /**
-             * @description Whether the channel produces listenable audio. Data decoders (PLAN §13 wave 1) do
+             * @description Whether the channel produces listenable audio. Data decoders ( wave 1) do
              *     not, so the client hides their audio controls instead of offering a silent stream.
              *     Defaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour.
              */
             has_audio?: boolean;
             /**
              * @description Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames
-             *     rather than as decoder events (ATV, PLAN §13). The client subscribes and mounts a video
+             *     rather than as decoder events (ATV, ). The client subscribes and mounts a video
              *     panel on the channel's face when this is set. Defaults to `false`, which is every mode
              *     that predates the video transport.
              */
@@ -1212,7 +1212,7 @@ export interface components {
              *     resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
              *     highest, so a receiver is set anywhere in that range rather than to one exact number.
              *
-             *     ADS-B is the one such type (PLAN §18, amended): a 0.5 µs pulse is a single sample at
+             *     ADS-B is the one such type (, amended): a 0.5 µs pulse is a single sample at
              *     2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
              *     meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
              */
@@ -1345,7 +1345,7 @@ export interface components {
              */
             squelch_db?: number | null;
         };
-        /** @description The channel types this server build offers, driving the "add channel" UI (PLAN §8). */
+        /** @description The channel types this server build offers, driving the "add channel" UI (). */
         ChannelTypesResponse: {
             types: components["schemas"]["ChannelDescriptor"][];
         };
@@ -1356,7 +1356,7 @@ export interface components {
          */
         CheckStatus: "ok" | "warn" | "fail";
         /**
-         * @description Client → server commands over the same socket (PLAN §5). Stream subscriptions are
+         * @description Client → server commands over the same socket (). Stream subscriptions are
          *     per-connection, so a phone can request a lighter stream than a desktop.
          */
         ClientCommand: {
@@ -1364,7 +1364,7 @@ export interface components {
             data: {
                 /**
                  * Format: int32
-                 * @description Requested display bins (≤ 4096, PLAN §9); server clamps.
+                 * @description Requested display bins (≤ 4096, ); server clamps.
                  */
                 bins: number;
                 /** Format: int32 */
@@ -1444,7 +1444,7 @@ export interface components {
             type: "UnsubscribeVideo";
         };
         /**
-         * @description `GET /api/clients` — how many clients share this server right now (PLAN §16 M5
+         * @description `GET /api/clients` — how many clients share this server right now ( M5
          *     multi-client). Includes the caller.
          */
         ClientsResponse: {
@@ -1525,7 +1525,7 @@ export interface components {
             freq_hz: number;
         };
         /**
-         * @description Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a
+         * @description Typed decoder output (). Adjacently tagged so the generated TypeScript is a
          *     discriminated union on `kind` that panels can exhaustively `switch` on, and so the log
          *     database can index on `kind` without parsing the blob.
          */
@@ -1579,7 +1579,7 @@ export interface components {
             kind: "dv";
         };
         /**
-         * @description One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not
+         * @description One stored decoder frame (: decoder logs are queryable and exportable, not
          *     scroll-back-only). The typed `event` is stored verbatim so an export loses nothing;
          *     `kind`, `summary` and `station` are the indexed projections the list view filters on.
          */
@@ -1617,7 +1617,7 @@ export interface components {
             /**
              * Format: int64
              * @description Frames dropped on the way to the log since the server started, because a consumer
-             *     fell behind (PLAN §5: bounded queues surface their loss).
+             *     fell behind (: bounded queues surface their loss).
              */
             dropped: number;
             entries: components["schemas"]["DecoderLogEntry"][];
@@ -1632,7 +1632,7 @@ export interface components {
             /** Format: int64 */
             deleted: number;
         };
-        /** @description A discovered receiver, produced by a driver's probe (PLAN §6). */
+        /** @description A discovered receiver, produced by a driver's probe (). */
         DeviceInfo: {
             /** @description Driver id that produced this entry: `"virtual"`, `"soapy"`, `"rtlsdr"`, … */
             driver: string;
@@ -1641,7 +1641,7 @@ export interface components {
             /** @description Human label for the device picker. */
             label: string;
             profile?: null | components["schemas"]["DeviceProfile"];
-            /** @description Serial number when the driver exposes one (used to collapse probe duplicates, PLAN §6). */
+            /** @description Serial number when the driver exposes one (used to collapse probe duplicates, ). */
             serial?: string | null;
         };
         /**
@@ -1698,7 +1698,7 @@ export interface components {
             key?: string | null;
             serial?: string | null;
         };
-        /** @description One opened device and everything hosted on it (PLAN §2: "one device set per opened device"). */
+        /** @description One opened device and everything hosted on it (: "one device set per opened device"). */
         DeviceSet: {
             capabilities: components["schemas"]["Capabilities"];
             channels: components["schemas"]["ChannelInfo"][];
@@ -1710,7 +1710,7 @@ export interface components {
              * Format: int64
              * @description Cumulative device samples dropped at the capture ring since the set opened. Growth
              *     means the DSP thread cannot keep up — audio and spectrum have gaps even while
-             *     `status` stays `running` (PLAN §5 backpressure; CLAUDE.md no-silent-failure).
+             *     `status` stays `running` ( backpressure; CLAUDE.md no-silent-failure).
              */
             overruns?: number;
             playback?: null | components["schemas"]["PlaybackStatus"];
@@ -1724,7 +1724,7 @@ export interface components {
          * @enum {string}
          */
         DeviceSetStatus: "idle" | "running" | "error";
-        /** @description A mutation applied to a device. Absent fields are left unchanged (PLAN §5 PATCH device). */
+        /** @description A mutation applied to a device. Absent fields are left unchanged ( PATCH device). */
         DeviceSettings: {
             antenna?: string | null;
             /**
@@ -1746,7 +1746,7 @@ export interface components {
              */
             streams?: components["schemas"]["StreamSettings"][];
         };
-        /** @description `GET /api/devices` — discovered hardware across all drivers (PLAN §5). */
+        /** @description `GET /api/devices` — discovered hardware across all drivers (). */
         DevicesResponse: {
             devices: components["schemas"]["DeviceInfo"][];
         };
@@ -1930,7 +1930,7 @@ export interface components {
          */
         DvFrameKind: "header" | "voice" | "terminator" | "control" | "data";
         /**
-         * @description Which digital-voice mode a [`DvFrame`] was heard on (PLAN §13 wave 3). One event type
+         * @description Which digital-voice mode a [`DvFrame`] was heard on ( wave 3). One event type
          *     serves all of them because the *question* is the same in every mode — who is talking, to
          *     whom, on which network — and only the names for it differ.
          * @enum {string}
@@ -1945,7 +1945,7 @@ export interface components {
             slot: number;
         };
         /**
-         * @description Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a
+         * @description Export format for `GET /api/decoderlog/export/{format}` (: CSV/JSON). It is a
          *     path segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing
          *     [`DecoderLogQuery`] across list/export/clear requires the format to live elsewhere.
          * @enum {string}
@@ -1953,7 +1953,7 @@ export interface components {
         ExportFormat: "csv" | "json";
         /**
          * @description A typed device-specific setting the client renders generically when it has no
-         *     first-class UI (PLAN §6: "typed extra settings").
+         *     first-class UI (: "typed extra settings").
          */
         ExtraSetting: {
             default: boolean;
@@ -2041,7 +2041,7 @@ export interface components {
             wpm: number;
         };
         /**
-         * @description One NAVTEX broadcast (PLAN §13: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
+         * @description One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
          *     parsed out because that is what a receiver filters on — station, subject and serial are how
          *     a ship decides whether it has already seen this message.
          */
@@ -2101,7 +2101,7 @@ export interface components {
             tone_mode?: components["schemas"]["NfmToneMode"];
         };
         /**
-         * @description What an NFM channel does about the subaudible signalling under the voice (PLAN §8).
+         * @description What an NFM channel does about the subaudible signalling under the voice ().
          *     CTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating
          *     under it at 134.4 bit/s. Both are how a repeater tells its own users apart from the
          *     co-channel traffic 50 km away.
@@ -2113,7 +2113,7 @@ export interface components {
          *     is a union the client can exhaustively switch on.
          *
          *     The catalog is deliberately shorter than CANVAS §1's table: the GPS source, the UDP sink and
-         *     the WAV audio-file sink need server features that do not exist (PLAN §13 Phase 2/4), and a
+         *     the WAV audio-file sink need server features that do not exist ( Phase 2/4), and a
          *     node whose backend is unbuilt is a face that can only apologise.
          */
         NodeBody: {
@@ -2159,7 +2159,7 @@ export interface components {
          */
         NodeCategory: "source" | "channel" | "display" | "feature" | "sink";
         /**
-         * @description One entry of the node palette the client renders its "add node" menu from (PLAN §2: the client
+         * @description One entry of the node palette the client renders its "add node" menu from (: the client
          *     renders what the server describes).
          */
         NodeTypeInfo: {
@@ -2210,7 +2210,7 @@ export interface components {
             opened: number;
             /**
              * @description Nodes apply could not satisfy, with the reason — a wideband channel on a device running
-             *     at the wrong rate is the common one (PLAN §18). Reported, never silently skipped.
+             *     at the wrong rate is the common one (). Reported, never silently skipped.
              */
             refused?: components["schemas"]["PatchRefusal"][];
         };
@@ -2339,7 +2339,7 @@ export interface components {
             invert?: boolean;
         };
         /**
-         * @description POCSAG message class (PLAN §13: 512/1200/2400 baud pagers).
+         * @description POCSAG message class (: 512/1200/2400 baud pagers).
          * @enum {string}
          */
         PocsagPayload: "tone" | "numeric" | "alpha";
@@ -2385,19 +2385,19 @@ export interface components {
             name: string;
             /**
              * @description Why this port refuses everything, for the ports that do. The client renders what the
-             *     server describes (PLAN §2), and a port with no wire and no explanation reads as broken.
+             *     server describes (), and a port with no wire and no explanation reads as broken.
              */
             note?: string | null;
             port_type: components["schemas"]["PortType"];
             repeat?: components["schemas"]["PortRepeat"];
         };
         /**
-         * @description What a wire carries. Hue encodes this and only this (`DESIGN.md` §2), so the set stays small
+         * @description What a wire carries. Hue encodes this and only this (), so the set stays small
          *     and every member is something the engine actually moves today — with one named exception,
-         *     [`PortType::Tx`], which is reserved and unwireable until transmit exists (PLAN §12a).
+         *     [`PortType::Tx`], which is reserved and unwireable until transmit exists ().
          *
          *     `iq-tap` (decimated channel IQ) and `position` (GPS) stay absent for the reason that exception
-         *     does *not* apply to them: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4,
+         *     does *not* apply to them: the channel analyzer is  Phase 2 and the GPS source Phase 4,
          *     so a port for either would be a wire that dangles with nothing reserving it.
          * @enum {string}
          */
@@ -2439,7 +2439,7 @@ export interface components {
         };
         /**
          * @description The stored body of a preset: where every radio a workspace draws was tuned, and what hung off
-         *     them (PLAN §11).
+         *     them ().
          *
          *     A preset is workspace-wide because a workspace is: an operator who saved "the morning airband
          *     bench" means every radio on it, and a per-device preset made that several saves that could be
@@ -2485,7 +2485,7 @@ export interface components {
             step?: number | null;
         };
         /**
-         * @description RDS state after a group changed it (PLAN §13: 57 kHz BPSK, group/AF/RT decode). RDS is a
+         * @description RDS state after a group changed it (: 57 kHz BPSK, group/AF/RT decode). RDS is a
          *     slowly-accreting picture rather than a stream of independent frames, so an event is the
          *     current best view of the station, emitted only when a field actually changed.
          */
@@ -2535,7 +2535,7 @@ export interface components {
          */
         RecordingFormat: "sigmf" | "wav";
         /**
-         * @description One finalized SigMF recording in the library (PLAN §11: the files on disk are the source
+         * @description One finalized SigMF recording in the library (: the files on disk are the source
          *     of truth; this row is its SQLite index entry).
          */
         RecordingInfo: {
@@ -2568,7 +2568,7 @@ export interface components {
             recordings: components["schemas"]["RecordingInfo"][];
         };
         /**
-         * @description Live IQ recording on a device set (PLAN §5: the recording path is lossless, so a writer
+         * @description Live IQ recording on a device set (: the recording path is lossless, so a writer
          *     fault must surface here rather than dropping samples silently).
          */
         RecordingStatus: {
@@ -2584,7 +2584,7 @@ export interface components {
             /**
              * Format: int64
              * @description Capture-ring drops while this recording ran. The file stays contiguous as the DSP
-             *     plane saw the stream, so growth means the recording has upstream gaps (PLAN §5).
+             *     plane saw the stream, so growth means the recording has upstream gaps ().
              */
             overruns: number;
             /**
@@ -2604,7 +2604,7 @@ export interface components {
         };
         /**
          * @description `POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream
-         *     (PLAN §5: the recording path is lossless).
+         *     (: the recording path is lossless).
          */
         RecordRequest: {
             action: components["schemas"]["RecordAction"];
@@ -2637,7 +2637,7 @@ export interface components {
          * @enum {string}
          */
         RttyStopBits: "one" | "one_and_half" | "two";
-        /** @description A run of decoded RTTY characters (PLAN §13: Baudot over FSK). */
+        /** @description A run of decoded RTTY characters (: Baudot over FSK). */
         RttyText: {
             text: string;
         };
@@ -2701,7 +2701,7 @@ export interface components {
             action: components["schemas"]["ScanAction"];
             settings?: null | components["schemas"]["ScanSettings"];
         };
-        /** @description What a scan covers and how it behaves on a hit (PLAN §13: "frequency scanner"). */
+        /** @description What a scan covers and how it behaves on a hit (: "frequency scanner"). */
         ScanSettings: {
             /**
              * Format: int32
@@ -2741,7 +2741,7 @@ export interface components {
          * @enum {string}
          */
         ScanState: "scanning" | "holding";
-        /** @description Server → client push (PLAN §5). Adjacently tagged so unit variants stay compact. */
+        /** @description Server → client push (). Adjacently tagged so unit variants stay compact. */
         ServerEvent: {
             /** @description First frame after connect: current state revision so the client can detect gaps. */
             data: {
@@ -2822,8 +2822,8 @@ export interface components {
             type: "StreamStopped";
         } | {
             /**
-             * @description A decoder produced a frame (PLAN §5: typed JSON decoder output). Pushed to every
-             *     connected client; the same record is persisted to the decoder log (PLAN §11).
+             * @description A decoder produced a frame (: typed JSON decoder output). Pushed to every
+             *     connected client; the same record is persisted to the decoder log ().
              *
              *     Boxed so one rare variant does not set the size of every `ServerEvent`: the control
              *     broadcast carries hundreds of buffered `StateChanged`s, which would each pay for a
@@ -2855,7 +2855,7 @@ export interface components {
         } | {
             /**
              * @description Decoder frames were dropped before reaching clients or the log because a consumer
-             *     fell behind. Loss is surfaced, never silent (PLAN §5).
+             *     fell behind. Loss is surfaced, never silent ().
              */
             data: {
                 /** Format: int64 */
@@ -2902,7 +2902,7 @@ export interface components {
         };
         /**
          * @description Granularity of a `StateChanged` invalidation. The client maps each scope to the
-         *     TanStack Query keys it must invalidate (PLAN §10: the *only* cache-invalidation path).
+         *     TanStack Query keys it must invalidate (: the *only* cache-invalidation path).
          */
         StateScope: {
             /** @enum {string} */
@@ -2937,7 +2937,7 @@ export interface components {
             /** @enum {string} */
             scope: "workspaces";
         };
-        /** @description Full state snapshot for initial load (PLAN §5 `GET /api/state`). */
+        /** @description Full state snapshot for initial load ( `GET /api/state`). */
         StateSnapshot: {
             device_sets: components["schemas"]["DeviceSet"][];
             /**
@@ -2989,7 +2989,7 @@ export interface components {
             stream: number;
         };
         /**
-         * @description What a decoded sub-GHz burst turned out to be (PLAN §8b).
+         * @description What a decoded sub-GHz burst turned out to be ().
          * @enum {string}
          */
         SubghzEncoding: "pwm" | "manchester" | "raw";
@@ -3037,7 +3037,7 @@ export interface components {
             tri_state?: string | null;
         };
         /**
-         * @description How a sub-GHz device keys its carrier (PLAN §8b). The two need different front ends —
+         * @description How a sub-GHz device keys its carrier (). The two need different front ends —
          *     an envelope detector versus a discriminator — but produce the same pulse-width stream, so
          *     everything above the detector is shared.
          * @enum {string}
@@ -3065,7 +3065,7 @@ export interface components {
             modulation?: components["schemas"]["SubghzModulation"];
         };
         /**
-         * @description One built-in workspace template (PLAN §10: the template gallery). Read-only and
+         * @description One built-in workspace template (: the template gallery). Read-only and
          *     device-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry
          *     applies to whatever hardware is open, provided the device can tune it.
          */
@@ -3084,12 +3084,12 @@ export interface components {
             direction?: components["schemas"]["Direction"];
             /**
              * @description Whether `sample_rate` is the only rate that works, rather than a starting point. ADS-B
-             *     fills its whole 2 MHz channel, so a resampled one decodes nothing (PLAN §18) — a radio
+             *     fills its whole 2 MHz channel, so a resampled one decodes nothing () — a radio
              *     whose rate menu misses 2 Msps cannot run it at all, while an FM template is happy at
              *     anything wide enough.
              */
             exact_rate?: boolean;
-            /** @description The "what am I looking at" text shown once it is applied (PLAN §10). */
+            /** @description The "what am I looking at" text shown once it is applied (). */
             explainer: string;
             /** @description Stable slug used in `POST /api/templates/{id}/apply`. */
             id: string;
@@ -3125,7 +3125,7 @@ export interface components {
             templates: components["schemas"]["TemplateInfo"][];
         };
         /**
-         * @description Subaudible signalling heard under an NFM channel's voice (PLAN §8).
+         * @description Subaudible signalling heard under an NFM channel's voice ().
          *
          *     Emitted only when the picture changes. Both CTCSS and DCS run for the whole of a
          *     transmission, so an event per block would be the same event forty times a second.
@@ -3220,7 +3220,7 @@ export interface components {
             band_ruler?: boolean;
         };
         /**
-         * @description The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written
+         * @description The stored body of a workspace (: one JSON snapshot per row, like presets — written
          *     atomically, read whole, never queried by inner field).
          */
         WorkspaceSnapshot: {

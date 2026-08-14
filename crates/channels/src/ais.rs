@@ -1,10 +1,10 @@
-//! AIS decoder (PLAN §13 P2): 9600 baud GMSK, NRZI + HDLC framing, CRC-16/X-25.
+//! AIS decoder ( P2): 9600 baud GMSK, NRZI + HDLC framing, CRC-16/X-25.
 //!
 //! Receiver chain: feedforward carrier-offset corrector → `sdrmm_modem::cpm` GMSK front end
 //! (quadrature discriminator → Gaussian matched filter → `SymbolSync` → normalised soft
 //! symbols; discriminator tier — no coherent carrier recovery, which is what fits the Pi
 //! budget at 48 kHz and 5 samples per bit) → NRZI → HDLC deframer. The front end is a catalog
-//! entry described by data alone (MODEM-PLAN §3.3): M = 2, ±2400 Hz at 9600 baud (h = ½),
+//! entry described by data alone ( §3.3): M = 2, ±2400 Hz at 9600 baud (h = ½),
 //! Gaussian frequency pulse at BT 0.4. Of the old chain's two hand-tuned defences, the
 //! engine's floor-settled carrier gate takes over the discriminator clamp's job (keying
 //! transients kept out of every estimate) and the corrector takes over the DC blocker's
@@ -501,7 +501,7 @@ mod tests {
     }
 
     /// What the engine actually hands a channel: the DDC output through the mode's own
-    /// selection filter (PLAN §8). Every decode test goes through it, so the filter's edge
+    /// selection filter (). Every decode test goes through it, so the filter's edge
     /// ringing on the burst is part of what the receiver has to survive.
     fn select(iq: &[Complex<f32>]) -> Vec<Complex<f32>> {
         let mut filter = crate::channel_filter(&ChannelParams::Ais(AisParams::default())).unwrap();

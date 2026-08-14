@@ -1,5 +1,5 @@
 //! The measured chains behind the `CATALOG.md` rows, and the registry `cargo xtask ber`
-//! dispatches on (MODEM-PLAN §3.1: "`cargo xtask ber <entry>` → CSV/JSON").
+//! dispatches on ( §3.1: "`cargo xtask ber <entry>` → CSV/JSON").
 //!
 //! A catalog entry's chain is not test scaffolding: it *is* the definition of what the
 //! committed curve measures — the framing, the front end, the alignment rule, the Eb

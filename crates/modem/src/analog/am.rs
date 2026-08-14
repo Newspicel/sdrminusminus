@@ -1,5 +1,5 @@
 //! Amplitude modulation: full-carrier AM, suppressed-carrier DSB, and vestigial sideband as a
-//! *filter configuration of the same engine* rather than a third type (MODEM-PLAN §3.1
+//! *filter configuration of the same engine* rather than a third type ( §3.1
 //! `analog/`, §6).
 //!
 //! One transmitter and one receiver cover the three, because they differ only in what the

@@ -1,4 +1,4 @@
-//! MCP server (PLAN §5, §18, M5): the same engine, exposed as tools an LLM agent can drive,
+//! MCP server (, §18, M5): the same engine, exposed as tools an LLM agent can drive,
 //! mounted at `/mcp` on this axum app with the same optional token auth as REST.
 //!
 //! There is no parallel implementation — every tool calls the same `Engine`/`Store` methods
@@ -58,7 +58,7 @@ pub(crate) fn router(
             .with_json_response(true)
             // The DNS-rebinding guard defaults to localhost-only, which would 403 every LAN
             // client — and reaching the server over the LAN is the entire deployment model
-            // (PLAN §12: LAN-trusted, optional token, a VPN if you want it reachable from
+            // (: LAN-trusted, optional token, a VPN if you want it reachable from
             // outside). The token layer above is what actually gates this endpoint.
             .disable_allowed_hosts(),
     );

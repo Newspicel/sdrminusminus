@@ -1,4 +1,4 @@
-//! Integer-factor polyphase FIR decimation (PLAN §7). Only fully-computed output samples are
+//! Integer-factor polyphase FIR decimation (). Only fully-computed output samples are
 //! emitted; the inter-block remainder is carried so arbitrary block sizes stream exactly.
 
 use num_complex::Complex;

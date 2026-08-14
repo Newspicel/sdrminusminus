@@ -1,4 +1,4 @@
-//! Checksums and error-correcting codes for the framed decoders (PLAN §7): the HDLC/AIS
+//! Checksums and error-correcting codes for the framed decoders (): the HDLC/AIS
 //! CRC-16, the Mode S CRC-24 with single-bit correction, the POCSAG BCH(31,21) codeword and
 //! the RDS shortened cyclic (26,16) block, plus the block, product and convolutional codes the
 //! digital-voice signalling layers are built from in the submodules.

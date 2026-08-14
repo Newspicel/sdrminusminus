@@ -1,4 +1,4 @@
-//! The performance scaffold (MODEM-PLAN §4.2). Three instruments behind one contract: every
+//! The performance scaffold ( §4.2). Three instruments behind one contract: every
 //! engine commits a throughput baseline, the nightly fails a run that loses more than
 //! [`REGRESSION_FRACTION`] of it, and the steady-state `process()` path is proven — not
 //! promised — to allocate nothing, by counting every allocation the thread makes.
@@ -432,7 +432,7 @@ mod tests {
     const SYMBOL_SYNC_RATE_HZ: f64 = 8.0 * 4_800.0;
 
     /// Committed rows whose chain no longer exists. `fsk4_dmr_48k` measured `Fsk4Demod`, which
-    /// phase 3 deleted when the `cpm` engine replaced it (MODEM-PLAN §7). A committed
+    /// phase 3 deleted when the `cpm` engine replaced it ( §7). A committed
     /// measurement is never regenerated or edited (§8), so the number stays in the file as the
     /// pre-migration reference the migration was judged against — but nothing can measure it
     /// again, and neither the writer nor the gate may treat that as a change. The engine that

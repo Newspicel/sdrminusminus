@@ -1,4 +1,4 @@
-//! The GMSK/GFSK catalog entry (MODEM-PLAN §6 CPM row 3): BT ∈ {0.3, 0.5} at h = ½, measured
+//! The GMSK/GFSK catalog entry ( §6 CPM row 3): BT ∈ {0.3, 0.5} at h = ½, measured
 //! at two detection tiers — the discriminator + slicer that gated the entry, and the
 //! [`MlseDetector`] sequence tier that merges against it (§5 item 2).
 //!

@@ -1,4 +1,4 @@
-// The one optimistic PATCH pipeline for device settings (PLAN §5). The cache is updated
+// The one optimistic PATCH pipeline for device settings (). The cache is updated
 // *synchronously* with the server's merge semantics, so rapid edits accumulate — each reads the
 // previous edit's result instead of re-sending a stale target — and the WS-refreshed state then
 // matches the optimistic value, no flicker. Once a mutation settles the authoritative snapshot

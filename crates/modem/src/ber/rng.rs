@@ -1,4 +1,4 @@
-//! The one random source every harness run draws from (MODEM-PLAN §4.1: fixed seeds
+//! The one random source every harness run draws from ( §4.1: fixed seeds
 //! everywhere).
 //!
 //! Reproducibility is a harness invariant, not a convenience: a committed curve or limits

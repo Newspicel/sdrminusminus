@@ -1,4 +1,4 @@
-//! Pulse-shape design (MODEM-PLAN §3.1 `pulse/`) — the one place a pulse shape is defined.
+//! Pulse-shape design ( §3.1 `pulse/`) — the one place a pulse shape is defined.
 //! Modulators, matched filters and `testgen` all draw their taps from here, which is what keeps
 //! a modulator and its demodulator matched to the *same* pulse instead of two implementations
 //! that drift apart (§1.2). Where `sdrmm_dsp` already designs a shape (`design_rrc`,

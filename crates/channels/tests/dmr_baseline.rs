@@ -1,4 +1,4 @@
-//! DMR chain baselines, phase 3 (MODEM-PLAN §7): the chain measured here is the migrated one —
+//! DMR chain baselines, phase 3 ( §7): the chain measured here is the migrated one —
 //! `testgen` C4FM on the library's `CpmMod`, the DMR channel-selection filter, and `CpmDemod`
 //! with DMR's parameters as data, exactly as `dv/dmr.rs` constructs it. Its committed
 //! artifacts are the `*_cpm.json` files in `baselines/dmr/` and regress here:
@@ -636,7 +636,7 @@ fn limits_rows_match_committed_table() {
     assert!(faults.is_empty(), "limits regressions: {faults:#?}");
 }
 
-// --- Level-2 E2E (MODEM-PLAN §4.4) -----------------------------------------------------------
+// --- Level-2 E2E ( §4.4) -----------------------------------------------------------
 
 /// A complete synthetic call from the existing testgen builders, through the impair channel
 /// at a healthy margin, into the actual `DmrChannel`. The dead-air lead is inside the waveform

@@ -1,7 +1,7 @@
-//! ACARS decoder (PLAN §13 P2): MSK at 2400 bit/s amplitude-modulated onto a VHF carrier,
+//! ACARS decoder ( P2): MSK at 2400 bit/s amplitude-modulated onto a VHF carrier,
 //! carrying the character-oriented ARINC 618 block format.
 //!
-//! Chain (MODEM-PLAN §3.5): envelope detect the AM (the data rides on the carrier's amplitude,
+//! Chain ( §3.5): envelope detect the AM (the data rides on the carrier's amplitude,
 //! so the magnitude *is* the audio) → the library's audio-domain CPM engine
 //! ([`CpmDemod::real`], analytic discriminator about the 1800 Hz subcarrier) → byte framing.
 //! The AM stage is this protocol's and stays here; everything the modem knows about the

@@ -21,7 +21,7 @@ export function Checkbox({
       checked={checked}
       onCheckedChange={onChange}
       // The 16px box keeps compact density; the pseudo-element buys the 40px coarse-pointer
-      // target around it (DESIGN.md §4) without growing the drawing.
+      // target around it () without growing the drawing.
       className="relative flex size-4 shrink-0 items-center justify-center rounded-[3px] border border-line-strong bg-panel-2 text-bg data-checked:border-accent data-checked:bg-accent pointer-coarse:before:absolute pointer-coarse:before:-inset-3"
     >
       <Primitive.Indicator className="flex data-unchecked:hidden">

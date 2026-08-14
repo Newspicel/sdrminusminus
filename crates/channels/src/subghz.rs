@@ -1,4 +1,4 @@
-//! Sub-GHz OOK/ASK/FSK capture and decode (PLAN §8b, §13 P2) — the garage remotes, doorbells,
+//! Sub-GHz OOK/ASK/FSK capture and decode (, §13 P2) — the garage remotes, doorbells,
 //! weather stations and TPMS sensors that live at 315 / 433.92 / 868 / 915 MHz.
 //!
 //! Two front ends produce the same thing: a keyed on/off stream. OOK takes the envelope
@@ -141,7 +141,7 @@ pub(crate) fn channel_filter(p: &SubghzParams) -> Result<ChannelFilter, ChannelE
 /// needs it too, because a discriminator with no carrier to discriminate produces noise that
 /// looks exactly like data.
 ///
-/// The FSK arm deliberately does not ride a `cpm/` front end even though MODEM-PLAN §3.1
+/// The FSK arm deliberately does not ride a `cpm/` front end even though  §3.1
 /// lists subghz under the CPFSK row: a remote's symbol rate is a per-frame *measurement* —
 /// `base_period` reads it off the decoded edges after the fact — and frames are edge-timed at
 /// sample resolution, so there is no symbol clock for `SymbolSync` to recover and no symbol
@@ -157,7 +157,7 @@ pub(crate) fn channel_filter(p: &SubghzParams) -> Result<ChannelFilter, ChannelE
 /// tens of percent. What the library entry and this front end share is therefore the alphabet and
 /// the adaptive threshold, not the chain: the OOK row's committed bundle characterises magnitude
 /// detection of a *clocked* keyed carrier, and the clockless edge-timed tier this needs is the
-/// follow-on MODEM-PLAN §7 already lists for subghz.
+/// follow-on  §7 already lists for subghz.
 enum Detector {
     Ook {
         envelope: Envelope,

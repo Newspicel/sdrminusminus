@@ -1,4 +1,4 @@
-//! The analog measurement class (MODEM-PLAN §5 item 4: *"analog entries use SINAD/THD vs input
+//! The analog measurement class ( §5 item 4: *"analog entries use SINAD/THD vs input
 //! SNR instead of BER"*) — the same four-part regime as every other entry, with one substitution
 //! at its root.
 //!

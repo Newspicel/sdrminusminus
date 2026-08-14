@@ -1,4 +1,4 @@
-// Jitter-buffer scheduling for audio playback (PLAN §9: 60–100 ms target). This class is
+// Jitter-buffer scheduling for audio playback (: 60–100 ms target). This class is
 // injected into the AudioWorklet via `JitterBuffer.toString()` (see worklet.ts), so it must
 // stay fully self-contained: no imports, no references to anything in module scope — which is
 // also why every tunable is an instance field rather than a module or static constant.

@@ -1,8 +1,8 @@
-// App shell (PLAN §10, CANVAS §1). Owns the WebSocket, turns `StateChanged` events into
+// App shell (, CANVAS §1). Owns the WebSocket, turns `StateChanged` events into
 // TanStack Query invalidations (the only invalidation path — no polling), and frames the
 // workspace in one row of chrome above the patch or the rack.
 //
-// There is no device bar and no tab bar any more: identity is spatial (PLAN §18). Which radio
+// There is no device bar and no tab bar any more: identity is spatial (). Which radio
 // you are operating is the node you are looking at, and the wires leaving it.
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
@@ -81,11 +81,11 @@ export function App() {
       }
       up = now;
     };
-    // Decoder frames bypass TanStack Query entirely (PLAN §5): under ADS-B traffic they arrive
+    // Decoder frames bypass TanStack Query entirely (): under ADS-B traffic they arrive
     // hundreds a second, so they go straight into the batched store. The action identity is
     // stable, so this listener never needs re-registering.
     s.addEventListener(useDecodedStore.getState().observe);
-    // Scanner progress is its own high-rate event for the same reason (PLAN §13).
+    // Scanner progress is its own high-rate event for the same reason ().
     s.addEventListener(useScannerStore.getState().observe);
     // Spectrum and video are refcounted — per device set and per channel — so several faces
     // watching the same thing share one stream instead of replacing each other's.
@@ -367,7 +367,7 @@ export function App() {
   );
 }
 
-// PLAN §5: each `StateChanged` scope maps to exactly the query keys it invalidates.
+// : each `StateChanged` scope maps to exactly the query keys it invalidates.
 function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
   switch (scope.scope) {
     case "all":

@@ -1,4 +1,4 @@
-//! Digital down-converter (PLAN §7): NCO mix by −offset → integer polyphase decimation
+//! Digital down-converter (): NCO mix by −offset → integer polyphase decimation
 //! stages → fractional resampler for the residual ratio, so the output rate is exact.
 //!
 //! Every stage's anti-alias filter protects the full output Nyquist band, not just its own —

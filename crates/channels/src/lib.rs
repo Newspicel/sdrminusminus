@@ -1,5 +1,5 @@
-//! `sdrmm-channels` — the `ChannelRx` plugin surface (PLAN §8). Depends only on `dsp` + `wire`.
-//! Phase-1 analog demodulators plus the wave-1 and wave-2 data decoders (PLAN §13): NFM, AM,
+//! `sdrmm-channels` — the `ChannelRx` plugin surface (). Depends only on `dsp` + `wire`.
+//! Phase-1 analog demodulators plus the wave-1 and wave-2 data decoders (): NFM, AM,
 //! SSB, WFM (stereo + RDS), POCSAG, ADS-B, AIS, APRS/AX.25, RTTY, Morse, NAVTEX, ACARS, sub-GHz
 //! and ATV. Each mode is one module whose descriptor and constructor sit in the same
 //! [`REGISTRY`] row, so the "add channel" UI and `create` dispatch cannot drift apart.
@@ -26,7 +26,7 @@ mod wfm;
 #[cfg(test)]
 mod testutil;
 
-/// Reference modulators for the decoder tests, fixtures and end-to-end runs (PLAN §14).
+/// Reference modulators for the decoder tests, fixtures and end-to-end runs ().
 /// Compiled for this crate's own tests, and for downstream crates that opt in with the
 /// `test-signals` feature — never in a production build.
 #[cfg(any(test, feature = "test-signals"))]
@@ -184,7 +184,7 @@ pub enum ChannelError {
 /// Construction context passed to a channel: the rate of the IQ it exchanges with the host —
 /// what a [`ChannelRx`] receives from the DDC, and what a [`ChannelTx`] produces. The engine
 /// decimates to the descriptor's `input_rate_hz` before construction; channels verify and refuse
-/// anything else. Grows as the plugin API matures (PLAN §8).
+/// anything else. Grows as the plugin API matures ().
 #[derive(Clone, Copy, Debug)]
 pub struct ChannelCtx {
     /// Sample rate of the channel's IQ stream, in Hz.
@@ -193,7 +193,7 @@ pub struct ChannelCtx {
 
 /// One picture a video channel scanned out: 8-bit luma, row-major from the top line, exactly
 /// `width · height` bytes. Grayscale because that is what an analog raster carries once the
-/// colour subcarrier is left alone (PLAN §13: ATV decodes luma).
+/// colour subcarrier is left alone (: ATV decodes luma).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VideoPicture {
     pub width: u16,
@@ -202,7 +202,7 @@ pub struct VideoPicture {
 }
 
 /// Sink a channel writes into each `process` call: demodulated audio, typed events, pictures,
-/// and low-rate IQ taps for the analyzer (PLAN §8). Buffers are reused across calls by the host.
+/// and low-rate IQ taps for the analyzer (). Buffers are reused across calls by the host.
 #[derive(Default)]
 pub struct ChannelOutputs {
     /// PCM plus its sample rate, when the channel produced audio this block. Interleaved at
@@ -231,7 +231,7 @@ impl ChannelOutputs {
     }
 }
 
-/// A receive channel: consumes decimated IQ, produces audio/events/taps (PLAN §8).
+/// A receive channel: consumes decimated IQ, produces audio/events/taps ().
 /// `offset_hz` and `squelch_db` in [`ChannelSettings`] are host concerns (DDC tuning and
 /// gating happen in the engine); channels read only their mode params.
 pub trait ChannelRx: Send {
@@ -286,14 +286,14 @@ pub enum TxPayload {
     Frame(Vec<u8>),
 }
 
-/// A transmit channel: consumes payloads, produces the IQ that carries them (PLAN §20).
+/// A transmit channel: consumes payloads, produces the IQ that carries them ().
 ///
 /// The mirror of [`ChannelRx`], and deliberately not the same trait — the two directions share
 /// their framing and their constants, not their state. A demodulator carries timing recovery,
 /// sync hunting and error correction that a modulator has no counterpart for, and forcing both
 /// onto one type would leave every receive-only mode implementing a refusal.
 ///
-/// Building one radiates nothing. PLAN §12a gates every application-level transmit feature
+/// Building one radiates nothing.  gates every application-level transmit feature
 /// behind an authorized-use switch that has not been built, and until it is, nothing in
 /// `engine` or `server` calls [`create_tx`] and nothing above `sdrmm-device` holds the
 /// `TxStream` these samples would be handed to.
@@ -356,7 +356,7 @@ fn boxed_tx<C: ChannelTx + 'static>(
 }
 
 /// One row per demod module; both columns come from the same concrete type, so the
-/// descriptor list and the `create` dispatch share a single source (PLAN §8).
+/// descriptor list and the `create` dispatch share a single source ().
 const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: NfmChannel::descriptor,
@@ -465,7 +465,7 @@ const REGISTRY: &[Registration] = &[
     },
 ];
 
-/// Descriptors for every compiled-in channel type (PLAN §8: static registry).
+/// Descriptors for every compiled-in channel type (: static registry).
 ///
 /// `exact_rate_only` and `can_transmit` are derived here rather than written into each
 /// descriptor, from the same registry columns the dispatch below reads: neither answer must be
@@ -483,7 +483,7 @@ pub fn descriptors() -> Vec<ChannelDescriptor> {
         .collect()
 }
 
-/// Whether this type can only run with the device at exactly its input rate (PLAN §18): a mode
+/// Whether this type can only run with the device at exactly its input rate (): a mode
 /// occupying its full output rate leaves the DDC no guard band, so no resampled path can carry
 /// it. ADS-B is the one such mode today.
 fn exact_rate_only(descriptor: &ChannelDescriptor) -> bool {
@@ -507,7 +507,7 @@ pub fn create(
     (find(settings)?.create)(ctx, settings.clone())
 }
 
-/// Build the transmit channel matching `settings.params` (PLAN §20).
+/// Build the transmit channel matching `settings.params` ().
 ///
 /// Nothing above this crate calls this — see [`ChannelTx`] for why, and for what would have to
 /// exist first. The samples it produces reach a buffer, never an antenna.
@@ -722,7 +722,7 @@ mod tests {
         }
     }
 
-    /// The two rate rules the canvas draws (PLAN §18, amended). ADS-B is the one type handed the
+    /// The two rate rules the canvas draws (, amended). ADS-B is the one type handed the
     /// device's own samples, and *because* it is, no type is exact-rate any more: the flag and
     /// the range are mutually exclusive, and a type claiming both would leave the canvas telling
     /// the operator to set a rate the engine then refuses.
@@ -783,7 +783,7 @@ mod tests {
         }
     }
 
-    /// PLAN §20: the modes with a modulator so far — the analog voice trio and AX.25. This is a
+    /// : the modes with a modulator so far — the analog voice trio and AX.25. This is a
     /// reminder to extend the list deliberately, not a cap.
     #[test]
     fn only_the_modes_with_a_modulator_transmit() {

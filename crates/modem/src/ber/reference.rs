@@ -4,7 +4,7 @@
 //! recovery, no level estimation: every one of those would add its own implementation loss,
 //! and this link exists so that the measured curve differs from ½·erfc(√γ) only by what the
 //! *harness* does — payload generation, energy accounting, noise calibration, error counting.
-//! A gap from the closed form here is a harness bug by definition (MODEM-PLAN §4.1), and the
+//! A gap from the closed form here is a harness bug by definition ( §4.1), and the
 //! phase-0 acceptance gate pins that gap below 0.2 dB across 0–10 dB.
 //!
 //! The classic ways a harness fails this gate, so the next reader debugs in order: Eb accounted
@@ -303,7 +303,7 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("baselines/bpsk_ideal_awgn.json")
     }
 
-    /// Phase-0 acceptance gate, full tier (MODEM-PLAN §7 phase 0): 0–10 dB in 1 dB steps,
+    /// Phase-0 acceptance gate, full tier ( §7 phase 0): 0–10 dB in 1 dB steps,
     /// ≥100 errors per point, worst |penalty| vs the exact closed form under 0.2 dB — and the
     /// measurement guarded within 0.1 dB against the committed baseline curve, which this test
     /// creates on first run and thereafter treats as the regression reference. Run with

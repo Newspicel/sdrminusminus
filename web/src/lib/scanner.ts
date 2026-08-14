@@ -1,4 +1,4 @@
-// Live scanner progress (PLAN §13, M5). `ScannerUpdate` bypasses TanStack Query for the same
+// Live scanner progress (, M5). `ScannerUpdate` bypasses TanStack Query for the same
 // reason decoder frames do: a running scan retunes several times a second, and one full-state
 // refetch per step would cost more than the scan. `DeviceSet.scanner` in the state snapshot is
 // still the authority — this store is the fast path between snapshots, and it clears itself

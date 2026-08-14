@@ -1,4 +1,4 @@
-//! Single sideband, by both methods that produce it (MODEM-PLAN §6: *"SSB (USB/LSB) — Weaver;
+//! Single sideband, by both methods that produce it ( §6: *"SSB (USB/LSB) — Weaver;
 //! Hilbert"*).
 //!
 //! An SSB waveform *is* the analytic signal of its message: one-sided in frequency, so it

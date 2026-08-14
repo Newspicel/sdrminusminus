@@ -1,4 +1,4 @@
-//! The genie-LLR bound (MODEM-PLAN §7 phase 1 acceptance): the harness instrument that tells
+//! The genie-LLR bound ( §7 phase 1 acceptance): the harness instrument that tells
 //! a *concept* failure from an *LLR-quality* failure. A coded link is run twice over the same
 //! seeds — once with its real demapper, once with LLRs a genie computes from the true channel
 //! state — and the post-FEC curves are compared with

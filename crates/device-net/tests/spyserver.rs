@@ -2,7 +2,7 @@
 //! A harness that cannot bind a loopback socket or clone it has nothing left to assert,
 //! so its helpers panic. Clippy exempts `#[test]` functions from this by config, but not
 //! the free functions and closures a fake server is built out of.
-//! The SpyServer backend against a fake server (PLAN §14: no hardware in CI, ever).
+//! The SpyServer backend against a fake server (: no hardware in CI, ever).
 //!
 //! What only a socket can show: the handshake, the capability set read off it, the settings the
 //! server observes, message framing against a body split across reads, and the reconnect.

@@ -1,4 +1,4 @@
-//! Level-1 end-to-end scaffolding (MODEM-PLAN §4.4): *payload in equals payload out, at a
+//! Level-1 end-to-end scaffolding ( §4.4): *payload in equals payload out, at a
 //! stated margin above sensitivity* — the property-style loopback every catalog entry runs as
 //! part of its §5 bundle. Because `tx.rs` drives the same modulators, a green loopback is also
 //! the transmit path's correctness test.
@@ -14,7 +14,7 @@
 //!    field-by-field.
 //! 3. **Recorded-fixture E2E** — `crates/channels` tests. Short off-air SigMF captures with
 //!    committed expected output; `decodes_a_recorded_call` is the model, and a failure there
-//!    is blocking (MODEM-PLAN §8).
+//!    is blocking ( §8).
 //! 4. **Engine integration E2E** — `crates/engine` tests. Raw samples at a native device rate
 //!    through the runtime (DDC construction, resampling, scheduling) to an asserted
 //!    `DecoderEvent` stream, including the multi-channel case.

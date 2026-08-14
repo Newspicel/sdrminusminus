@@ -1,4 +1,4 @@
-// The keyboard layer (PLAN §10 "keyboard-first", DESIGN.md). One listener on the document,
+// The keyboard layer ( "keyboard-first", ). One listener on the document,
 // one table, and every binding also listed in the `?` overlay — a shortcut nobody can find is
 // not a feature.
 import { useEffect, useRef } from "react";

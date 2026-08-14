@@ -3,7 +3,7 @@
 // out — the sizing rules are testable, the GL calls wrapped around them are not.
 
 /** Retina is worth the fill rate; past 2× the extra samples are below the resolution of the eye
- * and a Pi-class browser pays for them anyway (PLAN §1: the Pi is the floor). */
+ * and a Pi-class browser pays for them anyway (: the Pi is the floor). */
 const MAX_DPR = 2;
 /** Ceiling on dpr × canvas zoom: React Flow magnifies a node with a CSS transform, so a plot at
  * 2× zoom on a 2× display would otherwise ask for four device pixels per layout pixel — sixteen

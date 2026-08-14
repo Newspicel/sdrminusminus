@@ -1,4 +1,4 @@
-//! The differential detection tier (MODEM-PLAN §6: the DPSK family, π/4-DQPSK, star-QAM).
+//! The differential detection tier ( §6: the DPSK family, π/4-DQPSK, star-QAM).
 //!
 //! A differential receiver never learns the carrier's absolute phase. It reads the *change*
 //! between consecutive symbols — `z_k = y_k · conj(y_{k−1})`, whose angle is the transmitted

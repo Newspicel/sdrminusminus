@@ -1,4 +1,4 @@
-// Template gallery (PLAN §10, M5): one click configures device + channels for a known
+// Template gallery (, M5): one click configures device + channels for a known
 // activity, and the explainer says what the user is now looking at.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";

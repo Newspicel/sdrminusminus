@@ -1,4 +1,4 @@
-//! Digital-voice decoders (PLAN §13 wave 3): DMR, D-Star, System Fusion, NXDN, P25 Phase 1,
+//! Digital-voice decoders ( wave 3): DMR, D-Star, System Fusion, NXDN, P25 Phase 1,
 //! dPMR and M17.
 //!
 //! Every mode produces 48 kHz mono PCM through the channel audio plane: AMBE+2 for DMR, NXDN,

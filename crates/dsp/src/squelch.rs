@@ -1,4 +1,4 @@
-//! Power squelch with hysteresis and hold (PLAN §7). Comparisons run in linear power so the
+//! Power squelch with hysteresis and hold (). Comparisons run in linear power so the
 //! per-sample path never takes a logarithm.
 
 use num_complex::Complex;

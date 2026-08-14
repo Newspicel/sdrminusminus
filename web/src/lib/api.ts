@@ -1,6 +1,6 @@
 // Typed REST access. `openapi-fetch` gives full inference from the generated schema; the thin
 // query helpers key TanStack Query by path so WS `StateChanged` events can invalidate them
-// (PLAN §4 step 4, §10). No polling — invalidation is WS-driven.
+// ( step 4, §10). No polling — invalidation is WS-driven.
 import { queryOptions } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
 import { migrateSnapshot } from "../canvas/graph";
@@ -45,7 +45,7 @@ import type {
 
 export const client = createClient<paths>({ baseUrl: "/" });
 
-// One middleware carries the shared token on every request (PLAN §12). Read per request, not
+// One middleware carries the shared token on every request (). Read per request, not
 // captured once: the token is entered after the client module has already been imported.
 client.use({
   onRequest({ request }) {
@@ -283,7 +283,7 @@ export function authQuery() {
   });
 }
 
-/** The workspace switcher's view: every workspace plus the active one (PLAN §10 — the shell is
+/** The workspace switcher's view: every workspace plus the active one ( — the shell is
  * workspace config, so it is server-side and every client converges on it). */
 export function workspacesQuery() {
   return queryOptions({

@@ -1,4 +1,4 @@
-//! The CPM parameter space (MODEM-PLAN §3.1, §3.3): everything that distinguishes one CPM/FSK
+//! The CPM parameter space ( §3.1, §3.3): everything that distinguishes one CPM/FSK
 //! entry from another is *data* held here — the symbol→level table, the modulation index, the
 //! frequency pulse, the oversampling. A `match` on a standard anywhere downstream of this
 //! struct is a defect; the five phase-3 probes (POCSAG, DMR, D-STAR, AIS, APRS) differ only in

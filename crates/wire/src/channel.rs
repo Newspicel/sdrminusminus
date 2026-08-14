@@ -1,10 +1,10 @@
-//! Channel model. Typed per-channel settings (PLAN §8): each demod owns a params struct
+//! Channel model. Typed per-channel settings (): each demod owns a params struct
 //! here, tagged into [`ChannelParams`] so the client gets a discriminated union.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Static description of a channel type, surfaced to drive the "add channel" UI (PLAN §8).
+/// Static description of a channel type, surfaced to drive the "add channel" UI ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct ChannelDescriptor {
     /// Stable type id, e.g. `"nfm"`, `"am"`, `"ssb"`, `"wfm"`.
@@ -15,7 +15,7 @@ pub struct ChannelDescriptor {
     pub bandwidth_hz: f64,
     /// IQ rate the demod expects from the DDC, in Hz.
     pub input_rate_hz: f64,
-    /// Whether the channel produces listenable audio. Data decoders (PLAN §13 wave 1) do
+    /// Whether the channel produces listenable audio. Data decoders ( wave 1) do
     /// not, so the client hides their audio controls instead of offering a silent stream.
     /// Defaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour.
     #[serde(default = "default_has_audio")]
@@ -25,13 +25,13 @@ pub struct ChannelDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decoder_kind: Option<String>,
     /// Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames
-    /// rather than as decoder events (ATV, PLAN §13). The client subscribes and mounts a video
+    /// rather than as decoder events (ATV, ). The client subscribes and mounts a video
     /// panel on the channel's face when this is set. Defaults to `false`, which is every mode
     /// that predates the video transport.
     #[serde(default)]
     pub has_video: bool,
     /// The type occupies its whole channel rate, so it runs only with the device tuned to
-    /// exactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18).
+    /// exactly `input_rate_hz` — a resampling DDC has no guard band left to give it ().
     /// Reported so the canvas can refuse the wire where the operator draws it, naming the rate
     /// that works, instead of letting the engine reject it after the fact. Defaults to `false`,
     /// which is every type that leaves a guard band.
@@ -41,13 +41,13 @@ pub struct ChannelDescriptor {
     /// resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
     /// highest, so a receiver is set anywhere in that range rather than to one exact number.
     ///
-    /// ADS-B is the one such type (PLAN §18, amended): a 0.5 µs pulse is a single sample at
+    /// ADS-B is the one such type (, amended): a 0.5 µs pulse is a single sample at
     /// 2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
     /// meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_rate_max_hz: Option<f64>,
     /// The type ships a modulator as well as a demodulator, so a transmit channel of it can be
-    /// built (PLAN §20). Says only that the waveform exists — whether it may ever reach an
+    /// built (). Says only that the waveform exists — whether it may ever reach an
     /// antenna is the authorized-use gate's question, and that gate has not been built.
     /// Defaults to `false`, which is every receive-only type.
     #[serde(default)]
@@ -111,7 +111,7 @@ fn default_stereo() -> bool {
     true
 }
 
-/// What an NFM channel does about the subaudible signalling under the voice (PLAN §8).
+/// What an NFM channel does about the subaudible signalling under the voice ().
 /// CTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating
 /// under it at 134.4 bit/s. Both are how a repeater tells its own users apart from the
 /// co-channel traffic 50 km away.
@@ -337,7 +337,7 @@ pub struct AisParams {
     pub ais_channel: AisChannel,
 }
 
-/// AX.25 physical layer (PLAN §13: AFSK1200 + 9600 G3RUH).
+/// AX.25 physical layer (: AFSK1200 + 9600 G3RUH).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AprsMode {
@@ -478,7 +478,7 @@ impl Default for AcarsParams {
     }
 }
 
-/// How a sub-GHz device keys its carrier (PLAN §8b). The two need different front ends —
+/// How a sub-GHz device keys its carrier (). The two need different front ends —
 /// an envelope detector versus a discriminator — but produce the same pulse-width stream, so
 /// everything above the detector is shared.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -533,7 +533,7 @@ impl Default for SubghzParams {
 }
 
 /// How an analog television transmission carries its video, and with it the polarity the
-/// demodulated signal arrives in (PLAN §13: ATV).
+/// demodulated signal arrives in (: ATV).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AtvModulation {

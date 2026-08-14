@@ -84,7 +84,7 @@ pub struct DstarChannel {
     soft: Vec<f32>,
 }
 
-/// The D-Star waveform as `cpm/` entry data (MODEM-PLAN §3.3): M = 2, h = ½ converted from the
+/// The D-Star waveform as `cpm/` entry data ( §3.3): M = 2, h = ½ converted from the
 /// ±1200 Hz deviation at 4800 baud, Gaussian frequency pulse at BT 0.5. `Mapping::natural(2)`
 /// puts the +1200 Hz tone at index 1, level +1 — the wire's `true` bit.
 fn cpm_params(sps: f64) -> CpmParams {

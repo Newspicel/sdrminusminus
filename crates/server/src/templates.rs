@@ -1,10 +1,10 @@
-//! Built-in workspace templates (PLAN §10, M5): one click configures the device and its
+//! Built-in workspace templates (, M5): one click configures the device and its
 //! channels for a known activity, with a short "what am I looking at" explainer.
 //!
 //! Templates are a static table, not seeded rows: they ship with the binary, so a seeded
 //! table would need its own migration every time one is added or corrected, and a user could
 //! edit or delete an entry the next release would silently restore. Presets remain the
-//! writable, device-bound side of the same idea (PLAN §11); a template is device-*agnostic* —
+//! writable, device-bound side of the same idea (); a template is device-*agnostic* —
 //! it names a frequency and a mode, and applies to whatever hardware can reach them.
 
 use std::sync::LazyLock;
@@ -136,7 +136,7 @@ fn patch(shape: Shape, readout: bool, channels: &[Channel]) -> PatchGraph {
 }
 
 /// Every template. Keep the sample rates conservative: the Pi 4 is the performance floor
-/// (PLAN §14), and a template is the first thing a new user runs.
+/// (), and a template is the first thing a new user runs.
 static TEMPLATES: &[Entry] = &[
     Entry {
         id: "fm-radio",
@@ -185,7 +185,7 @@ static TEMPLATES: &[Entry] = &[
         shape: Shape::Map,
         readout: true,
         // Not exact, despite reading like it: ADS-B takes the device's own samples over a
-        // *range* (2–4 Msps, `ChannelDescriptor::native_rate_range`), and PLAN §18 was amended
+        // *range* (2–4 Msps, `ChannelDescriptor::native_rate_range`), and  was amended
         // so no channel type is exact-rate any more. Demanding 2.000 exactly would refuse every
         // RTL-SDR, whose advertised menu jumps 1.92 → 2.048.
         exact_rate: false,
@@ -370,7 +370,7 @@ mod tests {
     }
 
     /// ADS-B fills its whole 2 MHz channel, so a resampling DDC cannot deliver it: the
-    /// template must name exactly the device rate the engine will accept (PLAN §18).
+    /// template must name exactly the device rate the engine will accept ().
     #[test]
     fn adsb_template_runs_the_device_at_the_channel_rate() {
         let adsb = get("adsb").expect("adsb template");

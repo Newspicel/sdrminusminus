@@ -1,4 +1,4 @@
-//! Keeping a workspace's *settings*, not just its shape (PLAN §7).
+//! Keeping a workspace's *settings*, not just its shape ().
 //!
 //! A workspace stores the patch: which radios, which channels, how they are wired and where the
 //! faces sit. Until now that was all that survived a restart — applying a workspace reopened the
@@ -156,7 +156,7 @@ pub(crate) fn bind(graph: &PatchGraph, state: &StateSnapshot) -> Vec<DeviceBindi
 
 /// What the engine currently has every bound node set to.
 ///
-/// A set the scanner owns is skipped: a running scan retunes the device every dwell (PLAN §4), so
+/// A set the scanner owns is skipped: a running scan retunes the device every dwell (), so
 /// its centre frequency is wherever the sweep happens to be and not something the operator asked
 /// for. Capturing it would persist a step of the sweep as the workspace's tuning.
 ///
@@ -364,7 +364,7 @@ pub(crate) fn reconcile(
         else {
             continue;
         };
-        // A sweep owns the set's centre frequency (PLAN §18) and `patch_device` refuses every
+        // A sweep owns the set's centre frequency () and `patch_device` refuses every
         // client retune while one runs, so it has to stop before the restore below or the whole
         // settings delta is dropped and the workspace comes up on the sweep's dial.
         //

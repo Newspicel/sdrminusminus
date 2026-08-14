@@ -5,7 +5,7 @@
 //! signal to decode, not to reject.
 //!
 //! This generalises `sdrmm_dsp::Fsk4Demod`'s burst policy piece by piece, because that policy
-//! is the hard-won part (MODEM-PLAN §2.1): the floor-settled carrier gate, the keyed and idle
+//! is the hard-won part ( §2.1): the floor-settled carrier gate, the keyed and idle
 //! peak estimates, attack-limited level tracking, learn-only-while-settled, and the per-run
 //! `process`/`process_held` split that keeps the clock coasting through TDMA dead time. Every
 //! constant that carries a measured judgment is kept, restated where needed in the unit that
@@ -20,7 +20,7 @@
 //! to zero, the level latched onto a noise spike. The gate is what makes a burst mode decode
 //! at all, and a continuously-keyed mode never notices it.
 //!
-//! **Real-valued input is first-class** (MODEM-PLAN §3.5): [`CpmDemod::real`] builds the same
+//! **Real-valued input is first-class** ( §3.5): [`CpmDemod::real`] builds the same
 //! chain with the quadrature discriminator replaced by an audio-domain detector — an
 //! analytic-signal discriminator about a subcarrier, or a two-tone correlator filterbank —
 //! chosen per entry as [`RealDetector`] *data*. Everything downstream of the detector (matched
@@ -98,7 +98,7 @@ const CENTRE_POWER_SYMBOLS: f32 = 30.0;
 /// 6.20, because at M = 8 the band unavoidably swallows the next level's high tail: the band
 /// spans ±14 % while the levels sit 29 % apart). That is the measured boundary of *blind*
 /// magnitude-only normalisation: ample inside M ≤ 4's margins, most of the margin at M = 8 —
-/// where the known-symbol hook (MODEM-PLAN §3.4, [`super::KnownSymbols`]) is the designed
+/// where the known-symbol hook ( §3.4, [`super::KnownSymbols`]) is the designed
 /// level reference, exactly as every burst standard's sync pattern anticipates.
 const PEAK_SYMBOLS: f32 = 60.0;
 
@@ -155,7 +155,7 @@ const CARRIER_RISE: f32 = 4.0;
 const IMAGE_TAPS: usize = 127;
 
 /// The audio-domain detector a real-input construction runs in place of the quadrature
-/// discriminator — per-entry data, never a protocol branch (MODEM-PLAN §3.5).
+/// discriminator — per-entry data, never a protocol branch ( §3.5).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RealDetector {
     /// Mix the audio down by `centre_hz`, reject the mirror image a real signal carries, and

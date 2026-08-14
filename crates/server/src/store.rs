@@ -1,4 +1,4 @@
-//! SQLite persistence (PLAN §11): presets (full device-set + channels snapshots), bookmarks,
+//! SQLite persistence (): presets (full device-set + channels snapshots), bookmarks,
 //! the recordings index (the SigMF pairs on disk are the source of truth; rows here are
 //! reconciled from them), the decoder log (queryable and exportable decodes, not
 //! scroll-back-only) and, per workspace, its shape and where it was tuned.
@@ -135,7 +135,7 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE workspaces RENAME COLUMN tabs TO nodes;
     ",
     "
-    -- Where a workspace is tuned, as opposed to what it is made of (PLAN §7). Its own table and
+    -- Where a workspace is tuned, as opposed to what it is made of (). Its own table and
     -- not a column on `workspaces` because the writers are different: the canvas re-persists
     -- the layout under a revision check on every arrangement gesture, while this row is written
     -- by the server from the engine's own snapshot. Sharing a row would make an operator nudging
@@ -184,7 +184,7 @@ const MIGRATIONS: &[&str] = &[
 ];
 
 /// Index fields for one finalized recording, derived from its SigMF pair during
-/// reconciliation (PLAN §11: the files are the source of truth; rows are upserted by stem).
+/// reconciliation (: the files are the source of truth; rows are upserted by stem).
 pub struct RecordingRow {
     /// File name without directory or `.sigmf-*` extension — unique within the recordings dir.
     pub stem: String,
@@ -536,7 +536,7 @@ impl Store {
         Ok(dropped as u64)
     }
 
-    /// The switcher's view: every workspace, plus which one is active (PLAN §10 — exactly one
+    /// The switcher's view: every workspace, plus which one is active ( — exactly one
     /// is, server-wide, so every client opens the same workspace). Reads projection columns only.
     pub fn list_workspaces(&self) -> Result<WorkspacesResponse, StoreError> {
         let conn = self.lock();

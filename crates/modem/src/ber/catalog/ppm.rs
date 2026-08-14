@@ -1,4 +1,4 @@
-//! The M-PPM catalog entry (MODEM-PLAN §6, pulse-position row): M ∈ {2, 4} measured chains on
+//! The M-PPM catalog entry ( §6, pulse-position row): M ∈ {2, 4} measured chains on
 //! both detector tiers, shared by every consumer — the curve/limits/E2E tests, the perf
 //! baselines, and `cargo xtask ber ppm`.
 //!

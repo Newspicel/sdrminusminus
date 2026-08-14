@@ -1,5 +1,5 @@
 //! `cargo xtask bandplan` — regenerate the frequency-allocation tables from the regulators'
-//! own publications (FEATURES §5).
+//! own publications ().
 //!
 //! The rule this exists to enforce: **nobody hand-types an allocation table.** A band plan
 //! transcribed by a person is wrong somewhere within a week of the regulator amending it, and

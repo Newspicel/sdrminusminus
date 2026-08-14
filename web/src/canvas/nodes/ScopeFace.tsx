@@ -1,6 +1,6 @@
 // The scope face: trace + waterfall for whatever radio its `iq` wire comes from — CANVAS §1's
 // "the WebGL plot, one component, patched anywhere". Binary frames bypass React state and go
-// straight to the canvases (PLAN §10: high-rate streams never touch TanStack Query); only the
+// straight to the canvases (: high-rate streams never touch TanStack Query); only the
 // readout's slow-moving metadata is state.
 //
 // The plot is the instrument, so it owns its gestures — but only once its node is the active one
@@ -48,7 +48,7 @@ import { BandRuler } from "./BandRuler";
 import { tuneDelta } from "./DeviceFace";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
-/** Below this a pointer gesture is a click, not a pan (DESIGN.md §9). */
+/** Below this a pointer gesture is a click, not a pan (). */
 const DRAG_SLOP_PX = 4;
 /** How close the pointer must be to a marker to grab it rather than pan the plot. */
 const GRAB_PX = 10;
@@ -57,7 +57,7 @@ const TRACE_MIN = 0.15;
 const TRACE_MAX = 0.75;
 /** Rows the frequency axis reserves at the bottom of the trace canvas, in CSS pixels. */
 const AXIS_H = 16;
-/** Gridlines carry less ink than the data they sit behind (DESIGN.md §2). */
+/** Gridlines carry less ink than the data they sit behind (). */
 const GRID_ALPHA = 0.16;
 
 interface FrameMeta {
@@ -450,7 +450,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       }}
     >
       {/* Above the trace and outside the plot rectangle, sharing its width so the two axes are
-          the same axis (DESIGN.md §9a). */}
+          the same axis (). */}
       {meta !== null && (
         <BandRuler centerHz={meta.centerHz} spanHz={meta.spanHz} view={view} onTune={tuneToBand} />
       )}

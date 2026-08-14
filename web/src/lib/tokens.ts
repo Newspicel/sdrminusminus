@@ -1,5 +1,5 @@
 // Canvas drawing needs the palette as strings, and `index.css` is the only place colour is
-// decided (DESIGN.md §2). Reading the custom property keeps that true for the 2D contexts,
+// decided (). Reading the custom property keeps that true for the 2D contexts,
 // which cannot use a class.
 //
 // Values are cached because `getComputedStyle` forces style resolution and the spectrum reads

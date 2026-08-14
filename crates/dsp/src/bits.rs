@@ -1,4 +1,4 @@
-//! Bit-level plumbing shared by the framed decoders (PLAN §7 "correlators", §13 phase 2):
+//! Bit-level plumbing shared by the framed decoders ( "correlators", §13 phase 2):
 //! NRZI/differential decoding, HDLC deframing, multiplicative scrambling and sync-word
 //! correlation. Everything here is per-bit and allocation-free except the frame vector
 //! [`HdlcDeframer`] hands out.

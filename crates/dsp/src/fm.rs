@@ -1,4 +1,4 @@
-//! FM quadrature discriminator (PLAN §7).
+//! FM quadrature discriminator ().
 
 use std::f64::consts::TAU;
 

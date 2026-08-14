@@ -1,4 +1,4 @@
-//! FM broadcast stereo reference modulator (PLAN §14): the pilot-tone multiplex a stereo
+//! FM broadcast stereo reference modulator (): the pilot-tone multiplex a stereo
 //! station transmits, per ITU-R BS.450 / 47 CFR §73.322.
 //!
 //! `MPX = 0.45·[(L+R)/2 + (L−R)/2·sub] + 0.09·pilot`, the deviation shares of a typical

@@ -1,5 +1,5 @@
 //! Angle modulation — frequency and phase — and the two detectors each is read with
-//! (MODEM-PLAN §6: *"FM (narrow/wide) / PM — discriminator; PLL"*).
+//! ( §6: *"FM (narrow/wide) / PM — discriminator; PLL"*).
 //!
 //! One engine, because FM and PM are one waveform read through different scalings: a constant
 //! envelope carrying the message in its argument, either as the argument itself

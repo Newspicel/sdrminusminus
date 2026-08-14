@@ -1,4 +1,4 @@
-//! Block codes the digital-voice signalling layers are built from (PLAN §13 wave 3).
+//! Block codes the digital-voice signalling layers are built from ( wave 3).
 //!
 //! Two families, both systematic — information bits first, parity after — because that is how
 //! every one of these codes is published and how the modes pack them on the wire:

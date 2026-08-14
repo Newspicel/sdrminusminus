@@ -1,6 +1,6 @@
-//! Record → replay e2e (PLAN §16 M3): a siggen set is recorded to a SigMF pair, the pair
+//! Record → replay e2e ( M3): a siggen set is recorded to a SigMF pair, the pair
 //! opens as a `virtual:file:` playback device, and an NFM channel recovers the 1 kHz tone
-//! from the recorded IQ. Hermetic — tempdir only, no fixture files (PLAN §14).
+//! from the recorded IQ. Hermetic — tempdir only, no fixture files ().
 
 // Tests may unwrap/expect (CLAUDE.md); clippy's `allow-unwrap-in-tests` only covers
 // `#[cfg(test)]` items, which an integration-test crate's helpers are not.

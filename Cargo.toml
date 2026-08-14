@@ -72,7 +72,7 @@ futures = "0.3"
 # know: see the ignore in .github/dependabot.yml).
 tokio-tungstenite = "0.29"
 
-# MCP server (PLAN §5, §18): streamable HTTP mounted on the same axum app. `schemars` derives
+# MCP server (, §18): streamable HTTP mounted on the same axum app. `schemars` derives
 # the tool argument schemas and must match the version rmcp itself depends on.
 rmcp = { version = "3.1", features = ["server", "macros", "transport-streamable-http-server"] }
 schemars = "1.2"
@@ -96,7 +96,7 @@ rustfft = "6"
 realfft = "3"
 rtrb = "0.3"
 
-# Audio (libopus via vendored build, PLAN §9)
+# Audio (libopus via vendored build, )
 opus = "0.3"
 # DMR's standardized vocoder socket is codec-agnostic, but interoperable Tier II/III radios
 # conventionally carry three AMBE+2 3,600 x 2,450 frames in it.
@@ -109,7 +109,7 @@ codec2 = "0.3.1"
 # Persistence
 rusqlite = { version = "0.40", features = ["bundled"] }
 jiff = "0.2"
-# Platform data dir for the headless binary's default DB location (PLAN §11).
+# Platform data dir for the headless binary's default DB location ().
 dirs = "6"
 
 # Static asset embedding
@@ -131,7 +131,7 @@ clap = { version = "4", features = ["derive", "env"] }
 # Scoped temp dirs for filesystem tests (SigMF IO, recordings REST); dev-dependency only.
 tempfile = "3"
 
-# Performance baselines for the modem catalog (MODEM-PLAN §4.2); dev-dependency only.
+# Performance baselines for the modem catalog ( §4.2); dev-dependency only.
 criterion = "0.7"
 cc = "1"
 
@@ -141,7 +141,7 @@ cc = "1"
 resvg = { version = "0.48", default-features = false }
 
 [workspace.lints.clippy]
-# Hot-path discipline (PLAN §7, CLAUDE.md): no panics outside tests/startup.
+# Hot-path discipline (, CLAUDE.md): no panics outside tests/startup.
 unwrap_used = "warn"
 expect_used = "warn"
 

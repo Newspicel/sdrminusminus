@@ -1,4 +1,4 @@
-//! Spreading sequences as data (MODEM-PLAN §3.3, the rule that makes cross-QAM a table rather
+//! Spreading sequences as data ( §3.3, the rule that makes cross-QAM a table rather
 //! than a match arm, applied to the chip domain): a [`PnSequence`] is a list of ±1 chips, and the
 //! correlator in [`dsss`](super::dsss) never asks which family produced it.
 //!
@@ -189,7 +189,7 @@ impl PnSequence {
         self.chips.is_empty()
     }
 
-    /// The spreading factor's processing gain in dB, `10·log₁₀(N)` — MODEM-PLAN §6's stated
+    /// The spreading factor's processing gain in dB, `10·log₁₀(N)` —  §6's stated
     /// reference for this entry. It is the ratio by which despreading improves the
     /// signal-to-interference ratio against interference narrow compared with the chip rate, and
     /// `tests/spread.rs` measures it against exactly this number rather than quoting it.

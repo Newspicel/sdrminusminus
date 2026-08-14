@@ -1,4 +1,4 @@
-// Audio subscription state machine (PLAN §9), one entry per (device set, channel). Pure of
+// Audio subscription state machine (), one entry per (device set, channel). Pure of
 // WebAudio: the sink factory is injected so the whole lifecycle — subscribe, stream-id
 // binding, frame routing, reconnect resubscribe, teardown — is unit-testable.
 import type { AudioFrame } from "../frame";
@@ -312,7 +312,7 @@ export class AudioEngine {
         }
       }
     } else {
-      // Subscriptions are per-connection (PLAN §5); they died with the socket.
+      // Subscriptions are per-connection (); they died with the socket.
       for (const entry of this.entries.values()) {
         entry.requested = false;
       }

@@ -209,7 +209,7 @@ impl Decoder {
         }
         // Both superframe markers are only believed inside a call: nothing behind either of
         // them can be checked, and the header that opened the call is what vouches for them.
-        // A call joined after its header has passed is therefore not reported (FEATURES §9).
+        // A call joined after its header has passed is therefore not reported ().
         if !self.in_call {
             return;
         }

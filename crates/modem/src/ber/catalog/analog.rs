@@ -1,4 +1,4 @@
-//! The measured chains behind the analog `CATALOG.md` rows (MODEM-PLAN §7 phase 8), and the
+//! The measured chains behind the analog `CATALOG.md` rows ( §7 phase 8), and the
 //! registry `cargo xtask ber <entry>` dispatches on for them.
 //!
 //! Same contract as the BER registry next door — one definition of each chain, read by the

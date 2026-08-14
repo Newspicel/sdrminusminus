@@ -1,4 +1,4 @@
-//! `sdrmm-wire` — the single source of truth for everything on the wire (PLAN §4).
+//! `sdrmm-wire` — the single source of truth for everything on the wire ().
 //!
 //! REST DTOs, WS message enums, device/channel/state models, and the binary frame layout
 //! all live here with `serde` + `utoipa::ToSchema` derives. TypeScript is generated from the

@@ -1,5 +1,5 @@
 //! AWGN — the impairment every curve in the harness is plotted against, so its calibration is
-//! the one everything else inherits (MODEM-PLAN §4.1: the BPSK-vs-erfc gate reads *this*
+//! the one everything else inherits ( §4.1: the BPSK-vs-erfc gate reads *this*
 //! sigma).
 
 use num_complex::Complex;
@@ -24,7 +24,7 @@ pub fn sigma_for_ebn0(signal_energy: f64, info_bits: u64, ebn0_db: f64) -> f64 {
 }
 
 /// Per-component noise sigma for a stated *channel* SNR — the accounting an analog entry uses
-/// (MODEM-PLAN §5 item 4), where there are no bits and Eb/N0 therefore says nothing.
+/// ( §5 item 4), where there are no bits and Eb/N0 therefore says nothing.
 ///
 /// The reference every closed form in [`theory`](crate::ber::theory) is stated against is
 /// `SNR_c = P_R / (N0·W)`: received power over the noise in one *message* bandwidth. Complex

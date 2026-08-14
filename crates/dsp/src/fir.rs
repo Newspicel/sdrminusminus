@@ -1,4 +1,4 @@
-//! Windowed-sinc FIR design and the shared streaming-FIR core (PLAN §7). Blackman window
+//! Windowed-sinc FIR design and the shared streaming-FIR core (). Blackman window
 //! throughout: ~74 dB stopband and a 5.5/N transition width — the tradeoff every decimation
 //! stage in this crate is sized against.
 

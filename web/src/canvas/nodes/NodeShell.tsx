@@ -3,7 +3,7 @@
 // wiring and the pin.
 //
 // Hue carries the port's data type and only that, and every colour is paired with a shape, so
-// the graph reads for a colourblind operator by marker alone (DESIGN.md §2).
+// the graph reads for a colourblind operator by marker alone ().
 import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
 import { createContext, type ReactNode, useContext } from "react";
@@ -77,7 +77,7 @@ const PORT_SHAPE: Record<PortType, string> = {
   // stream: it points at the radio it drives.
   control: "[clip-path:polygon(0_0,100%_50%,0_100%)]",
   // The same substance as `iq` going the other way, so the same circle — left hollow, because
-  // nothing fills it yet (PLAN §12a).
+  // nothing fills it yet ().
   tx: "rounded-full",
 };
 
@@ -159,7 +159,7 @@ export function NodeShell({
           {/* On the rack or not is a state of the *patch*, and the rack is a view you may not be
               looking at — so it is carried by three things at once: a filled glyph against an
               empty one, the accent, and the pressed fill every other toggle in the kit uses.
-              Colour alone would not survive a monochrome eye (DESIGN.md §2). */}
+              Colour alone would not survive a monochrome eye (). */}
           <button
             type="button"
             aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
@@ -262,14 +262,14 @@ function PortHandle({
         type={out ? "source" : "target"}
         position={out ? Position.Right : Position.Left}
         style={{ top: offset }}
-        // Hue alone never says what a wire carries (DESIGN.md §2). A port that refuses everything
+        // Hue alone never says what a wire carries (). A port that refuses everything
         // carries the server's reason for it — the operator finds out by pointing at it, not by
         // dragging a wire at it.
         title={description}
         aria-label={`${out ? "output" : "input"} ${description}`}
         className={`!size-2.5 ${PORT_PAINT[port.port_type]} ${PORT_SHAPE[port.port_type]}`}
       />
-      {/* DESIGN.md §2: hue + marker shape + a *text* label, because with colour removed the graph
+      {/* : hue + marker shape + a *text* label, because with colour removed the graph
           must still be unambiguous.
           Outside the face rather than inset: a label over the body sits on whatever the instrument
           draws there, and a gutter wide enough for the longest port name would cost every face

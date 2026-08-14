@@ -1,4 +1,4 @@
-//! `latest.json` — the static manifest the Tauri updater polls (PLAN §15).
+//! `latest.json` — the static manifest the Tauri updater polls ().
 //!
 //! Built from the `.sig` files the bundler emits beside each updater artifact rather than from
 //! a list of expected names: the signature is what the client verifies, so a platform whose

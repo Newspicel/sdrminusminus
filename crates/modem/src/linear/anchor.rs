@@ -1,4 +1,4 @@
-//! The known-symbol hook (MODEM-PLAN §3.4), linear form: "positions i..j carry known sequence
+//! The known-symbol hook ( §3.4), linear form: "positions i..j carry known sequence
 //! S", turned into a complex gain and a frequency offset by least squares over exactly those
 //! positions. This is the *pilot-aided* arm of the coherent tier list, and it is what the CPM
 //! engine's [`KnownSymbols`](crate::cpm::KnownSymbols) is for that engine — the same idea, in

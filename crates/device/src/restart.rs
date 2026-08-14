@@ -1,5 +1,5 @@
 //! When a capture should restart its stream in place, and when it should give up and let the
-//! engine tear the device down (PLAN §18).
+//! engine tear the device down ().
 //!
 //! Recovery is two tiers. Tier 1 lives inside a backend's capture loop: the pipe faulted but the
 //! device never left the bus, so re-arming the stream costs about 3 ms on the RTL-SDR that was

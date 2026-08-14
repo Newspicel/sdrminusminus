@@ -1,4 +1,4 @@
-//! The audio-domain FSK / AFSK catalog entry (MODEM-PLAN §6 CPM row 5): Bell-202-like
+//! The audio-domain FSK / AFSK catalog entry ( §6 CPM row 5): Bell-202-like
 //! 1200/2200 Hz at 1200 baud, real-valued input through both of the engine's [`RealDetector`]
 //! options.
 //!

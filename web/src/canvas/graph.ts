@@ -152,7 +152,7 @@ export function portsOf(context: GraphContext, graph: PatchGraph, node: PatchNod
           return descriptor?.has_video === true;
         case "device_is_tx_capable":
           // The reserved transmit input is drawn on a radio that *has* a send side, whatever
-          // PLAN §12a lets it do with one: `rx_only` is the wire default, so a radio that says
+          //  lets it do with one: `rx_only` is the wire default, so a radio that says
           // nothing gets no port.
           return hasTransmitter(capabilities?.duplex);
         default:
@@ -273,7 +273,7 @@ export function connectionRefusal(
  * a reason to refuse the connection — the operator meant to put ADS-B on that radio, and the
  * answer is to change the rate, not to pretend the two cannot be joined.
  *
- * The rule itself is the server's (PLAN §18), read off the descriptor rather than re-derived:
+ * The rule itself is the server's (), read off the descriptor rather than re-derived:
  * a decoder that reads the radio's own samples names the range it runs over, and a mode that
  * fills its whole channel names the one rate a resampling DDC could deliver.
  */

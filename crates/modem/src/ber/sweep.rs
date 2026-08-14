@@ -1,11 +1,11 @@
-//! The sweep runner (MODEM-PLAN §3.1): drives any modulate/demodulate pair through the
+//! The sweep runner ( §3.1): drives any modulate/demodulate pair through the
 //! calibrated [`impair`](super::impair) channel across a grid of Eb/N0 points and counts bit
 //! errors into a committed [`Curve`]. Every correctness gate in the harness — the BPSK-vs-erfc
 //! calibration, every later entry's oracle match, every committed-reference guard — is a
 //! comparison between a curve this runner measured and a reference, so the comparators live
 //! here beside it.
 //!
-//! Accounting (crate root, MODEM-PLAN §4.1): Eb is energy per *information* bit. The runner
+//! Accounting (crate root,  §4.1): Eb is energy per *information* bit. The runner
 //! owns the AWGN axis — whatever else the channel template carries, noise is set per point
 //! from the waveform's own measured energy and the trial's information-bit count via
 //! [`Awgn::for_ebn0`], applied canonically last, so the curve's x-axis is true at the detector

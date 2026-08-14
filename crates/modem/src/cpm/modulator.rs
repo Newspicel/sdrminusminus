@@ -1,6 +1,6 @@
 //! The reference CPM transmitter: a symbol-impulse train through the frequency pulse, a phase
 //! integrator, complex baseband out. This is *the* modulator behind every CPM catalog entry —
-//! `testgen`'s per-mode C4FM/GMSK recipes migrate onto it (MODEM-PLAN §1.2: testgen builds
+//! `testgen`'s per-mode C4FM/GMSK recipes migrate onto it ( §1.2: testgen builds
 //! demodulator test signals from the library's own modulators, so the two can never drift
 //! apart), and `tx.rs` drives it as a signal generator.
 //!

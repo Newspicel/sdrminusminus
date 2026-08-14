@@ -1,4 +1,4 @@
-// The `?` overlay (DESIGN.md §10). Its only job is to make the keyboard layer discoverable, so
+// The `?` overlay (). Its only job is to make the keyboard layer discoverable, so
 // it is one table read straight from the binding list the handler uses.
 import { Dialog } from "@base-ui/react/dialog";
 import { BINDINGS } from "../canvas/useHotkeys";

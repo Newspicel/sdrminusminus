@@ -1,4 +1,4 @@
-//! Video end-to-end (PLAN §13: ATV, §14: "engine end-to-end via `device-virtual`").
+//! Video end-to-end (: ATV, §14: "engine end-to-end via `device-virtual`").
 //!
 //! Renders a standards-timed ATV transmission with `sdrmm_channels::testgen`, plants it as a
 //! SigMF pair, replays it through the `virtual:file:` playback device, and asserts a picture

@@ -1,4 +1,4 @@
-//! Constellations as tables (MODEM-PLAN §3.3): a point set is *data* — complex points plus
+//! Constellations as tables ( §3.3): a point set is *data* — complex points plus
 //! per-point bit labels — never match arms. Every linear and orthogonal entry demaps through
 //! the one generic demapper in [`demap`], and the exotic tables in [`tables`] (cross-QAM,
 //! star-QAM, non-uniform QAM, APSK) exist precisely to prove nothing special-cases "the"

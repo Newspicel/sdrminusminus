@@ -1,4 +1,4 @@
-//! Embedded UI assets (PLAN §10): the built frontend is baked into the binary via `rust-embed`
+//! Embedded UI assets (): the built frontend is baked into the binary via `rust-embed`
 //! so a Pi deployment is one file. Unknown non-API paths fall back to `index.html` (SPA
 //! routing). Before the frontend is ever built the embed is empty and we serve a hint page.
 

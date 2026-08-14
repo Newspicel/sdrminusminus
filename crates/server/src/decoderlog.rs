@@ -1,7 +1,7 @@
-//! The decoder-log writer (PLAN §11): the task that turns the engine's decoded-frame
+//! The decoder-log writer (): the task that turns the engine's decoded-frame
 //! broadcast into rows the log endpoints can query and export.
 //!
-//! Loss is surfaced through a counter, not an event (PLAN §5). The engine already pushes
+//! Loss is surfaced through a counter, not an event (). The engine already pushes
 //! `ServerEvent::DecodedLost` for the frames *it* drops, and the WS hub does the same for a
 //! slow connection — but a client that opens the log page after a burst would never see those
 //! events. A counter is reported on every `GET /api/decoderlog` as `dropped`, so the loss
@@ -250,7 +250,7 @@ async fn flush(
 }
 
 /// Enforce the row budget. A prune changes the log structurally, so clients holding a page
-/// must refetch — hence the scope emit (individual decodes never invalidate, PLAN §10).
+/// must refetch — hence the scope emit (individual decodes never invalidate, ).
 async fn prune(store: &Arc<Store>, engine: &Weak<Engine>, max_rows: u64) {
     let owned = store.clone();
     match tokio::task::spawn_blocking(move || owned.prune_decoder_log(max_rows)).await {
@@ -449,7 +449,7 @@ mod tests {
     }
 
     /// A batch larger than the channel capacity must be counted as lost, never dropped
-    /// silently (PLAN §5).
+    /// silently ().
     #[tokio::test]
     async fn overrunning_the_broadcast_counts_the_loss() {
         let store = Arc::new(Store::open(None).expect("store"));

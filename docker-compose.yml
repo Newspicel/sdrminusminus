@@ -1,4 +1,4 @@
-# Single-service deployment of the sdr-- image (PLAN §15: Pi/NAS with USB passthrough).
+# Single-service deployment of the sdr-- image (: Pi/NAS with USB passthrough).
 #   docker compose up -d   → http://<host>:8080
 services:
   sdrmm:

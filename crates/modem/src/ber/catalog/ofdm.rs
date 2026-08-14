@@ -1,4 +1,4 @@
-//! The CP-OFDM and DMT catalog entries (MODEM-PLAN §6, frameworks table; §7 phase 6): four
+//! The CP-OFDM and DMT catalog entries ( §6, frameworks table; §7 phase 6): four
 //! modulation orders on a subcarrier, two channel-estimation tiers and the genie they are
 //! measured against, and the Hermitian (DMT) configuration — all at one geometry, all through one
 //! engine.

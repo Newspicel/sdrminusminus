@@ -1,6 +1,6 @@
-//! Binary WS frame layout (PLAN §5). This is the *one* place a wire format is written by
+//! Binary WS frame layout (). This is the *one* place a wire format is written by
 //! hand on both sides (Rust encoder here, a ~100-line TS decoder in `web/`): the deliberate
-//! exception to codegen (PLAN §4). All fields little-endian.
+//! exception to codegen (). All fields little-endian.
 //!
 //! ```text
 //! header (16 bytes):
@@ -8,7 +8,7 @@
 //!   u8  kind            (FrameKind)
 //!   u16 stream_id
 //!   u32 seq
-//!   u64 timestamp       (sample-count since capture start, PLAN §5)
+//!   u64 timestamp       (sample-count since capture start, )
 //! SPECTRUM payload:
 //!   f64 center_hz
 //!   f32 span_hz
@@ -26,7 +26,7 @@
 //! ```
 //!
 //! AUDIO_OPUS timestamps count 48 kHz-domain sample *frames* since the channel's audio started
-//! (PLAN §9: demods emit 48 kHz PCM before Opus encoding), so a layout change does not disturb
+//! (: demods emit 48 kHz PCM before Opus encoding), so a layout change does not disturb
 //! the clock a client detects loss on. `ch_layout` travels per frame because a channel may
 //! switch layout mid-stream (WFM stereo toggled on a live channel).
 //!
@@ -66,7 +66,7 @@ impl FrameKind {
 }
 
 /// A spectrum frame ready to encode. Bins are pre-quantized to `u8` over `[db_min, db_max]`
-/// (PLAN §9: the adaptive dB window travels in the header).
+/// (: the adaptive dB window travels in the header).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpectrumFrame<'a> {
     pub stream_id: u16,
@@ -99,7 +99,7 @@ impl SpectrumFrame<'_> {
         buf.extend_from_slice(&self.span_hz.to_le_bytes());
         buf.extend_from_slice(&self.db_min.to_le_bytes());
         buf.extend_from_slice(&self.db_max.to_le_bytes());
-        // n is bounded by the ≤4096-bin display cap (PLAN §9), so the cast never truncates.
+        // n is bounded by the ≤4096-bin display cap (), so the cast never truncates.
         buf.extend_from_slice(&(self.bins.len() as u16).to_le_bytes());
         buf.extend_from_slice(self.bins);
         buf

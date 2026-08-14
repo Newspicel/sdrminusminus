@@ -1,4 +1,4 @@
-// Decoder log browser (PLAN §11: decoder logs are queryable and exportable, not scroll-back-
+// Decoder log browser (: decoder logs are queryable and exportable, not scroll-back-
 // only). The stored page is server state — one TanStack Query keyed by the filter, so changing a
 // filter refetches through the key and a `decoder_log` StateChanged invalidates every filter at
 // once. The WS store's tail is merged into that page, so a frame is on screen the moment it is

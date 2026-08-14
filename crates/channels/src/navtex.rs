@@ -1,4 +1,4 @@
-//! NAVTEX / SITOR-B decoder (PLAN §13 P2): 100 baud FSK at a 170 Hz shift carrying the CCIR
+//! NAVTEX / SITOR-B decoder ( P2): 100 baud FSK at a 170 Hz shift carrying the CCIR
 //! 476 seven-unit code with mode-B time diversity (ITU-R M.540, M.625).
 //!
 //! Three layers sit on the discriminator. The *alphabet* is a constant-ratio code — exactly
@@ -182,10 +182,10 @@ pub(crate) fn channel_filter() -> ChannelFilter {
     ))
 }
 
-/// The NAVTEX waveform as `cpm/` entry data (MODEM-PLAN §3.3): two-level CPFSK, NRZ (rect)
+/// The NAVTEX waveform as `cpm/` entry data ( §3.3): two-level CPFSK, NRZ (rect)
 /// frequency pulse, ±85 Hz deviation at 100 baud. Mark — the upper tone — carries the 1 bit
 /// (ITU-R M.476), so index 1 transmits +1 and a soft symbol's sign is the soft bit the SITOR
-/// combiner wants. The reference modulator in `testgen` transmits this entry (MODEM-PLAN
+/// combiner wants. The reference modulator in `testgen` transmits this entry (
 /// §1.2).
 ///
 /// The receiver does **not** ride `CpmDemod` yet, and the block is measured, not stylistic:
@@ -211,7 +211,7 @@ pub(crate) fn cpm_params(rate: f64) -> CpmParams {
 }
 
 /// One bit of integrate-and-dump — NRZ keying's own matched filter, from the shared pulse
-/// library (MODEM-PLAN §3.1), the same shape RTTY builds at its own rate.
+/// library ( §3.1), the same shape RTTY builds at its own rate.
 fn post_filter(rate: f64) -> RealDecimator {
     RealDecimator::new(&pulse::rect(rate / BAUD, Norm::Area), 1)
 }

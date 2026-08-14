@@ -1,5 +1,5 @@
 // The active workspace as the canvas sees it: the workspace list for the switcher, the active
-// patch, and the writes that persist it (PLAN §10, CANVAS §4). Server state lives in TanStack
+// patch, and the writes that persist it (, CANVAS §4). Server state lives in TanStack
 // Query only — WS `StateChanged { workspaces }` invalidates, nothing polls.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";

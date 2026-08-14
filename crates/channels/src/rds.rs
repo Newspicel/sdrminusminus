@@ -1,4 +1,4 @@
-//! RDS decoder (PLAN §13 P2): the 57 kHz DBPSK subcarrier on the FM composite, per
+//! RDS decoder ( P2): the 57 kHz DBPSK subcarrier on the FM composite, per
 //! EN 50067 / IEC 62106.
 //!
 //! Carrier recovery rides on the 19 kHz pilot rather than on the data: the pilot is several dB
@@ -9,7 +9,7 @@
 //! recovered symbols removes; differential decoding then makes its residual 180° ambiguity
 //! irrelevant.
 //!
-//! **What comes from the modulation library and what does not** (MODEM-PLAN §7 phase 4). The
+//! **What comes from the modulation library and what does not** ( §7 phase 4). The
 //! mapper does: the alphabet is `constellation::tables::bpsk()` — the crate's BPSK table, bit 1 at
 //! the positive point — and the decision is that table's own `hard_slice`, so RDS carries no
 //! private notion of what a BPSK symbol is. The differential decode is `symbolcode`'s, the one

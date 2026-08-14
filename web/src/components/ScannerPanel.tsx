@@ -1,4 +1,4 @@
-// Frequency scanner controls (PLAN §13 P2, M5). Live progress comes from the `ScannerUpdate`
+// Frequency scanner controls ( P2, M5). Live progress comes from the `ScannerUpdate`
 // WS event via the scanner store, never from polling; the state snapshot is what says whether
 // a scan exists at all.
 import { useMutation, useQueryClient } from "@tanstack/react-query";

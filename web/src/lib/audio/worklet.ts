@@ -14,7 +14,7 @@ export const SAMPLE_RATE = 48_000;
  */
 export const CHANNELS = 2;
 /**
- * ~100 ms pre-buffer (PLAN §9: 60–100 ms jitter buffer), in sample frames. It is the floor
+ * ~100 ms pre-buffer (: 60–100 ms jitter buffer), in sample frames. It is the floor
  * the buffer adapts up from when a path underruns, not a fixed depth.
  */
 export const TARGET_FRAMES = 4_800;

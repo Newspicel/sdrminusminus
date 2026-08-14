@@ -1,4 +1,4 @@
-// The band explorer (FEATURES §5): search the workspace's band plan in words or in megahertz, and
+// The band explorer (): search the workspace's band plan in words or in megahertz, and
 // tune what you find with the mode the band suggests.
 //
 // Searching is a browse tool, so it lives in the library drawer beside the bookmarks; *which*
