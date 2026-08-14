@@ -198,12 +198,11 @@ fn codegen(root: &Path) -> Result<()> {
 
 fn dev(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
+    #[cfg(unix)]
+    let _interrupt_handler = InterruptHandler::install()?;
+
     let mut vite = Command::new(PNPM);
     vite.args(["--dir", "web", "dev"]).current_dir(root);
-    // Detach Vite from the terminal: it must not read the TTY it shares with the server
-    // and the shell (a non-foreground reader is stopped by SIGTTIN, and an orphaned one
-    // dies with EIO), and it must die as a whole pnpm → node tree — killing only the pnpm
-    // parent orphans the actual Vite process, which keeps writing over the shell prompt.
     vite.stdin(Stdio::null());
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut vite, 0);
@@ -225,8 +224,35 @@ fn dev(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Terminate `child` and everything in its process group (see the spawn site), escalating to
-/// SIGKILL if the group ignores SIGTERM.
+#[cfg(unix)]
+struct InterruptHandler(libc::sigaction);
+
+#[cfg(unix)]
+impl InterruptHandler {
+    fn install() -> Result<Self> {
+        let mut action = unsafe { std::mem::zeroed::<libc::sigaction>() };
+        action.sa_sigaction = preserve_dev_supervisor as *const () as libc::sighandler_t;
+        action.sa_flags = libc::SA_RESTART;
+        unsafe { libc::sigemptyset(&mut action.sa_mask) };
+
+        let mut previous = unsafe { std::mem::zeroed::<libc::sigaction>() };
+        if unsafe { libc::sigaction(libc::SIGINT, &action, &mut previous) } != 0 {
+            return Err(std::io::Error::last_os_error()).context("install Ctrl-C handler");
+        }
+        Ok(Self(previous))
+    }
+}
+
+#[cfg(unix)]
+impl Drop for InterruptHandler {
+    fn drop(&mut self) {
+        unsafe { libc::sigaction(libc::SIGINT, &self.0, std::ptr::null_mut()) };
+    }
+}
+
+#[cfg(unix)]
+extern "C" fn preserve_dev_supervisor(_: libc::c_int) {}
+
 #[cfg(unix)]
 fn kill_process_tree(child: &mut Child) {
     let group = -(child.id() as i32);
@@ -246,6 +272,37 @@ fn kill_process_tree(child: &mut Child) {
 fn kill_process_tree(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(all(test, unix))]
+mod dev_tests {
+    use super::*;
+
+    const HELPER_ENV: &str = "SDRMM_XTASK_INTERRUPT_HELPER";
+
+    #[test]
+    fn interrupt_handler_keeps_supervisor_alive() {
+        let status = Command::new(std::env::current_exe().expect("locate test binary"))
+            .args([
+                "--ignored",
+                "--exact",
+                "dev_tests::interrupt_handler_helper",
+            ])
+            .env(HELPER_ENV, "1")
+            .status()
+            .expect("run interrupt helper");
+        assert!(status.success(), "interrupt helper exited with {status}");
+    }
+
+    #[test]
+    #[ignore]
+    fn interrupt_handler_helper() {
+        if std::env::var_os(HELPER_ENV).is_none() {
+            return;
+        }
+        let _handler = InterruptHandler::install().expect("install Ctrl-C handler");
+        assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
+    }
 }
 
 fn check(root: &Path) -> Result<()> {
