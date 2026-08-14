@@ -12,14 +12,30 @@ import { NumberField } from "./NumberField";
 import { LOOP_SETTING } from "./playback";
 import { Select, withCurrent } from "./Select";
 import { Slider } from "./Slider";
+import { settingLabel } from "./settingLabel";
 import { useDebouncedCommit } from "./useDebouncedCommit";
 
-// The label track gives its width back when there is none to spare: these rows now also render
-// inside a node the operator can drag down to 220 px, where a fixed column would push the
-// control off the edge.
-const ROW = "grid grid-cols-[minmax(0,4.5rem)_1fr] items-center gap-3";
+// The label track is measured off the block's own width, not the viewport's: these rows render
+// inside a node the operator can drag down to 260 px — where a fixed column would push the
+// control off the edge — and out to the width of the desk, where a driver's `digital_agc` should
+// read as a name rather than as `DIGITAL_A…`.
+const ROW =
+  "grid grid-cols-[minmax(0,5.5rem)_minmax(0,1fr)] @xs:grid-cols-[minmax(0,8rem)_minmax(0,1fr)] @md:grid-cols-[minmax(0,11rem)_minmax(0,1fr)] items-center gap-3";
+
+// A dropped-down list is read top to bottom, so past a point extra width only stretches the
+// trigger away from its label. Sliders take the rest of the row, where width *is* resolution.
+const PICKER = "w-full max-w-64";
 
 const formatMsps = (hz: number): string => `${(hz / 1e6).toFixed(3)} MS/s`;
+
+/** A setting named by its driver: shown as words, hovered as the key itself. */
+function SettingName({ name }: { name: string }) {
+  return (
+    <span className="legend wrap-anywhere" title={name}>
+      {settingLabel(name)}
+    </span>
+  );
+}
 
 export function RadioSettings({ active }: { active: DeviceSet }) {
   const { applyPatch } = useDevicePatch();
@@ -45,7 +61,7 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
       : [];
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="@container flex flex-col gap-2">
       <div className={ROW}>
         <span className="legend">Rate</span>
         {caps.sample_rates.length === 1 && rateRange == null ? (
@@ -56,7 +72,7 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
         ) : caps.sample_rates.length > 0 ? (
           <Select
             label="Sample rate"
-            className="w-full"
+            className={PICKER}
             value={sampleRate}
             options={withCurrent(
               sampleRate,
@@ -86,7 +102,7 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
           <span className="legend">Filter</span>
           <Select
             label="Analog bandwidth"
-            className="w-full"
+            className={PICKER}
             value={bandwidth}
             options={withCurrent(
               bandwidth,
@@ -103,7 +119,7 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
           <span className="legend">Antenna</span>
           <Select
             label="Antenna"
-            className="w-full"
+            className={PICKER}
             value={settings.antenna ?? caps.antennas[0] ?? ""}
             options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
             onChange={(antenna) => applyPatch(active.id, { antenna })}
@@ -137,7 +153,7 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
                 <span className="legend">Antenna</span>
                 <Select
                   label={`${port} antenna`}
-                  className="w-full"
+                  className={PICKER}
                   value={lane.antenna ?? caps.antennas[0] ?? ""}
                   options={caps.antennas.map((antenna) => ({ value: antenna, label: antenna }))}
                   onChange={(antenna) => applyPatch(active.id, { streams: [{ stream, antenna }] })}
@@ -211,9 +227,7 @@ function GainControl({
   const shown = pending ?? value;
   return (
     <div className={ROW}>
-      <span className="legend truncate" title={stage.name}>
-        {stage.name}
-      </span>
+      <SettingName name={stage.name} />
       <span className="flex items-center gap-2">
         <Slider
           label={`${port === undefined ? "" : `${port} `}${stage.name} gain (dB)`}
@@ -257,9 +271,7 @@ function ExtraControl({
     case "bool":
       return (
         <div className={ROW}>
-          <span className="legend truncate" title={setting.name}>
-            {setting.name}
-          </span>
+          <SettingName name={setting.name} />
           <span className="justify-self-start">
             <Checkbox
               label={setting.name}
@@ -272,12 +284,10 @@ function ExtraControl({
     case "enum":
       return (
         <div className={ROW}>
-          <span className="legend truncate" title={setting.name}>
-            {setting.name}
-          </span>
+          <SettingName name={setting.name} />
           <Select
             label={setting.name}
-            className="w-full"
+            className={PICKER}
             value={typeof raw === "string" ? raw : setting.default}
             options={setting.options.map((option) => ({ value: option, label: option }))}
             onChange={onCommit}
@@ -287,9 +297,7 @@ function ExtraControl({
     case "range":
       return (
         <div className={ROW}>
-          <span className="legend truncate" title={setting.name}>
-            {setting.name}
-          </span>
+          <SettingName name={setting.name} />
           <span className="flex items-center gap-2">
             <NumberField
               label={`${setting.name} (${setting.unit})`}
@@ -307,12 +315,10 @@ function ExtraControl({
     case "string":
       return (
         <div className={ROW}>
-          <span className="legend truncate" title={setting.name}>
-            {setting.name}
-          </span>
+          <SettingName name={setting.name} />
           <input
             aria-label={setting.name}
-            className="min-w-0 rounded border border-line bg-surface px-2 py-1 font-mono text-xs text-ink"
+            className={`${PICKER} min-w-0 rounded border border-line bg-surface px-2 py-1 font-mono text-xs text-ink`}
             value={draft}
             onChange={(event) => {
               setDraft(event.currentTarget.value);
