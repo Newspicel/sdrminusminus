@@ -132,7 +132,7 @@ clap = { version = "4", features = ["derive", "env"] }
 tempfile = "3"
 
 # Performance baselines for the modem catalog ( §4.2); dev-dependency only.
-criterion = "0.7"
+criterion = "0.8"
 cc = "1"
 
 # `cargo xtask icons` rasterises assets/icon.svg; xtask only, nothing shipped links it.
