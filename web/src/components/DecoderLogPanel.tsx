@@ -22,6 +22,7 @@ import {
   LIMIT_OPTIONS,
   type LogFilter,
   type LogRow,
+  matchesFilter,
   sourceSet,
   sourceSets,
   toQuery,
@@ -93,8 +94,12 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
   const clearMut = useMutation({
     mutationFn: () => clearDecoderLog(query),
     onSuccess: (deleted) => {
+      // The tail is this browser's copy of rows the server has just deleted; leaving it renders
+      // them for another `RING_CAPACITY` frames, which reads as a Clear that did nothing.
+      const live = rows.filter((row) => row.live).length;
+      useDecodedStore.getState().dropFrames((record) => matchesFilter(record, filter, wired));
       setError(null);
-      setCleared(deleted);
+      setCleared(deleted + live);
     },
     onError: (e) => setError(e.message),
     onSettled: () => {
