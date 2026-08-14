@@ -1303,18 +1303,72 @@ fn apply_template_patch(
     }
 }
 
+/// Whether this is the first time apply has bound `node` to `device_set`, marking it bound.
+///
+/// Device-set ids are allocated per run and never reused, so a radio that is closed and opened
+/// again reads as a new binding — which is what makes "already restored" mean "still the same
+/// radio, still running", rather than "this node has been seen before".
+fn first_binding(app: &AppState, workspace: i64, node: &str, device_set: u32) -> bool {
+    app.restored
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert((workspace, node.to_string(), device_set))
+}
+
+/// Record whether `node` came up on its own stored settings.
+///
+/// A refused restore leaves the radio on whatever it was already set to, and the autosave would
+/// shortly write *that* into this workspace's row — losing the settings the restore existed to
+/// bring back. `workspace::capture` skips the nodes named here until a restore succeeds.
+fn note_restore(app: &AppState, node: &str, restored: bool) {
+    let mut unrestored = app
+        .unrestored
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    unrestored.retain(|held| held != node);
+    if !restored {
+        unrestored.push(node.to_string());
+    }
+}
+
+/// Forget bindings whose radio is gone, so the marks cost a set that is open rather than every
+/// set that ever was.
+fn forget_closed_bindings(app: &AppState, state: &StateSnapshot) {
+    app.restored
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .retain(|(_, _, set)| state.device_sets.iter().any(|live| live.id == *set));
+}
+
 fn bring_up(
-    engine: &sdrmm_engine::Engine,
+    app: &AppState,
+    workspace: i64,
     snapshot: &WorkspaceSnapshot,
     saved: &WorkspaceState,
 ) -> Result<PatchApplyReport, AppError> {
+    let engine = &app.engine;
     let mut report = PatchApplyReport::default();
     let mut state = engine.snapshot();
+    forget_closed_bindings(app, &state);
 
-    // Radios already open bind as they are. Their settings are deliberately left alone: apply is
-    // additive, and re-tuning a running set to yesterday's frequency because a second browser
-    // loaded the workspace is the same mistake as closing it.
+    // A radio that is already open binds as it is and is handed this node's settings exactly once
+    // (`AppState::restored`). Once, because re-tuning a running set because a second browser
+    // loaded the workspace is the same mistake as closing it. At least once, because naming a
+    // radio on a device face opens it and applies afterwards — so the gesture that binds a node
+    // was the one leaving the radio on power-on defaults with its settings unread.
     for (node, device_set) in workspace::bind_devices(&snapshot.graph, &state) {
+        if first_binding(app, workspace, &node, device_set) {
+            match workspace::restore_device(engine, device_set, &node, saved) {
+                Ok(()) => note_restore(app, &node, true),
+                Err(reason) => {
+                    note_restore(app, &node, false);
+                    report.refused.push(PatchRefusal {
+                        node: node.clone(),
+                        reason,
+                    });
+                }
+            }
+        }
         report.bound.push(PatchBinding { node, device_set });
     }
 
@@ -1346,11 +1400,18 @@ fn bring_up(
             Some(device_id) => match engine.create_device_set(&device_id) {
                 Ok(id) => {
                     report.opened += 1;
-                    if let Err(reason) = workspace::restore_device(engine, id, &node.id, saved) {
-                        report.refused.push(PatchRefusal {
-                            node: node.id.clone(),
-                            reason,
-                        });
+                    // Marked here too, or the next apply would count this as a first binding and
+                    // retune the radio this one just opened.
+                    first_binding(app, workspace, &node.id, id);
+                    match workspace::restore_device(engine, id, &node.id, saved) {
+                        Ok(()) => note_restore(app, &node.id, true),
+                        Err(reason) => {
+                            note_restore(app, &node.id, false);
+                            report.refused.push(PatchRefusal {
+                                node: node.id.clone(),
+                                reason,
+                            });
+                        }
                     }
                     report.bound.push(PatchBinding {
                         node: node.id.clone(),
@@ -1627,15 +1688,15 @@ async fn apply_workspace(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<PatchApplyReport>, AppError> {
-    let engine = state.engine.clone();
-    let store = state.store.clone();
-    let gate = state.apply_gate.clone();
+    let state = state.clone();
     let report = tokio::task::spawn_blocking(move || -> Result<PatchApplyReport, AppError> {
-        let _serialized = gate
+        let _serialized = state
+            .apply_gate
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let workspace = store.workspace(id)?;
-        bring_up(&engine, &workspace.snapshot, &store.workspace_state(id)?)
+        let workspace = state.store.workspace(id)?;
+        let saved = state.store.workspace_state(id)?;
+        bring_up(&state, id, &workspace.snapshot, &saved)
     })
     .await??;
     Ok(Json(report))

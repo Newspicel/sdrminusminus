@@ -648,6 +648,12 @@ impl SdrDevice for SoapyDevice {
             self.rollback_extras(&originals, previous_capabilities);
             return Err(error);
         }
+        if let Some(automatic) = caps::automatic_gain_to_reassert(&writes, delta)
+            && let Err(error) = self.write_extra(GAIN_MODE_SETTING, automatic)
+        {
+            self.rollback_extras(&originals, previous_capabilities);
+            return Err(error);
+        }
         self.settings.merge_from(delta);
         Ok(())
     }

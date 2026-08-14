@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     path::PathBuf,
     sync::{
@@ -79,6 +80,18 @@ pub(crate) struct AppState {
     /// Live WebSocket connections, reported by `GET /api/clients`.
     pub clients: Arc<std::sync::atomic::AtomicU32>,
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
+    /// `(workspace, node, device set)` triples apply has already handed their stored settings.
+    ///
+    /// Apply must not retune a radio it has already brought up — a second browser loading the
+    /// workspace, or the same one applying again after a wire was drawn, is not a retune — but it
+    /// *must* hand a node its settings the first time it binds one, however that radio came to be
+    /// open. Naming a radio on a device face opens it (`POST /api/devicesets`) and applies after,
+    /// so without this the one gesture that says "this node is that radio" was the one that came
+    /// back at the driver's power-on defaults.
+    ///
+    /// Per-run, like the bindings it describes: device-set ids are never reused, so a radio that
+    /// is closed and opened again is a new binding and gets its settings back.
+    pub(crate) restored: Arc<std::sync::Mutex<HashSet<(i64, String, u32)>>>,
 }
 
 impl AppState {
@@ -95,6 +108,7 @@ impl AppState {
             tracks: Arc::new(tracks::Tracks::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
+            restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
         }
     }
 
@@ -2332,6 +2346,79 @@ mod tests {
         assert_eq!(set.channels.len(), 1, "no duplicate channel on restore");
         assert_eq!(set.channels[0].settings.offset_hz, 12_500.0);
         assert_eq!(set.channels[0].settings.squelch_db, Some(-42.0));
+    }
+
+    /// Naming a radio on a device face opens it (`POST /api/devicesets`) and applies afterwards,
+    /// so apply finds the set already open. It still has to hand that node its stored settings:
+    /// the gesture that says "this node is that radio" is exactly the one that used to bring the
+    /// radio up at the driver's power-on defaults.
+    #[tokio::test]
+    async fn a_hand_picked_radio_comes_up_with_the_nodes_stored_settings() {
+        let (app, state) = test_router_with_state();
+        let workspace = store_siggen_workspace(&app).await;
+        apply(&app, workspace).await;
+        let ds = get_state(&app).await.device_sets[0].id;
+        let (status, _) = request(
+            app.clone(),
+            "PATCH",
+            &format!("/api/devicesets/{ds}/device"),
+            Some(r#"{"center_hz":145500000.0}"#),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        workspace::save_active(&state).expect("capture the workspace");
+
+        let restarted = state_over(state.store.clone());
+        let (app, writer) = router_with_state(restarted, &ServerOptions::default());
+        writer.detach();
+        create_virtual_set(&app).await;
+        apply(&app, workspace).await;
+        assert_eq!(
+            get_state(&app).await.device_sets[0].settings.center_hz,
+            Some(145_500_000.0)
+        );
+    }
+
+    /// A restore the engine refuses leaves the radio on settings that are not this workspace's,
+    /// and the autosave runs on every change: without a note of the failure the next capture files
+    /// those settings under the workspace whose own tuning it just failed to bring back.
+    #[tokio::test]
+    async fn a_refused_restore_does_not_let_the_autosave_overwrite_the_stored_settings() {
+        let (app, state) = test_router_with_state();
+        let workspace = store_siggen_workspace(&app).await;
+        // A rate this radio does not have — what a workspace stored against another receiver, or
+        // an older build, looks like from here.
+        let planted = sdrmm_wire::WorkspaceState {
+            version: sdrmm_wire::WORKSPACE_STATE_VERSION,
+            devices: vec![sdrmm_wire::WorkspaceDevice {
+                node: "device".to_string(),
+                settings: DeviceSettings {
+                    center_hz: Some(145_500_000.0),
+                    sample_rate: Some(999.0),
+                    ..DeviceSettings::default()
+                },
+                channels: Vec::new(),
+            }],
+        };
+        state
+            .store
+            .put_workspace_state(workspace, &planted)
+            .expect("plant the stored settings");
+
+        let report = apply(&app, workspace).await;
+        assert_eq!(report.refused.len(), 1, "{report:?}");
+        assert_eq!(report.refused[0].node, "device");
+
+        workspace::save_active(&state).expect("capture the workspace");
+        let stored = state
+            .store
+            .workspace_state(workspace)
+            .expect("read the stored settings");
+        assert_eq!(
+            stored.device("device").expect("kept").settings.sample_rate,
+            Some(999.0),
+            "the workspace keeps what it had until a restore succeeds"
+        );
     }
 
     /// Apply is additive: a radio someone is already using keeps the frequency it is on, whatever
