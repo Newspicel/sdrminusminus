@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Input } from "../../components/BaseControls";
 import { FIELD, LABEL } from "../../components/controls";
 import { Select } from "../../components/Select";
+import { TextAutocomplete } from "../../components/TextAutocomplete";
 import { nmeaDevicesQuery } from "../../lib/api";
 import { gridLocator, usePositionStore } from "../../lib/position";
 import type { NmeaDeviceInfo, PatchNode, PositionSource } from "../../lib/types";
@@ -35,7 +36,7 @@ export function GpsFace({ node }: { node: PatchNode }) {
     >
       <FaceBody>
         <div className="flex flex-col gap-2 p-2">
-          <SourceSettings source={source} onChange={setSource} listId={`nmea-${node.id}`} />
+          <SourceSettings source={source} onChange={setSource} />
           {fix === null ? (
             <span className="text-xs text-ink-dim">{state?.error ?? "Waiting for a fix…"}</span>
           ) : (
@@ -75,11 +76,9 @@ export function GpsFace({ node }: { node: PatchNode }) {
 function SourceSettings({
   source,
   onChange,
-  listId,
 }: {
   source: PositionSource;
   onChange: (source: PositionSource) => void;
-  listId: string;
 }) {
   switch (source.type) {
     case "device":
@@ -106,82 +105,63 @@ function SourceSettings({
         </label>
       );
     case "nmea":
-      return <NmeaSettings source={source} onChange={onChange} listId={listId} />;
+      return <NmeaSettings source={source} onChange={onChange} />;
   }
 }
 
 function NmeaSettings({
   source,
   onChange,
-  listId,
 }: {
   source: Extract<PositionSource, { type: "nmea" }>;
   onChange: (source: PositionSource) => void;
-  listId: string;
 }) {
   const devices = useQuery(nmeaDevicesQuery());
   const updateInterval = source.update_interval_ms ?? 1_000;
   return (
     <div className="flex flex-col gap-2">
-      <label className={LABEL}>
-        Serial device
-        <Input
-          key={source.device}
-          className={FIELD}
-          list={listId}
-          defaultValue={source.device}
+      <div className={LABEL}>
+        <span>Serial device</span>
+        <TextAutocomplete
+          value={source.device}
+          label="Serial device"
+          className="flex-1"
           placeholder="Choose a detected device or enter a path"
-          onBlur={(event) => {
-            const device = event.currentTarget.value.trim();
-            if (device === "") {
-              event.currentTarget.value = source.device;
-            } else if (device !== source.device) {
+          suggestions={(devices.data?.devices ?? []).map((device) => ({
+            value: device.path,
+            detail: nmeaDeviceLabel(device),
+          }))}
+          onCommit={(device) => {
+            if (device !== source.device) {
               onChange({ ...source, device, update_interval_ms: updateInterval });
-            } else {
-              event.currentTarget.value = source.device;
             }
+            return true;
           }}
         />
-        <datalist id={listId}>
-          {devices.data?.devices.map((device) => (
-            <option key={device.path} value={device.path} label={nmeaDeviceLabel(device)} />
-          ))}
-        </datalist>
-      </label>
+      </div>
       {devices.isError && (
         <span className="text-[10px] text-danger">Serial device discovery failed</span>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <label className={LABEL}>
-          Baud
-          <Input
-            key={source.baud}
-            className={FIELD}
-            type="number"
-            min={1_200}
-            max={4_000_000}
-            list={`${listId}-bauds`}
-            defaultValue={source.baud}
-            onBlur={(event) => {
-              const baud = Number(event.currentTarget.value);
-              if (
-                Number.isInteger(baud) &&
-                baud >= 1_200 &&
-                baud <= 4_000_000 &&
-                baud !== source.baud
-              ) {
+        <div className={LABEL}>
+          <span>Baud</span>
+          <TextAutocomplete
+            value={String(source.baud)}
+            label="Baud"
+            inputMode="numeric"
+            suggestions={[4_800, 9_600, 38_400, 57_600, 115_200].map((baud) => ({
+              value: String(baud),
+            }))}
+            onCommit={(value) => {
+              const baud = Number(value);
+              const valid = Number.isInteger(baud) && baud >= 1_200 && baud <= 4_000_000;
+              if (valid && baud !== source.baud) {
                 onChange({ ...source, baud, update_interval_ms: updateInterval });
-              } else {
-                event.currentTarget.value = String(source.baud);
               }
+              return valid;
             }}
           />
-          <datalist id={`${listId}-bauds`}>
-            {[4_800, 9_600, 38_400, 57_600, 115_200].map((baud) => (
-              <option key={baud} value={baud} />
-            ))}
-          </datalist>
-        </label>
+        </div>
         <label className={LABEL}>
           Update rate
           <Select

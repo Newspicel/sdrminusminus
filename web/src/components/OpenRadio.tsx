@@ -1,13 +1,18 @@
+import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { devicesQuery, doctorQuery } from "../lib/api";
 import type { DeviceInfo } from "../lib/types";
 import { Button, Form, Input } from "./BaseControls";
-import { BTN, BTN_PRIMARY, BTN_QUIET, FIELD, LABEL } from "./controls";
+import { BTN, BTN_PRIMARY, BTN_QUIET, FIELD, LABEL, SURFACE } from "./controls";
 import { Select } from "./Select";
 
 function deviceRank(device: DeviceInfo): number {
   return device.driver === "virtual" ? 1 : 0;
+}
+
+export function isRecordingDevice(device: DeviceInfo): boolean {
+  return device.driver === "virtual" && device.key.startsWith("file:");
 }
 
 /** Hardware first, then the virtual devices — someone with a dongle attached should not have to
@@ -23,8 +28,30 @@ export function visibleDevices(
   showSynthetic = import.meta.env.DEV || import.meta.env.VITE_ENABLE_SYNTHETIC_DEVICES === "true",
 ): readonly DeviceInfo[] {
   return rankDevices(
-    showSynthetic ? devices : devices.filter((device) => device.driver !== "virtual"),
+    showSynthetic
+      ? devices
+      : devices.filter((device) => device.driver !== "virtual" || isRecordingDevice(device)),
   );
+}
+
+export function groupDevices(devices: readonly DeviceInfo[]): {
+  radios: readonly DeviceInfo[];
+  recordings: readonly DeviceInfo[];
+} {
+  return {
+    radios: devices.filter((device) => !isRecordingDevice(device)),
+    recordings: devices.filter(isRecordingDevice),
+  };
+}
+
+export function filterRecordingDevices(
+  recordings: readonly DeviceInfo[],
+  query: string,
+): readonly DeviceInfo[] {
+  const normalized = query.trim().toLowerCase();
+  return normalized === ""
+    ? recordings
+    : recordings.filter((recording) => recording.label.toLowerCase().includes(normalized));
 }
 
 export function deviceId(device: DeviceInfo): string {
@@ -106,6 +133,74 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
   );
 }
 
+function RecordingChoices({
+  recordings,
+  onChoose,
+  busy,
+}: {
+  recordings: readonly DeviceInfo[];
+  onChoose: (device: DeviceInfo) => void;
+  busy: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const filtered = filterRecordingDevices(recordings, query);
+
+  return (
+    <Dialog.Root
+      onOpenChange={(open) => {
+        if (!open) setQuery("");
+      }}
+    >
+      <Dialog.Trigger className={`${BTN} justify-center`} disabled={busy}>
+        Recordings ({recordings.length})
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-bg/70" />
+        <Dialog.Popup
+          className={`${SURFACE} fixed top-1/2 left-1/2 z-40 flex max-h-[80vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col p-4`}
+        >
+          <Dialog.Title className="text-base font-medium text-ink">Recordings</Dialog.Title>
+          <Dialog.Description className="mt-1 text-xs text-ink-dim">
+            Choose a saved IQ recording to open as a source.
+          </Dialog.Description>
+          <Input
+            className={`${FIELD} mt-3 w-full shrink-0`}
+            type="search"
+            name="recording-filter"
+            placeholder="Search recordings"
+            aria-label="Search recordings"
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <div className="mt-2 flex min-h-0 flex-col gap-1 overflow-y-auto">
+            {filtered.map((device) => (
+              <Button
+                key={deviceId(device)}
+                type="button"
+                className={`${BTN} h-auto min-h-7 shrink-0 justify-start py-1.5 text-left`}
+                disabled={busy}
+                onClick={() => onChoose(device)}
+              >
+                <span className="truncate">{device.label}</span>
+              </Button>
+            ))}
+            {recordings.length === 0 && (
+              <p className="py-3 text-center text-sm text-ink-dim">No recordings yet.</p>
+            )}
+            {recordings.length > 0 && filtered.length === 0 && (
+              <p className="py-3 text-center text-sm text-ink-dim">No matching recordings.</p>
+            )}
+          </div>
+          <div className="mt-4 flex shrink-0 justify-end">
+            <Dialog.Close className={BTN}>Close</Dialog.Close>
+          </div>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 /** The discovered devices, one button each, with the states discovery itself can be in — plus the
  * one radio no discovery can find, which is the one on another machine. The caller decides what
  * choosing one does. */
@@ -124,11 +219,12 @@ export function DeviceChoices({
   const [showDoctor, setShowDoctor] = useState(false);
   const [showNetwork, setShowNetwork] = useState(false);
   const found = visibleDevices(devices.data?.devices ?? []);
+  const { radios, recordings } = groupDevices(found);
 
   return (
     <div className="flex w-full flex-col gap-2">
       <div className="flex flex-col gap-1">
-        {found.map((device, index) => (
+        {radios.map((device, index) => (
           <Button
             key={deviceId(device)}
             type="button"
@@ -142,9 +238,9 @@ export function DeviceChoices({
       </div>
 
       {devices.isPending && <p className="text-sm text-ink-dim">Looking for devices…</p>}
-      {!devices.isPending && found.length === 0 && (
+      {!devices.isPending && radios.length === 0 && (
         <p className="text-sm text-ink-dim">
-          No devices found. Plug one in, or check the diagnostics below.
+          No radios found. Plug one in, open a recording, or check the diagnostics below.
         </p>
       )}
 
@@ -153,6 +249,8 @@ export function DeviceChoices({
           {error}
         </p>
       )}
+
+      <RecordingChoices recordings={recordings} onChoose={onChoose} busy={busy} />
 
       <Button
         type="button"

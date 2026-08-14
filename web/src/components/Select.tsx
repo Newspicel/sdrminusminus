@@ -1,5 +1,6 @@
 import { Select as Primitive } from "@base-ui/react/select";
 import { FIELD, type Options, SURFACE, segment } from "./controls";
+import { usePortalContainer } from "./PortalContainer";
 
 /** A device — or a preset — can hold a value that is not one of the discrete points its
  * capabilities declare. Offering it as its own item is what keeps the list honest: without it
@@ -27,6 +28,7 @@ export function Select<T extends string | number>({
   onChange: (value: T) => void;
   className?: string;
 }) {
+  const portalContainer = usePortalContainer();
   return (
     <Primitive.Root
       items={options}
@@ -52,7 +54,7 @@ export function Select<T extends string | number>({
           ▾
         </Primitive.Icon>
       </Primitive.Trigger>
-      <Primitive.Portal>
+      <Primitive.Portal container={portalContainer} className="contents">
         {/* A drop-down, not the macOS overlay Base UI defaults to: a list that opens on top of
             its own trigger hides the value being changed. */}
         <Primitive.Positioner

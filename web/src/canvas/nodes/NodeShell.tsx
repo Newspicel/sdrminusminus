@@ -1,8 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
-import { createContext, type ReactNode, useContext } from "react";
+import { createContext, type ReactNode, useContext, useRef } from "react";
 import { Button } from "../../components/BaseControls";
 import { ICON_BTN } from "../../components/controls";
+import { PortalContainerProvider } from "../../components/PortalContainer";
 import { pushToast } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
@@ -104,73 +105,76 @@ export function NodeShell({
   const selected = workspace.selected === node.id;
   const active = surface === "rack" || selected;
   const minimum = nodeMinSize(node.kind, ports);
+  const portalContainer = useRef<HTMLDivElement>(null);
 
   return (
     <div
+      ref={portalContainer}
       className={`relative flex h-full min-h-0 w-full flex-col border bg-panel ${
         selected ? "border-accent" : "border-line"
       } ${live ? "" : "opacity-60"}`}
     >
-      {surface === "canvas" && (
-        <NodeResizer
-          minWidth={minimum.w}
-          minHeight={minimum.h}
-          lineClassName="!border-accent/40"
-          handleClassName="!size-2 !rounded-none !border-accent !bg-panel"
-        />
-      )}
-      {/* The one place the node can be dragged from, so the one place that says so: the grab
+      <PortalContainerProvider container={portalContainer}>
+        {surface === "canvas" && (
+          <NodeResizer
+            minWidth={minimum.w}
+            minHeight={minimum.h}
+            lineClassName="!border-accent/40"
+            handleClassName="!size-2 !rounded-none !border-accent !bg-panel"
+          />
+        )}
+        {/* The one place the node can be dragged from, so the one place that says so: the grab
           cursor is the affordance, and the library's default of painting it over the whole card
           promised a drag on every button inside the face. The buttons in here opt back out —
           they are pressed, not dragged. */}
-      <header
-        className={`flex h-6.5 shrink-0 items-center gap-2 border-b border-line bg-panel-2 pr-1 ${
-          surface === "canvas" ? "cursor-grab active:cursor-grabbing" : ""
-        }`}
-      >
-        <span aria-hidden className={`h-full w-1 ${CATEGORY_STRIP[category]}`} />
-        <span className="legend truncate text-ink-dim">{node.label ?? title}</span>
-        {subtitle !== undefined && (
-          <span className="legend ml-auto truncate text-ink-faint">{subtitle}</span>
-        )}
-        <span className={`flex items-center gap-0.5 ${subtitle === undefined ? "ml-auto" : ""}`}>
-          {actions}
-          {/* On the rack or not is a state of the *patch*, and the rack is a view you may not be
+        <header
+          className={`flex h-6.5 shrink-0 items-center gap-2 border-b border-line bg-panel-2 pr-1 ${
+            surface === "canvas" ? "cursor-grab active:cursor-grabbing" : ""
+          }`}
+        >
+          <span aria-hidden className={`h-full w-1 ${CATEGORY_STRIP[category]}`} />
+          <span className="legend truncate text-ink-dim">{node.label ?? title}</span>
+          {subtitle !== undefined && (
+            <span className="legend ml-auto truncate text-ink-faint">{subtitle}</span>
+          )}
+          <span className={`flex items-center gap-0.5 ${subtitle === undefined ? "ml-auto" : ""}`}>
+            {actions}
+            {/* On the rack or not is a state of the *patch*, and the rack is a view you may not be
               looking at — so it is carried by three things at once: a filled glyph against an
               empty one, the accent, and the pressed fill every other toggle in the kit uses.
               Colour alone would not survive a monochrome eye (). */}
-          <Button
-            type="button"
-            aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
-            aria-pressed={pinned}
-            title={pinned ? "On the rack — click to take it off" : "Pin to the rack"}
-            className={`${ICON_BTN} size-5 ${
-              pinned ? "bg-accent/15 text-accent" : "text-ink-faint"
-            }`}
-            onClick={() =>
-              workspace.edit((snapshot) => ({
-                ...snapshot,
-                rack: pinned
-                  ? unpin(snapshot.rack ?? {}, node.id)
-                  : pin(snapshot.rack ?? {}, node.id),
-              }))
-            }
-          >
-            {pinned ? "▣" : "□"}
-          </Button>
-          <Button
-            type="button"
-            aria-label={`Remove ${node.label ?? title}`}
-            title="Remove from the patch"
-            className={`${ICON_BTN} size-5 text-ink-faint hover:text-danger`}
-            onClick={remove}
-          >
-            ✕
-          </Button>
-        </span>
-      </header>
+            <Button
+              type="button"
+              aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
+              aria-pressed={pinned}
+              title={pinned ? "On the rack — click to take it off" : "Pin to the rack"}
+              className={`${ICON_BTN} size-5 ${
+                pinned ? "bg-accent/15 text-accent" : "text-ink-faint"
+              }`}
+              onClick={() =>
+                workspace.edit((snapshot) => ({
+                  ...snapshot,
+                  rack: pinned
+                    ? unpin(snapshot.rack ?? {}, node.id)
+                    : pin(snapshot.rack ?? {}, node.id),
+                }))
+              }
+            >
+              {pinned ? "▣" : "□"}
+            </Button>
+            <Button
+              type="button"
+              aria-label={`Remove ${node.label ?? title}`}
+              title="Remove from the patch"
+              className={`${ICON_BTN} size-5 text-ink-faint hover:text-danger`}
+              onClick={remove}
+            >
+              ✕
+            </Button>
+          </span>
+        </header>
 
-      {/* React Flow claims pointer drags and wheel gestures anywhere on a node unless a subtree
+        {/* React Flow claims pointer drags and wheel gestures anywhere on a node unless a subtree
           opts out: without `nodrag nowheel`, dragging a gain slider drags the node and scrolling
           a digit zooms the canvas instead of tuning. The header keeps both, so the node is
           dragged by its title bar — the patch-editor convention.
@@ -178,22 +182,23 @@ export function NodeShell({
           and a body that quietly moved the card was what put a grab cursor on every control in
           it. `nopan nowheel` stay conditional — over an inactive face the wheel and the drag
           belong to the camera, so the patch stays navigable from wherever the pointer is. */}
-      <div
-        className={`flex min-h-0 flex-1 flex-col overflow-hidden nodrag ${
-          active ? "nopan nowheel" : ""
-        }`}
-      >
-        <Active value={active}>{children}</Active>
-      </div>
+        <div
+          className={`flex min-h-0 flex-1 flex-col overflow-hidden nodrag ${
+            active ? "nopan nowheel" : ""
+          }`}
+        >
+          <Active value={active}>{children}</Active>
+        </div>
 
-      {ports.map((port, index) => (
-        <PortHandle
-          key={`${port.direction}:${port.name}`}
-          port={port}
-          label={portLabel(port.name, ports)}
-          offset={PORT_TOP_PX + PORT_STEP_PX * indexOnSide(ports, index)}
-        />
-      ))}
+        {ports.map((port, index) => (
+          <PortHandle
+            key={`${port.direction}:${port.name}`}
+            port={port}
+            label={portLabel(port.name, ports)}
+            offset={PORT_TOP_PX + PORT_STEP_PX * indexOnSide(ports, index)}
+          />
+        ))}
+      </PortalContainerProvider>
     </div>
   );
 }

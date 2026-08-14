@@ -41,6 +41,14 @@ async function cursor(locator: Locator): Promise<string> {
   return locator.evaluate((element) => getComputedStyle(element).cursor);
 }
 
+/** A popup inside a zoomed patch must inherit the same physical scale as its field. */
+async function renderedScale(locator: Locator): Promise<number> {
+  return locator.evaluate((element) => {
+    const height = (element as HTMLElement).offsetHeight;
+    return height === 0 ? 1 : element.getBoundingClientRect().height / height;
+  });
+}
+
 /** One face in the rack. The rack has no wires and no pane, so its faces are addressed by the
  * node they render rather than through React Flow. */
 function rackNode(page: Page, id: string): Locator {
@@ -93,6 +101,20 @@ test.describe("the workspace", () => {
     // The tile CDN is cut off, not awaited: CI must not lean on a third party, and the offline
     // fallback the map leg below lands in is itself behaviour the map owes a field workspace.
     await page.route("https://tiles.openfreemap.org/**", (route) => route.abort());
+    await page.route("**/api/devices", (route) =>
+      route.fulfill({
+        json: {
+          devices: [
+            { driver: "virtual", key: "siggen", label: "Signal Generator (virtual)" },
+            ...Array.from({ length: 100 }, (_, index) => ({
+              driver: "virtual",
+              key: `file:/recordings/capture-${index.toString().padStart(3, "0")}`,
+              label: `capture-${index.toString().padStart(3, "0")} (recording)`,
+            })),
+          ],
+        },
+      }),
+    );
     // MapLibre rejects a paint colour it cannot parse by dropping the whole layer with one
     // console error — the map then looks whole minus its targets, which no locator below sees.
     const styleErrors: string[] = [];
@@ -108,6 +130,17 @@ test.describe("the workspace", () => {
     await expect(receiver).toBeVisible();
     await expect(node("scope")).toBeVisible();
     await expect(node("speaker")).toBeVisible();
+
+    const recordings = receiver.getByRole("button", { name: "Recordings (100)" });
+    await expect(receiver.getByRole("button", { name: /capture-099/i })).toHaveCount(0);
+    await recordings.click();
+    const recordingsDialog = page.getByRole("dialog", { name: "Recordings" });
+    await expect(recordingsDialog).toBeVisible();
+    await recordingsDialog.getByRole("searchbox", { name: "Search recordings" }).fill("099");
+    await expect(recordingsDialog.getByRole("button", { name: /capture-099/i })).toBeVisible();
+    await expect(recordingsDialog.getByRole("button", { name: /capture-000/i })).toHaveCount(0);
+    await recordingsDialog.getByRole("button", { name: "Close" }).click();
+    await expect(recordings).toBeFocused();
 
     await receiver.getByRole("button", { name: /signal generator/i }).click();
     await expect(receiver.locator('[id^="frequency-dial"]')).toBeVisible();
@@ -266,7 +299,9 @@ test.describe("the workspace", () => {
 
     await scopePlot.getByRole("button", { name: /^magma$/i }).click();
     await page.getByRole("button", { name: /^viridis$/i }).click();
-    await expect(scopePlot.getByRole("button", { name: /^viridis$/i })).toBeVisible();
+    await expect(
+      scopePlot.locator('button[aria-haspopup="dialog"]', { hasText: /^viridis$/i }),
+    ).toBeVisible();
 
     expect(await tunedTo()).toBe(tuning);
 
@@ -360,7 +395,18 @@ test.describe("the workspace", () => {
 
   test("configures NMEA GPS and renders a live device fix", async ({ page }) => {
     await page.route("**/api/position/nmea-devices", (route) =>
-      route.fulfill({ status: 500, json: { error: "serial discovery unavailable" } }),
+      route.fulfill({
+        json: {
+          devices: [
+            {
+              path: "/dev/cu.usbmodem11401",
+              product: "u-blox GNSS receiver",
+              manufacturer: "u-blox",
+              serial: "GNSS-1",
+            },
+          ],
+        },
+      }),
     );
     await page.goto("/");
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
@@ -369,12 +415,22 @@ test.describe("the workspace", () => {
     await page.getByRole("button", { name: "NMEA serial" }).click();
     const nmea = page.locator('.react-flow__node[data-id^="gps:"]', { hasText: "NMEA" });
     await expect(nmea).toBeVisible();
-    await expect(nmea.getByText("Serial device discovery failed")).toBeVisible();
 
     const device = nmea.getByRole("combobox", { name: "Serial device" });
+    await device.fill("");
+    await device.click();
+    const detectedDevice = page.getByRole("option", { name: /\/dev\/cu\.usbmodem11401/ });
+    await expect(detectedDevice).toBeVisible();
+    const [fieldScale, popupScale] = await Promise.all([
+      renderedScale(device),
+      renderedScale(detectedDevice),
+    ]);
+    expect(Math.abs(fieldScale - popupScale)).toBeLessThan(0.05);
+    await detectedDevice.click();
+    await expect(device).toHaveValue("/dev/cu.usbmodem11401");
     await device.fill("/dev/ttyACM7");
     await device.blur();
-    const baud = nmea.getByRole("spinbutton", { name: "Baud" });
+    const baud = nmea.getByRole("combobox", { name: "Baud" });
     await baud.fill("38400");
     await baud.blur();
     await nmea.getByRole("combobox", { name: "Update rate" }).click();

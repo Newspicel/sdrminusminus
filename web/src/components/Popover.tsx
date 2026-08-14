@@ -2,6 +2,7 @@ import { Popover as Primitive } from "@base-ui/react/popover";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { SURFACE } from "./controls";
+import { usePortalContainer } from "./PortalContainer";
 
 export function Popover({
   label,
@@ -22,11 +23,12 @@ export function Popover({
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const portalContainer = usePortalContainer();
 
   return (
     <Primitive.Root open={open} onOpenChange={setOpen}>
       <Primitive.Trigger className={triggerClass}>{label}</Primitive.Trigger>
-      <Primitive.Portal>
+      <Primitive.Portal container={portalContainer} className="contents">
         <Primitive.Positioner className="z-30" side="bottom" align={align} sideOffset={4}>
           {/* The popover is chrome, and chrome never widens the document or runs off the bottom
               of a phone: the width is the caller's, the ceiling is the viewport's. */}

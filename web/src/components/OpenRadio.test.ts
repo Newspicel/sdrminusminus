@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { DeviceInfo } from "../lib/types";
 import {
   deviceId,
+  filterRecordingDevices,
+  groupDevices,
+  isRecordingDevice,
   NETWORK_BACKENDS,
   networkDeviceId,
   rankDevices,
@@ -35,19 +38,70 @@ describe("visibleDevices", () => {
   const devices = [
     device("virtual", "siggen", "Signal Generator"),
     device("virtual", "array4", "Coherent Array"),
+    device("virtual", "file:/recordings/airband", "airband (recording)"),
     device("rtlsdr", "00000001", "RTL-SDR 00000001"),
   ];
 
   it("includes virtual devices in a development build", () => {
     expect(visibleDevices(devices, true).map(deviceId)).toEqual([
       "rtlsdr:00000001",
+      "virtual:file:/recordings/airband",
       "virtual:array4",
       "virtual:siggen",
     ]);
   });
 
-  it("omits virtual devices from a production build", () => {
-    expect(visibleDevices(devices, false).map(deviceId)).toEqual(["rtlsdr:00000001"]);
+  it("omits synthetic devices from production but keeps recordings", () => {
+    expect(visibleDevices(devices, false).map(deviceId)).toEqual([
+      "rtlsdr:00000001",
+      "virtual:file:/recordings/airband",
+    ]);
+  });
+});
+
+describe("groupDevices", () => {
+  const devices = [
+    device("rtlsdr", "00000001", "RTL-SDR 00000001"),
+    device("virtual", "file:/recordings/airband", "airband (recording)"),
+    device("virtual", "siggen", "Signal Generator"),
+    device("virtual", "file:/recordings/weather", "weather (recording)"),
+  ];
+
+  it("keeps recordings out of the top-level device list", () => {
+    const grouped = groupDevices(devices);
+
+    expect(grouped.radios.map(deviceId)).toEqual(["rtlsdr:00000001", "virtual:siggen"]);
+    expect(grouped.recordings.map(deviceId)).toEqual([
+      "virtual:file:/recordings/airband",
+      "virtual:file:/recordings/weather",
+    ]);
+  });
+
+  it("recognizes only file-backed virtual devices as recordings", () => {
+    expect(isRecordingDevice(device("rtlsdr", "00000001"))).toBe(false);
+    expect(isRecordingDevice(device("virtual", "file:/recordings/airband"))).toBe(true);
+    expect(isRecordingDevice(device("virtual", "siggen"))).toBe(false);
+  });
+});
+
+describe("filterRecordingDevices", () => {
+  const recordings = [
+    device("virtual", "file:/recordings/Airband", "Airband morning (recording)"),
+    device("virtual", "file:/recordings/weather", "Weather net (recording)"),
+  ];
+
+  it("matches labels without case sensitivity or surrounding whitespace", () => {
+    expect(filterRecordingDevices(recordings, "  AIRBAND ").map(deviceId)).toEqual([
+      "virtual:file:/recordings/Airband",
+    ]);
+  });
+
+  it("returns every recording for an empty search", () => {
+    expect(filterRecordingDevices(recordings, " ")).toEqual(recordings);
+  });
+
+  it("returns an empty list when no recording matches", () => {
+    expect(filterRecordingDevices(recordings, "marine")).toEqual([]);
   });
 });
 
