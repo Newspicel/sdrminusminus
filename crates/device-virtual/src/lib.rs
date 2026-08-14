@@ -86,6 +86,12 @@ pub struct VirtualDriver {
     synthetic_devices: bool,
 }
 
+impl Default for VirtualDriver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VirtualDriver {
     /// A synthetic-only driver for hermetic tests and developer tooling.
     #[must_use]
