@@ -10,6 +10,7 @@ use std::{
 
 use num_complex::Complex;
 use sdrmm_recorder::{SigmfError, SigmfWriter, meta_path};
+use sdrmm_wire::PositionFix;
 
 use crate::EngineError;
 
@@ -43,6 +44,31 @@ pub(crate) struct RecordingShared {
     error: OnceLock<String>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct RecordingPosition {
+    tx: mpsc::SyncSender<RecMessage>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PositionUpdateError {
+    Full,
+    Disconnected,
+}
+
+impl RecordingPosition {
+    /// Position changes share the writer queue with IQ blocks. The channel's receive order is
+    /// therefore the sample boundary the fix belongs to, even when the disk writer is behind.
+    /// Routing must not wait behind a slow disk: a full queue is already a recording failure.
+    pub(crate) fn update(&self, fix: Option<PositionFix>) -> Result<(), PositionUpdateError> {
+        self.tx
+            .try_send(RecMessage::Position(fix.map(Box::new)))
+            .map_err(|error| match error {
+                mpsc::TrySendError::Full(_) => PositionUpdateError::Full,
+                mpsc::TrySendError::Disconnected(_) => PositionUpdateError::Disconnected,
+            })
+    }
+}
+
 impl RecordingShared {
     pub(crate) fn samples(&self) -> u64 {
         self.samples.load(Ordering::Relaxed)
@@ -66,14 +92,21 @@ impl RecordingShared {
 
 /// One drained DSP slice bound for the writer. `start_sample` is the DSP thread's total
 /// sample clock (ring drops included), so a gap between blocks marks an upstream overrun.
+#[derive(Debug)]
 pub(crate) struct RecBlock {
     start_sample: u64,
     center_hz: f64,
     samples: Arc<[Complex<f32>]>,
 }
 
+#[derive(Debug)]
+pub(crate) enum RecMessage {
+    Block(RecBlock),
+    Position(Option<Box<PositionFix>>),
+}
+
 pub(crate) struct RecorderTap {
-    tx: mpsc::SyncSender<RecBlock>,
+    tx: mpsc::SyncSender<RecMessage>,
     shared: Arc<RecordingShared>,
 }
 
@@ -91,7 +124,7 @@ impl RecorderTap {
             center_hz,
             samples: Arc::from(slice),
         };
-        match self.tx.try_send(block) {
+        match self.tx.try_send(RecMessage::Block(block)) {
             Ok(()) => true,
             Err(mpsc::TrySendError::Full(_)) => {
                 self.shared
@@ -108,14 +141,21 @@ impl RecorderTap {
     }
 }
 
-pub(crate) fn create_tap() -> (RecorderTap, mpsc::Receiver<RecBlock>, Arc<RecordingShared>) {
+pub(crate) fn create_tap() -> (
+    RecorderTap,
+    RecordingPosition,
+    mpsc::Receiver<RecMessage>,
+    Arc<RecordingShared>,
+) {
     let (tx, rx) = mpsc::sync_channel(REC_CHANNEL_CAP);
     let shared = Arc::new(RecordingShared::default());
+    let position = RecordingPosition { tx: tx.clone() };
     (
         RecorderTap {
             tx,
             shared: shared.clone(),
         },
+        position,
         rx,
         shared,
     )
@@ -126,23 +166,30 @@ pub(crate) fn create_tap() -> (RecorderTap, mpsc::Receiver<RecBlock>, Arc<Record
 /// write fault, finalizing either way so already-captured data survives as a playable pair.
 pub(crate) fn spawn_writer(
     writer: SigmfWriter,
-    blocks: mpsc::Receiver<RecBlock>,
+    messages: mpsc::Receiver<RecMessage>,
     shared: Arc<RecordingShared>,
 ) -> Result<JoinHandle<()>, EngineError> {
     std::thread::Builder::new()
         .name("sdrmm-rec".to_string())
-        .spawn(move || write_loop(writer, &blocks, &shared))
+        .spawn(move || write_loop(writer, &messages, &shared))
         .map_err(|e| EngineError::RecordingIo(format!("spawn recording writer thread: {e}")))
 }
 
 fn write_loop(
     mut writer: SigmfWriter,
-    blocks: &mpsc::Receiver<RecBlock>,
+    messages: &mpsc::Receiver<RecMessage>,
     shared: &RecordingShared,
 ) {
     let mut center = writer.meta().captures.last().and_then(|c| c.frequency);
     let mut next_sample: Option<u64> = None;
-    while let Ok(block) = blocks.recv() {
+    while let Ok(message) = messages.recv() {
+        let block = match message {
+            RecMessage::Block(block) => block,
+            RecMessage::Position(fix) => {
+                writer.set_position(fix.as_deref());
+                continue;
+            }
+        };
         if let Some(expected) = next_sample
             && block.start_sample != expected
         {
@@ -226,14 +273,15 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let stem = dir.path().join("rec");
         let writer = SigmfWriter::create(&stem, 48_000.0, 100_000_000.0, "hw").unwrap();
-        let (tap, blocks, shared) = create_tap();
-        let handle = spawn_writer(writer, blocks, shared.clone()).unwrap();
+        let (tap, position, messages, shared) = create_tap();
+        let handle = spawn_writer(writer, messages, shared.clone()).unwrap();
 
         let samples = block(16);
         assert!(tap.push(&samples, 0, 100_000_000.0));
         assert!(tap.push(&samples, 16, 101_000_000.0));
         assert!(tap.push(&[], 32, 101_000_000.0), "empty slices are skipped");
         drop(tap);
+        drop(position);
         handle.join().unwrap();
 
         assert_eq!(shared.samples(), 32);
@@ -248,21 +296,92 @@ mod tests {
     }
 
     #[test]
+    fn writer_geotags_the_sample_where_a_live_fix_arrives() {
+        let dir = TempDir::new().unwrap();
+        let stem = dir.path().join("mobile");
+        let writer = SigmfWriter::create(&stem, 48_000.0, 100_000_000.0, "hw").unwrap();
+        let (tap, position, messages, shared) = create_tap();
+        let handle = spawn_writer(writer, messages, shared).unwrap();
+        position
+            .update(Some(PositionFix {
+                latitude: 52.52,
+                longitude: 13.405,
+                altitude_m: Some(40.0),
+                accuracy_m: Some(3.0),
+                speed_mps: None,
+                track_deg: None,
+                time: "2026-08-14T12:00:00Z".to_owned(),
+            }))
+            .unwrap();
+        assert!(tap.push(&block(16), 0, 100_000_000.0));
+        drop(tap);
+        drop(position);
+        handle.join().unwrap();
+
+        let reader = SigmfReader::open(&stem).unwrap();
+        let capture = &reader.meta().captures[0];
+        assert_eq!(
+            capture.geolocation.as_ref().unwrap().coordinates,
+            vec![13.405, 52.52, 40.0]
+        );
+    }
+
+    #[test]
+    fn queued_iq_before_a_fix_is_not_backdated() {
+        let dir = TempDir::new().unwrap();
+        let stem = dir.path().join("ordered-position");
+        let writer = SigmfWriter::create(&stem, 48_000.0, 100_000_000.0, "hw").unwrap();
+        let (tap, position, messages, shared) = create_tap();
+        let handle = spawn_writer(writer, messages, shared).unwrap();
+        assert!(tap.push(&block(16), 0, 100_000_000.0));
+        position
+            .update(Some(PositionFix {
+                latitude: 52.52,
+                longitude: 13.405,
+                altitude_m: None,
+                accuracy_m: None,
+                speed_mps: None,
+                track_deg: None,
+                time: "2026-08-14T12:00:01Z".to_owned(),
+            }))
+            .unwrap();
+        assert!(tap.push(&block(16), 16, 100_000_000.0));
+        drop(tap);
+        drop(position);
+        handle.join().unwrap();
+
+        let reader = SigmfReader::open(&stem).unwrap();
+        assert_eq!(reader.meta().captures.len(), 2);
+        assert_eq!(reader.meta().captures[0].geolocation, None);
+        assert_eq!(reader.meta().captures[1].sample_start, 16);
+        assert_eq!(
+            reader.meta().captures[1]
+                .geolocation
+                .as_ref()
+                .unwrap()
+                .coordinates,
+            vec![13.405, 52.52]
+        );
+    }
+
+    #[test]
     fn full_queue_surfaces_overflow_instead_of_dropping() {
         // No writer thread: the queue backs up exactly like a wedged disk would make it.
-        let (tap, _blocks, shared) = create_tap();
+        let (tap, position, _messages, shared) = create_tap();
         let samples = block(4);
         for i in 0..REC_CHANNEL_CAP as u64 {
             assert!(tap.push(&samples, i * 4, 1_000_000.0));
         }
+        assert_eq!(position.update(None), Err(PositionUpdateError::Full));
         assert!(!tap.push(&samples, REC_CHANNEL_CAP as u64 * 4, 1_000_000.0));
         assert!(shared.error().unwrap().contains("overflow"));
     }
 
     #[test]
     fn dead_writer_surfaces_instead_of_dropping() {
-        let (tap, blocks, shared) = create_tap();
-        drop(blocks);
+        let (tap, position, messages, shared) = create_tap();
+        drop(position);
+        drop(messages);
         assert!(!tap.push(&block(4), 0, 1_000_000.0));
         assert_eq!(shared.error().as_deref(), Some("recording writer stopped"));
     }

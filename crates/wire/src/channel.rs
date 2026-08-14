@@ -39,6 +39,9 @@ pub struct ChannelDescriptor {
     pub native_rate_max_hz: Option<f64>,
     #[serde(default)]
     pub can_transmit: bool,
+    /// Whether this channel accepts a live station position input.
+    #[serde(default)]
+    pub needs_position: bool,
 }
 
 impl ChannelDescriptor {
@@ -70,6 +73,7 @@ impl Default for ChannelDescriptor {
             exact_rate_only: false,
             native_rate_max_hz: None,
             can_transmit: false,
+            needs_position: false,
         }
     }
 }

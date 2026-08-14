@@ -11,6 +11,7 @@ use std::{
 
 pub use export::{Export, ExportKind};
 use num_complex::Complex;
+use sdrmm_wire::PositionFix;
 use serde::{Deserialize, Serialize};
 
 /// SigMF specification version written into `core:version`.
@@ -106,6 +107,19 @@ pub struct SigmfCapture {
         skip_serializing_if = "Option::is_none"
     )]
     pub datetime: Option<String>,
+    #[serde(
+        rename = "core:geolocation",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub geolocation: Option<SigmfGeolocation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SigmfGeolocation {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub coordinates: Vec<f64>,
 }
 
 /// A `.sigmf-meta` document. `annotations` is carried verbatim: this build writes none but
@@ -199,6 +213,7 @@ impl SigmfWriter {
                 sample_start: 0,
                 frequency: Some(center_hz),
                 datetime: Some(jiff::Timestamp::now().to_string()),
+                geolocation: None,
             }],
             annotations: Vec::new(),
         };
@@ -267,7 +282,44 @@ impl SigmfWriter {
             sample_start: self.samples,
             frequency: Some(frequency_hz),
             datetime: None,
+            geolocation: None,
         });
+    }
+
+    pub fn set_position(&mut self, fix: Option<&PositionFix>) {
+        let frequency = self
+            .meta
+            .captures
+            .last()
+            .and_then(|capture| capture.frequency);
+        if self
+            .meta
+            .captures
+            .last()
+            .is_none_or(|capture| capture.sample_start != self.samples)
+        {
+            self.meta.captures.push(SigmfCapture {
+                sample_start: self.samples,
+                frequency,
+                datetime: fix.map(|fix| fix.time.clone()),
+                geolocation: None,
+            });
+        }
+        if let Some(capture) = self.meta.captures.last_mut() {
+            capture.geolocation = fix.map(|fix| {
+                let mut coordinates = vec![fix.longitude, fix.latitude];
+                if let Some(altitude) = fix.altitude_m {
+                    coordinates.push(altitude);
+                }
+                SigmfGeolocation {
+                    kind: "Point".to_owned(),
+                    coordinates,
+                }
+            });
+            if let Some(fix) = fix {
+                capture.datetime = Some(fix.time.clone());
+            }
+        }
     }
 
     #[must_use]
@@ -515,6 +567,66 @@ mod tests {
     }
 
     #[test]
+    fn clearing_position_at_same_sample_clears_coordinates_and_preserves_timestamp() {
+        let dir = TempDir::new().unwrap();
+        let stem = dir.path().join("geotagged");
+        let mut writer = SigmfWriter::create(&stem, 48_000.0, 1_000_000.0, "hw").unwrap();
+        let fix = PositionFix {
+            latitude: 52.52,
+            longitude: 13.405,
+            altitude_m: Some(40.0),
+            accuracy_m: None,
+            speed_mps: None,
+            track_deg: None,
+            time: "2026-08-14T12:00:00Z".to_owned(),
+        };
+
+        writer.set_position(Some(&fix));
+        writer.set_position(None);
+
+        let capture = writer.meta().captures.last().unwrap();
+        assert_eq!(capture.geolocation, None);
+        assert_eq!(capture.datetime.as_deref(), Some(fix.time.as_str()));
+    }
+
+    #[test]
+    fn position_serializes_as_two_or_three_dimensional_geojson() {
+        let dir = TempDir::new().unwrap();
+        let stem = dir.path().join("geojson");
+        let mut writer = SigmfWriter::create(&stem, 48_000.0, 1_000_000.0, "hw").unwrap();
+        let mut fix = PositionFix {
+            latitude: 52.52,
+            longitude: 13.405,
+            altitude_m: None,
+            accuracy_m: None,
+            speed_mps: None,
+            track_deg: None,
+            time: "2026-08-14T12:00:00Z".to_owned(),
+        };
+
+        writer.write_block(&samples(12)).unwrap();
+        writer.set_position(Some(&fix));
+        assert_eq!(writer.meta().captures.len(), 2);
+        let capture = &writer.meta().captures[1];
+        assert_eq!(capture.sample_start, 12);
+        assert_eq!(capture.frequency, Some(1_000_000.0));
+        assert_eq!(capture.datetime.as_deref(), Some(fix.time.as_str()));
+        let json = serde_json::to_value(writer.meta()).unwrap();
+        assert_eq!(
+            json["captures"][1]["core:geolocation"],
+            serde_json::json!({"type": "Point", "coordinates": [13.405, 52.52]})
+        );
+
+        fix.altitude_m = Some(40.0);
+        writer.set_position(Some(&fix));
+        let json = serde_json::to_value(writer.meta()).unwrap();
+        assert_eq!(
+            json["captures"][1]["core:geolocation"],
+            serde_json::json!({"type": "Point", "coordinates": [13.405, 52.52, 40.0]})
+        );
+    }
+
+    #[test]
     fn finalize_swaps_tmp_breadcrumb_for_real_meta() {
         let dir = TempDir::new().unwrap();
         let stem = dir.path().join("inflight");
@@ -663,6 +775,7 @@ mod tests {
                 sample_start: 7,
                 frequency: Some(100_000_000.0),
                 datetime: None,
+                geolocation: None,
             }],
             annotations: Vec::new(),
         };

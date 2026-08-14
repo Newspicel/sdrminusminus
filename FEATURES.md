@@ -56,7 +56,8 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 6. UI, workspaces & onboarding
 
-- **[planned]** Node kinds whose backends do not exist yet: GPS source, UDP sink, WAV sink, and the `iq-tap`/`position` port types that go with them
+- **[shipped]** Typed live-position wiring with device, gpsd, and serial NMEA GPS source nodes
+- **[planned]** Node kinds whose backends do not exist yet: UDP sink, WAV sink, and the `iq-tap` port type that goes with them
 - **[planned]** A scope on a channel tap — a scope only takes a device today
 - **[planned]** Theme/skin system and a layout marketplace
 
@@ -143,7 +144,9 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 - **[planned]** Satellite tracker (TLE fetch, pass prediction, Doppler-corrected channels)
 - **[planned]** Rotator control (GS-232, rotctld); rigctld-compatible rig control server
-- **[planned]** GPS position source (gpsd / NMEA) — station position for maps and trackers, geotagged mobile heat map, auto grid locator, geotagged recordings
+- **[shipped]** GPS position sources (device / gpsd / NMEA) — live station position for ADS-B
+  and maps, bounded mobile heat-map trails, automatic Maidenhead grid locator, and dynamic SigMF
+  recording geotags
 - **[planned]** NanoVNA over USB serial — sweeps, SWR and Smith-chart panels, saved antenna profiles
 - **[planned]** Antenna calculators
 - **[planned]** Map layers — sondes, satellites, beacons, MUF

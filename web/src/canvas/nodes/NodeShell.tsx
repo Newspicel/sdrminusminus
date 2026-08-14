@@ -45,6 +45,7 @@ const PORT_COLOR: Record<PortType, string> = {
   events: "text-port-events",
   video: "text-port-video",
   control: "text-port-control",
+  position: "text-accent",
   tx: "text-port-tx",
 };
 
@@ -56,7 +57,7 @@ function PortGlyph({ type }: { type: PortType }) {
   };
   return (
     <svg aria-hidden viewBox="0 0 12 12" className="pointer-events-none size-3 overflow-visible">
-      {type === "iq" || type === "tx" ? (
+      {type === "iq" || type === "position" || type === "tx" ? (
         <circle cx="6" cy="6" r="4.5" {...common} />
       ) : type === "audio" ? (
         <path d="M6 1 11 6 6 11 1 6Z" {...common} />

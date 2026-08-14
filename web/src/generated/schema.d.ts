@@ -404,6 +404,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/position/nmea-devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_nmea_devices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/presets": {
         parameters: {
             query?: never;
@@ -1202,6 +1218,8 @@ export interface components {
              *     meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
              */
             native_rate_max_hz?: number | null;
+            /** @description Whether this channel accepts a live station position input. */
+            needs_position?: boolean;
             /** @description Stable type id, e.g. `"nfm"`, `"am"`, `"ssb"`, `"wfm"`. */
             type_id: string;
         };
@@ -1422,6 +1440,18 @@ export interface components {
             };
             /** @enum {string} */
             type: "UnsubscribeVideo";
+        } | {
+            /**
+             * @description A fix from the desktop WebView's geolocation provider. The server accepts this only for
+             *     a device-position node in the active workspace.
+             */
+            data: {
+                error?: string | null;
+                fix?: null | components["schemas"]["PositionFix"];
+                node: string;
+            };
+            /** @enum {string} */
+            type: "PublishPosition";
         };
         /**
          * @description `GET /api/clients` — how many clients share this server right now ( M5
@@ -1948,6 +1978,9 @@ export interface components {
             /** Format: double */
             value_db: number;
         };
+        GpsNode: {
+            source?: components["schemas"]["PositionSource"];
+        };
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
         /**
@@ -2047,10 +2080,28 @@ export interface components {
         };
         /** @enum {string} */
         NfmToneMode: "off" | "detect" | "ctcss" | "dcs";
+        /** @description One serial port the server can currently offer to an NMEA GPS node. */
+        NmeaDeviceInfo: {
+            manufacturer?: string | null;
+            path: string;
+            product?: string | null;
+            serial?: string | null;
+            /** Format: int32 */
+            usb_pid?: number | null;
+            /** Format: int32 */
+            usb_vid?: number | null;
+        };
+        NmeaDevicesResponse: {
+            devices: components["schemas"]["NmeaDeviceInfo"][];
+        };
         NodeBody: {
             data: components["schemas"]["DeviceNode"];
             /** @enum {string} */
             kind: "device";
+        } | {
+            data: components["schemas"]["GpsNode"];
+            /** @enum {string} */
+            kind: "gps";
         } | {
             data: components["schemas"]["ChannelNode"];
             /** @enum {string} */
@@ -2271,7 +2322,7 @@ export interface components {
          *     names for it.
          * @enum {string}
          */
-        PortCondition: "always" | "channel_has_audio" | "channel_is_decoder" | "channel_has_video" | "device_is_tx_capable";
+        PortCondition: "always" | "channel_has_audio" | "channel_is_decoder" | "channel_has_video" | "channel_needs_position" | "device_is_tx_capable";
         /**
          * @description Which side of a node a port sits on.
          * @enum {string}
@@ -2309,13 +2360,52 @@ export interface components {
             repeat?: components["schemas"]["PortRepeat"];
         };
         /** @enum {string} */
-        PortType: "iq" | "audio" | "events" | "video" | "control" | "tx";
+        PortType: "iq" | "audio" | "events" | "video" | "control" | "position" | "tx";
         /** @description Canvas position of a node, in React Flow's coordinate space. */
         Position: {
             /** Format: float */
             x: number;
             /** Format: float */
             y: number;
+        };
+        /**
+         * @description One live station fix. Optional measurements stay absent when the provider did not report
+         *     them; latitude and longitude are always a complete, validated pair.
+         */
+        PositionFix: {
+            /** Format: double */
+            accuracy_m?: number | null;
+            /** Format: double */
+            altitude_m?: number | null;
+            /** Format: double */
+            latitude: number;
+            /** Format: double */
+            longitude: number;
+            /** Format: double */
+            speed_mps?: number | null;
+            /**
+             * @description RFC3339 UTC. Providers without their own timestamp are stamped when the server receives
+             *     the fix.
+             */
+            time: string;
+            /** Format: double */
+            track_deg?: number | null;
+        };
+        PositionSource: {
+            /** @enum {string} */
+            type: "device";
+        } | {
+            address: string;
+            /** @enum {string} */
+            type: "gpsd";
+        } | {
+            /** Format: int32 */
+            baud: number;
+            device: string;
+            /** @enum {string} */
+            type: "nmea";
+            /** Format: int32 */
+            update_interval_ms?: number;
         };
         /** @description One device node's radio settings and channels, as the preset captured them. */
         PresetDevice: {
@@ -2759,6 +2849,18 @@ export interface components {
             };
             /** @enum {string} */
             type: "ScannerUpdate";
+        } | {
+            /**
+             * @description Latest state of one GPS source node. Exactly one of `fix` and `error` is present; an error
+             *     means the source has gone unavailable and consumers stop using its previous fix.
+             */
+            data: {
+                error?: string | null;
+                fix?: null | components["schemas"]["PositionFix"];
+                node: string;
+            };
+            /** @enum {string} */
+            type: "PositionChanged";
         } | {
             /** @description Non-fatal server-side error surfaced to the client. */
             data: {
@@ -4111,6 +4213,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PatchCatalog"];
+                };
+            };
+        };
+    };
+    get_nmea_devices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Serial devices available to NMEA GPS nodes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NmeaDevicesResponse"];
+                };
+            };
+            /** @description Serial device discovery failed */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };

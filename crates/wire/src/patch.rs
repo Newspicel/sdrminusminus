@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
+    GpsNode, MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS, MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD,
+    MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
     device::{Capabilities, DeviceInfo, Direction},
     workspace::MAX_NAME_LEN,
@@ -66,6 +68,8 @@ pub enum PortType {
     /// Scanned pictures, one raster per field (`VIDEO_GRAY` on the wire, ATV).
     Video,
     Control,
+    /// Live station coordinates and motion.
+    Position,
     /// Complex baseband to be transmitted at the device rate.
     ///
     /// **Reserved, and inert by construction.** No node kind in this build emits it, so no edge
@@ -86,6 +90,7 @@ impl PortType {
             Self::Events => "events",
             Self::Video => "video",
             Self::Control => "control",
+            Self::Position => "position",
             Self::Tx => "tx",
         }
     }
@@ -114,6 +119,8 @@ pub enum PortCondition {
     ChannelIsDecoder,
     /// Only when the channel type scans out a picture.
     ChannelHasVideo,
+    /// Only when the channel uses the station position while decoding.
+    ChannelNeedsPosition,
     /// Only on a radio that has a transmit side ([`Capabilities::duplex`]). Unlike the channel
     /// conditions this one is answered by the *binding* rather than by the stored node: which
     /// radio a device node names is stored, but what that radio can do is only known while it is
@@ -241,6 +248,9 @@ impl PortSpec {
             (PortCondition::ChannelHasVideo, Some(PortBacking::Channel(channel))) => {
                 channel.has_video
             }
+            (PortCondition::ChannelNeedsPosition, Some(PortBacking::Channel(channel))) => {
+                channel.needs_position
+            }
             (PortCondition::DeviceIsTxCapable, Some(PortBacking::Device(device))) => {
                 device.duplex.supports(Direction::Tx)
             }
@@ -355,6 +365,7 @@ impl Default for DmrTrunkNode {
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum NodeBody {
     Device(DeviceNode),
+    Gps(GpsNode),
     Channel(ChannelNode),
     /// Spectrum + waterfall over a device's IQ.
     Scope,
@@ -385,6 +396,7 @@ impl NodeBody {
     pub const fn kind(&self) -> &'static str {
         match self {
             Self::Device(_) => "device",
+            Self::Gps(_) => "gps",
             Self::Channel(_) => "channel",
             Self::Scope => "scope",
             Self::Speaker => "speaker",
@@ -402,7 +414,7 @@ impl NodeBody {
     #[must_use]
     pub const fn category(&self) -> NodeCategory {
         match self {
-            Self::Device(_) => NodeCategory::Source,
+            Self::Device(_) | Self::Gps(_) => NodeCategory::Source,
             Self::Channel(_) => NodeCategory::Channel,
             Self::Scope | Self::Map | Self::Readout | Self::DecoderLog | Self::Video => {
                 NodeCategory::Display
@@ -454,10 +466,11 @@ impl NodeBody {
 /// place.
 fn ports_for(kind: &str) -> Vec<PortSpec> {
     use PortCondition::{
-        Always, ChannelHasAudio, ChannelHasVideo, ChannelIsDecoder, DeviceIsTxCapable,
+        Always, ChannelHasAudio, ChannelHasVideo, ChannelIsDecoder, ChannelNeedsPosition,
+        DeviceIsTxCapable,
     };
     use PortDirection::{In, Out};
-    use PortType::{Audio, Control, Events, Iq, Tx, Video};
+    use PortType::{Audio, Control, Events, Iq, Position, Tx, Video};
     match kind {
         // A radio's left side is what is done *to* it, and its right side is what comes off it.
         // Both inputs take one wire: one sweep owns the tuning, one baseband keys the transmitter.
@@ -475,17 +488,27 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
                 ),
             PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
+        "gps" => vec![PortSpec::new(Position, Out, true, Always)],
         "channel" => vec![
             PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Position, In, false, ChannelNeedsPosition),
             PortSpec::new(Audio, Out, true, ChannelHasAudio),
             PortSpec::new(Events, Out, true, ChannelIsDecoder),
             PortSpec::new(Video, Out, true, ChannelHasVideo),
         ],
-        "scope" | "recorder" => vec![PortSpec::new(Iq, In, false, Always)],
+        "scope" => vec![PortSpec::new(Iq, In, false, Always)],
+        "recorder" => vec![
+            PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Position, In, false, Always),
+        ],
         "scanner" => vec![PortSpec::new(Control, Out, false, Always)],
         "speaker" => vec![PortSpec::new(Audio, In, true, Always)],
         "video" => vec![PortSpec::new(Video, In, true, Always)],
-        "map" | "readout" | "decoder_log" | "export" => {
+        "map" => vec![
+            PortSpec::new(Events, In, true, Always),
+            PortSpec::new(Position, In, true, Always),
+        ],
+        "readout" | "decoder_log" | "export" => {
             vec![PortSpec::new(Events, In, true, Always)]
         }
         "dmr_trunk" => vec![
@@ -531,6 +554,7 @@ impl PatchCatalog {
         Self {
             nodes: vec![
                 entry(&NodeBody::Device(DeviceNode::default()), "Device"),
+                entry(&NodeBody::Gps(GpsNode::default()), "GPS position"),
                 entry(
                     &NodeBody::Channel(ChannelNode {
                         channel_type: String::new(),
@@ -642,6 +666,7 @@ pub enum PatchError {
     Label(String),
     Geometry(String),
     Backend(String),
+    Gps(String),
     ChannelType(String),
     NodeSettings(String),
     UnknownNode(String),
@@ -666,6 +691,7 @@ impl std::fmt::Display for PatchError {
             Self::Label(id) => write!(f, "label of node {id} is longer than {MAX_NAME_LEN}"),
             Self::Geometry(id) => write!(f, "node {id} sits outside the canvas bounds"),
             Self::Backend(id) => write!(f, "node {id} names no backend"),
+            Self::Gps(reason) => write!(f, "invalid GPS source: {reason}"),
             Self::ChannelType(ty) => write!(f, "unknown channel type {ty:?}"),
             Self::NodeSettings(id) => write!(f, "invalid settings for node {id}"),
             Self::UnknownNode(id) => write!(f, "edge names unknown node {id}"),
@@ -809,6 +835,7 @@ impl PatchGraph {
                         return Err(PatchError::ChannelType(channel.channel_type.clone()));
                     }
                 }
+                NodeBody::Gps(gps) => validate_gps_source(&gps.source)?,
                 NodeBody::DmrTrunk(settings) => {
                     if settings.retention_seconds != 0
                         && !(10..=86_400).contains(&settings.retention_seconds)
@@ -922,6 +949,69 @@ impl PatchGraph {
         }
         Ok(spec)
     }
+}
+
+fn validate_gps_source(source: &PositionSource) -> Result<(), PatchError> {
+    match source {
+        PositionSource::Device => Ok(()),
+        PositionSource::Gpsd { address } => {
+            if address.is_empty() || address.len() > MAX_POSITION_ENDPOINT_LEN {
+                Err(PatchError::Gps(
+                    "gpsd address is empty or too long".to_owned(),
+                ))
+            } else if !valid_host_port(address) {
+                Err(PatchError::Gps(
+                    "gpsd address must be a host and non-zero port".to_owned(),
+                ))
+            } else {
+                Ok(())
+            }
+        }
+        PositionSource::Nmea {
+            device,
+            baud,
+            update_interval_ms,
+        } => {
+            if device.is_empty() || device.len() > MAX_POSITION_ENDPOINT_LEN {
+                return Err(PatchError::Gps(
+                    "NMEA device is empty or too long".to_owned(),
+                ));
+            }
+            if !(MIN_NMEA_BAUD..=MAX_NMEA_BAUD).contains(baud) {
+                return Err(PatchError::Gps(format!(
+                    "NMEA baud rate is outside {MIN_NMEA_BAUD}..={MAX_NMEA_BAUD}"
+                )));
+            }
+            if !(MIN_NMEA_UPDATE_INTERVAL_MS..=MAX_NMEA_UPDATE_INTERVAL_MS)
+                .contains(update_interval_ms)
+            {
+                return Err(PatchError::Gps(format!(
+                    "NMEA update interval is outside {MIN_NMEA_UPDATE_INTERVAL_MS}..={MAX_NMEA_UPDATE_INTERVAL_MS} ms"
+                )));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn valid_host_port(address: &str) -> bool {
+    let Some((host, port)) = address.rsplit_once(':') else {
+        return false;
+    };
+    if port.parse::<u16>().ok().is_none_or(|port| port == 0) {
+        return false;
+    }
+    if let Some(ipv6) = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+    {
+        return ipv6.parse::<std::net::Ipv6Addr>().is_ok();
+    }
+    !host.is_empty()
+        && !host.contains(':')
+        && host
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
 }
 
 fn check_geometry(node: &PatchNode) -> Result<(), PatchError> {
@@ -1904,6 +1994,80 @@ mod tests {
         )
         .unwrap();
         assert_eq!(bare.repeat, PortRepeat::Once);
+
+        let gps = catalog
+            .nodes
+            .iter()
+            .find(|node| node.kind == "gps")
+            .expect("GPS source in the palette");
+        assert_eq!(gps.ports[0].port_type, PortType::Position);
+        let position = channel
+            .ports
+            .iter()
+            .find(|port| port.name == "position")
+            .expect("position input");
+        assert_eq!(position.condition, PortCondition::ChannelNeedsPosition);
+    }
+
+    #[test]
+    fn gps_source_settings_are_structurally_bounded() {
+        let mut graph = PatchGraph {
+            nodes: vec![node(
+                "gps",
+                NodeBody::Gps(GpsNode {
+                    source: PositionSource::Nmea {
+                        device: "/dev/ttyUSB0".to_owned(),
+                        baud: 9_600,
+                        update_interval_ms: 1_000,
+                    },
+                }),
+            )],
+            edges: Vec::new(),
+        };
+        assert_eq!(graph.validate(), Ok(()));
+        if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
+            gps.source = PositionSource::Nmea {
+                device: "/dev/ttyUSB0".to_owned(),
+                baud: 9_600,
+                update_interval_ms: 49,
+            };
+        }
+        assert!(matches!(graph.validate(), Err(PatchError::Gps(_))));
+        if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
+            gps.source = PositionSource::Gpsd {
+                address: String::new(),
+            };
+        }
+        assert!(matches!(graph.validate(), Err(PatchError::Gps(_))));
+        if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
+            gps.source = PositionSource::Gpsd {
+                address: "not-an-endpoint".to_owned(),
+            };
+        }
+        assert!(matches!(graph.validate(), Err(PatchError::Gps(_))));
+        for address in [
+            "localhost:0",
+            "localhost:gps",
+            "[::1:2947",
+            "[::1]]:2947",
+            "bad host:2947",
+        ] {
+            if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
+                gps.source = PositionSource::Gpsd {
+                    address: address.to_owned(),
+                };
+            }
+            assert!(
+                matches!(graph.validate(), Err(PatchError::Gps(_))),
+                "accepted invalid GPSD endpoint {address}"
+            );
+        }
+        if let NodeBody::Gps(gps) = &mut graph.nodes[0].body {
+            gps.source = PositionSource::Gpsd {
+                address: "[::1]:2947".to_owned(),
+            };
+        }
+        assert_eq!(graph.validate(), Ok(()));
     }
 
     /// A channel node names a type; the engine is asked for a channel at that type's documented

@@ -11,6 +11,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+sdrmm-wire.workspace = true
 jiff.workspace = true
 num-complex.workspace = true
 serde.workspace = true

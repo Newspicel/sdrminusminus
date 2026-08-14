@@ -5,6 +5,7 @@ import { filterPalette, paletteGroups } from "./palette";
 const CATALOG: PatchCatalog = {
   nodes: [
     { kind: "device", name: "Device", category: "source", ports: [] },
+    { kind: "gps", name: "GPS position", category: "source", ports: [] },
     { kind: "channel", name: "Channel", category: "channel", ports: [], needs_channel_type: true },
     { kind: "scope", name: "Scope", category: "display", ports: [] },
     { kind: "speaker", name: "Speaker", category: "sink", ports: [] },
@@ -36,7 +37,7 @@ describe("paletteGroups", () => {
   it("orders the sections and splits channels by what they produce", () => {
     const groups = paletteGroups(CATALOG, TYPES);
     expect(groups.map((group) => group.title)).toEqual([
-      "Radios",
+      "Sources",
       "Modes",
       "Decoders",
       "Displays",
@@ -47,6 +48,12 @@ describe("paletteGroups", () => {
       { id: "channel:nfm", name: "NFM", kind: "channel", type: TYPES[0] },
     ]);
     expect(groups[2]?.items[0]?.id).toBe("channel:adsb");
+    expect(groups[0]?.items.map((item) => item.id)).toEqual(["device", "gps:gpsd", "gps:nmea"]);
+  });
+
+  it("offers device GPS only when this WebView exposes geolocation", () => {
+    const groups = paletteGroups(CATALOG, TYPES, true);
+    expect(groups[0]?.items.map((item) => item.id)).toContain("gps:device");
   });
 
   it("drops a section the server describes nothing for", () => {

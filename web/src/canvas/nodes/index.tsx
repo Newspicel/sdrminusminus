@@ -5,6 +5,7 @@ import type { FlowData } from "../Canvas";
 import { ChannelFace } from "./ChannelFace";
 import { DeviceFace } from "./DeviceFace";
 import { DmrTrunkFace } from "./DmrTrunkFace";
+import { GpsFace } from "./GpsFace";
 import { CanvasSurface } from "./NodeShell";
 import { ScopeFace } from "./ScopeFace";
 import {
@@ -32,6 +33,7 @@ function mount(Face: Face) {
 
 export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>>>> = {
   device: mount(DeviceFace),
+  gps: mount(GpsFace),
   channel: mount(ChannelFace),
   scope: mount(ScopeFace),
   speaker: mount(SpeakerFace),
@@ -49,6 +51,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
  * it. */
 export const FACES: Record<NodeKind, Face> = {
   device: DeviceFace,
+  gps: GpsFace,
   channel: ChannelFace,
   scope: ScopeFace,
   speaker: SpeakerFace,

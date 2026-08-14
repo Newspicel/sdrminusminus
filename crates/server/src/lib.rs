@@ -29,6 +29,7 @@ mod bandplan;
 mod calls;
 mod decoderlog;
 pub mod doctor;
+mod gps;
 mod mcp;
 pub mod notices;
 mod rest;
@@ -96,6 +97,7 @@ pub(crate) struct AppState {
     /// Per-run, like the bindings it describes: device-set ids are never reused, so a radio that
     /// is closed and opened again is a new binding and gets its settings back.
     pub(crate) restored: Arc<std::sync::Mutex<HashSet<(i64, String, u32)>>>,
+    pub(crate) gps: Arc<gps::GpsHub>,
 }
 
 impl AppState {
@@ -115,6 +117,7 @@ impl AppState {
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
+            gps: Arc::new(gps::GpsHub::default()),
         }
     }
 
@@ -178,6 +181,7 @@ fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Write
     );
     ws::start_decoded_encoder(&state);
     workspace::spawn_autosave(&state);
+    state.gps.reconcile(&state);
     let (api_router, api) = rest::openapi_router().split_for_parts();
 
     let mut app = Router::new()
@@ -329,8 +333,9 @@ mod tests {
     use sdrmm_wire::{
         AdsbMessage, ApiError, AprsPacket, Bookmark, ChannelParams, ChannelSettings,
         ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord, DecoderEvent,
-        DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NfmParams, PresetInfo,
-        PresetSnapshot, RecordingStatus, RecordingsResponse, StateSnapshot, VoiceCallsResponse,
+        DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NfmParams,
+        NmeaDevicesResponse, PresetInfo, PresetSnapshot, RecordingStatus, RecordingsResponse,
+        StateSnapshot, VoiceCallsResponse,
     };
     use tower::ServiceExt;
 
@@ -524,6 +529,20 @@ mod tests {
         let app = test_router();
         let snap = get_state(&app).await;
         assert!(snap.device_sets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn nmea_device_catalog_is_available_over_http() {
+        let (status, body) =
+            request(test_router(), "GET", "/api/position/nmea-devices", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let response: NmeaDevicesResponse = serde_json::from_slice(&body).expect("NMEA devices");
+        assert!(
+            response
+                .devices
+                .iter()
+                .all(|device| !device.path.is_empty())
+        );
     }
 
     #[tokio::test]

@@ -6,6 +6,7 @@ pub mod device;
 pub mod doctor;
 pub mod frame;
 pub mod patch;
+pub mod position;
 pub mod rest;
 pub mod scan;
 pub mod state;
@@ -44,6 +45,11 @@ pub use patch::{
     PatchGraph, PatchNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat,
     PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout, RackSlot, Size,
     port_stream, stream_port,
+};
+pub use position::{
+    DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
+    MAX_NMEA_BAUD, MAX_NMEA_UPDATE_INTERVAL_MS, MAX_POSITION_ENDPOINT_LEN, MIN_NMEA_BAUD,
+    MIN_NMEA_UPDATE_INTERVAL_MS, NmeaDeviceInfo, NmeaDevicesResponse, PositionFix, PositionSource,
 };
 pub use rest::{
     ApiError, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse, ClientsResponse,

@@ -11,6 +11,7 @@ import {
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { useEffect, useRef, useState } from "react";
 import { useDecodedStore } from "../lib/decoded";
+import { trailBounds, unwrapTrail } from "../lib/map/bounds";
 import {
   AGE_OUT_INTERVAL_MS,
   DRAW_TICK_MS,
@@ -28,6 +29,7 @@ import {
   targetCollection,
   targetDetail,
 } from "../lib/map/layers";
+import { type PositionSample, usePositionStore } from "../lib/position";
 import { formatMhz } from "./format";
 
 // MapLibre v6 ships its worker as a separate file and derives its URL from `import.meta.url`,
@@ -71,6 +73,7 @@ const ZERO_COUNTS: Counts = { adsb: 0, ais: 0, aprs: 0 };
 export function MapPanel({
   kinds,
   references = [],
+  positionNodes = [],
   active = true,
   className,
 }: {
@@ -78,6 +81,7 @@ export function MapPanel({
   /** `[lon, lat]` station fixes — an ADS-B channel's CPR reference — drawn as landmarks under
    * the targets they anchor. */
   references?: readonly (readonly [number, number])[];
+  positionNodes?: readonly string[];
   /** Whether the map owns the pointer and the wheel. On the canvas it does so only while its node
    * is the active face — MapLibre's own handlers would otherwise pan the map *and* the patch with
    * one gesture, since the two cannot share a wheel. */
@@ -91,7 +95,8 @@ export function MapPanel({
   // only when that kind changed) keeps an idle map from re-serialising GeoJSON twice a second.
   const drawnRef = useRef<Partial<Record<MapKind, readonly Target[]>>>({});
   const selectedRef = useRef<{ kind: MapKind; id: string } | null>(null);
-  const framedRef = useRef(false);
+  const targetFramedRef = useRef(false);
+  const positionFramedRef = useRef(false);
   // The map is built once and outlives any number of wire changes, so the listeners and the draw
   // tick read the wired kinds, the references and the theme colours from here rather than
   // closing over them.
@@ -99,6 +104,9 @@ export function MapPanel({
   kindsRef.current = kinds;
   const referencesRef = useRef(references);
   referencesRef.current = references;
+  const positionNodesRef = useRef(positionNodes);
+  positionNodesRef.current = positionNodes;
+  const positionDrawnRef = useRef("");
   const edgeRef = useRef("");
   const accentRef = useRef("");
 
@@ -107,6 +115,7 @@ export function MapPanel({
   const [counts, setCounts] = useState<Counts>(ZERO_COUNTS);
   const [detail, setDetail] = useState<TargetDetail | null>(null);
   const [basemap, setBasemap] = useState<"pending" | "online" | "offline">("pending");
+  const [positionCount, setPositionCount] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -150,6 +159,7 @@ export function MapPanel({
       map.on("style.load", () => {
         installReferenceLayer(map, accentRef.current, edge, referencesRef.current);
         installLayers(map, edge, kindsRef.current);
+        installPositionLayers(map, accentRef.current, edge, positionNodesRef.current.length > 0);
         readyRef.current = true;
         drawnRef.current = {};
         highlight(map, kindsRef.current, selectedRef.current);
@@ -159,7 +169,8 @@ export function MapPanel({
       // view back off them.
       map.on("movestart", (event) => {
         if (event.originalEvent !== undefined) {
-          framedRef.current = true;
+          targetFramedRef.current = true;
+          positionFramedRef.current = true;
         }
       });
 
@@ -192,6 +203,29 @@ export function MapPanel({
       const next = { ...countsRef.current };
       let changed = false;
 
+      const positionSources = usePositionStore.getState().sources;
+      const tracks = positionNodesRef.current.map((node) => ({
+        node,
+        samples: positionSources[node]?.history ?? EMPTY_POSITION_HISTORY,
+        active: positionSources[node]?.fix != null,
+      }));
+      const positionKey = tracks
+        .map(
+          ({ node, samples, active: live }) =>
+            `${node}:${samples.length}:${samples.at(-1)?.receivedAt ?? 0}:${live ? "live" : "stale"}`,
+        )
+        .join("|");
+      if (positionKey !== positionDrawnRef.current) {
+        positionDrawnRef.current = positionKey;
+        const collection = updatePositionSources(
+          map.getSource<GeoJSONSource>(POSITION_SOURCE),
+          map.getSource<GeoJSONSource>(POSITION_ROUTE_SOURCE),
+          tracks,
+        );
+        setPositionCount(collection.points.features.length);
+        framePositionOnce(map, collection.points, positionFramedRef);
+      }
+
       for (const kind of kindsRef.current) {
         const rows = stations[kind] ?? EMPTY_STATIONS;
         if (rows === drawnRef.current[kind]) {
@@ -203,10 +237,7 @@ export function MapPanel({
         void map.getSource<GeoJSONSource>(sourceId(kind))?.setData(collection);
         next[kind] = collection.features.length;
         changed = true;
-        if (!framedRef.current && collection.features.length > 0) {
-          framedRef.current = true;
-          frame(map, collection);
-        }
+        frameTargetsOnce(map, collection, targetFramedRef);
       }
 
       if (changed && !sameCounts(countsRef.current, next)) {
@@ -298,6 +329,16 @@ export function MapPanel({
     installReferenceLayer(map, accentRef.current, edgeRef.current, positions);
   }, [referencesKey]);
 
+  const positionNodesKey = positionNodes.join(" ");
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || !readyRef.current) {
+      return;
+    }
+    installPositionLayers(map, accentRef.current, edgeRef.current, positionNodesKey !== "");
+    positionDrawnRef.current = "\0";
+  }, [positionNodesKey]);
+
   return (
     <div className={`relative ${className ?? "h-[min(60dvh,28rem)] min-h-64 w-full"}`}>
       {/* Sized in flow, not `absolute inset-0`: MapLibre stamps `maplibregl-map` onto this
@@ -317,6 +358,13 @@ export function MapPanel({
               <span className="ml-auto text-ink">{counts[kind]}</span>
             </div>
           ))}
+          {positionNodes.length > 0 && (
+            <div className="flex items-center gap-2 font-mono text-[10px] tabular-nums">
+              <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-accent" />
+              <span className="text-ink-dim">GPS trail</span>
+              <span className="ml-auto text-ink">{positionCount}</span>
+            </div>
+          )}
         </div>
         {basemap === "offline" && (
           <div className="rounded border border-line bg-bg/85 px-2 py-1 font-mono text-[10px] text-ink-dim">
@@ -367,6 +415,83 @@ export function MapPanel({
 }
 
 const EMPTY_STATIONS: readonly Target[] = Object.freeze([]);
+const EMPTY_POSITION_HISTORY: readonly PositionSample[] = Object.freeze([]);
+const POSITION_SOURCE = "station-position-history";
+const POSITION_ROUTE_SOURCE = "station-position-route";
+const POSITION_LAYERS = ["station-position-heat", "station-position-route", "station-position-fix"];
+
+interface PositionFeature {
+  type: "Feature";
+  geometry: { type: "Point"; coordinates: [number, number] };
+  properties: { latest: boolean; at: number };
+}
+
+export interface PositionCollection {
+  type: "FeatureCollection";
+  features: PositionFeature[];
+}
+
+export interface PositionRouteCollection {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    geometry: { type: "LineString"; coordinates: [number, number][] };
+    properties: Record<string, never>;
+  }[];
+}
+
+export function positionCollection(
+  tracks: readonly { samples: readonly PositionSample[]; active: boolean }[],
+): {
+  points: PositionCollection;
+  route: PositionRouteCollection;
+} {
+  const features = tracks.flatMap(({ samples, active }) =>
+    samples.map((sample, index) => ({
+      type: "Feature" as const,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [sample.longitude, sample.latitude] as [number, number],
+      },
+      properties: { latest: active && index === samples.length - 1, at: sample.receivedAt },
+    })),
+  );
+  return {
+    points: { type: "FeatureCollection", features },
+    route: {
+      type: "FeatureCollection",
+      features: tracks.flatMap(({ samples }) =>
+        samples.length < 2
+          ? []
+          : [
+              {
+                type: "Feature" as const,
+                geometry: {
+                  type: "LineString" as const,
+                  coordinates: unwrapTrail(
+                    samples.map(
+                      (sample) => [sample.longitude, sample.latitude] as [number, number],
+                    ),
+                  ),
+                },
+                properties: {},
+              },
+            ],
+      ),
+    },
+  };
+}
+
+export function updatePositionSources(
+  pointsSource: Pick<GeoJSONSource, "setData"> | undefined,
+  routeSource: Pick<GeoJSONSource, "setData"> | undefined,
+  tracks: readonly { samples: readonly PositionSample[]; active: boolean }[],
+): { points: PositionCollection; route: PositionRouteCollection } {
+  const collection = positionCollection(tracks);
+  void pointsSource?.setData(collection.points);
+  void routeSource?.setData(collection.route);
+  return collection;
+}
 
 const LAYER_PARTS = ["dot", "heading", "label"] as const;
 
@@ -502,6 +627,76 @@ function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]
   }
 }
 
+function installPositionLayers(
+  map: MapLibreMap,
+  accent: string,
+  edge: string,
+  enabled: boolean,
+): void {
+  for (const layer of POSITION_LAYERS) {
+    if (map.getLayer(layer) !== undefined) {
+      map.removeLayer(layer);
+    }
+  }
+  for (const source of [POSITION_SOURCE, POSITION_ROUTE_SOURCE]) {
+    if (map.getSource(source) !== undefined) {
+      map.removeSource(source);
+    }
+  }
+  if (!enabled) {
+    return;
+  }
+  map.addSource(POSITION_SOURCE, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+  map.addSource(POSITION_ROUTE_SOURCE, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+  map.addLayer({
+    id: POSITION_LAYERS[0] ?? "station-position-heat",
+    type: "heatmap",
+    source: POSITION_SOURCE,
+    maxzoom: 16,
+    paint: {
+      "heatmap-weight": 1,
+      "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.5, 14, 2],
+      "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 3, 14, 22],
+      "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.65, 16, 0.2],
+      "heatmap-color": [
+        "interpolate",
+        ["linear"],
+        ["heatmap-density"],
+        0,
+        "rgba(0,0,0,0)",
+        0.35,
+        accent,
+        1,
+        "#ef6262",
+      ],
+    },
+  });
+  map.addLayer({
+    id: POSITION_LAYERS[1] ?? "station-position-route",
+    type: "line",
+    source: POSITION_ROUTE_SOURCE,
+    paint: { "line-color": accent, "line-width": 2, "line-opacity": 0.8 },
+  });
+  map.addLayer({
+    id: POSITION_LAYERS[2] ?? "station-position-fix",
+    type: "circle",
+    source: POSITION_SOURCE,
+    filter: ["==", ["get", "latest"], true],
+    paint: {
+      "circle-radius": 6,
+      "circle-color": accent,
+      "circle-stroke-color": edge,
+      "circle-stroke-width": 2,
+    },
+  });
+}
+
 function highlight(
   map: MapLibreMap | null,
   kinds: readonly MapKind[],
@@ -529,7 +724,7 @@ function highlight(
 }
 
 /** Opens on the targets instead of on the whole globe, once, when the first ones land. */
-function frame(map: MapLibreMap, collection: TargetCollection): void {
+function frame(map: Pick<MapLibreMap, "fitBounds">, collection: TargetCollection): void {
   let west = Number.POSITIVE_INFINITY;
   let south = Number.POSITIVE_INFINITY;
   let east = Number.NEGATIVE_INFINITY;
@@ -548,6 +743,48 @@ function frame(map: MapLibreMap, collection: TargetCollection): void {
     ],
     { padding: 56, maxZoom: 9, duration: 0 },
   );
+}
+
+interface FrameFlag {
+  current: boolean;
+}
+
+export function frameTargetsOnce(
+  map: Pick<MapLibreMap, "fitBounds">,
+  collection: TargetCollection,
+  framed: FrameFlag,
+): void {
+  if (framed.current || collection.features.length === 0) {
+    return;
+  }
+  framed.current = true;
+  frame(map, collection);
+}
+
+export function framePositionOnce(
+  map: Pick<MapLibreMap, "fitBounds">,
+  collection: PositionCollection,
+  framed: FrameFlag,
+): void {
+  if (framed.current || collection.features.length === 0) {
+    return;
+  }
+  framed.current = true;
+  framePoints(
+    map,
+    collection.features.map((feature) => feature.geometry.coordinates),
+  );
+}
+
+function framePoints(
+  map: Pick<MapLibreMap, "fitBounds">,
+  coordinates: readonly [number, number][],
+): void {
+  const bounds = trailBounds(coordinates);
+  if (bounds === null) {
+    return;
+  }
+  map.fitBounds(bounds, { padding: 56, maxZoom: 14, duration: 0 });
 }
 
 const ICON_SCALE = 2;

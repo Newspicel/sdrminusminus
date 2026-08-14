@@ -8,6 +8,7 @@ use sdrmm_modem::{
 };
 use sdrmm_wire::{
     AdsbMessage, AdsbParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
+    PositionFix,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -101,6 +102,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     has_audio: false,
     decoder_kind: Some("adsb".to_owned()),
     native_rate_max_hz: Some(MAX_INPUT_RATE_HZ),
+    needs_position: true,
     ..ChannelDescriptor::default()
 });
 
@@ -137,7 +139,8 @@ impl Aircraft {
 
 pub struct AdsbChannel {
     crc_fix: bool,
-    reference: Option<(f64, f64)>,
+    configured_reference: Option<(f64, f64)>,
+    live_reference: Option<(f64, f64)>,
     /// Half-chip boundary tables at this radio's rate, one per assumed sub-sample phase —
     /// the decoder runs at whatever the device gives it (see [`phase_tables`]).
     receivers: Vec<PpmDemod>,
@@ -166,14 +169,14 @@ fn params(settings: &ChannelSettings) -> Result<&AdsbParams, ChannelError> {
 
 fn check_params(p: &AdsbParams) -> Result<(), ChannelError> {
     if let Some(lat) = p.ref_lat
-        && !(lat.is_finite() && (-90.0..=90.0).contains(&lat))
+        && !valid_latitude(lat)
     {
         return Err(ChannelError::InvalidSettings(format!(
             "adsb ref_lat must be within ±90°, got {lat}"
         )));
     }
     if let Some(lon) = p.ref_lon
-        && !(lon.is_finite() && (-180.0..=180.0).contains(&lon))
+        && !valid_longitude(lon)
     {
         return Err(ChannelError::InvalidSettings(format!(
             "adsb ref_lon must be within ±180°, got {lon}"
@@ -185,6 +188,14 @@ fn check_params(p: &AdsbParams) -> Result<(), ChannelError> {
         ));
     }
     Ok(())
+}
+
+fn valid_latitude(latitude: f64) -> bool {
+    latitude.is_finite() && (-90.0..=90.0).contains(&latitude)
+}
+
+fn valid_longitude(longitude: f64) -> bool {
+    longitude.is_finite() && (-180.0..=180.0).contains(&longitude)
 }
 
 /// Occupied RF band relative to the channel offset, in Hz.
@@ -611,7 +622,8 @@ impl AdsbChannel {
             .then(|| self.pair(icao, fix, odd))
             .flatten();
         let solved = global.or_else(|| {
-            self.reference
+            self.live_reference
+                .or(self.configured_reference)
                 .and_then(|(lat, lon)| cpr_local(&fix, odd, lat, lon, zone))
         });
         if let Some((lat, lon)) = solved {
@@ -786,7 +798,8 @@ impl ChannelRx for AdsbChannel {
         let frame_span = receivers.iter().map(|r| r.grid().span()).max().unwrap_or(0);
         Ok(Self {
             crc_fix: p.crc_fix,
-            reference: p.ref_lat.zip(p.ref_lon),
+            configured_reference: p.ref_lat.zip(p.ref_lon),
+            live_reference: None,
             receivers,
             frame_span,
             cpr_pair_max_age: (CPR_PAIR_MAX_AGE_S * ctx.input_rate) as u64,
@@ -801,8 +814,16 @@ impl ChannelRx for AdsbChannel {
         let p = params(&settings)?;
         check_params(p)?;
         self.crc_fix = p.crc_fix;
-        self.reference = p.ref_lat.zip(p.ref_lon);
+        self.configured_reference = p.ref_lat.zip(p.ref_lon);
         Ok(())
+    }
+
+    fn position_changed(&mut self, fix: Option<&PositionFix>) {
+        self.live_reference =
+            fix.map(|fix| (fix.latitude, fix.longitude))
+                .filter(|(latitude, longitude)| {
+                    valid_latitude(*latitude) && valid_longitude(*longitude)
+                });
     }
 
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
@@ -1129,6 +1150,41 @@ mod tests {
             assert!((lat - LAT).abs() < 0.01, "odd {odd}: lat {lat}");
             assert!((lon - LON).abs() < 0.01, "odd {odd}: lon {lon}");
         }
+    }
+
+    #[test]
+    fn a_live_position_wire_replaces_and_restores_the_configured_reference() {
+        let configured = (LAT + 0.1, LON - 0.1);
+        let mut channel = channel(AdsbParams {
+            ref_lat: Some(configured.0),
+            ref_lon: Some(configured.1),
+            ..AdsbParams::default()
+        });
+        let fix = PositionFix {
+            latitude: LAT,
+            longitude: LON,
+            altitude_m: None,
+            accuracy_m: None,
+            speed_mps: None,
+            track_deg: None,
+            time: "2026-08-14T12:00:00Z".to_owned(),
+        };
+        channel.position_changed(Some(&fix));
+        assert_eq!(channel.live_reference, Some((LAT, LON)));
+        assert_eq!(
+            channel.live_reference.or(channel.configured_reference),
+            Some((LAT, LON))
+        );
+        channel.position_changed(None);
+        assert_eq!(channel.live_reference, None);
+        assert_eq!(channel.configured_reference, Some(configured));
+
+        let invalid = PositionFix {
+            latitude: 91.0,
+            ..fix
+        };
+        channel.position_changed(Some(&invalid));
+        assert_eq!(channel.live_reference, None);
     }
 
     /// Southern/western coordinates are where a `%`-based CPR gets the sign wrong.

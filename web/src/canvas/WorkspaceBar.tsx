@@ -1,7 +1,7 @@
 import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
-import type { NodeKind, PatchNode, WorkspaceInfo } from "../lib/types";
+import type { NodeKind, PatchNode, PositionSource, WorkspaceInfo } from "../lib/types";
 import { useWorkspaceContext } from "./context";
 import { addNode, newNodeId } from "./graph";
 import { Library } from "./Library";
@@ -42,7 +42,7 @@ export function WorkspaceBar({
   const active = workspaces.find((entry) => entry.id === activeWorkspace) ?? null;
   const pinned = workspace.rack.slots?.length ?? 0;
 
-  const add = (kind: NodeKind, channelType?: string) => {
+  const add = (kind: NodeKind, channelType?: string, source?: PositionSource) => {
     const id = newNodeId(kind);
     workspace.edit((snapshot) => {
       const node = {
@@ -52,12 +52,14 @@ export function WorkspaceBar({
           ? { kind: "channel" as const, data: { channel_type: channelType ?? "nfm" } }
           : kind === "device"
             ? { kind: "device" as const, data: {} }
-            : kind === "dmr_trunk"
-              ? {
-                  kind: "dmr_trunk" as const,
-                  data: { protocol: "auto", retention_seconds: 300 },
-                }
-              : { kind }),
+            : kind === "gps"
+              ? { kind: "gps" as const, data: { source: source ?? { type: "device" } } }
+              : kind === "dmr_trunk"
+                ? {
+                    kind: "dmr_trunk" as const,
+                    data: { protocol: "auto", retention_seconds: 300 },
+                  }
+                : { kind }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });
@@ -125,8 +127,8 @@ export function WorkspaceBar({
       <Popover label="+ Node" triggerClass={BTN_QUIET} width="w-96">
         {(close) => (
           <NodePalette
-            onAdd={(kind, channelType) => {
-              add(kind, channelType);
+            onAdd={(kind, channelType, source) => {
+              add(kind, channelType, source);
               close();
             }}
           />

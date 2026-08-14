@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, atomic},
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -24,6 +25,9 @@ const OUT_CHANNEL_CAP: usize = 256;
 const MIN_BINS: usize = 16;
 const MAX_BINS: usize = 4096;
 const MAX_FPS: u16 = 60;
+/// Browser geolocation can be configured for high accuracy and may produce bursts. Keep one
+/// socket from turning those into unbounded store lookups and routing work.
+const MIN_POSITION_PUBLISH_INTERVAL: Duration = Duration::from_millis(50);
 /// Per-channel media ids — audio and video alike — live in `MEDIA_ID_BASE..=u16::MAX` and
 /// spectrum ids in `0..MEDIA_ID_BASE`, so no two streams on one connection can collide.
 ///
@@ -102,10 +106,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     // Subscribed alongside the control stream, before the snapshot, for the same reason: a
     // decode landing in the gap would otherwise never reach this client's live view.
     let decoded_rx = state.decoded_text.subscribe();
+    let position_rx = state.gps.subscribe();
     let hello = ServerEvent::Hello {
         revision: engine.snapshot().revision,
     };
     let _ = out_tx.send(text_event(&hello)).await;
+    for position in state.gps.snapshot() {
+        let _ = out_tx.send(text_event(&position)).await;
+    }
 
     // Snapshotted after the live subscription above, so the seam repeats a record rather than
     // dropping one. A repeat is free — merging the same decode onto a station it is already part
@@ -121,6 +129,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     let events = spawn_events(event_rx, out_tx.clone());
     let decoded = spawn_decoded(decoded_rx, out_tx.clone());
+    let positions = spawn_positions(position_rx, out_tx.clone());
 
     // Keyed by (device set, receive stream): two scopes on two lanes of one radio are the point
     // of a multi-stream device, so a subscribe on one lane must not replace another's.
@@ -128,6 +137,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let mut next_spectrum_id: u16 = SPECTRUM_ID_BASE;
     let mut audio: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
     let mut video: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
+    let mut last_position_publish: Option<Instant> = None;
     let mut next_media_id: u16 = MEDIA_ID_BASE;
 
     while let Some(Ok(msg)) = ws_rx.next().await {
@@ -354,6 +364,52 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             let _ = out_tx.send(text_event(&stopped)).await;
                         }
                     }
+                    Ok(ClientCommand::PublishPosition { node, fix, error }) => {
+                        let too_fast = last_position_publish
+                            .is_some_and(|last| last.elapsed() < MIN_POSITION_PUBLISH_INTERVAL);
+                        last_position_publish = Some(Instant::now());
+                        if node.is_empty() || node.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
+                            let _ = out_tx
+                                .send(text_event(&ServerEvent::Error {
+                                    message: "invalid position node id".to_owned(),
+                                }))
+                                .await;
+                        } else if too_fast {
+                            let _ = out_tx
+                                .send(text_event(&ServerEvent::Error {
+                                    message: "position updates are limited to 20 Hz per connection"
+                                        .to_owned(),
+                                }))
+                                .await;
+                        } else {
+                            // Device GPS validation reads the active workspace from SQLite. Keep
+                            // that blocking lookup off the WebSocket runtime worker just like the
+                            // engine control operations above. Charge the rate limit per attempt:
+                            // rejected updates cost the same database lookup as accepted ones.
+                            let app = state.clone();
+                            let publish_node = node.clone();
+                            let publish = tokio::task::spawn_blocking(move || {
+                                app.gps.publish_device(&app, &publish_node, fix, error)
+                            })
+                            .await;
+                            match publish {
+                                Ok(Ok(())) => {}
+                                Ok(Err(message)) => {
+                                    let _ = out_tx
+                                        .send(text_event(&ServerEvent::Error { message }))
+                                        .await;
+                                }
+                                Err(error) => {
+                                    tracing::error!(%error, "device GPS publish task failed");
+                                    let _ = out_tx
+                                        .send(text_event(&ServerEvent::Error {
+                                            message: "could not publish device position".to_owned(),
+                                        }))
+                                        .await;
+                                }
+                            }
+                        }
+                    }
                     Err(_) => {
                         let err = ServerEvent::Error {
                             message: "invalid command".to_string(),
@@ -378,6 +434,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     }
     events.abort();
     decoded.abort();
+    positions.abort();
     writer.abort();
     let live = state
         .clients
@@ -473,6 +530,33 @@ fn spawn_decoded(
                 Err(broadcast::error::RecvError::Lagged(missed)) => {
                     let lost = ServerEvent::DecodedLost { count: missed };
                     if out_tx.send(text_event(&lost)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    })
+}
+
+fn spawn_positions(
+    mut position_rx: broadcast::Receiver<ServerEvent>,
+    out_tx: mpsc::Sender<Message>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match position_rx.recv().await {
+                Ok(event) => {
+                    if out_tx.send(text_event(&event)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    tracing::warn!(missed, "GPS event stream lagged");
+                    let error = ServerEvent::Error {
+                        message: "GPS updates were lost; waiting for the next fix".to_owned(),
+                    };
+                    if out_tx.send(text_event(&error)).await.is_err() {
                         break;
                     }
                 }
@@ -733,7 +817,10 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use sdrmm_wire::{ChannelParams, ChannelSettings, NfmParams};
+    use sdrmm_wire::{
+        ChannelParams, ChannelSettings, GpsNode, NfmParams, PatchNode, Position, PositionFix,
+        PositionSource, WorkspaceSnapshot,
+    };
     use tokio::time::timeout;
     use tokio_tungstenite::tungstenite;
 
@@ -799,6 +886,43 @@ mod tests {
                 return serde_json::from_str(text.as_str()).expect("event json");
             }
         }
+    }
+
+    fn position_fix(latitude: f64) -> PositionFix {
+        PositionFix {
+            latitude,
+            longitude: 13.405,
+            altitude_m: None,
+            accuracy_m: Some(4.0),
+            speed_mps: None,
+            track_deg: None,
+            time: "2026-08-14T12:00:00Z".to_owned(),
+        }
+    }
+
+    fn activate_device_gps(state: &AppState) {
+        state
+            .gps
+            .set_device_publish_interval(Duration::from_secs(5));
+        let mut snapshot = WorkspaceSnapshot::empty();
+        snapshot.graph.nodes.push(PatchNode {
+            id: "position".to_owned(),
+            body: sdrmm_wire::NodeBody::Gps(GpsNode {
+                source: PositionSource::Device,
+            }),
+            position: Position { x: 0.0, y: 0.0 },
+            size: None,
+            label: None,
+        });
+        let workspace = state
+            .store
+            .create_workspace("mobile", &snapshot)
+            .expect("workspace");
+        state
+            .store
+            .activate_workspace(workspace)
+            .expect("activate workspace");
+        state.gps.reconcile(state);
     }
 
     /// Next binary frame's (kind, stream_id) header fields, skipping text events.
@@ -1387,6 +1511,102 @@ mod tests {
         drop(first);
         wait_for(&mut events, StateScope::Clients).await;
         assert_eq!(count(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn rotating_position_node_ids_share_one_connection_budget() {
+        let mut ws = connect(test_engine()).await;
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Hello { .. }
+        ));
+
+        send(
+            &mut ws,
+            &ClientCommand::PublishPosition {
+                node: "first".to_owned(),
+                fix: Some(position_fix(52.52)),
+                error: None,
+            },
+        )
+        .await;
+        send(
+            &mut ws,
+            &ClientCommand::PublishPosition {
+                node: "second".to_owned(),
+                fix: Some(position_fix(52.53)),
+                error: None,
+            },
+        )
+        .await;
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Error { message }
+                if message.contains("not a device GPS source")
+        ));
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Error { message }
+                if message.contains("per connection")
+        ));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_sockets_share_the_device_source_budget() {
+        let (addr, state) = serve_ws(test_engine()).await;
+        activate_device_gps(&state);
+        let mut first = dial(addr).await;
+        let mut second = dial(addr).await;
+        assert!(matches!(
+            next_event(&mut first).await,
+            ServerEvent::Hello { .. }
+        ));
+        assert!(matches!(
+            next_event(&mut second).await,
+            ServerEvent::Hello { .. }
+        ));
+        let _ = next_event(&mut first).await;
+        let _ = next_event(&mut second).await;
+
+        send(
+            &mut first,
+            &ClientCommand::PublishPosition {
+                node: "position".to_owned(),
+                fix: Some(position_fix(52.52)),
+                error: None,
+            },
+        )
+        .await;
+        send(
+            &mut second,
+            &ClientCommand::PublishPosition {
+                node: "position".to_owned(),
+                fix: Some(position_fix(52.53)),
+                error: None,
+            },
+        )
+        .await;
+
+        let mut saw_fix = false;
+        let mut saw_limit = false;
+        let deadline = Instant::now() + WAIT;
+        while !(saw_fix && saw_limit) {
+            assert!(
+                Instant::now() < deadline,
+                "shared GPS budget events timed out"
+            );
+            let event = tokio::select! {
+                event = next_event(&mut first) => event,
+                event = next_event(&mut second) => event,
+            };
+            match event {
+                ServerEvent::PositionChanged { fix: Some(_), .. } => saw_fix = true,
+                ServerEvent::Error { message } if message.contains("per node") => {
+                    saw_limit = true;
+                }
+                _ => {}
+            }
+        }
     }
 
     async fn wait_for(events: &mut broadcast::Receiver<ServerEvent>, scope: StateScope) {

@@ -58,6 +58,11 @@ const NOTES: &[(&str, &str)] = &[
         "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
          which reaches nothing in sdr--.",
     ),
+    (
+        "serialport",
+        "MPL-2.0. File-level copyleft: modifications to the crate's own files must be published, \
+         which reaches nothing in sdr--.",
+    ),
 ];
 
 /// One curated hardware-layer component.

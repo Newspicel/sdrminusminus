@@ -8,7 +8,6 @@ import type {
   ApiError,
   AuthInfo,
   BandPlan,
-  BandRegionMatch,
   BandRegionsResponse,
   Bookmark,
   ChannelSettings,
@@ -21,6 +20,7 @@ import type {
   DoctorReport,
   ExportFormat,
   LicenseTextResponse,
+  NmeaDevicesResponse,
   PatchApplyReport,
   PatchCatalog,
   PlaybackAction,
@@ -63,6 +63,7 @@ client.use({
 
 export const STATE_KEY = ["get", "/api/state"] as const;
 export const DEVICES_KEY = ["get", "/api/devices"] as const;
+export const NMEA_DEVICES_KEY = ["get", "/api/position/nmea-devices"] as const;
 export const CHANNEL_TYPES_KEY = ["get", "/api/channeltypes"] as const;
 export const PRESETS_KEY = ["get", "/api/presets"] as const;
 export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
@@ -99,6 +100,15 @@ export function devicesQuery() {
   return queryOptions({
     queryKey: DEVICES_KEY,
     queryFn: async (): Promise<DevicesResponse> => unwrap(await client.GET("/api/devices")),
+  });
+}
+
+export function nmeaDevicesQuery() {
+  return queryOptions({
+    queryKey: NMEA_DEVICES_KEY,
+    queryFn: async (): Promise<NmeaDevicesResponse> =>
+      unwrap(await client.GET("/api/position/nmea-devices")),
+    staleTime: 5_000,
   });
 }
 
@@ -383,12 +393,6 @@ export function bandPlanQuery(region: string | null) {
     enabled: region !== null,
     staleTime: Number.POSITIVE_INFINITY,
   });
-}
-
-/** Which region a coordinate falls in. Not a query: it is asked once, when the operator presses
- * "detect", and its answer is a suggestion they then confirm. */
-export async function locateBandRegion(lat: number, lon: number): Promise<BandRegionMatch> {
-  return unwrap(await client.GET("/api/bandplan/locate", { params: { query: { lat, lon } } }));
 }
 
 /** The build, its license, and everything it is built out of. Compiled into the binary, so it

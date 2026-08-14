@@ -325,6 +325,7 @@ mod tests {
                 sample_start: 0,
                 frequency: Some(5_800_000_000.0),
                 datetime: None,
+                geolocation: None,
             }],
             annotations: Vec::new(),
         };
