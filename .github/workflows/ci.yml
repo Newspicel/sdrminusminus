@@ -149,14 +149,27 @@ jobs:
           curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root"'
 
   nix:
-    name: Nix desktop package (amd64)
-    runs-on: ubuntu-24.04
+    name: Nix desktop package (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            system: x86_64-linux
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            system: aarch64-linux
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: cachix/install-nix-action@v31
       - name: Build and smoke-test the package
         run: |
-          nix build --print-build-logs
+          nix flake check --print-build-logs
+          nix build --print-build-logs ".#packages.${{ matrix.system }}.default"
           test -x result/bin/sdrmm-desktop
           test ! -e result/bin/sdrmm
           test -f result/share/applications/sdrmm-desktop.desktop

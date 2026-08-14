@@ -53,7 +53,8 @@ On NixOS or another Linux system with flakes enabled, install the Tauri desktop 
 directly from GitHub:
 
 ```sh
-nix profile install github:Newspicel/sdrminusminus
+nix --extra-experimental-features 'nix-command flakes' \
+  profile install github:Newspicel/sdrminusminus
 sdrmm-desktop
 ```
 

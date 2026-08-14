@@ -39,12 +39,17 @@ On NixOS or another Linux system with flakes enabled, install the Tauri desktop 
 directly from GitHub:
 
 ```sh
-nix profile install github:Newspicel/sdrminusminus
+nix --extra-experimental-features 'nix-command flakes' \
+  profile install github:Newspicel/sdrminusminus
 sdrmm-desktop
 ```
 
 The flake supports x86_64 and aarch64 Linux and exposes `sdrmm-desktop`, `sdrmm`, and `default`
-packages for each system. From a checkout, `nix build` creates `result/bin/sdrmm-desktop`.
+packages for each system. From a checkout, the following creates `result/bin/sdrmm-desktop`:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' build
+```
 
 The package links to Nixpkgs' SoapySDR core but deliberately bundles no hardware modules. On NixOS,
 select the modules and device permissions in your system configuration. For example, with this
