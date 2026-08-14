@@ -465,7 +465,7 @@ fn release_features() -> [String; 3] {
     [
         "--no-default-features".to_string(),
         "--features".to_string(),
-        "soapy,net-client".to_string(),
+        "soapy,net-client,gpu-fft".to_string(),
     ]
 }
 
@@ -957,7 +957,12 @@ fn audit(root: &Path) -> Result<()> {
 /// here is make sure the UI it serves is the one just built.
 fn smoke(root: &Path) -> Result<()> {
     ensure_web_deps(root)?;
-    web_build(root)?;
+    run_with_env(
+        PNPM,
+        &["--dir", "web", "build"],
+        root,
+        &[("VITE_ENABLE_SYNTHETIC_DEVICES", "true")],
+    )?;
     let soapy_root = root.join("target/hermetic-soapy");
     let modules = soapy_root.join("lib/SoapySDR/modules0.8");
     std::fs::create_dir_all(&modules).context("create hermetic Soapy module directory")?;

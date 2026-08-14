@@ -12,9 +12,10 @@ workspace = true
 
 # Passthrough to the engine's deliberate minimal-build gates.
 [features]
-default = ["soapy", "net-client"]
+default = ["soapy", "net-client", "gpu-fft"]
 soapy = ["sdrmm-engine/soapy", "dep:sdrmm-device-soapy"]
 net-client = ["sdrmm-engine/net-client"]
+gpu-fft = ["sdrmm-engine/gpu-fft"]
 
 [dependencies]
 sdrmm-wire.workspace = true

@@ -73,6 +73,11 @@ export interface DecodedState {
   /** Drops stations unseen for longer than `maxAgeMs`. The UI decides the horizon — an aircraft
    * out of range stops transmitting, it does not announce that it is gone. */
   ageOut: (maxAgeMs: number, nowMs?: number) => void;
+  /** Drops staged and published frames matching `match`, and returns how many went. Clearing the
+   * stored decoder log has to take the tail with it, or the rows the server just deleted keep
+   * rendering out of this ring until they age out. Stations are left standing: they are a picture
+   * of what is on the air, not log rows. */
+  dropFrames: (match: (record: DecodedRecord) => boolean) => number;
   clear: () => void;
 }
 
@@ -157,6 +162,31 @@ export const useDecodedStore = create<DecodedState>((set) => ({
       }
       return { stations };
     });
+  },
+
+  dropFrames: (match) => {
+    const staged = pending.filter((record) => !match(record));
+    let dropped = pending.length - staged.length;
+    pending.splice(0, pending.length, ...staged);
+
+    const published = useDecodedStore.getState().frames;
+    const frames = { ...published };
+    let touched = false;
+    for (const [kind, slice] of Object.entries(published) as [
+      DecoderKind,
+      readonly DecodedRecord[],
+    ][]) {
+      const kept = slice.filter((record) => !match(record));
+      if (kept.length !== slice.length) {
+        dropped += slice.length - kept.length;
+        touched = true;
+        assignFrames(frames, kind, kept);
+      }
+    }
+    if (touched) {
+      set({ frames });
+    }
+    return dropped;
   },
 
   clear: () => {

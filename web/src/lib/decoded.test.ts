@@ -227,6 +227,48 @@ describe("loss and clear", () => {
   });
 });
 
+describe("dropFrames", () => {
+  it("drops only the matching frames and leaves the other slices identical", () => {
+    push(adsb({ icao: "abc123" }), adsb({ icao: "def456" }, 1), rds(), rtty("CQ"));
+    const rdsBefore = useDecodedStore.getState().frames.rds;
+
+    const dropped = useDecodedStore
+      .getState()
+      .dropFrames((record) => record.event.kind === "adsb" || record.event.kind === "rtty");
+
+    expect(dropped).toBe(3);
+    expect(useDecodedStore.getState().frames.adsb).toHaveLength(0);
+    expect(useDecodedStore.getState().frames.rtty).toHaveLength(0);
+    expect(useDecodedStore.getState().frames.rds).toBe(rdsBefore);
+  });
+
+  it("drops staged frames too, so a flush cannot bring them back", () => {
+    useDecodedStore.getState().push(adsb({ icao: "abc123" }));
+
+    expect(useDecodedStore.getState().dropFrames(() => true)).toBe(1);
+
+    vi.advanceTimersByTime(FLUSH_MS);
+    expect(useDecodedStore.getState().frames.adsb).toBeUndefined();
+  });
+
+  it("keeps the stations built from the frames it drops", () => {
+    push(adsb({ icao: "abc123", callsign: "DLH400" }));
+
+    useDecodedStore.getState().dropFrames(() => true);
+
+    expect(useDecodedStore.getState().stations.adsb).toHaveLength(1);
+  });
+
+  it("writes nothing when no frame matches", () => {
+    push(rds());
+    const before = useDecodedStore.getState().frames;
+
+    expect(useDecodedStore.getState().dropFrames((record) => record.channel === 99)).toBe(0);
+
+    expect(useDecodedStore.getState().frames).toBe(before);
+  });
+});
+
 describe("station capacity", () => {
   it("evicts the least recently seen once the cap is passed", () => {
     const store = useDecodedStore.getState();

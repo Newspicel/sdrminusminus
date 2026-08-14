@@ -1513,7 +1513,10 @@ mod tests {
                     per_stream: sdrmm_wire::StreamScope::default(),
                     directional: None,
                 },
-                settings: sdrmm_wire::DeviceSettings::default(),
+                settings: sdrmm_wire::DeviceSettings {
+                    sample_rate: Some(2_048_000.0),
+                    ..sdrmm_wire::DeviceSettings::default()
+                },
                 die: self.die.clone(),
                 stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 worker: None,

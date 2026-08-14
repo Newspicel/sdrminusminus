@@ -41,7 +41,9 @@ jobs:
       # device-soapy links libSoapySDR; no modules or hardware needed (probe just returns
       # empty). --no-install-recommends is required: libsoapysdr0.8 recommends
       # soapysdr-modules-all, and loading real modules headless is fatal (SoapyUHD aborts).
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsoapysdr-dev
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsoapysdr-dev mesa-vulkan-drivers
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -62,6 +64,16 @@ jobs:
         run: cargo xtask check
       - name: cargo xtask test
         run: cargo xtask test
+      # Exercise WGSL compilation and the complete compute/readback path even on a headless
+      # runner. Lavapipe is deliberately accepted by the test but rejected by production
+      # selection, where a software adapter would only move CPU work around.
+      - name: GPU FFT parity (Lavapipe)
+        env:
+          SDRMM_REQUIRE_GPU_FFT_TEST: "1"
+        run: >
+          cargo test -p sdrmm-engine --all-features
+          --lib spectrum::tests::gpu_matches_cpu_when_a_hardware_adapter_is_available
+          -- --ignored --exact
       # The browser flow is its own step because it needs a browser binary the other gates do
       # not; it drives the real server on `device-virtual`, so still no hardware.
       - name: install the smoke browser

@@ -95,6 +95,9 @@ num-complex = "0.4"
 rustfft = "6"
 realfft = "3"
 rtrb = "0.3"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "1"
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "gles", "vulkan", "wgsl"] }
 
 # Audio (libopus via vendored build, )
 opus = "0.3"

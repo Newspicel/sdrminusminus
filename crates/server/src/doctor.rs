@@ -176,6 +176,102 @@ fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
     }
 }
 
+/// Ask every hardware radio for each rate it advertises and record what it says it then holds.
+///
+/// Opens and retunes devices, so it is deliberately not part of [`report`] — `GET /api/doctor`
+/// would otherwise disturb radios that are in use. `sdrmm --doctor-rates` is the only caller.
+#[must_use]
+pub fn rate_report(registry: &sdrmm_device::DeviceRegistry) -> DoctorReport {
+    let checks = registry
+        .probe_all()
+        .into_iter()
+        .filter(|d| d.driver != "virtual")
+        .map(|info| match registry.open(&info.id()) {
+            Ok((_, mut device)) => {
+                let rates = device.capabilities().sample_rates.clone();
+                let restore = device.settings().sample_rate;
+                let held: Vec<(f64, Option<f64>)> = rates
+                    .iter()
+                    .map(|&rate| (rate, hold_rate(device.as_mut(), rate)))
+                    .collect();
+                if let Some(rate) = restore {
+                    let _ = hold_rate(device.as_mut(), rate);
+                }
+                rate_check(&info.id(), &info.label, &held)
+            }
+            Err(error) => DoctorCheck {
+                id: format!("rates.{}", info.id()),
+                name: format!("Sample rates: {}", info.label),
+                status: CheckStatus::Warn,
+                detail: format!("could not open: {error}"),
+                hint: Some("stop anything else using the radio, then run this again".to_string()),
+            },
+        })
+        .collect();
+    DoctorReport {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        platform: format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH),
+        checks,
+    }
+}
+
+fn hold_rate(device: &mut dyn sdrmm_device::SdrDevice, rate: f64) -> Option<f64> {
+    let request = sdrmm_wire::DeviceSettings {
+        sample_rate: Some(rate),
+        ..sdrmm_wire::DeviceSettings::default()
+    };
+    device.apply(&request).ok()?;
+    device.settings().sample_rate
+}
+
+/// Above this relative gap the radio is not on the rate it was asked for, and every DDC ratio,
+/// symbol clock and recorded `core:sample_rate` derived from the request would be wrong.
+const RATE_TOLERANCE: f64 = 1e-6;
+
+fn rate_check(id: &str, label: &str, held: &[(f64, Option<f64>)]) -> DoctorCheck {
+    if held.is_empty() {
+        return DoctorCheck {
+            id: format!("rates.{id}"),
+            name: format!("Sample rates: {label}"),
+            status: CheckStatus::Warn,
+            detail: "the driver advertises no discrete rates to check".to_string(),
+            hint: None,
+        };
+    }
+    let mut lines = Vec::with_capacity(held.len());
+    let mut bad = 0usize;
+    for &(asked, got) in held {
+        match got {
+            Some(got) if ((got - asked) / asked).abs() <= RATE_TOLERANCE => {
+                lines.push(format!("{:>12.0} Hz  ok", asked));
+            }
+            Some(got) => {
+                bad += 1;
+                lines.push(format!("{asked:>12.0} Hz  HELD {got:.0} Hz"));
+            }
+            None => {
+                bad += 1;
+                lines.push(format!("{asked:>12.0} Hz  refused"));
+            }
+        }
+    }
+    DoctorCheck {
+        id: format!("rates.{id}"),
+        name: format!("Sample rates: {label}"),
+        status: if bad == 0 {
+            CheckStatus::Ok
+        } else {
+            CheckStatus::Fail
+        },
+        detail: lines.join("\n"),
+        hint: (bad > 0).then(|| {
+            "this radio does not run at every rate it advertises; the rates marked above are \
+             the ones to avoid"
+                .to_string()
+        }),
+    }
+}
+
 /// USB access is the single most common reason a plugged-in SDR does not appear. Only Linux
 /// has a rule to point at; macOS grants USB access to any process.
 fn usb_checks() -> Vec<DoctorCheck> {
@@ -318,6 +414,41 @@ mod tests {
             detail: "line one\nline two".to_string(),
             hint: hint.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn a_rate_the_radio_does_not_hold_fails_the_check() {
+        let held = [
+            (2_048_000.0, Some(2_048_000.0)),
+            (2_400_000.0, Some(2_286_826.0)),
+            (3_200_000.0, None),
+        ];
+        let check = rate_check("soapy:00000001", "Generic RTL2832U", &held);
+        assert_eq!(check.status, CheckStatus::Fail);
+        assert!(check.detail.contains("2048000 Hz  ok"), "{}", check.detail);
+        assert!(
+            check.detail.contains("2400000 Hz  HELD 2286826 Hz"),
+            "{}",
+            check.detail
+        );
+        assert!(
+            check.detail.contains("3200000 Hz  refused"),
+            "{}",
+            check.detail
+        );
+        assert!(check.hint.is_some());
+    }
+
+    #[test]
+    fn a_radio_that_holds_every_advertised_rate_passes() {
+        let held = [(2_048_000.0, Some(2_048_000.0)), (1_024_000.0, None)];
+        assert_eq!(
+            rate_check("x", "X", &held[..1]).status,
+            CheckStatus::Ok,
+            "an exact read-back is not a mismatch"
+        );
+        assert_eq!(rate_check("x", "X", &held).status, CheckStatus::Fail);
+        assert_eq!(rate_check("x", "X", &[]).status, CheckStatus::Warn);
     }
 
     #[test]
