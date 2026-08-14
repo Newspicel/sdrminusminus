@@ -167,6 +167,11 @@ jobs:
           environment-name: sdrmm-soapy-${{ matrix.target }}
           create-args: --platform ${{ matrix.conda-platform }}
           cache-environment: true
+      # Linking is driven by pkg-config, so the loader paths are deliberately *not* part of it.
+      # On macOS a job-wide DYLD_LIBRARY_PATH reaches every process the runner starts and hands
+      # them this environment's libiconv/libz instead of the system ones: gtar died on
+      # `Symbol not found: _iconv` and lost every cache, and cargo segfaulted before printing a
+      # line. Whatever needs the pinned runtime at *run* time asks for it per step.
       - name: Configure pinned Soapy build runtime
         shell: bash
         env:
@@ -176,14 +181,11 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then
             echo "$PREFIX/Library/bin" >> "$GITHUB_PATH"
           else
-            export SOAPY_SDR_ROOT="$PREFIX"
-            export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
-            export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-            export DYLD_LIBRARY_PATH="$PREFIX/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
             echo "SOAPY_SDR_ROOT=$PREFIX" >> "$GITHUB_ENV"
             echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
-            echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
-            echo "DYLD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
+            if [ "$RUNNER_OS" = Linux ]; then
+              echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
+            fi
           fi
       # `xtask dist` builds the UI itself, so the toolchain has to be here rather than in a
       # shared artifact — which is also what lets one command reproduce this on a laptop.
@@ -210,6 +212,7 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.version }}
           TARGET: ${{ matrix.target }}
+          SOAPY_LIB: ${{ steps.soapy.outputs.environment-path }}/lib
         run: |
           set -euo pipefail
           staged="dist/sdrmm-${VERSION}-${TARGET}"
@@ -218,10 +221,13 @@ jobs:
           if [ "$TARGET" = x86_64-apple-darwin ]; then exit 0; fi
           bin="$staged/sdrmm"
           if [ -f "$bin.exe" ]; then bin="$bin.exe"; fi
-          printed="$("$bin" --version)"
+          # The headless archive links the pinned SoapySDR without carrying it, so the loader
+          # needs pointing at it — for this binary only, never for the job (see above).
+          sdrmm() { DYLD_LIBRARY_PATH="$SOAPY_LIB" "$bin" "$@"; }
+          printed="$(sdrmm --version)"
           echo "$printed"
           test "$printed" = "sdrmm $VERSION"
-          doctor="$("$bin" --doctor)"
+          doctor="$(sdrmm --doctor)"
           echo "$doctor"
           grep -q 'compiled backends:.*soapy' <<< "$doctor"
           grep -q 'core: 0.8.1' <<< "$doctor"
@@ -403,11 +409,71 @@ jobs:
           else
             echo "SOAPY_SDR_ROOT=$PREFIX" >> "$GITHUB_ENV"
             echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig" >> "$GITHUB_ENV"
-            echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
-            echo "DYLD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
+            # Not DYLD_LIBRARY_PATH — for the reason spelled out in the binaries job. The
+            # bundle carries its own copy of this runtime anyway; nothing here runs against
+            # the environment's.
+            if [ "$RUNNER_OS" = Linux ]; then
+              echo "LD_LIBRARY_PATH=$PREFIX/lib" >> "$GITHUB_ENV"
+            fi
             packaging/soapy/stage-unix.sh "$PREFIX" apps/desktop/resources/soapy
           fi
           cargo xtask soapy-bundle-check
+      # The notary service walks the whole .app and rejects every Mach-O in it that is not
+      # signed with a timestamp — and Tauri signs the app's own binary, not what we staged
+      # under `resources/`, so a release died with one rejection per staged library. The
+      # "signature of the binary is invalid" ones are the same story from the other end: the
+      # staging script rewrites install names, which breaks the ad-hoc signatures conda ships.
+      # A signature lives inside the file, so signing the staging tree here is what the bundler
+      # copies in. Own keychain, created and deleted around the run: tauri-action builds its own
+      # from the same certificate, and one identity in two keychains is ambiguous to `codesign`.
+      - name: Sign the staged Soapy runtime
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "no Developer ID certificate — leaving the payload unsigned, which is what" \
+                 "tauri-action does with the app itself when the same secrets are missing."
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/soapy-signing.keychain-db"
+          certificate="$RUNNER_TEMP/soapy-signing.p12"
+          password="$(uuidgen)"
+          previous="$(security list-keychains -d user | tr -d ' "' | tr '\n' ' ')"
+          # Both halves of the undo, so a failed signature cannot leave the certificate on disk
+          # or a dangling entry in the search list for tauri-action to trip over.
+          cleanup() {
+            rm -f "$certificate"
+            # shellcheck disable=SC2086  # a keychain list is a list of arguments, not one word
+            security list-keychains -d user -s $previous
+            security delete-keychain "$keychain" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          base64 --decode <<< "$APPLE_CERTIFICATE" > "$certificate"
+          security create-keychain -p "$password" "$keychain"
+          # No arguments: clears the five-minute auto-lock, which would otherwise make codesign
+          # stop for a password prompt nobody is there to answer.
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          # Same reason: without an explicit partition list the first signature blocks on the
+          # "codesign wants to use your confidential information" dialog.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" \
+            "$keychain" > /dev/null
+          # `codesign --keychain` is not enough on its own — the identity is resolved through the
+          # search list, and a keychain that is merely named there is never consulted.
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "$keychain" $previous
+          find apps/desktop/resources/soapy -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
+            | xargs -0 codesign --force --timestamp --options runtime \
+                --sign "$APPLE_SIGNING_IDENTITY"
+          find apps/desktop/resources/soapy -type f \( -name '*.dylib' -o -name '*.so' \) -print0 \
+            | xargs -0 codesign --verify --strict
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -511,20 +577,38 @@ jobs:
         run: |
           set -euo pipefail
           bundle="target/$TARGET/release/bundle"
+          # One listing per artifact, matched three times against it. Piping into `grep -q`
+          # instead closes the pipe on the first hit, the producer dies of SIGPIPE mid-listing,
+          # and `pipefail` then reports a *passing* check as a failed step ("tar: stdout: write
+          # error", exit 2). The listing is printed when a name is missing, because the failure
+          # that matters — a payload that never reached the bundle — and the one that does not —
+          # a listing tool that cannot name what it holds — look identical from a bare exit code.
+          carries() {
+            local listing="$1" artifact="$2" module
+            for module in soapysdr rtlsdr hackrf; do
+              if ! grep -qi "$module" <<< "$listing"; then
+                echo "$artifact carries no $module. It holds:" >&2
+                echo "$listing" >&2
+                exit 1
+              fi
+            done
+            echo "$artifact carries the private Soapy runtime."
+          }
           if [ "$RUNNER_OS" = macOS ]; then
-            test -n "$(find "$bundle/macos" -path '*/Resources/soapy/lib/*SoapySDR*' -print -quit)"
-            test -n "$(find "$bundle/macos" -iname '*rtlsdr*' -print -quit)"
-            test -n "$(find "$bundle/macos" -iname '*hackrf*' -print -quit)"
+            app="$(find "$bundle/macos" -maxdepth 1 -name '*.app' -print -quit)"
+            test -n "$app"
+            carries "$(find "$app/Contents/Resources/soapy")" "$app"
           elif [ "$RUNNER_OS" = Linux ]; then
             deb="$(find "$bundle/deb" -name '*.deb' -print -quit)"
-            dpkg-deb --contents "$deb" | grep -qi soapysdr
-            dpkg-deb --contents "$deb" | grep -qi rtlsdr
-            dpkg-deb --contents "$deb" | grep -qi hackrf
+            carries "$(dpkg-deb --contents "$deb")" "$deb"
           else
-            installer="$(find "$bundle" -type f \( -name '*.msi' -o -name '*-setup.exe' \) -print -quit)"
-            7z l "$installer" | grep -qi soapysdr
-            7z l "$installer" | grep -qi rtlsdr
-            7z l "$installer" | grep -qi hackrf
+            # The NSIS installer, and only it: an MSI keeps its payload in one embedded cabinet
+            # whose entries are WiX's own file ids, so `7z l` on it lists `app.cab` and nothing
+            # else to match. Both installers come out of the same bundler run over the same
+            # staged tree, so the one that can be read for its contents stands for both.
+            installer="$(find "$bundle/nsis" -name '*-setup.exe' -print -quit)"
+            test -n "$installer"
+            carries "$(7z l "$installer")" "$installer"
           fi
       # Flattened first: upload-artifact roots a multi-path artifact at the least common
       # ancestor of its search paths, which would nest the bundles under dmg/ deb/ appimage/
