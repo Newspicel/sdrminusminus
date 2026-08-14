@@ -32,7 +32,12 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   src = lib.cleanSource ../..;
 
-  cargoHash = "sha256-GOYNkpDn60xnpaT8zB0qBxxfj53az/BwP6c7nvsHAHc=";
+  cargoLock = {
+    lockFile = ../../Cargo.lock;
+    outputHashes = {
+      "soapysdr-0.5.1" = "sha256-Elx3hBXeQAzeJjMOZ5QJ3d5gjOoSLhR2NoL40rwu3U8=";
+    };
+  };
 
   pnpmDeps = fetchPnpmDeps {
     inherit (finalAttrs) pname version src;
