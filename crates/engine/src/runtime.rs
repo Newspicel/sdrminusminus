@@ -17,7 +17,8 @@ use sdrmm_channels::{
 use sdrmm_device::{DeviceError, RxSink, SdrDevice};
 use sdrmm_dsp::{Ddc, SpectrumAnalyzer, Squelch};
 use sdrmm_wire::{
-    ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings, MAX_STREAMS, StreamScope,
+    ChannelParams, ChannelSettings, DecoderEvent, DeviceSettings, MAX_STREAMS, PositionFix,
+    StreamScope,
 };
 use tokio::sync::broadcast;
 
@@ -351,6 +352,10 @@ impl ChannelHost {
         // a tone mode, and stops needing it again when that is turned off.
         self.emits_events = self.decodes && self.rx.needs_gated_input();
     }
+
+    pub(crate) fn position_changed(&mut self, fix: Option<&PositionFix>) {
+        self.rx.position_changed(fix);
+    }
 }
 
 pub(crate) enum DspCommand {
@@ -368,6 +373,10 @@ pub(crate) enum DspCommand {
     ApplySettings {
         id: u32,
         settings: ChannelSettings,
+    },
+    PositionChanged {
+        id: u32,
+        fix: Option<PositionFix>,
     },
     /// Arm the recorder tap. From here the tap (and its queue sender) lives on the DSP
     /// thread; dropping it — via [`DspCommand::StopRecording`], or with the thread itself —
@@ -683,6 +692,13 @@ fn drain_commands(
                     host.apply(settings);
                 } else {
                     tracing::debug!(id, "settings for a channel no longer hosted");
+                }
+            }
+            DspCommand::PositionChanged { id, fix } => {
+                if let Some((_, host)) = channels.iter_mut().find(|(existing, _)| *existing == id) {
+                    host.position_changed(fix.as_ref());
+                } else {
+                    tracing::debug!(id, "position for a channel no longer hosted");
                 }
             }
             DspCommand::StartRecording { tap: armed } => *tap = Some(armed),

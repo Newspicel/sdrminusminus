@@ -66,6 +66,13 @@ const CATALOG: PatchCatalog = {
       ports: [
         { name: "iq", port_type: "iq", direction: "in", multi: false },
         {
+          name: "position",
+          port_type: "position",
+          direction: "in",
+          multi: false,
+          condition: "channel_needs_position",
+        },
+        {
           name: "audio",
           port_type: "audio",
           direction: "out",
@@ -127,6 +134,7 @@ const TYPES: ChannelDescriptor[] = [
     decoder_kind: "adsb",
     exact_rate_only: false,
     native_rate_max_hz: 4_000_000,
+    needs_position: true,
   },
   {
     type_id: "atv",
@@ -214,7 +222,7 @@ describe("ports", () => {
     const adsb = node("adsb", { kind: "channel", data: { channel_type: "adsb" } });
     const atv = node("atv", { kind: "channel", data: { channel_type: "atv" } });
     expect(nfm && portsOf(context, graph, nfm).map((p) => p.name)).toEqual(["iq", "audio"]);
-    expect(portsOf(context, graph, adsb).map((p) => p.name)).toEqual(["iq", "events"]);
+    expect(portsOf(context, graph, adsb).map((p) => p.name)).toEqual(["iq", "position", "events"]);
     expect(portsOf(context, graph, atv).map((p) => p.name)).toEqual(["iq", "video"]);
   });
 

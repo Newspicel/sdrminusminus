@@ -17,7 +17,7 @@ use sdrmm_wire::{
     ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
     CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
     DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
-    DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery, NodeBody,
+    DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery, NmeaDevicesResponse, NodeBody,
     PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal,
     PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
     RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus, RecordingsResponse,
@@ -220,6 +220,20 @@ async fn get_devices(State(state): State<AppState>) -> Result<Json<DevicesRespon
     let engine = state.engine.clone();
     let devices = tokio::task::spawn_blocking(move || engine.probe_devices()).await?;
     Ok(Json(DevicesResponse { devices }))
+}
+
+#[utoipa::path(
+    get, path = "/api/position/nmea-devices",
+    responses(
+        (status = 200, description = "Serial devices available to NMEA GPS nodes", body = NmeaDevicesResponse),
+        (status = 500, description = "Serial device discovery failed", body = ApiError),
+    ),
+)]
+async fn get_nmea_devices() -> Result<Json<NmeaDevicesResponse>, AppError> {
+    let devices = tokio::task::spawn_blocking(crate::gps::nmea_devices)
+        .await?
+        .map_err(AppError::internal)?;
+    Ok(Json(devices))
 }
 
 #[utoipa::path(
@@ -683,6 +697,7 @@ async fn record_device_set(
     Path(ds): Path<u32>,
     Json(req): Json<RecordRequest>,
 ) -> Result<Json<RecordingStatus>, AppError> {
+    let gps_state = state.clone();
     let engine = state.engine.clone();
     let store = state.store.clone();
     let gate = state.recordings_gate.clone();
@@ -732,6 +747,7 @@ async fn record_device_set(
         }
     })
     .await??;
+    gps_state.gps.route_current(&gps_state);
     Ok(Json(status))
 }
 
@@ -1579,6 +1595,7 @@ async fn update_workspace(
         Ok(info)
     })
     .await??;
+    reconcile_gps(state).await?;
     Ok(Json(info))
 }
 
@@ -1595,7 +1612,7 @@ async fn delete_workspace(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let state = state.clone();
+    let gps_state = state.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
         let _serialized = state
             .apply_gate
@@ -1617,6 +1634,7 @@ async fn delete_workspace(
         Ok(())
     })
     .await??;
+    reconcile_gps(gps_state).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1639,7 +1657,7 @@ async fn activate_workspace(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let state = state.clone();
+    let gps_state = state.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppError> {
         let _serialized = state
             .apply_gate
@@ -1666,6 +1684,7 @@ async fn activate_workspace(
         Ok(())
     })
     .await??;
+    reconcile_gps(gps_state).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1688,7 +1707,7 @@ async fn apply_workspace(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<PatchApplyReport>, AppError> {
-    let state = state.clone();
+    let gps_state = state.clone();
     let report = tokio::task::spawn_blocking(move || -> Result<PatchApplyReport, AppError> {
         let _serialized = state
             .apply_gate
@@ -1699,7 +1718,13 @@ async fn apply_workspace(
         bring_up(&state, id, &workspace.snapshot, &saved)
     })
     .await??;
+    reconcile_gps(gps_state).await?;
     Ok(Json(report))
+}
+
+async fn reconcile_gps(state: AppState) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || state.gps.reconcile(&state)).await?;
+    Ok(())
 }
 
 #[utoipa::path(
@@ -1891,6 +1916,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(get_state))
         .routes(routes!(get_devices))
+        .routes(routes!(get_nmea_devices))
         .routes(routes!(get_channel_types))
         .routes(routes!(create_device_set))
         .routes(routes!(delete_device_set))

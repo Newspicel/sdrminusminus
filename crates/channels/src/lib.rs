@@ -39,7 +39,9 @@ use num_complex::Complex;
 pub use pocsag::PocsagChannel;
 pub use rtty::RttyChannel;
 use sdrmm_dsp::{Agc, Decimator, FirC};
-use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, Sideband};
+use sdrmm_wire::{
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PositionFix, Sideband,
+};
 pub use ssb::{SsbChannel, SsbTx};
 pub use subghz::SubghzChannel;
 pub use wfm::WfmChannel;
@@ -237,6 +239,11 @@ pub trait ChannelRx: Send {
     /// Retunes arrive here rather than through [`ChannelRx::apply`], which the host does not
     /// call for an offset-only change.
     fn retuned(&mut self) {}
+
+    /// Update the station position supplied by a position wire. Most modes do not use it;
+    /// decoders such as ADS-B can replace their local reference without persisting a moving fix
+    /// as channel settings.
+    fn position_changed(&mut self, _fix: Option<&PositionFix>) {}
 
     /// Whether the host must keep feeding this channel while the squelch is closed.
     ///

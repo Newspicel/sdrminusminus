@@ -31,6 +31,7 @@ import {
 } from "./lib/api";
 import { audioEngine } from "./lib/audio/useChannelAudio";
 import { useDecodedStore } from "./lib/decoded";
+import { usePositionStore, watchDevicePosition } from "./lib/position";
 import { useScannerStore } from "./lib/scanner";
 import { spectrumHub } from "./lib/spectrum";
 import { pushToast } from "./lib/toasts";
@@ -75,6 +76,7 @@ export function App() {
     };
     s.addEventListener(useDecodedStore.getState().observe);
     s.addEventListener(useScannerStore.getState().observe);
+    s.addEventListener(usePositionStore.getState().observe);
     // Spectrum and video are refcounted — per device set and per channel — so several faces
     // watching the same thing share one stream instead of replacing each other's.
     spectrumHub.attach(s);
@@ -123,6 +125,22 @@ export function App() {
     () => snapshot?.graph ?? { nodes: [], edges: [] },
     [snapshot?.graph],
   );
+  const deviceGpsNodeKey = JSON.stringify(
+    graph.nodes
+      .filter((node) => node.kind === "gps" && (node.data.source?.type ?? "device") === "device")
+      .map((node) => node.id)
+      .toSorted(),
+  );
+  const deviceGpsNodeIds = useMemo(
+    () => JSON.parse(deviceGpsNodeKey) as string[],
+    [deviceGpsNodeKey],
+  );
+  useEffect(() => {
+    if (socket === null) {
+      return;
+    }
+    return watchDevicePosition(socket, deviceGpsNodeIds);
+  }, [socket, deviceGpsNodeIds]);
   useEffect(() => {
     for (const refusal of workspace.applied?.refused ?? []) {
       const node = graph.nodes.find((candidate) => candidate.id === refusal.node);

@@ -17,7 +17,7 @@ to pin or unpin it. Moving or resizing a face on the rack does not change its si
 
 | Group | Nodes | Role |
 |---|---|---|
-| Sources | Device | A local SDR, network receiver, virtual generator, or recording |
+| Sources | Device, Device GPS, GPSD, NMEA serial | Radio IQ or a live station position |
 | Channels | AM, NFM, WFM, SSB, decoders | Select and process one signal from device IQ |
 | Displays | Scope, Map, Readout, Decoder log, Video | Visualize spectrum or channel output |
 | Sinks | Speaker, Recorder, Export | Play audio, save IQ, or export decoded rows |
@@ -25,6 +25,31 @@ to pin or unpin it. Moving or resizing a face on the rack does not change its si
 
 The server supplies the palette and channel catalog. If a build gains or loses a backend or
 channel type, the interface follows it rather than maintaining a second hard-coded catalog.
+
+## Live position wiring
+
+Position is a typed stream in the patch, not a workspace setting. Add one of the GPS sources and
+wire its **position** output only to the consumers that need it:
+
+- **Device GPS** uses the desktop WebView's location provider and appears in the palette only when
+  that provider exists. The application requests high-accuracy, continuously updated fixes.
+- **GPSD** connects to a gpsd JSON endpoint. The default is `127.0.0.1:2947`; edit the address on
+  the node when gpsd runs elsewhere.
+- **NMEA serial** lists the serial devices detected on the machine running the `sdrmm` server and
+  reads checked GGA and RMC sentences from the selected device. A manual path is still accepted
+  for devices the operating system does not enumerate. Baud and the maximum live update rate are
+  configurable; the rate limits published fixes because NMEA receivers push sentences rather
+  than being polled.
+  The device is on the server machine, not the machine displaying a remote browser.
+
+An ADS-B position input supplies the moving local CPR reference without writing each fix into its
+channel settings. A map position input draws the current station, its bounded route, and a heat
+map of the places visited. The GPS face shows the current six-character Maidenhead grid locator.
+A recorder position input writes latitude, longitude, altitude, and fix time into SigMF capture
+segments while IQ is recorded. One GPS output can fan out to all of these consumers.
+
+When a provider loses its fix, its node reports the reason and consumers stop using the previous
+coordinate. Reconnects are automatic for gpsd and NMEA serial sources.
 
 ## Device identity and reconnection
 

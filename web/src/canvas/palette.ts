@@ -7,7 +7,7 @@
 // are split the way an operator reaches for them — a mode that makes audio, or a decoder that
 // makes messages — using the same `has_audio` flag the faces use to decide whether to draw
 // volume.
-import type { ChannelDescriptor, NodeKind, PatchCatalog } from "../lib/types";
+import type { ChannelDescriptor, NodeKind, PatchCatalog, PositionSource } from "../lib/types";
 
 export interface PaletteItem {
   /** Unique across the palette: the React key, and what the filter matches on besides the name. */
@@ -16,6 +16,7 @@ export interface PaletteItem {
   kind: NodeKind;
   /** Set only on channel entries — the type the node is created with. */
   type?: ChannelDescriptor;
+  source?: PositionSource;
 }
 
 export interface PaletteGroup {
@@ -28,7 +29,7 @@ export interface PaletteGroup {
  * absent because a channel entry never lands in a section of its own — it is split into the two
  * below it. */
 const SECTIONS: readonly { id: string; title: string }[] = [
-  { id: "source", title: "Radios" },
+  { id: "source", title: "Sources" },
   { id: "mode", title: "Modes" },
   { id: "decoder", title: "Decoders" },
   { id: "display", title: "Displays" },
@@ -39,9 +40,41 @@ const SECTIONS: readonly { id: string; title: string }[] = [
 export function paletteGroups(
   catalog: PatchCatalog,
   channelTypes: readonly ChannelDescriptor[],
+  devicePosition = false,
 ): PaletteGroup[] {
   const sections = new Map<string, PaletteItem[]>(SECTIONS.map((section) => [section.id, []]));
   for (const entry of catalog.nodes) {
+    if (entry.kind === "gps") {
+      const sources = sections.get("source");
+      if (devicePosition) {
+        sources?.push({
+          id: "gps:device",
+          name: "Device GPS",
+          kind: "gps",
+          source: { type: "device" },
+        });
+      }
+      sources?.push(
+        {
+          id: "gps:gpsd",
+          name: "GPSD",
+          kind: "gps",
+          source: { type: "gpsd", address: "127.0.0.1:2947" },
+        },
+        {
+          id: "gps:nmea",
+          name: "NMEA serial",
+          kind: "gps",
+          source: {
+            type: "nmea",
+            device: "/dev/ttyUSB0",
+            baud: 9_600,
+            update_interval_ms: 1_000,
+          },
+        },
+      );
+      continue;
+    }
     if (entry.needs_channel_type === true) {
       for (const type of channelTypes) {
         sections.get(type.has_audio ? "mode" : "decoder")?.push({

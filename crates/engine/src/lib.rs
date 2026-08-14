@@ -17,7 +17,8 @@ use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
     Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DecodedRecord,
     DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, PlaybackRequest, PlaybackStatus,
-    RecordingStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope, StateSnapshot,
+    PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
+    StateSnapshot,
 };
 use tokio::sync::broadcast;
 
@@ -269,6 +270,9 @@ struct ChannelMedia {
     sinks: ChannelSinks,
     audio_tx: broadcast::Sender<AudioPacket>,
     encoder: Option<std::thread::JoinHandle<()>>,
+    /// Latest transient station fix routed into this channel. It is deliberately absent from
+    /// `ChannelInfo` (and therefore persistence), but every replacement DSP host inherits it.
+    position: Option<PositionFix>,
 }
 
 impl ChannelMedia {
@@ -288,6 +292,7 @@ impl ChannelMedia {
             },
             audio_tx,
             encoder: Some(encoder),
+            position: None,
         })
     }
 
@@ -314,6 +319,7 @@ struct RecordingState {
     /// Directory-joined stem, kept for the finalized handoff to the server's index.
     stem: PathBuf,
     shared: Arc<RecordingShared>,
+    position: Option<recording::RecordingPosition>,
     writer: JoinHandle<()>,
     overruns_at_start: u64,
     /// Counter/fault values already surfaced to clients; the hotplug tick diffs against them.
@@ -336,7 +342,8 @@ impl RecordingState {
 
     /// Joins the writer thread. The caller must already have arranged for the DSP-side tap
     /// to drop (`StopRecording` queued, or the runtime stopped) or this blocks.
-    fn join(self) {
+    fn join(mut self) {
+        drop(self.position.take());
         join_recording_writer(self.writer);
     }
 }
@@ -1368,7 +1375,10 @@ impl Engine {
                 continue;
             }
             match built {
-                Ok(host) => {
+                Ok(mut host) => {
+                    if let Some(media) = state.media.get(&id) {
+                        host.position_changed(media.position.as_ref());
+                    }
                     state.send_dsp(stream, DspCommand::RemoveChannel { id });
                     state.send_dsp(stream, DspCommand::AddChannel { id, host });
                 }
@@ -1599,7 +1609,10 @@ impl Engine {
             let stream = info.stream;
             let prev = std::mem::replace(&mut info.settings, settings.clone());
             match host {
-                Some(host) => {
+                Some(mut host) => {
+                    if let Some(media) = state.media.get(&ch) {
+                        host.position_changed(media.position.as_ref());
+                    }
                     state.send_dsp(stream, DspCommand::RemoveChannel { id: ch });
                     state.send_dsp(stream, DspCommand::AddChannel { id: ch, host });
                 }
@@ -1621,6 +1634,14 @@ impl Engine {
                                 settings: settings.clone(),
                             },
                         );
+                        // ADS-B settings carry a persisted fallback reference. Its `apply`
+                        // updates that reference, so immediately restore the live wire value
+                        // (including `None`) after any same-type settings patch.
+                        let fix = state
+                            .media
+                            .get(&ch)
+                            .and_then(|media| media.position.clone());
+                        state.send_dsp(stream, DspCommand::PositionChanged { id: ch, fix });
                     }
                 }
             }
@@ -1632,6 +1653,65 @@ impl Engine {
             scope: StateScope::DeviceSet(ds),
         });
         Ok(())
+    }
+
+    /// Feed a live station fix to a channel without changing its persisted settings. Position
+    /// wires can update once a second while driving; treating that as channel configuration
+    /// would churn state revisions and save the last place the receiver happened to pass.
+    pub fn update_channel_position(
+        &self,
+        ds: u32,
+        ch: u32,
+        fix: Option<PositionFix>,
+    ) -> Result<(), EngineError> {
+        let mut inner = self.lock();
+        let state = inner
+            .device_sets
+            .get_mut(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let stream = state
+            .channels
+            .iter()
+            .find(|channel| channel.id == ch)
+            .map(|channel| channel.stream)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        let media = state
+            .media
+            .get_mut(&ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        media.position = fix.clone();
+        state.send_dsp(stream, DspCommand::PositionChanged { id: ch, fix });
+        Ok(())
+    }
+
+    /// Update the geotag attached to the set's active recording. The writer samples the latest
+    /// value between IQ blocks, so the DSP thread never takes a lock or waits on GPS I/O.
+    pub fn update_recording_position(
+        &self,
+        ds: u32,
+        fix: Option<PositionFix>,
+    ) -> Result<(), EngineError> {
+        let inner = self.lock();
+        let state = inner
+            .device_sets
+            .get(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let recording = state
+            .recording
+            .as_ref()
+            .ok_or_else(|| EngineError::Recording("not recording".to_owned()))?;
+        let position = recording
+            .position
+            .as_ref()
+            .ok_or_else(|| EngineError::Recording("recording is stopping".to_owned()))?;
+        position.update(fix).map_err(|error| match error {
+            recording::PositionUpdateError::Full => {
+                EngineError::Recording("recording queue full — disk too slow?".to_owned())
+            }
+            recording::PositionUpdateError::Disconnected => {
+                EngineError::Recording("recording writer stopped".to_owned())
+            }
+        })
     }
 
     /// Remove a channel from a device set ( DELETE channels), tearing down its DSP
@@ -1719,8 +1799,8 @@ impl Engine {
             let (sigmf, file) =
                 recording::create_writer(&dir, ds, stream, started_at, rate, center, &hw)?;
             let stem = sigmf.stem().to_path_buf();
-            let (tap, blocks, shared) = recording::create_tap();
-            let writer = recording::spawn_writer(sigmf, blocks, shared.clone())?;
+            let (tap, position, messages, shared) = recording::create_tap();
+            let writer = recording::spawn_writer(sigmf, messages, shared.clone())?;
 
             let (aborted, patch_in_flight) = {
                 let mut inner = self.lock();
@@ -1741,6 +1821,7 @@ impl Engine {
                             started_at: started_at.to_string(),
                             stem: stem.clone(),
                             shared,
+                            position: Some(position.clone()),
                             writer,
                             overruns_at_start: state.overruns_total(),
                             samples_seen: 0,
@@ -1764,6 +1845,7 @@ impl Engine {
                 return Ok(());
             };
             drop(tap);
+            drop(position);
             join_recording_writer(writer);
             for path in [meta_path(&stem), data_path(&stem)] {
                 if let Err(e) = std::fs::remove_file(&path)
@@ -1800,10 +1882,12 @@ impl Engine {
             stream,
             started_at,
             shared,
+            mut position,
             writer,
             overruns_at_start,
             ..
         } = recording;
+        drop(position.take());
         join_recording_writer(writer);
         self.emit(ServerEvent::StateChanged {
             scope: StateScope::DeviceSet(ds),
@@ -2156,7 +2240,7 @@ mod tests {
     use num_complex::Complex;
     use sdrmm_device::{DeviceDriver, DeviceRegistry, RxSink, SdrDevice, single_rx_sink};
     use sdrmm_wire::{
-        ChannelSettings, Duplex, NfmParams, ScanState, Sideband, SsbParams, StreamScope,
+        AdsbParams, ChannelSettings, Duplex, NfmParams, ScanState, Sideband, SsbParams, StreamScope,
     };
 
     use super::*;
@@ -3094,6 +3178,73 @@ mod tests {
         engine.remove_channel(ds, ch).unwrap();
         assert!(engine.snapshot().device_sets[0].channels.is_empty());
         assert!(engine.remove_channel(ds, 999).is_err());
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    #[tokio::test]
+    async fn live_position_survives_a_channel_rate_rebuild() {
+        let engine = virtual_engine();
+        let ds = engine.create_device_set("virtual:siggen").unwrap();
+        let ch = engine
+            .add_channel(
+                ds,
+                0,
+                ChannelSettings {
+                    offset_hz: 0.0,
+                    squelch_db: None,
+                    params: ChannelParams::Adsb(AdsbParams::default()),
+                },
+            )
+            .unwrap();
+        let fix = PositionFix {
+            latitude: 52.52,
+            longitude: 13.405,
+            altitude_m: Some(40.0),
+            accuracy_m: Some(3.0),
+            speed_mps: Some(12.0),
+            track_deg: Some(90.0),
+            time: "2026-08-14T12:00:00Z".to_owned(),
+        };
+        engine
+            .update_channel_position(ds, ch, Some(fix.clone()))
+            .unwrap();
+
+        engine
+            .patch_channel(
+                ds,
+                ch,
+                ChannelSettings {
+                    offset_hz: 0.0,
+                    squelch_db: None,
+                    params: ChannelParams::Adsb(AdsbParams {
+                        crc_fix: false,
+                        ref_lat: Some(0.0),
+                        ref_lon: Some(0.0),
+                    }),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            engine.lock().device_sets[&ds].media[&ch].position.as_ref(),
+            Some(&fix)
+        );
+
+        engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    sample_rate: Some(2_400_000.0),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let inner = engine.lock();
+        assert_eq!(
+            inner.device_sets[&ds].media[&ch].position.as_ref(),
+            Some(&fix)
+        );
+        drop(inner);
         engine.remove_device_set(ds).unwrap();
     }
 

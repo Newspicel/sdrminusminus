@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::decode::DecodedRecord;
+use crate::{decode::DecodedRecord, position::PositionFix};
 
 /// Granularity of a `StateChanged` invalidation. The client maps each scope to the
 /// TanStack Query keys it must invalidate (: the *only* cache-invalidation path).
@@ -114,6 +114,15 @@ pub enum ServerEvent {
         device_set: u32,
         status: Box<crate::scan::ScannerStatus>,
     },
+    /// Latest state of one GPS source node. `fix: None` carries a surfaced provider error or a
+    /// source that has gone unavailable; connected consumers stop using its previous fix.
+    PositionChanged {
+        node: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fix: Option<PositionFix>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     /// Non-fatal server-side error surfaced to the client.
     Error {
         message: String,
@@ -154,4 +163,13 @@ pub enum ClientCommand {
     SubscribeVideo { device_set: u32, channel: u32 },
     /// Stop the video stream for a channel.
     UnsubscribeVideo { device_set: u32, channel: u32 },
+    /// A fix from the desktop WebView's geolocation provider. The server accepts this only for
+    /// a device-position node in the active workspace.
+    PublishPosition {
+        node: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fix: Option<PositionFix>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
 }

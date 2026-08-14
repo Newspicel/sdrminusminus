@@ -51,6 +51,7 @@ const PORT_SHAPE: Record<PortType, string> = {
   // An arrowhead, because control is the one wire that carries an instruction rather than a
   // stream: it points at the radio it drives.
   control: "[clip-path:polygon(0_0,100%_50%,0_100%)]",
+  position: "rounded-full ring-1 ring-offset-1 ring-offset-bg",
   tx: "rounded-full",
 };
 
@@ -62,6 +63,7 @@ const PORT_PAINT: Record<PortType, string> = {
   events: "!border !border-line-strong bg-port-events",
   video: "!border !border-line-strong bg-port-video",
   control: "!border !border-line-strong bg-port-control",
+  position: "!border !border-line-strong bg-accent",
   tx: "!border-2 !border-port-tx bg-transparent",
 };
 

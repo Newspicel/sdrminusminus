@@ -1,15 +1,23 @@
 import { useState } from "react";
 import { FIELD, LABEL } from "../components/controls";
 import { formatHz } from "../components/format";
-import type { NodeKind } from "../lib/types";
+import type { NodeKind, PositionSource } from "../lib/types";
 import { useWorkspaceContext } from "./context";
 import { filterPalette, type PaletteItem, paletteGroups } from "./palette";
 
-export function NodePalette({ onAdd }: { onAdd: (kind: NodeKind, channelType?: string) => void }) {
+export function NodePalette({
+  onAdd,
+}: {
+  onAdd: (kind: NodeKind, channelType?: string, source?: PositionSource) => void;
+}) {
   const workspace = useWorkspaceContext();
   const [query, setQuery] = useState("");
   const groups = filterPalette(
-    paletteGroups(workspace.context.catalog, workspace.context.channelTypes),
+    paletteGroups(
+      workspace.context.catalog,
+      workspace.context.channelTypes,
+      navigator.geolocation !== undefined,
+    ),
     query,
   );
 
@@ -30,7 +38,11 @@ export function NodePalette({ onAdd }: { onAdd: (kind: NodeKind, channelType?: s
           <span className={`${LABEL} px-1`}>{group.title}</span>
           <div className="grid grid-cols-2 gap-1">
             {group.items.map((item) => (
-              <Entry key={item.id} item={item} onAdd={() => onAdd(item.kind, item.type?.type_id)} />
+              <Entry
+                key={item.id}
+                item={item}
+                onAdd={() => onAdd(item.kind, item.type?.type_id, item.source)}
+              />
             ))}
           </div>
         </div>

@@ -1254,6 +1254,33 @@
         }
       }
     },
+    "/api/position/nmea-devices": {
+      "get": {
+        "operationId": "get_nmea_devices",
+        "responses": {
+          "200": {
+            "description": "Serial devices available to NMEA GPS nodes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NmeaDevicesResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Serial device discovery failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/presets": {
       "get": {
         "operationId": "list_presets",
@@ -3252,6 +3279,10 @@
             "format": "double",
             "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B is the one such type: a 0.5 µs pulse is a single sample at\n2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder\nmeets the radio at its rate instead. Mutually exclusive with `exact_rate_only`."
           },
+          "needs_position": {
+            "type": "boolean",
+            "description": "Whether this channel accepts a live station position input."
+          },
           "type_id": {
             "type": "string",
             "description": "Stable type id, e.g. `\"nfm\"`, `\"am\"`, `\"ssb\"`, `\"wfm\"`."
@@ -3953,6 +3984,50 @@
                 "type": "string",
                 "enum": [
                   "UnsubscribeVideo"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A fix from the desktop WebView's geolocation provider. The server accepts this only for\na device-position node in the active workspace.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "A fix from the desktop WebView's geolocation provider. The server accepts this only for\na device-position node in the active workspace.",
+                "required": [
+                  "node"
+                ],
+                "properties": {
+                  "error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "fix": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/PositionFix"
+                      }
+                    ]
+                  },
+                  "node": {
+                    "type": "string"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "PublishPosition"
                 ]
               }
             }
@@ -5385,6 +5460,14 @@
           }
         }
       },
+      "GpsNode": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/PositionSource"
+          }
+        }
+      },
       "ItuRegion": {
         "type": "string",
         "enum": [
@@ -5551,6 +5634,66 @@
           "dcs"
         ]
       },
+      "NmeaDeviceInfo": {
+        "type": "object",
+        "description": "One serial port the server can currently offer to an NMEA GPS node.",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "manufacturer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "product": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serial": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usb_pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "usb_vid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "NmeaDevicesResponse": {
+        "type": "object",
+        "required": [
+          "devices"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NmeaDeviceInfo"
+            }
+          }
+        }
+      },
       "NodeBody": {
         "oneOf": [
           {
@@ -5567,6 +5710,24 @@
                 "type": "string",
                 "enum": [
                   "device"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/GpsNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "gps"
                 ]
               }
             }
@@ -6098,6 +6259,7 @@
           "channel_has_audio",
           "channel_is_decoder",
           "channel_has_video",
+          "channel_needs_position",
           "device_is_tx_capable"
         ]
       },
@@ -6181,6 +6343,7 @@
           "events",
           "video",
           "control",
+          "position",
           "tx"
         ]
       },
@@ -6201,6 +6364,125 @@
             "format": "float"
           }
         }
+      },
+      "PositionFix": {
+        "type": "object",
+        "description": "One live station fix. Optional measurements stay absent when the provider did not report\nthem; latitude and longitude are always a complete, validated pair.",
+        "required": [
+          "latitude",
+          "longitude",
+          "time"
+        ],
+        "properties": {
+          "accuracy_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "altitude_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "speed_mps": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "time": {
+            "type": "string",
+            "description": "RFC3339 UTC. Providers without their own timestamp are stamped when the server receives\nthe fix."
+          },
+          "track_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "PositionSource": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The geolocation provider exposed by the desktop WebView.",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "device"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A gpsd JSON endpoint, normally `127.0.0.1:2947`.",
+            "required": [
+              "address",
+              "type"
+            ],
+            "properties": {
+              "address": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "gpsd"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "An NMEA 0183 serial device. Receivers push sentences; `update_interval_ms` limits how\noften complete fixes are published to live consumers without attempting proprietary\nreceiver configuration commands.",
+            "required": [
+              "device",
+              "baud",
+              "type"
+            ],
+            "properties": {
+              "baud": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "device": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "nmea"
+                ]
+              },
+              "update_interval_ms": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          }
+        ]
       },
       "PresetDevice": {
         "type": "object",
@@ -7159,6 +7441,50 @@
                 "type": "string",
                 "enum": [
                   "ScannerUpdate"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Latest state of one GPS source node. `fix: None` carries a surfaced provider error or a\nsource that has gone unavailable; connected consumers stop using its previous fix.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Latest state of one GPS source node. `fix: None` carries a surfaced provider error or a\nsource that has gone unavailable; connected consumers stop using its previous fix.",
+                "required": [
+                  "node"
+                ],
+                "properties": {
+                  "error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "fix": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/components/schemas/PositionFix"
+                      }
+                    ]
+                  },
+                  "node": {
+                    "type": "string"
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "PositionChanged"
                 ]
               }
             }

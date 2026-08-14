@@ -396,13 +396,6 @@ function ModeControls({
               onParams({ type: "adsb", settings: { ...params.settings, crc_fix } })
             }
           />
-          <AdsbReference
-            lat={params.settings.ref_lat ?? null}
-            lon={params.settings.ref_lon ?? null}
-            onCommit={(ref_lat, ref_lon) =>
-              onParams({ type: "adsb", settings: { ...params.settings, ref_lat, ref_lon } })
-            }
-          />
         </>
       );
     case "ais":
@@ -765,93 +758,3 @@ function PresetNumberField({
     </span>
   );
 }
-
-// The pair is meaningless half-set (the decoder needs a full reference position), so both
-// fields commit together and a half-filled draft is held back as invalid instead.
-function AdsbReference({
-  lat,
-  lon,
-  onCommit,
-}: {
-  lat: number | null;
-  lon: number | null;
-  onCommit: (lat: number | null, lon: number | null) => void;
-}) {
-  const [draft, setDraft] = useState<Reference | null>(null);
-  const [geoError, setGeoError] = useState<string | null>(null);
-  const shown = draft ?? { lat, lon };
-  // The fields clamp to their own range, so the only invalid state left is half-filled.
-  const valid = (shown.lat === null) === (shown.lon === null);
-
-  // Called when either field commits: the pair is what is patched, so a half-filled draft is
-  // simply kept on screen until the other half arrives.
-  const commit = (next: Reference): void => {
-    if ((next.lat === null) !== (next.lon === null)) {
-      setDraft(next);
-      return;
-    }
-    setDraft(null);
-    if (next.lat !== lat || next.lon !== lon) {
-      onCommit(next.lat, next.lon);
-    }
-  };
-
-  // Never geolocate on our own — only this button asks the browser, which is what triggers the
-  // permission prompt.
-  const locate = (): void => {
-    if (!navigator.geolocation) {
-      setGeoError("no geolocation in this browser");
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setGeoError(null);
-        setDraft(null);
-        onCommit(Number(pos.coords.latitude.toFixed(5)), Number(pos.coords.longitude.toFixed(5)));
-      },
-      (err) => setGeoError(err.message),
-    );
-  };
-
-  return (
-    <span className="flex flex-wrap items-center gap-1">
-      <span className="text-sm text-ink-dim">Ref</span>
-      <OptionalNumberField
-        label="Reference latitude"
-        placeholder="lat"
-        className="w-24"
-        value={shown.lat}
-        min={-90}
-        max={90}
-        step={REFERENCE_STEP}
-        invalid={!valid}
-        onCommit={(next) => commit({ ...shown, lat: next })}
-      />
-      <OptionalNumberField
-        label="Reference longitude"
-        placeholder="lon"
-        className="w-24"
-        value={shown.lon}
-        min={-180}
-        max={180}
-        step={REFERENCE_STEP}
-        invalid={!valid}
-        onCommit={(next) => commit({ ...shown, lon: next })}
-      />
-      <button type="button" className={BTN} onClick={locate}>
-        Use my location
-      </button>
-      {!valid && <span className="text-sm text-danger">set both</span>}
-      {geoError !== null && <span className="text-sm text-danger">{geoError}</span>}
-    </span>
-  );
-}
-
-interface Reference {
-  lat: number | null;
-  lon: number | null;
-}
-
-/** ~1 m at the equator — finer than the decoder's local-position solution needs, and the
- * precision the field is allowed to display (`fractionDigits`). */
-const REFERENCE_STEP = 0.00001;

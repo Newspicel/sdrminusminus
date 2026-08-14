@@ -16,7 +16,8 @@ import { Slider } from "../../components/Slider";
 import { VideoView } from "../../components/VideoView";
 import { decoderLogExportUrl, recordDeviceSet } from "../../lib/api";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
-import { type MapKind, mapKindsOf, referencePositions } from "../../lib/map/layers";
+import { type MapKind, mapKindsOf } from "../../lib/map/layers";
+import { positionSourcesOf } from "../../lib/position";
 import { pushToast } from "../../lib/toasts";
 import type {
   ChannelInfo,
@@ -150,30 +151,33 @@ function AudioInput({ input }: { input: Input }) {
 }
 
 export function MapFace({ node }: { node: PatchNode }) {
+  const workspace = useWorkspaceContext();
   const inputs = useInputs(node.id, "events");
   const wired = useWiredKinds(inputs);
   const kinds = mapKindsOf(wired);
+  const positions = positionSourcesOf(workspace.graph, node.id);
   return (
     <NodeShell
       node={node}
       title="Map"
       category="display"
       subtitle={inputs.length > 0 ? `${inputs.length} in` : undefined}
-      live={kinds.length > 0}
+      live={kinds.length > 0 || positions.length > 0}
     >
       <FaceBody scroll={false}>
-        {inputs.length === 0 ? (
-          <FaceEmpty>Wire a decoder's events out to plot its positions.</FaceEmpty>
+        {inputs.length === 0 && positions.length === 0 ? (
+          <FaceEmpty>Wire decoder events or a GPS position in to plot them.</FaceEmpty>
         ) : kinds.length === 0 ? (
-          <FaceEmpty>
-            Nothing wired in reports a position. ADS-B, AIS and APRS do; the rest have nowhere to be
-            drawn.
-          </FaceEmpty>
+          positions.length === 0 ? (
+            <FaceEmpty>
+              Nothing wired in reports a position. ADS-B, AIS and APRS do; the rest have nowhere to
+              be drawn.
+            </FaceEmpty>
+          ) : (
+            <Plot kinds={kinds} positionNodes={positions} />
+          )
         ) : (
-          <Plot
-            kinds={kinds}
-            references={referencePositions(inputs.map((input) => input.channel.settings.params))}
-          />
+          <Plot kinds={kinds} positionNodes={positions} />
         )}
       </FaceBody>
     </NodeShell>
@@ -184,15 +188,15 @@ export function MapFace({ node }: { node: PatchNode }) {
  * inside the shell, and the map has to give its wheel back to the camera until then. */
 function Plot({
   kinds,
-  references,
+  positionNodes,
 }: {
   kinds: readonly MapKind[];
-  references: readonly (readonly [number, number])[];
+  positionNodes: readonly string[];
 }) {
   return (
     <MapPanel
       kinds={kinds}
-      references={references}
+      positionNodes={positionNodes}
       active={useFaceActive()}
       className="h-full min-h-0 w-full flex-1"
     />

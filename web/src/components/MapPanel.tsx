@@ -28,6 +28,7 @@ import {
   targetCollection,
   targetDetail,
 } from "../lib/map/layers";
+import { type PositionSample, usePositionStore } from "../lib/position";
 import { formatMhz } from "./format";
 
 // MapLibre v6 ships its worker as a separate file and derives its URL from `import.meta.url`,
@@ -71,6 +72,7 @@ const ZERO_COUNTS: Counts = { adsb: 0, ais: 0, aprs: 0 };
 export function MapPanel({
   kinds,
   references = [],
+  positionNodes = [],
   active = true,
   className,
 }: {
@@ -78,6 +80,8 @@ export function MapPanel({
   /** `[lon, lat]` station fixes — an ADS-B channel's CPR reference — drawn as landmarks under
    * the targets they anchor. */
   references?: readonly (readonly [number, number])[];
+  /** GPS nodes wired into this map. Their bounded histories form the mobile heat map and route. */
+  positionNodes?: readonly string[];
   /** Whether the map owns the pointer and the wheel. On the canvas it does so only while its node
    * is the active face — MapLibre's own handlers would otherwise pan the map *and* the patch with
    * one gesture, since the two cannot share a wheel. */
@@ -99,6 +103,9 @@ export function MapPanel({
   kindsRef.current = kinds;
   const referencesRef = useRef(references);
   referencesRef.current = references;
+  const positionNodesRef = useRef(positionNodes);
+  positionNodesRef.current = positionNodes;
+  const positionDrawnRef = useRef("");
   const edgeRef = useRef("");
   const accentRef = useRef("");
 
@@ -107,6 +114,7 @@ export function MapPanel({
   const [counts, setCounts] = useState<Counts>(ZERO_COUNTS);
   const [detail, setDetail] = useState<TargetDetail | null>(null);
   const [basemap, setBasemap] = useState<"pending" | "online" | "offline">("pending");
+  const [positionCount, setPositionCount] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -150,6 +158,7 @@ export function MapPanel({
       map.on("style.load", () => {
         installReferenceLayer(map, accentRef.current, edge, referencesRef.current);
         installLayers(map, edge, kindsRef.current);
+        installPositionLayers(map, accentRef.current, edge, positionNodesRef.current.length > 0);
         readyRef.current = true;
         drawnRef.current = {};
         highlight(map, kindsRef.current, selectedRef.current);
@@ -191,6 +200,33 @@ export function MapPanel({
       const now = Date.now();
       const next = { ...countsRef.current };
       let changed = false;
+
+      const positionSources = usePositionStore.getState().sources;
+      const tracks = positionNodesRef.current.map((node) => ({
+        node,
+        samples: positionSources[node]?.history ?? EMPTY_POSITION_HISTORY,
+        active: positionSources[node]?.fix != null,
+      }));
+      const positionKey = tracks
+        .map(
+          ({ node, samples, active: live }) =>
+            `${node}:${samples.length}:${samples.at(-1)?.receivedAt ?? 0}:${live ? "live" : "stale"}`,
+        )
+        .join("|");
+      if (positionKey !== positionDrawnRef.current) {
+        positionDrawnRef.current = positionKey;
+        const collection = positionCollection(tracks);
+        void map.getSource<GeoJSONSource>(POSITION_SOURCE)?.setData(collection.points);
+        void map.getSource<GeoJSONSource>(POSITION_ROUTE_SOURCE)?.setData(collection.route);
+        setPositionCount(collection.points.features.length);
+        if (!framedRef.current && collection.points.features.length > 0) {
+          framedRef.current = true;
+          framePoints(
+            map,
+            collection.points.features.map((feature) => feature.geometry.coordinates),
+          );
+        }
+      }
 
       for (const kind of kindsRef.current) {
         const rows = stations[kind] ?? EMPTY_STATIONS;
@@ -298,6 +334,16 @@ export function MapPanel({
     installReferenceLayer(map, accentRef.current, edgeRef.current, positions);
   }, [referencesKey]);
 
+  const positionNodesKey = positionNodes.join(" ");
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map === null || !readyRef.current) {
+      return;
+    }
+    installPositionLayers(map, accentRef.current, edgeRef.current, positionNodesKey !== "");
+    positionDrawnRef.current = "";
+  }, [positionNodesKey]);
+
   return (
     <div className={`relative ${className ?? "h-[min(60dvh,28rem)] min-h-64 w-full"}`}>
       {/* Sized in flow, not `absolute inset-0`: MapLibre stamps `maplibregl-map` onto this
@@ -317,6 +363,13 @@ export function MapPanel({
               <span className="ml-auto text-ink">{counts[kind]}</span>
             </div>
           ))}
+          {positionNodes.length > 0 && (
+            <div className="flex items-center gap-2 font-mono text-[10px] tabular-nums">
+              <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-accent" />
+              <span className="text-ink-dim">GPS trail</span>
+              <span className="ml-auto text-ink">{positionCount}</span>
+            </div>
+          )}
         </div>
         {basemap === "offline" && (
           <div className="rounded border border-line bg-bg/85 px-2 py-1 font-mono text-[10px] text-ink-dim">
@@ -367,6 +420,70 @@ export function MapPanel({
 }
 
 const EMPTY_STATIONS: readonly Target[] = Object.freeze([]);
+const EMPTY_POSITION_HISTORY: readonly PositionSample[] = Object.freeze([]);
+const POSITION_SOURCE = "station-position-history";
+const POSITION_ROUTE_SOURCE = "station-position-route";
+const POSITION_LAYERS = ["station-position-heat", "station-position-route", "station-position-fix"];
+
+interface PositionFeature {
+  type: "Feature";
+  geometry: { type: "Point"; coordinates: [number, number] };
+  properties: { latest: boolean; at: number };
+}
+
+interface PositionCollection {
+  type: "FeatureCollection";
+  features: PositionFeature[];
+}
+
+interface PositionRouteCollection {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    geometry: { type: "LineString"; coordinates: [number, number][] };
+    properties: Record<string, never>;
+  }[];
+}
+
+function positionCollection(
+  tracks: readonly { samples: readonly PositionSample[]; active: boolean }[],
+): {
+  points: PositionCollection;
+  route: PositionRouteCollection;
+} {
+  const features = tracks.flatMap(({ samples, active }) =>
+    samples.map((sample, index) => ({
+      type: "Feature" as const,
+      geometry: {
+        type: "Point" as const,
+        coordinates: [sample.longitude, sample.latitude] as [number, number],
+      },
+      properties: { latest: active && index === samples.length - 1, at: sample.receivedAt },
+    })),
+  );
+  return {
+    points: { type: "FeatureCollection", features },
+    route: {
+      type: "FeatureCollection",
+      features: tracks.flatMap(({ samples }) =>
+        samples.length < 2
+          ? []
+          : [
+              {
+                type: "Feature" as const,
+                geometry: {
+                  type: "LineString" as const,
+                  coordinates: samples.map(
+                    (sample) => [sample.longitude, sample.latitude] as [number, number],
+                  ),
+                },
+                properties: {},
+              },
+            ],
+      ),
+    },
+  };
+}
 
 const LAYER_PARTS = ["dot", "heading", "label"] as const;
 
@@ -502,6 +619,76 @@ function installLayers(map: MapLibreMap, edge: string, kinds: readonly MapKind[]
   }
 }
 
+function installPositionLayers(
+  map: MapLibreMap,
+  accent: string,
+  edge: string,
+  enabled: boolean,
+): void {
+  for (const layer of POSITION_LAYERS) {
+    if (map.getLayer(layer) !== undefined) {
+      map.removeLayer(layer);
+    }
+  }
+  for (const source of [POSITION_SOURCE, POSITION_ROUTE_SOURCE]) {
+    if (map.getSource(source) !== undefined) {
+      map.removeSource(source);
+    }
+  }
+  if (!enabled) {
+    return;
+  }
+  map.addSource(POSITION_SOURCE, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+  map.addSource(POSITION_ROUTE_SOURCE, {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [] },
+  });
+  map.addLayer({
+    id: POSITION_LAYERS[0] ?? "station-position-heat",
+    type: "heatmap",
+    source: POSITION_SOURCE,
+    maxzoom: 16,
+    paint: {
+      "heatmap-weight": 1,
+      "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.5, 14, 2],
+      "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 3, 14, 22],
+      "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.65, 16, 0.2],
+      "heatmap-color": [
+        "interpolate",
+        ["linear"],
+        ["heatmap-density"],
+        0,
+        "rgba(0,0,0,0)",
+        0.35,
+        accent,
+        1,
+        "#ef6262",
+      ],
+    },
+  });
+  map.addLayer({
+    id: POSITION_LAYERS[1] ?? "station-position-route",
+    type: "line",
+    source: POSITION_ROUTE_SOURCE,
+    paint: { "line-color": accent, "line-width": 2, "line-opacity": 0.8 },
+  });
+  map.addLayer({
+    id: POSITION_LAYERS[2] ?? "station-position-fix",
+    type: "circle",
+    source: POSITION_SOURCE,
+    filter: ["==", ["get", "latest"], true],
+    paint: {
+      "circle-radius": 6,
+      "circle-color": accent,
+      "circle-stroke-color": edge,
+      "circle-stroke-width": 2,
+    },
+  });
+}
+
 function highlight(
   map: MapLibreMap | null,
   kinds: readonly MapKind[],
@@ -547,6 +734,29 @@ function frame(map: MapLibreMap, collection: TargetCollection): void {
       [east, north],
     ],
     { padding: 56, maxZoom: 9, duration: 0 },
+  );
+}
+
+function framePoints(map: MapLibreMap, coordinates: readonly [number, number][]): void {
+  if (coordinates.length === 0) {
+    return;
+  }
+  let west = Number.POSITIVE_INFINITY;
+  let south = Number.POSITIVE_INFINITY;
+  let east = Number.NEGATIVE_INFINITY;
+  let north = Number.NEGATIVE_INFINITY;
+  for (const [lon, lat] of coordinates) {
+    west = Math.min(west, lon);
+    east = Math.max(east, lon);
+    south = Math.min(south, lat);
+    north = Math.max(north, lat);
+  }
+  map.fitBounds(
+    [
+      [west, south],
+      [east, north],
+    ],
+    { padding: 56, maxZoom: 14, duration: 0 },
   );
 }
 

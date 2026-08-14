@@ -1,9 +1,7 @@
 import { type ReactNode, useState } from "react";
 import { Checkbox } from "../components/Checkbox";
-import { BTN, BTN_QUIET, FIELD, ICON_BTN, LABEL, segment } from "../components/controls";
+import { BTN_QUIET, FIELD, ICON_BTN, LABEL, segment } from "../components/controls";
 import { Select } from "../components/Select";
-import { locateBandRegion } from "../lib/api";
-import { pushToast } from "../lib/toasts";
 import type { WorkspaceInfo } from "../lib/types";
 import { useBandPlan } from "../lib/useBandPlan";
 
@@ -94,56 +92,15 @@ function Setting({ title, children }: { title: string; children: ReactNode }) {
 
 function BandSettings() {
   const { region, regions, ruler, setRegion, setRuler } = useBandPlan();
-  const [locating, setLocating] = useState(false);
-
-  /** Best-effort only: `navigator.geolocation` needs a secure context, and this server is
-   * ordinarily plain HTTP on a LAN, so the button is expected to fail in exactly the deployed
-   * case. Choosing the region by hand is the primary path; this is a shortcut, and it says so
-   * when it cannot work. */
-  const detect = (): void => {
-    if (!("geolocation" in navigator)) {
-      pushToast("This browser offers no location; choose a region instead");
-      return;
-    }
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        void locateBandRegion(position.coords.latitude, position.coords.longitude)
-          .then((found) => {
-            setRegion(found.region);
-            if (found.approximate) {
-              pushToast(
-                `Only the ITU region could be decided from here — check the region is right`,
-              );
-            }
-          })
-          .catch((error: Error) => pushToast(error.message))
-          .finally(() => setLocating(false));
-      },
-      (error) => {
-        setLocating(false);
-        // The usual cause is not a refusal but an insecure origin, which the browser also
-        // reports as "permission denied"; say both rather than blame the operator.
-        pushToast(`No location: ${error.message} (needs HTTPS or localhost)`);
-      },
-      { maximumAge: 600_000, timeout: 10_000 },
-    );
-  };
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-1">
-        <Select
-          label="Band plan region"
-          value={region ?? ""}
-          options={regions.map((entry) => ({ value: entry.id, label: entry.name }))}
-          onChange={setRegion}
-          className="min-w-0 flex-1"
-        />
-        <button type="button" className={BTN} onClick={detect} disabled={locating}>
-          {locating ? "Locating…" : "Detect"}
-        </button>
-      </div>
+      <Select
+        label="Band plan region"
+        value={region ?? ""}
+        options={regions.map((entry) => ({ value: entry.id, label: entry.name }))}
+        onChange={setRegion}
+      />
       <label className="flex cursor-pointer items-center gap-2 text-xs text-ink-dim">
         <Checkbox checked={ruler} onChange={setRuler} />
         Draw the ruler on every scope

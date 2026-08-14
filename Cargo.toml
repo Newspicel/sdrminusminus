@@ -71,6 +71,7 @@ futures = "0.3"
 # benefit of a dev-dependency. Bump this when axum bumps, and not before (deny/dependabot both
 # know: see the ignore in .github/dependabot.yml).
 tokio-tungstenite = "0.29"
+tokio-serial = "5.5.0"
 
 # MCP server (, §18): streamable HTTP mounted on the same axum app. `schemars` derives
 # the tool argument schemas and must match the version rmcp itself depends on.

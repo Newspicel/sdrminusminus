@@ -8,6 +8,7 @@ use sdrmm_modem::{
 };
 use sdrmm_wire::{
     AdsbMessage, AdsbParams, ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent,
+    PositionFix,
 };
 
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
@@ -101,6 +102,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
     has_audio: false,
     decoder_kind: Some("adsb".to_owned()),
     native_rate_max_hz: Some(MAX_INPUT_RATE_HZ),
+    needs_position: true,
     ..ChannelDescriptor::default()
 });
 
@@ -805,6 +807,10 @@ impl ChannelRx for AdsbChannel {
         Ok(())
     }
 
+    fn position_changed(&mut self, fix: Option<&PositionFix>) {
+        self.reference = fix.map(|fix| (fix.latitude, fix.longitude));
+    }
+
     fn process(&mut self, iq: &[Complex<f32>], out: &mut ChannelOutputs) {
         magnitudes(iq, &mut self.mag);
 
@@ -1129,6 +1135,24 @@ mod tests {
             assert!((lat - LAT).abs() < 0.01, "odd {odd}: lat {lat}");
             assert!((lon - LON).abs() < 0.01, "odd {odd}: lon {lon}");
         }
+    }
+
+    #[test]
+    fn a_live_position_wire_replaces_and_clears_the_reference() {
+        let mut channel = channel(AdsbParams::default());
+        let fix = PositionFix {
+            latitude: LAT,
+            longitude: LON,
+            altitude_m: None,
+            accuracy_m: None,
+            speed_mps: None,
+            track_deg: None,
+            time: "2026-08-14T12:00:00Z".to_owned(),
+        };
+        channel.position_changed(Some(&fix));
+        assert_eq!(channel.reference, Some((LAT, LON)));
+        channel.position_changed(None);
+        assert_eq!(channel.reference, None);
     }
 
     /// Southern/western coordinates are where a `%`-based CPR gets the sign wrong.

@@ -140,6 +140,8 @@ export function portsOf(context: GraphContext, graph: PatchGraph, node: PatchNod
           return descriptor?.decoder_kind != null;
         case "channel_has_video":
           return descriptor?.has_video === true;
+        case "channel_needs_position":
+          return descriptor?.needs_position === true;
         case "device_is_tx_capable":
           // The reserved transmit input is drawn on a radio that *has* a send side, whatever
           //  lets it do with one: `rx_only` is the wire default, so a radio that says
@@ -282,6 +284,7 @@ function mhz(hz: number): string {
 
 export const NODE_SIZE: Record<NodeKind, { w: number; h?: number }> = {
   device: { w: 360 },
+  gps: { w: 340 },
   channel: { w: 380 },
   scope: { w: 520, h: 340 },
   speaker: { w: 300 },
@@ -297,6 +300,7 @@ export const NODE_SIZE: Record<NodeKind, { w: number; h?: number }> = {
 /** How far the resizer may shrink a face before its instrument stops being readable. */
 export const NODE_MIN_SIZE: Record<NodeKind, { w: number; h: number }> = {
   device: { w: 260, h: 120 },
+  gps: { w: 280, h: 140 },
   channel: { w: 280, h: 120 },
   scope: { w: 320, h: 200 },
   speaker: { w: 220, h: 100 },
