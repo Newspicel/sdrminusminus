@@ -157,7 +157,7 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** Plugin SDK via WASM
 - **[planned]** Multi-user roles; remote fleet management across several Pi nodes
 - **[planned]** Offline reference bundles — band plans, TLE snapshots, callsign prefixes, PMTiles maps
-- **[planned]** Output Nodes for like Discord
+- **[planned]** Output Nodes for like Discord and Matrix
 
 ## 19. Legitimate Security research
 
