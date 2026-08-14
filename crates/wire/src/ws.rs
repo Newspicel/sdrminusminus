@@ -28,6 +28,7 @@ pub enum StateScope {
     /// arrive as [`ServerEvent::Decoded`] and are appended client-side — invalidating per
     /// decode would refetch the whole log hundreds of times a second under ADS-B traffic.
     DecoderLog,
+    Calls,
     Workspaces,
 }
 

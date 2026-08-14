@@ -180,11 +180,18 @@ const DETAIL: {
       ["Position", position(f.lat, f.lon)],
       ["Position error", f.position_error_m == null ? undefined : `≤ ${f.position_error_m} m`],
       ["Channel", f.channel == null ? undefined : String(f.channel)],
+      [
+        "Channel frequency",
+        f.channel_definition == null
+          ? undefined
+          : `LCN ${f.channel_definition.channel} · TX ${(f.channel_definition.tx_hz / 1e6).toFixed(6)} MHz · RX ${(f.channel_definition.rx_hz / 1e6).toFixed(6)} MHz`,
+      ],
       ["Rest channel", f.rest_channel == null ? undefined : String(f.rest_channel)],
       ["Network ID", f.network_id == null ? undefined : String(f.network_id)],
       ["System ID", f.system_id == null ? undefined : String(f.system_id)],
       ["Site ID", f.site_id == null ? undefined : String(f.site_id)],
       ["Emergency", flag(f.emergency)],
+      ["Late entry", flag(f.late_entry)],
       ["Slot activity", slotActivity(f)],
       // `Some(false)` is a positive statement that the payload is in the clear; absent means the
       // frame did not say, which is not the same thing.

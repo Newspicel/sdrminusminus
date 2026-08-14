@@ -54,7 +54,12 @@ export function WorkspaceBar({
             ? { kind: "device" as const, data: {} }
             : kind === "gps"
               ? { kind: "gps" as const, data: { source: source ?? { type: "device" } } }
-              : { kind }),
+              : kind === "dmr_trunk"
+                ? {
+                    kind: "dmr_trunk" as const,
+                    data: { protocol: "auto", retention_seconds: 300 },
+                  }
+                : { kind }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });

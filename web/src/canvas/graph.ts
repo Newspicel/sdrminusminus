@@ -9,6 +9,7 @@ import type {
   PatchEdge,
   PatchGraph,
   PatchNode,
+  PortDirection,
   PortRef,
   PortSpec,
   RackLayout,
@@ -202,11 +203,15 @@ export function portOf(
   context: GraphContext,
   graph: PatchGraph,
   reference: PortRef,
+  direction?: PortDirection,
 ): PortSpec | undefined {
   const node = nodeOf(graph, reference.node);
   return node === undefined
     ? undefined
-    : portsOf(context, graph, node).find((port) => port.name === reference.port);
+    : portsOf(context, graph, node).find(
+        (port) =>
+          port.name === reference.port && (direction === undefined || port.direction === direction),
+      );
 }
 
 export function edgeKey(edge: PatchEdge): string {
@@ -222,9 +227,15 @@ export function connectionRefusal(
   if (from.node === to.node) {
     return "a node cannot wire to itself";
   }
-  const out = portOf(context, graph, from);
-  const input = portOf(context, graph, to);
+  const out = portOf(context, graph, from, "out");
+  const input = portOf(context, graph, to, "in");
   if (out === undefined || input === undefined) {
+    if (
+      portOf(context, graph, from, "in") !== undefined ||
+      portOf(context, graph, to, "out") !== undefined
+    ) {
+      return "wires run from an output to an input";
+    }
     return "that port does not exist";
   }
   if (out.direction !== "out" || input.direction !== "in") {
@@ -291,6 +302,7 @@ export const NODE_SIZE: Record<NodeKind, { w: number; h?: number }> = {
   map: { w: 520, h: 380 },
   readout: { w: 560, h: 320 },
   decoder_log: { w: 760, h: 380 },
+  dmr_trunk: { w: 480, h: 360 },
   video: { w: 380 },
   recorder: { w: 300 },
   export: { w: 300 },
@@ -307,6 +319,7 @@ export const NODE_MIN_SIZE: Record<NodeKind, { w: number; h: number }> = {
   map: { w: 300, h: 220 },
   readout: { w: 300, h: 160 },
   decoder_log: { w: 360, h: 200 },
+  dmr_trunk: { w: 380, h: 240 },
   video: { w: 240, h: 200 },
   recorder: { w: 220, h: 100 },
   export: { w: 220, h: 100 },

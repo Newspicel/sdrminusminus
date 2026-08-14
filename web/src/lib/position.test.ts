@@ -158,7 +158,7 @@ describe("device position watch", () => {
     });
     cleanup();
     expect(browser.clearWatch).toHaveBeenCalledWith(7);
-    expect(socket.listeners).toHaveLength(0);
+    expect(socket.listeners.size).toBe(0);
   });
 
   it("reports a missing geolocation provider", async () => {
@@ -175,6 +175,6 @@ describe("device position watch", () => {
       data: { node: "gps", error: "this device has no geolocation provider" },
     });
     cleanup();
-    expect(socket.listeners).toHaveLength(0);
+    expect(socket.listeners.size).toBe(0);
   });
 });

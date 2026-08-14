@@ -26,6 +26,7 @@ const DECODED_TEXT_CAP: usize = 1024;
 mod assets;
 mod auth;
 mod bandplan;
+mod calls;
 mod decoderlog;
 pub mod doctor;
 mod gps;
@@ -35,6 +36,7 @@ mod rest;
 mod store;
 mod templates;
 mod tracks;
+mod trunking;
 mod workspace;
 mod ws;
 
@@ -78,6 +80,8 @@ pub(crate) struct AppState {
     /// per socket multiplied the cost by the number of browsers watching.
     pub decoded_text: tokio::sync::broadcast::Sender<axum::extract::ws::Utf8Bytes>,
     pub(crate) tracks: Arc<tracks::Tracks>,
+    pub(crate) calls: Arc<calls::Calls>,
+    pub(crate) trunking: Arc<trunking::Trunking>,
     /// Live WebSocket connections, reported by `GET /api/clients`.
     pub clients: Arc<std::sync::atomic::AtomicU32>,
     pub(crate) unrestored: Arc<std::sync::Mutex<Vec<String>>>,
@@ -108,6 +112,8 @@ impl AppState {
             decoder_log_dropped: Arc::new(AtomicU64::new(0)),
             decoded_text: tokio::sync::broadcast::channel(DECODED_TEXT_CAP).0,
             tracks: Arc::new(tracks::Tracks::default()),
+            calls: Arc::new(calls::Calls::default()),
+            trunking: Arc::new(trunking::Trunking::default()),
             clients: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             unrestored: Arc::new(std::sync::Mutex::new(Vec::new())),
             restored: Arc::new(std::sync::Mutex::new(HashSet::new())),
@@ -162,6 +168,17 @@ pub fn router(engine: Arc<Engine>, store: Store, options: &ServerOptions) -> Rou
 /// than becoming a 401. CORS stays outermost so a preflight is answered before auth runs.
 fn router_with_state(state: AppState, options: &ServerOptions) -> (Router, Writer) {
     let writer = start_decoder_log_writer(&state);
+    let _trunking = trunking::spawn(
+        state.engine.clone(),
+        state.store.clone(),
+        state.trunking.clone(),
+    );
+    let _calls = calls::spawn(
+        state.engine.clone(),
+        state.store.clone(),
+        state.calls.clone(),
+        state.trunking.clone(),
+    );
     ws::start_decoded_encoder(&state);
     workspace::spawn_autosave(&state);
     state.gps.reconcile(&state);
@@ -318,7 +335,7 @@ mod tests {
         ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord, DecoderEvent,
         DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NfmParams,
         NmeaDevicesResponse, PresetInfo, PresetSnapshot, RecordingStatus, RecordingsResponse,
-        StateSnapshot,
+        StateSnapshot, VoiceCallsResponse,
     };
     use tower::ServiceExt;
 
@@ -456,6 +473,8 @@ mod tests {
             "/api/recordings/{id}/download",
             "/api/decoderlog",
             "/api/decoderlog/export/{format}",
+            "/api/calls",
+            "/api/calls/{id}/audio",
             "/api/workspaces/{id}/apply",
             "/api/patch/catalog",
         ] {
@@ -474,6 +493,8 @@ mod tests {
             "RecordingInfo",
             "DecoderLogEntry",
             "DecoderLogResponse",
+            "VoiceCall",
+            "VoiceCallsResponse",
             "DecoderEvent",
             "DeletedCount",
             "PatchGraph",
@@ -522,6 +543,19 @@ mod tests {
                 .iter()
                 .all(|device| !device.path.is_empty())
         );
+    }
+
+    #[tokio::test]
+    async fn call_endpoints_list_completed_calls_and_reject_missing_audio() {
+        let app = test_router();
+        let (status, body) = request(app.clone(), "GET", "/api/calls", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let listed: VoiceCallsResponse = serde_json::from_slice(&body).expect("json");
+        assert!(listed.calls.is_empty());
+
+        let (status, body) = request(app, "GET", "/api/calls/99/audio", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        serde_json::from_slice::<ApiError>(&body).expect("ApiError body");
     }
 
     #[tokio::test]

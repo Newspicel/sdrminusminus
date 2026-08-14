@@ -215,7 +215,12 @@ export function validGpsdAddress(address: string): boolean {
     return false;
   }
   if (host.startsWith("[") || host.endsWith("]")) {
-    return /^\[[0-9a-f:]+\]$/i.test(host) && host.includes(":");
+    try {
+      const parsed = new URL(`http://${host}`);
+      return parsed.hostname.startsWith("[") && parsed.hostname.endsWith("]");
+    } catch {
+      return false;
+    }
   }
   return /^[a-z0-9._-]+$/i.test(host);
 }

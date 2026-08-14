@@ -7,10 +7,10 @@
    - Server: handler tests + OpenAPI snapshot + codegen-drift check.
    - Performance gates tests for DSP paths to avoid regressions.
    - Client: unit and smoke tests
-3. No comments, delete comments. Unless there is no way to read that out of the Code. Never refernce PLAN/FEATURE/DESIGN
+3. Keep comments only for non-obvious constraints, invariants, or rationale. Never reference PLAN/FEATURE/DESIGN.
 4. Fix problems directly if you find them, without asking
-5. Match the established pattern, except if you think its stupid.
-6. Self-written pure Rust first we can use/copy open source code or translate from C/C++ if we have to.
+5. Match the established pattern unless correctness, security, maintainability, or explicit project constraints require a deviation.
+6. Prefer self-written pure Rust. Use compatible open-source code or translate C/C++ only when necessary. Record required attribution and license notices.
 
 ## Coding structure
 - Respect crate boundaries: `dsp` has no I/O and no internal deps; `channels` depends only

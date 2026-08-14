@@ -81,7 +81,6 @@ export function MapPanel({
   /** `[lon, lat]` station fixes — an ADS-B channel's CPR reference — drawn as landmarks under
    * the targets they anchor. */
   references?: readonly (readonly [number, number])[];
-  /** GPS nodes wired into this map. Their bounded histories form the mobile heat map and route. */
   positionNodes?: readonly string[];
   /** Whether the map owns the pointer and the wheel. On the canvas it does so only while its node
    * is the active face — MapLibre's own handlers would otherwise pan the map *and* the patch with

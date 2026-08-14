@@ -19,16 +19,16 @@ pub(crate) const AUDIO_CHANNEL_CAP: usize = 64;
 /// stream. The stamps are what keep packet timestamps honest: blocks dropped between DSP and
 /// encoder surface as a stamp discontinuity instead of splicing seamlessly.
 #[derive(Clone, Debug)]
-pub(crate) struct PcmBlock {
-    pub(crate) start_frame: u64,
+pub struct PcmBlock {
+    pub start_frame: u64,
     /// Interleave of `payload`; 1 = mono, 2 = stereo (see `sdrmm_channels::audio_channels`).
-    pub(crate) channels: u8,
-    pub(crate) payload: PcmPayload,
+    pub channels: u8,
+    pub payload: PcmPayload,
 }
 
 /// Squelched fill travels as a bare frame count — the DSP thread must not allocate for silence.
 #[derive(Clone, Debug)]
-pub(crate) enum PcmPayload {
+pub enum PcmPayload {
     Samples(Arc<[f32]>),
     Silence(usize),
 }

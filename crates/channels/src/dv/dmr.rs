@@ -10,8 +10,8 @@ use num_complex::Complex;
 use sdrmm_dsp::{Bptc128, Bptc196, CyclicCode, FracResampler, ParityCode, crc16_msb, rs129_parity};
 use sdrmm_modem::cpm::CpmDemod;
 use sdrmm_wire::{
-    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DmrParams, DvFrame,
-    DvFrameKind, DvMode, DvSlotActivity, Vendor,
+    ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, DmrParams, DmrSlots,
+    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, Vendor,
 };
 
 use super::{INPUT_RATE_HZ, SymbolWindow, bits_to_u32, c4fm_demod, c4fm_params, pack_bytes};
@@ -46,6 +46,8 @@ const DT_PI_HEADER: u8 = 0x0;
 const DT_VOICE_LC_HEADER: u8 = 0x1;
 const DT_TERMINATOR_WITH_LC: u8 = 0x2;
 const DT_CSBK: u8 = 0x3;
+const DT_MBC_HEADER: u8 = 0x4;
+const DT_MBC_CONTINUATION: u8 = 0x5;
 const DT_DATA_HEADER: u8 = 0x6;
 const DT_RATE_HALF_DATA: u8 = 0x7;
 const DT_RATE_THREE_QUARTER_DATA: u8 = 0x8;
@@ -57,6 +59,7 @@ const VOICE_LC_HEADER_MASK: [u8; 3] = [0x96, 0x96, 0x96];
 const TERMINATOR_LC_MASK: [u8; 3] = [0x99, 0x99, 0x99];
 const PI_HEADER_MASK: u16 = 0x6969;
 const CSBK_MASK: u16 = 0xA5A5;
+const MBC_HEADER_MASK: u16 = 0xAAAA;
 const DATA_HEADER_MASK: u16 = 0xCCCC;
 
 /// Full link control: 72 bits of addressing plus 24 of Reed-Solomon parity.
@@ -159,16 +162,13 @@ impl ChannelRx for DmrChannel {
 
     fn new(ctx: ChannelCtx, settings: ChannelSettings) -> Result<Self, ChannelError> {
         check_input_rate(ctx, &DESCRIPTOR)?;
-        let p = *params(&settings)?;
-        Ok(Self {
-            demod: c4fm_demod(&c4fm_params(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA)),
-            symbols: Vec::new(),
-            decoder: Decoder::new(p),
-        })
+        let params = params(&settings)?;
+        Self::with_options(ctx, params.slots, params.ignore_crc)
     }
 
     fn apply(&mut self, settings: ChannelSettings) -> Result<(), ChannelError> {
-        self.decoder.params = *params(&settings)?;
+        let params = params(&settings)?;
+        self.set_options(params.slots, params.ignore_crc);
         Ok(())
     }
 
@@ -185,6 +185,24 @@ impl ChannelRx for DmrChannel {
         for &symbol in &self.symbols {
             self.decoder.push(symbol, out);
         }
+    }
+}
+
+impl DmrChannel {
+    fn with_options(
+        ctx: ChannelCtx,
+        slots: DmrSlots,
+        ignore_crc: bool,
+    ) -> Result<Self, ChannelError> {
+        Ok(Self {
+            demod: c4fm_demod(&c4fm_params(ctx.input_rate, BAUD, DEVIATION_HZ, RRC_ALPHA)),
+            symbols: Vec::new(),
+            decoder: Decoder::new(DmrParams { slots, ignore_crc }),
+        })
+    }
+
+    fn set_options(&mut self, slots: DmrSlots, ignore_crc: bool) {
+        self.decoder.params = DmrParams { slots, ignore_crc };
     }
 }
 
@@ -211,6 +229,13 @@ struct Decoder {
     bytes: Vec<u8>,
     slots: [SlotState; 2],
     short_lc: ShortLc,
+    mbc_headers: [Option<MbcHeader>; 2],
+}
+
+#[derive(Clone)]
+struct MbcHeader {
+    opcode: u8,
+    frame: DvFrame,
 }
 
 struct SlotState {
@@ -254,6 +279,7 @@ impl Decoder {
             bytes: Vec::with_capacity(BURST_BITS / 8),
             slots: std::array::from_fn(|_| SlotState::new()),
             short_lc: ShortLc::default(),
+            mbc_headers: std::array::from_fn(|_| None),
         }
     }
 
@@ -265,6 +291,7 @@ impl Decoder {
         self.follower_countdown = [0; 2];
         self.slots.iter_mut().for_each(SlotState::reset);
         self.short_lc.reset();
+        self.mbc_headers.fill(None);
     }
 
     fn push(&mut self, symbol: f32, out: &mut ChannelOutputs) {
@@ -461,6 +488,8 @@ impl Decoder {
                 frame
             }
             DT_CSBK => self.csbk(&payload)?,
+            DT_MBC_HEADER => self.mbc_header(index, &payload)?,
+            DT_MBC_CONTINUATION => self.mbc_continuation(index, &payload)?,
             DT_DATA_HEADER => self.data_header(&payload)?,
             DT_RATE_HALF_DATA => data_block(&payload, "rate 1/2 data"),
             DT_UNIFIED_SINGLE_BLOCK_DATA => {
@@ -499,7 +528,8 @@ impl Decoder {
         pack_bytes(&payload[..80], &mut self.bytes);
         let expected = dmr_crc16(&self.bytes) ^ mask;
         let found = bits_to_u32(payload, 80, 16) as u16;
-        (expected == found).then(|| DvFrame::new(DvMode::Dmr, DvFrameKind::Control))
+        (expected == found || self.params.ignore_crc)
+            .then(|| DvFrame::new(DvMode::Dmr, DvFrameKind::Control))
     }
 
     /// A full link control: 72 bits of addressing under Reed-Solomon(12,9) parity, masked by
@@ -563,6 +593,54 @@ impl Decoder {
         }
         decode_vendor_csbk(&mut frame, fid, opcode, payload);
         decode_tier_three_csbk(&mut frame, fid, opcode, payload);
+        Some(frame)
+    }
+
+    fn mbc_header(&mut self, index: usize, payload: &[bool; 96]) -> Option<DvFrame> {
+        let mut frame = self.checked_block(payload, MBC_HEADER_MASK)?;
+        let opcode = bits_to_u32(payload, 2, 6) as u8;
+        let fid = bits_to_u32(payload, 8, 8) as u8;
+        set_dmr_vendor(&mut frame, fid);
+        frame.opcode = Some(format!("{} MBC header", csbk_opcode_name(fid, opcode)));
+        decode_tier_three_csbk(&mut frame, fid, opcode, payload);
+        if fid == 0 && opcode == 0b101000 {
+            let announcement = bits_to_u32(payload, 16, 5) as u8;
+            if announcement == 0b00101 {
+                frame.channel = Some(bits_to_u32(payload, 68, 12) as u16);
+                frame.opcode = Some("broadcast channel frequency MBC header".to_owned());
+            }
+        }
+        self.mbc_headers[index] = Some(MbcHeader {
+            opcode,
+            frame: frame.clone(),
+        });
+        Some(frame)
+    }
+
+    fn mbc_continuation(&mut self, index: usize, payload: &[bool; 96]) -> Option<DvFrame> {
+        let header = self.mbc_headers[index].take()?;
+        let opcode = bits_to_u32(payload, 2, 6) as u8;
+        if opcode != header.opcode
+            || !payload[0]
+            || (!self.params.ignore_crc && !valid_mbc_crc(payload))
+        {
+            return None;
+        }
+        let mut frame = header.frame;
+        let color_code =
+            matches!(opcode, 0b110000..=0b110110).then(|| bits_to_u32(payload, 12, 4) as u8);
+        frame.channel_definition = decode_channel_definition(payload, color_code);
+        if let Some(definition) = &frame.channel_definition {
+            frame.channel = Some(definition.channel);
+            frame.data = Some(format!(
+                "TX {} Hz, RX {} Hz",
+                definition.tx_hz, definition.rx_hz
+            ));
+        }
+        frame.opcode = Some(format!(
+            "{} absolute parameters",
+            csbk_opcode_name(0, opcode)
+        ));
         Some(frame)
     }
 
@@ -876,6 +954,7 @@ fn csbk_opcode_name(fid: u8, opcode: u8) -> String {
         (0, 0b111101) => "preamble",
         (0, 0b011001) => "ALOHA",
         (0, 0b011100) => "AHOY",
+        (0, 0b101000) => "broadcast",
         (0, 0b101110) => "clear",
         (0, 0b101111) => "protect",
         (0, 0b110000) => "private voice channel grant",
@@ -997,6 +1076,7 @@ fn decode_tier_three_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[b
     if matches!(opcode, 0b110000..=0b110101) {
         frame.channel = Some(bits_to_u32(payload, 16, 12) as u16);
         frame.slot = Some(if payload[28] { 2 } else { 1 });
+        frame.late_entry = Some(payload[29]);
         frame.emergency = Some(payload[30]);
     } else if opcode == 0b011001 {
         frame.system_id = Some(bits_to_u32(payload, 40, 16) as u16);
@@ -1013,6 +1093,32 @@ fn decode_tier_three_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[b
         frame.destination = Some(bits_to_u32(payload, 32, 24));
         frame.source = Some(bits_to_u32(payload, 56, 24));
     }
+}
+
+fn valid_mbc_crc(payload: &[bool; 96]) -> bool {
+    let mut bytes = Vec::with_capacity(10);
+    pack_bytes(&payload[..80], &mut bytes);
+    dmr_crc16(&bytes) == bits_to_u32(payload, 80, 16) as u16
+}
+
+fn decode_channel_definition(
+    payload: &[bool; 96],
+    color_code: Option<u8>,
+) -> Option<DvChannelDefinition> {
+    if bits_to_u32(payload, 16, 4) != 0 || payload[20] || payload[21] {
+        return None;
+    }
+    let channel = bits_to_u32(payload, 22, 12) as u16;
+    let tx_mhz = u64::from(bits_to_u32(payload, 34, 10));
+    let tx_fraction = u64::from(bits_to_u32(payload, 44, 13));
+    let rx_mhz = u64::from(bits_to_u32(payload, 57, 10));
+    let rx_fraction = u64::from(bits_to_u32(payload, 67, 13));
+    Some(DvChannelDefinition {
+        channel,
+        tx_hz: tx_mhz * 1_000_000 + tx_fraction * 125,
+        rx_hz: rx_mhz * 1_000_000 + rx_fraction * 125,
+        color_code,
+    })
 }
 
 fn data_format_name(format: u8) -> &'static str {
@@ -1390,9 +1496,73 @@ mod tests {
             ChannelCtx {
                 input_rate: INPUT_RATE_HZ,
             },
-            settings(ChannelParams::Dmr(DmrParams { slots })),
+            settings(ChannelParams::Dmr(DmrParams {
+                slots,
+                ignore_crc: false,
+            })),
         )
         .expect("dmr channel")
+    }
+
+    fn put(bits: &mut [bool], at: usize, width: usize, value: u64) {
+        for index in 0..width {
+            bits[at + index] = value >> (width - index - 1) & 1 == 1;
+        }
+    }
+
+    #[test]
+    fn tier_three_grant_exposes_channel_slot_and_flags() {
+        let mut payload = [false; 96];
+        put(&mut payload, 16, 12, 37);
+        payload[28] = true;
+        payload[29] = true;
+        payload[30] = true;
+        put(&mut payload, 32, 24, 9_001);
+        put(&mut payload, 56, 24, 1_234_567);
+        let mut frame = DvFrame::new(DvMode::Dmr, DvFrameKind::Control);
+        decode_tier_three_csbk(&mut frame, 0, 0b110001, &payload);
+        assert_eq!(frame.channel, Some(37));
+        assert_eq!(frame.slot, Some(2));
+        assert_eq!(frame.late_entry, Some(true));
+        assert_eq!(frame.emergency, Some(true));
+    }
+
+    #[test]
+    fn absolute_channel_definition_uses_125_hz_steps() {
+        let mut payload = [false; 96];
+        payload[0] = true;
+        put(&mut payload, 2, 6, 0b101000);
+        put(&mut payload, 22, 12, 811);
+        put(&mut payload, 34, 10, 451);
+        put(&mut payload, 44, 13, 1000);
+        put(&mut payload, 57, 10, 456);
+        put(&mut payload, 67, 13, 2000);
+        let mut bytes = Vec::new();
+        pack_bytes(&payload[..80], &mut bytes);
+        put(&mut payload, 80, 16, u64::from(dmr_crc16(&bytes)));
+        assert!(valid_mbc_crc(&payload));
+        assert_eq!(
+            decode_channel_definition(&payload, None),
+            Some(DvChannelDefinition {
+                channel: 811,
+                tx_hz: 451_125_000,
+                rx_hz: 456_250_000,
+                color_code: None,
+            })
+        );
+    }
+
+    #[test]
+    fn ras_mode_accepts_a_fec_valid_block_with_an_alternate_crc_mask() {
+        let payload = [false; 96];
+        let mut strict = Decoder::new(DmrParams::default());
+        assert!(strict.checked_block(&payload, CSBK_MASK).is_none());
+
+        let mut ras = Decoder::new(DmrParams {
+            ignore_crc: true,
+            ..DmrParams::default()
+        });
+        assert!(ras.checked_block(&payload, CSBK_MASK).is_some());
     }
 
     fn dmr_interleave(code: &[u32; 4]) -> [bool; VOCODER_FRAME_BITS] {

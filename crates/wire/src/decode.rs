@@ -431,6 +431,15 @@ pub struct DvSlotActivity {
     pub destination_hash: Option<u8>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DvChannelDefinition {
+    pub channel: u16,
+    pub tx_hz: u64,
+    pub rx_hz: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_code: Option<u8>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DvFrame {
     pub mode: DvMode,
@@ -486,6 +495,8 @@ pub struct DvFrame {
     /// Logical or absolute channel number named by trunking signalling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_definition: Option<DvChannelDefinition>,
     /// Capacity Plus logical slot number carrying the rest channel.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rest_channel: Option<u16>,
@@ -497,6 +508,8 @@ pub struct DvFrame {
     pub site_id: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emergency: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub late_entry: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slot_activity: Vec<DvSlotActivity>,
     /// Decoded packet text, or hexadecimal when its application format is not understood.

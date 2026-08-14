@@ -18,6 +18,7 @@ import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
 import {
   BOOKMARKS_KEY,
+  CALLS_KEY,
   channelTypesQuery,
   DECODER_LOG_KEY,
   DEVICES_KEY,
@@ -393,6 +394,9 @@ function invalidateScope(queryClient: QueryClient, scope: StateScope): void {
       // Only structural changes (cleared, pruned) land here; individual decodes arrive as
       // `Decoded` and are appended client-side, so this never fires per frame.
       void queryClient.invalidateQueries({ queryKey: DECODER_LOG_KEY });
+      break;
+    case "calls":
+      void queryClient.invalidateQueries({ queryKey: CALLS_KEY });
       break;
   }
 }

@@ -2,8 +2,15 @@
 // body while the server is down, which openapi-fetch surfaces as `{ error: undefined }` /
 // a plain string — previously read as success, crashing on `data.id` and reporting deletes
 // as applied.
-import { afterEach, describe, expect, it } from "vitest";
-import { decoderLogExportUrl, recordingDownloadUrl, unwrap } from "./api";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  client,
+  decoderLogExportUrl,
+  NMEA_DEVICES_KEY,
+  nmeaDevicesQuery,
+  recordingDownloadUrl,
+  unwrap,
+} from "./api";
 import { setToken } from "./auth";
 
 describe("unwrap", () => {
@@ -33,6 +40,25 @@ describe("unwrap", () => {
   it("surfaces a non-JSON error body as text", () => {
     const result = { error: "Bad Gateway", response: new Response(null, { status: 502 }) };
     expect(() => unwrap(result)).toThrow("HTTP 502: Bad Gateway");
+  });
+});
+
+describe("nmeaDevicesQuery", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("fetches and unwraps the briefly cached serial-device list", async () => {
+    const response = { devices: [{ path: "/dev/ttyUSB0" }] };
+    const get = vi.spyOn(client, "GET").mockResolvedValue({
+      data: response,
+      response: new Response(null, { status: 200 }),
+    });
+    const query = nmeaDevicesQuery();
+
+    expect(query.queryKey).toBe(NMEA_DEVICES_KEY);
+    expect(query.staleTime).toBe(5_000);
+    await expect(query.queryFn?.({} as never)).resolves.toEqual(response);
+    expect(get).toHaveBeenCalledOnce();
+    expect(get).toHaveBeenCalledWith("/api/position/nmea-devices");
   });
 });
 

@@ -9,7 +9,15 @@ describe("validGpsdAddress", () => {
   });
 
   it("rejects missing hosts, ports, and malformed endpoints", () => {
-    for (const address of ["", "localhost", "localhost:0", "bad host:2947", "[::1:2947"]) {
+    for (const address of [
+      "",
+      "localhost",
+      "localhost:0",
+      "bad host:2947",
+      "[::1:2947",
+      "[::::]:2947",
+      "[1:2:3:4:5:6:7:8:9]:2947",
+    ]) {
       expect(validGpsdAddress(address), address).toBe(false);
     }
   });

@@ -14,7 +14,7 @@ import {
 import { ScannerPanel } from "../../components/ScannerPanel";
 import { Slider } from "../../components/Slider";
 import { VideoView } from "../../components/VideoView";
-import { decoderLogExportUrl, recordDeviceSet } from "../../lib/api";
+import { callAudioUrl, decoderLogExportUrl, recordDeviceSet } from "../../lib/api";
 import { useChannelAudio } from "../../lib/audio/useChannelAudio";
 import { type MapKind, mapKindsOf } from "../../lib/map/layers";
 import { positionSourcesOf } from "../../lib/position";
@@ -25,6 +25,7 @@ import type {
   PatchNode,
   RecordAction,
   RecordingStatus,
+  VoiceCall,
 } from "../../lib/types";
 import { inputsOf, iqSourceOf } from "../binding";
 import { deviceSetOf, useWorkspaceContext } from "../context";
@@ -316,6 +317,47 @@ export function DecoderLogFace({ node }: { node: PatchNode }) {
         )}
       </FaceBody>
     </NodeShell>
+  );
+}
+
+export function CallRow({ call }: { call: VoiceCall }) {
+  const destination =
+    call.destination == null ? "Unknown" : `${call.group_call ? "TG" : "ID"} ${call.destination}`;
+  const source = call.source == null ? "Unknown source" : `Radio ${call.source}`;
+  const when = new Date(call.ended_at).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  return (
+    <article className="flex flex-col gap-2 border-b border-line p-2 last:border-b-0">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <strong className="truncate font-mono text-xs text-ink">{destination}</strong>
+        <span className={CHIP}>{source}</span>
+        {call.slot != null && <span className={CHIP}>TS {call.slot}</span>}
+        {call.color_code != null && <span className={CHIP}>CC {call.color_code}</span>}
+        <span className="ml-auto font-mono text-[10px] text-ink-faint">
+          {when} · {(call.duration_ms / 1000).toFixed(1)} s
+        </span>
+      </div>
+      {call.encrypted ? (
+        <span className="text-xs text-warning">Encrypted · metadata only</span>
+      ) : call.audio != null ? (
+        <audio
+          className="h-8 w-full min-w-0"
+          controls
+          preload="none"
+          src={callAudioUrl(call.audio.url)}
+        />
+      ) : (
+        <span className="text-xs text-ink-dim">Audio was not retained.</span>
+      )}
+      {call.audio_error != null && (
+        <p role="alert" className="text-xs text-danger">
+          {call.audio_error}
+        </p>
+      )}
+    </article>
   );
 }
 

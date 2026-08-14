@@ -27,9 +27,10 @@ pub use channel::{
     RttyStopBits, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, YsfParams,
 };
 pub use decode::{
-    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent, DvFrame,
-    DvFrameKind, DvMode, DvSlotActivity, MorseText, NavtexMessage, PocsagMessage, PocsagPayload,
-    RdsUpdate, RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor,
+    AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent,
+    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, MorseText, NavtexMessage,
+    PocsagMessage, PocsagPayload, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame,
+    ToneSquelchStatus, Vendor,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
@@ -39,10 +40,11 @@ pub use device::{
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame, VideoFrame};
 pub use patch::{
-    ChannelNode, DeviceNode, DeviceRef, MAX_EDGES, MAX_NODES, MAX_STREAMS, NodeBody, NodeCategory,
-    NodeTypeInfo, PatchCatalog, PatchEdge, PatchError, PatchGraph, PatchNode, PortBacking,
-    PortCondition, PortDirection, PortRef, PortRepeat, PortSpec, PortType, Position, RACK_COLS,
-    RACK_ROWS, RackCell, RackLayout, RackSlot, Size, port_stream, stream_port,
+    ChannelNode, DeviceNode, DeviceRef, DmrTrunkNode, DmrTrunkProtocol, MAX_EDGES, MAX_NODES,
+    MAX_STREAMS, NodeBody, NodeCategory, NodeTypeInfo, PatchCatalog, PatchEdge, PatchError,
+    PatchGraph, PatchNode, PortBacking, PortCondition, PortDirection, PortRef, PortRepeat,
+    PortSpec, PortType, Position, RACK_COLS, RACK_ROWS, RackCell, RackLayout, RackSlot, Size,
+    port_stream, stream_port,
 };
 pub use position::{
     DEFAULT_GPSD_ADDRESS, DEFAULT_NMEA_BAUD, DEFAULT_NMEA_UPDATE_INTERVAL_MS, GpsNode,
@@ -53,10 +55,10 @@ pub use rest::{
     ApiError, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse, ClientsResponse,
     CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
     CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DevicesResponse, ExportFormat, LogScope, MAX_LOG_SOURCES, PRESET_SNAPSHOT_VERSION,
+    DevicesResponse, EventAudio, ExportFormat, LogScope, MAX_LOG_SOURCES, PRESET_SNAPSHOT_VERSION,
     PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
     RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse,
-    TemplateInfo, TemplatesResponse,
+    TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,

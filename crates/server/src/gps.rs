@@ -504,12 +504,22 @@ fn clear_position_consumers(state: &RouteState) {
 }
 
 async fn run_gpsd(hub: Arc<GpsHub>, state: AppState, node: String, address: String) {
+    retry_forever(&hub, &state, &node, || {
+        gpsd_session(&hub, &state, &node, &address)
+    })
+    .await;
+}
+
+async fn retry_forever<F, Fut>(hub: &GpsHub, state: &AppState, node: &str, mut session: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
     let mut retry = RETRY_DELAY;
     loop {
         let started = std::time::Instant::now();
-        let result = gpsd_session(&hub, &state, &node, &address).await;
-        if let Err(error) = result {
-            hub.publish_state(&state, &node, None, Some(limit_error(error)));
+        if let Err(error) = session().await {
+            hub.publish_state(state, node, None, Some(limit_error(error)));
         }
         let delay = retry;
         retry = if started.elapsed() >= STABLE_SESSION {
@@ -600,21 +610,10 @@ async fn run_nmea(
     baud: u32,
     update_interval: Duration,
 ) {
-    let mut retry = RETRY_DELAY;
-    loop {
-        let started = std::time::Instant::now();
-        let result = nmea_session(&hub, &state, &node, &device, baud, update_interval).await;
-        if let Err(error) = result {
-            hub.publish_state(&state, &node, None, Some(limit_error(error)));
-        }
-        let delay = retry;
-        retry = if started.elapsed() >= STABLE_SESSION {
-            RETRY_DELAY
-        } else {
-            retry.saturating_mul(2).min(MAX_RETRY_DELAY)
-        };
-        tokio::time::sleep(delay).await;
-    }
+    retry_forever(&hub, &state, &node, || {
+        nmea_session(&hub, &state, &node, &device, baud, update_interval)
+    })
+    .await;
 }
 
 async fn nmea_session(

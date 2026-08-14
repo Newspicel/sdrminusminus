@@ -22,8 +22,8 @@ use sdrmm_wire::{
     PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
     RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus, RecordingsResponse,
     ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
-    TemplatesResponse, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot,
-    WorkspaceState, WorkspacesResponse,
+    TemplatesResponse, UpdateWorkspaceRequest, VoiceCallsResponse, WorkspaceDetail, WorkspaceInfo,
+    WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -370,6 +370,43 @@ async fn get_channel_types(State(state): State<AppState>) -> Json<ChannelTypesRe
     Json(ChannelTypesResponse {
         types: state.engine.channel_types(),
     })
+}
+
+#[utoipa::path(
+    get, path = "/api/calls",
+    responses((status = 200, description = "Completed temporary voice calls", body = VoiceCallsResponse)),
+)]
+async fn list_calls(State(state): State<AppState>) -> Json<VoiceCallsResponse> {
+    Json(VoiceCallsResponse {
+        calls: state.calls.list(),
+    })
+}
+
+#[utoipa::path(
+    get, path = "/api/calls/{id}/audio",
+    params(("id" = u64, Path, description = "Call id")),
+    responses(
+        (status = 200, description = "Call audio as mono 48 kHz PCM", content_type = "audio/wav"),
+        (status = 404, description = "Call or clear audio not found", body = ApiError),
+    ),
+)]
+async fn call_audio(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+) -> Result<Response, AppError> {
+    let audio = state
+        .calls
+        .audio(id)
+        .ok_or_else(|| AppError::not_found(format!("audio for call {id} not found")))?;
+    let headers = [
+        (header::CONTENT_TYPE, "audio/wav".to_owned()),
+        (header::CONTENT_LENGTH, audio.len().to_string()),
+        (
+            header::CONTENT_DISPOSITION,
+            format!("inline; filename=\"call-{id}.wav\""),
+        ),
+    ];
+    Ok((headers, Body::from(audio.to_vec())).into_response())
 }
 
 #[utoipa::path(
@@ -1918,6 +1955,8 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_devices))
         .routes(routes!(get_nmea_devices))
         .routes(routes!(get_channel_types))
+        .routes(routes!(list_calls))
+        .routes(routes!(call_audio))
         .routes(routes!(create_device_set))
         .routes(routes!(delete_device_set))
         .routes(routes!(patch_device))

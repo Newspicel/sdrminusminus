@@ -405,7 +405,7 @@ function toFlowEdges(graph: PatchGraph, context: GraphContext): Edge[] {
     // A wire that exists but cannot carry what it says it carries is drawn as a fault on the
     // wire itself — the face at its end says what to do about it.
     const warning = edgeWarning(context, graph, edge.from, edge.to);
-    const carried = portOf(context, graph, edge.from)?.port_type;
+    const carried = portOf(context, graph, edge.from, "out")?.port_type;
     return {
       id: edgeKey(edge),
       source: edge.from.node,

@@ -9,6 +9,7 @@ pub const DEFAULT_NMEA_UPDATE_INTERVAL_MS: u32 = 1_000;
 pub const MIN_NMEA_UPDATE_INTERVAL_MS: u32 = 50;
 pub const MAX_NMEA_UPDATE_INTERVAL_MS: u32 = 60_000;
 pub const MAX_POSITION_ENDPOINT_LEN: usize = 256;
+pub const MAX_POSITION_TIME_LEN: usize = 64;
 
 const fn default_nmea_update_interval_ms() -> u32 {
     DEFAULT_NMEA_UPDATE_INTERVAL_MS
@@ -113,7 +114,7 @@ impl PositionFix {
             return Err("track must be within 0°..=360°");
         }
         if self.time.is_empty()
-            || self.time.len() > 64
+            || self.time.len() > MAX_POSITION_TIME_LEN
             || self.time.parse::<jiff::Timestamp>().is_err()
         {
             return Err("position time must be an RFC3339 timestamp");

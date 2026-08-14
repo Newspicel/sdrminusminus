@@ -1530,12 +1530,6 @@ mod tests {
             },
         )
         .await;
-        assert!(matches!(
-            next_event(&mut ws).await,
-            ServerEvent::Error { message }
-                if message.contains("not a device GPS source")
-        ));
-
         send(
             &mut ws,
             &ClientCommand::PublishPosition {
@@ -1545,6 +1539,11 @@ mod tests {
             },
         )
         .await;
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Error { message }
+                if message.contains("not a device GPS source")
+        ));
         assert!(matches!(
             next_event(&mut ws).await,
             ServerEvent::Error { message }

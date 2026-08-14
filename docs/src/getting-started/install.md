@@ -33,6 +33,46 @@ a browser on the same network.
 Portable archives use the host's SoapySDR 0.8 runtime. Install the core library and the module for
 your receiver before starting sdr--. Run `sdrmm --doctor` to confirm what the binary can see.
 
+## Nix
+
+On NixOS or another Linux system with flakes enabled, install the Tauri desktop application
+directly from GitHub:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' \
+  profile install github:Newspicel/sdrminusminus
+sdrmm-desktop
+```
+
+The flake supports x86_64 and aarch64 Linux and exposes `sdrmm-desktop`, `sdrmm`, and `default`
+packages for each system. From a checkout, the following creates `result/bin/sdrmm-desktop`:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' build
+```
+
+The package links to Nixpkgs' SoapySDR core but deliberately bundles no hardware modules. On NixOS,
+select the modules and device permissions in your system configuration. For example, with this
+repository declared as the `sdrminusminus` flake input:
+
+```nix
+environment.systemPackages = [
+  (inputs.sdrminusminus.packages.${pkgs.stdenv.hostPlatform.system}.sdrmm.override {
+    soapyPlugins = with pkgs; [
+      soapyrtlsdr
+      soapyhackrf
+    ];
+  })
+];
+
+hardware.rtl-sdr.enable = true;
+hardware.hackrf.enable = true;
+users.users.your-user.extraGroups = [ "plugdev" ];
+```
+
+Remove whichever module and hardware option you do not need. The selected plugins remain separate
+Nix store packages managed by NixOS; the application wrapper only points SoapySDR at them.
+
 ## Container
 
 The published container includes the web interface, SoapySDR, and the supported open-source

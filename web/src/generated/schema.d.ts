@@ -132,6 +132,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_calls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/calls/{id}/audio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["call_audio"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/channeltypes": {
         parameters: {
             query?: never;
@@ -1714,6 +1746,7 @@ export interface components {
             tx?: components["schemas"]["ChannelCapabilities"][];
         };
         DmrParams: {
+            ignore_crc?: boolean;
             slots?: components["schemas"]["DmrSlots"];
         };
         /**
@@ -1722,6 +1755,13 @@ export interface components {
          * @enum {string}
          */
         DmrSlots: "both" | "one" | "two";
+        DmrTrunkNode: {
+            protocol?: components["schemas"]["DmrTrunkProtocol"];
+            /** Format: int32 */
+            retention_seconds?: number;
+        };
+        /** @enum {string} */
+        DmrTrunkProtocol: "auto" | "capacity_plus" | "tier_three";
         /** @description One diagnostic line. */
         DoctorCheck: {
             /** @description What was actually found. */
@@ -1756,6 +1796,16 @@ export interface components {
          * @enum {string}
          */
         Duplex: "rx_only" | "tx_only" | "half" | "full";
+        DvChannelDefinition: {
+            /** Format: int32 */
+            channel: number;
+            /** Format: int32 */
+            color_code?: number | null;
+            /** Format: int64 */
+            rx_hz: number;
+            /** Format: int64 */
+            tx_hz: number;
+        };
         DvFrame: {
             /** Format: int32 */
             algorithm_id?: number | null;
@@ -1764,6 +1814,7 @@ export interface components {
              * @description Logical or absolute channel number named by trunking signalling.
              */
             channel?: number | null;
+            channel_definition?: null | components["schemas"]["DvChannelDefinition"];
             /**
              * Format: int32
              * @description The mode's network discriminator, under whichever name it publishes: DMR colour code,
@@ -1797,6 +1848,7 @@ export interface components {
             kind: components["schemas"]["DvFrameKind"];
             /** Format: double */
             lat?: number | null;
+            late_entry?: boolean | null;
             /** Format: double */
             lon?: number | null;
             /** Format: int32 */
@@ -1867,6 +1919,10 @@ export interface components {
             destination_hash?: number | null;
             /** Format: int32 */
             slot: number;
+        };
+        EventAudio: {
+            media_type: string;
+            url: string;
         };
         /**
          * @description Export format for `GET /api/decoderlog/export/{format}` (: CSV/JSON). It is a
@@ -2065,6 +2121,10 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "decoder_log";
+        } | {
+            data: components["schemas"]["DmrTrunkNode"];
+            /** @enum {string} */
+            kind: "dmr_trunk";
         } | {
             /** @enum {string} */
             kind: "video";
@@ -2859,6 +2919,9 @@ export interface components {
             scope: "decoder_log";
         } | {
             /** @enum {string} */
+            scope: "calls";
+        } | {
+            /** @enum {string} */
             scope: "workspaces";
         };
         /** @description Full state snapshot for initial load ( `GET /api/state`). */
@@ -3062,6 +3125,39 @@ export interface components {
         };
         /** @enum {string} */
         Vendor: "standard" | "etsi" | "motorola" | "hytera" | "harris" | "tait" | "jvc_kenwood" | "emc" | "radio_activity" | "flyde_micro" | "prod_el" | "unknown";
+        VoiceCall: {
+            audio?: null | components["schemas"]["EventAudio"];
+            audio_error?: string | null;
+            /** Format: int32 */
+            channel: number;
+            /** Format: int32 */
+            color_code?: number | null;
+            /** Format: int32 */
+            destination?: number | null;
+            /** Format: int32 */
+            device_set: number;
+            /** Format: int64 */
+            duration_ms: number;
+            emergency: boolean;
+            encrypted: boolean;
+            ended_at: string;
+            /** Format: double */
+            freq_hz: number;
+            group_call?: boolean | null;
+            /** Format: int64 */
+            id: number;
+            mode: components["schemas"]["DvMode"];
+            node: string;
+            /** Format: int32 */
+            slot?: number | null;
+            /** Format: int32 */
+            source?: number | null;
+            source_node: string;
+            started_at: string;
+        };
+        VoiceCallsResponse: {
+            calls: components["schemas"]["VoiceCall"][];
+        };
         WfmParams: {
             /**
              * Format: float
@@ -3379,6 +3475,58 @@ export interface operations {
                 };
             };
             /** @description Bookmark not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    list_calls: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed temporary voice calls */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceCallsResponse"];
+                };
+            };
+        };
+    };
+    call_audio: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Call id */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Call audio as mono 48 kHz PCM */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/wav": unknown;
+                };
+            };
+            /** @description Call or clear audio not found */
             404: {
                 headers: {
                     [name: string]: unknown;
