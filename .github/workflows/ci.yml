@@ -178,17 +178,44 @@ jobs:
         with:
           persist-credentials: false
       - uses: cachix/install-nix-action@v31
+      - name: Install virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes xvfb
       - name: Build and smoke-test the package
         run: |
           nix flake check --print-build-logs
-          nix build --print-build-logs ".#packages.${{ matrix.system }}.default"
+          nix build --impure --print-build-logs --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              system = "${{ matrix.system }}";
+              pkgs = builtins.getAttr system flake.inputs.nixpkgs.legacyPackages;
+            in
+            (builtins.getAttr system flake.packages).default.override {
+              soapyPlugins = with pkgs; [
+                soapyrtlsdr
+                soapyhackrf
+              ];
+            }
+          '
           test -x result/bin/sdrmm-desktop
           test ! -e result/bin/sdrmm
           test -f result/share/applications/sdrmm-desktop.desktop
           test -f result/share/icons/hicolor/128x128/apps/dev.newspicel.sdrmm.png
           ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libwebkit2gtk-4.1'
           ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libSoapySDR'
+          grep -q 'SOAPY_SDR_PLUGIN_PATH' result/bin/sdrmm-desktop
+          grep -q 'soapyrtlsdr' result/bin/sdrmm-desktop
+          grep -q 'soapyhackrf' result/bin/sdrmm-desktop
           test -z "$(find -L result -path '*/SoapySDR/modules*' -print -quit)"
+          set +e
+          timeout 15s xvfb-run --auto-servernum result/bin/sdrmm-desktop >desktop.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 124 ]; then
+            cat desktop.log
+            exit 1
+          fi
 
   advisories:
     name: Dependency advisories (ubuntu)
