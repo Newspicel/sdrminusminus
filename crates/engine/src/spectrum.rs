@@ -142,7 +142,7 @@ mod gpu {
             mpsc,
         },
         thread::{self, JoinHandle, Thread},
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use bytemuck::{Pod, Zeroable};
@@ -157,11 +157,12 @@ mod gpu {
     /// A slow production adapter must fail promptly so its bounded worker can fall back to the
     /// CPU instead of remaining occupied indefinitely.
     #[cfg(not(test))]
-    const GPU_FRAME_BUDGET: Duration = Duration::from_millis(50);
+    pub(super) const GPU_FRAME_BUDGET: Duration = Duration::from_millis(50);
     /// Headless CI deliberately exercises a software Vulkan adapter; give its first dispatch
     /// enough room to compile and execute without weakening the production deadline above.
     #[cfg(test)]
-    const GPU_FRAME_BUDGET: Duration = Duration::from_secs(5);
+    pub(super) const GPU_FRAME_BUDGET: Duration = Duration::from_secs(5);
+    const DROP_LOG_INTERVAL: Duration = Duration::from_secs(5);
 
     const FFT_SHADER: &str = r#"
 struct Complexes { values: array<vec2<f32>>, }
@@ -319,42 +320,10 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
 
     impl Processor {
         fn new(context: Arc<Context>, size: usize) -> Result<Self, String> {
-            if !size.is_power_of_two() || size < 2 {
-                return Err(format!(
-                    "FFT size {size} is not a power of two of at least 2"
-                ));
-            }
-            let size_u32 = u32::try_from(size)
-                .map_err(|_| format!("FFT size {size} exceeds the GPU index range"))?;
-            let complex_bytes = bytes_for::<[f32; 2]>(size)?;
-            let power_bytes = bytes_for::<f32>(size)?;
-            let limits = context.device.limits();
-            if complex_bytes > limits.max_buffer_size
-                || complex_bytes > limits.max_storage_buffer_binding_size
-            {
-                return Err(format!(
-                    "FFT size {size} exceeds the adapter's storage-buffer limit"
-                ));
-            }
-            let workgroups = size_u32.div_ceil(WORKGROUP_SIZE);
-            if workgroups > limits.max_compute_workgroups_per_dimension {
-                return Err(format!(
-                    "FFT size {size} exceeds the adapter's dispatch limit"
-                ));
-            }
-
+            let (size_u32, complex_bytes, power_bytes, limits) = validate_shape(&context, size)?;
             let window = hann(size);
             let inv_gain = 1.0 / coherent_gain(&window).max(f32::MIN_POSITIVE);
-            let bits = size.trailing_zeros();
-            let bit_reversed = (0..size)
-                .map(|index| index.reverse_bits() >> (usize::BITS - bits))
-                .collect();
-            let twiddles: Vec<[f32; 2]> = (0..size / 2)
-                .map(|index| {
-                    let angle = -std::f32::consts::TAU * index as f32 / size as f32;
-                    [angle.cos(), angle.sin()]
-                })
-                .collect();
+            let (bits, bit_reversed, twiddles) = fft_tables(size);
             let data = buffer(
                 &context.device,
                 "sdr-- FFT data",
@@ -381,81 +350,15 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
                 power_bytes,
                 wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             );
-
-            let stage_count = bits as usize;
-            let param_stride = u64::from(limits.min_uniform_buffer_offset_alignment)
-                .max(size_of::<StageParams>() as u64);
-            let param_stride_usize = usize::try_from(param_stride)
-                .map_err(|_| "uniform-buffer alignment exceeds the host range".to_string())?;
-            let stage_bytes_len = stage_count
-                .checked_mul(param_stride_usize)
-                .ok_or_else(|| "FFT stage-parameter buffer size overflow".to_string())?;
-            let mut stage_bytes = vec![0_u8; stage_bytes_len];
-            for stage in 0..stage_count {
-                let span = 1_u32 << (stage + 1);
-                let params = StageParams {
-                    span,
-                    twiddle_stride: size_u32 / span,
-                    butterflies: size_u32 / 2,
-                    padding: 0,
-                };
-                let start = stage * param_stride_usize;
-                stage_bytes[start..start + size_of::<StageParams>()]
-                    .copy_from_slice(bytemuck::bytes_of(&params));
-            }
-            let stage_params =
-                context
-                    .device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("sdr-- FFT stage parameters"),
-                        contents: &stage_bytes,
-                        usage: wgpu::BufferUsages::UNIFORM,
-                    });
-            let stage_bind_groups = (0..stage_count)
-                .map(|stage| {
-                    context
-                        .device
-                        .create_bind_group(&wgpu::BindGroupDescriptor {
-                            label: Some("sdr-- FFT stage bind group"),
-                            layout: &context.fft_layout,
-                            entries: &[
-                                bind(0, data.as_entire_binding()),
-                                bind(1, twiddle_buffer.as_entire_binding()),
-                                bind(
-                                    2,
-                                    wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                        buffer: &stage_params,
-                                        offset: stage as u64 * param_stride,
-                                        size: NonZeroU64::new(size_of::<StageParams>() as u64),
-                                    }),
-                                ),
-                            ],
-                        })
-                })
-                .collect();
-            let power_params =
-                context
-                    .device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("sdr-- FFT power parameters"),
-                        contents: bytemuck::bytes_of(&PowerParams {
-                            size: size_u32,
-                            inv_gain,
-                            padding: [0; 2],
-                        }),
-                        usage: wgpu::BufferUsages::UNIFORM,
-                    });
-            let power_bind_group = context
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("sdr-- FFT power bind group"),
-                    layout: &context.power_layout,
-                    entries: &[
-                        bind(0, data.as_entire_binding()),
-                        bind(1, output.as_entire_binding()),
-                        bind(2, power_params.as_entire_binding()),
-                    ],
-                });
+            let stage_bind_groups = stage_bind_groups(
+                &context,
+                &data,
+                &twiddle_buffer,
+                size_u32,
+                bits as usize,
+                &limits,
+            )?;
+            let power_bind_group = power_bind_group(&context, &data, &output, size_u32, inv_gain);
 
             Ok(Self {
                 context,
@@ -541,6 +444,139 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
         }
     }
 
+    fn validate_shape(
+        context: &Context,
+        size: usize,
+    ) -> Result<(u32, u64, u64, wgpu::Limits), String> {
+        if !size.is_power_of_two() || size < 2 {
+            return Err(format!(
+                "FFT size {size} is not a power of two of at least 2"
+            ));
+        }
+        let size_u32 = u32::try_from(size)
+            .map_err(|_| format!("FFT size {size} exceeds the GPU index range"))?;
+        let complex_bytes = bytes_for::<[f32; 2]>(size)?;
+        let power_bytes = bytes_for::<f32>(size)?;
+        let limits = context.device.limits();
+        if complex_bytes > limits.max_buffer_size
+            || complex_bytes > limits.max_storage_buffer_binding_size
+        {
+            return Err(format!(
+                "FFT size {size} exceeds the adapter's storage-buffer limit"
+            ));
+        }
+        if size_u32.div_ceil(WORKGROUP_SIZE) > limits.max_compute_workgroups_per_dimension {
+            return Err(format!(
+                "FFT size {size} exceeds the adapter's dispatch limit"
+            ));
+        }
+        Ok((size_u32, complex_bytes, power_bytes, limits))
+    }
+
+    fn fft_tables(size: usize) -> (u32, Vec<usize>, Vec<[f32; 2]>) {
+        let bits = size.trailing_zeros();
+        let bit_reversed = (0..size)
+            .map(|index| index.reverse_bits() >> (usize::BITS - bits))
+            .collect();
+        let twiddles = (0..size / 2)
+            .map(|index| {
+                let angle = -std::f32::consts::TAU * index as f32 / size as f32;
+                [angle.cos(), angle.sin()]
+            })
+            .collect();
+        (bits, bit_reversed, twiddles)
+    }
+
+    fn stage_bind_groups(
+        context: &Context,
+        data: &wgpu::Buffer,
+        twiddles: &wgpu::Buffer,
+        size: u32,
+        stage_count: usize,
+        limits: &wgpu::Limits,
+    ) -> Result<Vec<wgpu::BindGroup>, String> {
+        let param_stride = u64::from(limits.min_uniform_buffer_offset_alignment)
+            .max(size_of::<StageParams>() as u64);
+        let param_stride_usize = usize::try_from(param_stride)
+            .map_err(|_| "uniform-buffer alignment exceeds the host range".to_string())?;
+        let stage_bytes_len = stage_count
+            .checked_mul(param_stride_usize)
+            .ok_or_else(|| "FFT stage-parameter buffer size overflow".to_string())?;
+        let mut stage_bytes = vec![0_u8; stage_bytes_len];
+        for stage in 0..stage_count {
+            let span = 1_u32 << (stage + 1);
+            let params = StageParams {
+                span,
+                twiddle_stride: size / span,
+                butterflies: size / 2,
+                padding: 0,
+            };
+            let start = stage * param_stride_usize;
+            stage_bytes[start..start + size_of::<StageParams>()]
+                .copy_from_slice(bytemuck::bytes_of(&params));
+        }
+        let stage_params = context
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("sdr-- FFT stage parameters"),
+                contents: &stage_bytes,
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        Ok((0..stage_count)
+            .map(|stage| {
+                context
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("sdr-- FFT stage bind group"),
+                        layout: &context.fft_layout,
+                        entries: &[
+                            bind(0, data.as_entire_binding()),
+                            bind(1, twiddles.as_entire_binding()),
+                            bind(
+                                2,
+                                wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: &stage_params,
+                                    offset: stage as u64 * param_stride,
+                                    size: NonZeroU64::new(size_of::<StageParams>() as u64),
+                                }),
+                            ),
+                        ],
+                    })
+            })
+            .collect())
+    }
+
+    fn power_bind_group(
+        context: &Context,
+        data: &wgpu::Buffer,
+        output: &wgpu::Buffer,
+        size: u32,
+        inv_gain: f32,
+    ) -> wgpu::BindGroup {
+        let power_params = context
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("sdr-- FFT power parameters"),
+                contents: bytemuck::bytes_of(&PowerParams {
+                    size,
+                    inv_gain,
+                    padding: [0; 2],
+                }),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        context
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("sdr-- FFT power bind group"),
+                layout: &context.power_layout,
+                entries: &[
+                    bind(0, data.as_entire_binding()),
+                    bind(1, output.as_entire_binding()),
+                    bind(2, power_params.as_entire_binding()),
+                ],
+            })
+    }
+
     struct Job {
         input: Vec<Complex<f32>>,
         output: Vec<f32>,
@@ -560,6 +596,8 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
         worker_thread: Thread,
         stop: Arc<AtomicBool>,
         worker: Option<JoinHandle<()>>,
+        dropped_frames: u64,
+        last_drop_log: Option<Instant>,
     }
 
     impl Analyzer {
@@ -591,6 +629,8 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
                 worker_thread,
                 stop,
                 worker: Some(worker),
+                dropped_frames: 0,
+                last_drop_log: None,
             })
         }
 
@@ -623,16 +663,42 @@ fn power_db(@builtin(global_invocation_id) id: vec3<u32>) {
                 Err(_) => None,
             };
 
-            if let Some(mut job) = self.available.take() {
+            let dropped = if let Some(mut job) = self.available.take() {
                 job.input.copy_from_slice(input);
                 job.frame = frame;
                 match self.requests.push(job) {
-                    Ok(()) => self.worker_thread.unpark(),
-                    Err(PushError::Full(job)) => self.available = Some(job),
+                    Ok(()) => {
+                        self.worker_thread.unpark();
+                        false
+                    }
+                    Err(PushError::Full(job)) => {
+                        self.available = Some(job);
+                        true
+                    }
                 }
+            } else {
+                true
+            };
+            if dropped {
+                self.record_drop();
             }
 
             Ok(completed)
+        }
+
+        fn record_drop(&mut self) {
+            self.dropped_frames = self.dropped_frames.saturating_add(1);
+            let now = Instant::now();
+            if self
+                .last_drop_log
+                .is_none_or(|last| now.duration_since(last) >= DROP_LOG_INTERVAL)
+            {
+                tracing::warn!(
+                    dropped_frames = self.dropped_frames,
+                    "GPU spectrum worker busy; dropping spectrum frames"
+                );
+                self.last_drop_log = Some(now);
+            }
         }
     }
 
@@ -791,7 +857,7 @@ mod tests {
             span_hz: 2_400_000.0,
         };
         assert_eq!(analyzer.power_db(&input, &mut actual, frame).unwrap(), None);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + gpu::GPU_FRAME_BUDGET.saturating_mul(3);
         while analyzer.power_db(&input, &mut actual, frame).unwrap() != Some(frame) {
             assert!(
                 std::time::Instant::now() < deadline,
