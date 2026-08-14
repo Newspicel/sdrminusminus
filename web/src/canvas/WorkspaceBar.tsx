@@ -10,9 +10,10 @@ import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
 import type { NodeKind, PatchNode, WorkspaceInfo } from "../lib/types";
 import { useWorkspaceContext } from "./context";
-import { addNode, dropPosition, newNodeId } from "./graph";
+import { addNode, newNodeId } from "./graph";
 import { Library } from "./Library";
 import { NodePalette } from "./NodePalette";
+import { useNodePlacement } from "./placement";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 
 export type View = "patch" | "rack";
@@ -44,6 +45,7 @@ export function WorkspaceBar({
   onShowAbout: () => void;
 }) {
   const workspace = useWorkspaceContext();
+  const placeNode = useNodePlacement();
   const active = workspaces.find((entry) => entry.id === activeWorkspace) ?? null;
   const pinned = workspace.rack.slots?.length ?? 0;
 
@@ -52,7 +54,7 @@ export function WorkspaceBar({
     workspace.edit((snapshot) => {
       const node = {
         id,
-        position: dropPosition(snapshot.graph),
+        position: placeNode(snapshot.graph, kind),
         ...(kind === "channel"
           ? { kind: "channel" as const, data: { channel_type: channelType ?? "nfm" } }
           : kind === "device"

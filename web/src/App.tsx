@@ -309,24 +309,20 @@ export function App() {
               apply: workspace.apply,
             }}
           >
-            <WorkspaceBar
-              view={view}
-              onView={setView}
-              workspaces={workspace.workspaces}
-              activeWorkspace={workspace.active?.id ?? null}
-              onActivate={workspace.activate}
-              onCreate={workspace.create}
-              onRemove={workspace.remove}
-              onShowShortcuts={() => setShowShortcuts(true)}
-              onShowAbout={() => setShowAbout(true)}
-            />
-            {view === "patch" ? (
-              <ReactFlowProvider>
-                <Canvas />
-              </ReactFlowProvider>
-            ) : (
-              <Rack />
-            )}
+            <ReactFlowProvider>
+              <WorkspaceBar
+                view={view}
+                onView={setView}
+                workspaces={workspace.workspaces}
+                activeWorkspace={workspace.active?.id ?? null}
+                onActivate={workspace.activate}
+                onCreate={workspace.create}
+                onRemove={workspace.remove}
+                onShowShortcuts={() => setShowShortcuts(true)}
+                onShowAbout={() => setShowAbout(true)}
+              />
+              {view === "patch" ? <Canvas /> : <Rack />}
+            </ReactFlowProvider>
           </WorkspaceProvider>
         )}
 

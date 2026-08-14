@@ -17,7 +17,8 @@ import { pushToast } from "../lib/toasts";
 import type { RecordingInfo } from "../lib/types";
 import { refFromDeviceId } from "./binding";
 import { useWorkspaceContext } from "./context";
-import { addNode, dropPosition, MAX_NAME_LEN, newNodeId } from "./graph";
+import { addNode, MAX_NAME_LEN, newNodeId } from "./graph";
+import { useNodePlacement } from "./placement";
 
 const TABS = [
   { id: "templates", label: "Templates" },
@@ -31,6 +32,7 @@ type Tab = (typeof TABS)[number]["id"];
 
 export function Library() {
   const workspace = useWorkspaceContext();
+  const placeNode = useNodePlacement();
   const [tab, setTab] = useState<Tab>("templates");
   // The radio a section that acts on *one* of them means: the selected device node, falling back
   // to the only one drawn. Applying a template to the wrong radio is not recoverable by undo, so
@@ -63,7 +65,7 @@ export function Library() {
         id,
         kind: "device",
         data: { device },
-        position: dropPosition(snapshot.graph),
+        position: placeNode(snapshot.graph, "device"),
         // Bounded like every other node label: the server validates the whole snapshot on every
         // write, so one over-long label would refuse the next node drag too.
         label: recording.file.slice(0, MAX_NAME_LEN),

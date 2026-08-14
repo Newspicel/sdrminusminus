@@ -65,9 +65,7 @@ async function slots(page: Page): Promise<{ node: string; x: number; w: number }
   return detail.snapshot.rack.slots;
 }
 
-/** Bring every node into view. New nodes drop to the right of everything already drawn, which
- * after a few adds is outside the framed viewport — and a wire cannot be dragged to a handle
- * the pointer cannot reach. */
+/** Bring every node into view before wiring faces from opposite sides of a large patch. */
 async function fitPatch(page: Page): Promise<void> {
   const pane = page.locator(".react-flow__pane");
   const box = await pane.boundingBox();
@@ -131,7 +129,38 @@ test.describe("the workspace", () => {
     // A channel is added as a node, and the server's apply creates the engine channel behind it.
     await page.getByRole("button", { name: "+ Node" }).click();
     await page.getByRole("button", { name: "NFM", exact: true }).click();
-    await expect(page.locator('.react-flow__node[data-id^="channel:"]')).toBeVisible();
+    const channel = page.locator('.react-flow__node[data-id^="channel:"]');
+    await expect(channel).toBeVisible();
+
+    // A palette add belongs to the camera the operator is looking through, not to the graph's
+    // rightmost coordinate. Its rendered face is wholly reachable and, while this starter patch
+    // has room, does not cover any face already there.
+    const canvasBounds = await page.locator(".react-flow").boundingBox();
+    const channelBounds = await channel.boundingBox();
+    if (canvasBounds === null || channelBounds === null) {
+      throw new Error("a visible canvas and newly added channel");
+    }
+    expect(channelBounds.x).toBeGreaterThanOrEqual(canvasBounds.x);
+    expect(channelBounds.y).toBeGreaterThanOrEqual(canvasBounds.y);
+    expect(channelBounds.x + channelBounds.width).toBeLessThanOrEqual(
+      canvasBounds.x + canvasBounds.width,
+    );
+    expect(channelBounds.y + channelBounds.height).toBeLessThanOrEqual(
+      canvasBounds.y + canvasBounds.height,
+    );
+    for (const id of ["device", "scope", "speaker"]) {
+      const existing = await node(id).boundingBox();
+      if (existing === null) {
+        throw new Error(`a visible ${id} node`);
+      }
+      const overlapWidth =
+        Math.min(channelBounds.x + channelBounds.width, existing.x + existing.width) -
+        Math.max(channelBounds.x, existing.x);
+      const overlapHeight =
+        Math.min(channelBounds.y + channelBounds.height, existing.y + existing.height) -
+        Math.max(channelBounds.y, existing.y);
+      expect(overlapWidth > 0 && overlapHeight > 0).toBe(false);
+    }
 
     // Wiring the receiver to it is what makes it a channel on that radio, and apply creates it.
     // The drag needs intermediate moves: React Flow starts a connection on pointer *movement*
@@ -155,7 +184,6 @@ test.describe("the workspace", () => {
     // Cycling the mode has to move the node and its engine channel together: the node names the
     // type (CANVAS §4), so a patch left naming the old one unbinds the face and the next apply
     // adds a second channel for it.
-    const channel = page.locator('.react-flow__node[data-id^="channel:"]');
     await channel.getByText("NFM", { exact: true }).first().click();
     await page.keyboard.press("m");
     await expect

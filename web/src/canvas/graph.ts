@@ -20,7 +20,6 @@ import type {
   PatchNode,
   PortRef,
   PortSpec,
-  Position,
   RackLayout,
   WorkspaceSnapshot,
 } from "../lib/types";
@@ -370,20 +369,6 @@ export function nodeMinSize(kind: NodeKind, ports: readonly PortSpec[]): { w: nu
 }
 
 /** Add a node. The caller supplies the id so the same call can be replayed optimistically. */
-/** Vertical stagger between nodes dropped in one session, so a run of them does not stack. */
-const DROP_STEP = 40;
-
-/** Where a node dropped from a palette or a library panel lands: to the right of everything
- * already drawn, so it is on screen and on top of nothing. CANVAS §9 left auto-placement to
- * feel; this is the feel, and it lives here so every drop site shares it. */
-export function dropPosition(graph: PatchGraph): Position {
-  const drawn = graph.nodes;
-  return {
-    x: drawn.reduce((max, node) => Math.max(max, node.position.x), 0) + 360,
-    y: drawn.length * DROP_STEP,
-  };
-}
-
 export function addNode(graph: PatchGraph, node: PatchNode): PatchGraph {
   return { ...graph, nodes: [...graph.nodes, node] };
 }
