@@ -1,4 +1,14 @@
-## 1. Platform & deployment
+# Feature roadmap
+
+This file tracks work that has shipped and ideas that remain planned. It is a roadmap, not a
+promise or release schedule. For current installation and usage instructions, read the
+[documentation](https://newspicel.github.io/sdrminusminus/); for the exact channel catalog in a
+particular build, open **+ Node** or request `GET /api/channeltypes` from that server.
+
+- **shipped** means the behavior is available in the current codebase;
+- **planned** means it is not implemented yet, even when the note describes a possible design.
+
+## 1. Platform and deployment
 
 - **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
 - **[planned]** A native Save-As dialog for downloads in the desktop shell. The shell installs no `on_download` handler, so wry's default applies: a recording lands silently in the OS download directory (`~/Downloads`, `$XDG_DOWNLOAD_DIR`, `%USERPROFILE%\Downloads`), deduplicated as `name (1)`, with no dialog and no progress — and on Windows wry's `SetHandled(true)` suppresses even WebView2's own flyout. The gap that matters is failure: an export aborts its body rather than truncate, and that abort is invisible here. A Rust-side `tauri-plugin-dialog` handler would keep the shell's no-IPC stance, but a blocking dialog on the main thread needs care
@@ -133,7 +143,7 @@ The dial and the plot were built so this could hang off them without rework, and
 - **[planned]** Signal-ID assistant — match a spectrum/audio snapshot against a signal catalog, later an ML classifier
 - **[planned]** GNSS educational decode
 - **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
-- **[planned]** Seeing stuff like 4fsk directly without being behind a decoder. 
+- **[planned]** Visualize signals such as 4FSK directly, without placing them behind a decoder.
 
 ## 16. Audio processing
 
