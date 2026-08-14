@@ -1,4 +1,4 @@
-//! Criterion throughput benches for the phase-0 perf scaffold (MODEM-PLAN §4.2). The numbers
+//! Criterion throughput benches for the phase-0 perf scaffold ( §4.2). The numbers
 //! that gate CI are the committed baselines the ignored tests in `ber::perf` write through
 //! `measure_throughput`; these benches are the developer's magnifier — statistical, per
 //! change, never committed. Both consume the same pre-generated signals from `ber::perf`, so

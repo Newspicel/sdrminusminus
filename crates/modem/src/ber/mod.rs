@@ -1,4 +1,4 @@
-//! The measurement harness (MODEM-PLAN §4): the universal consumer every catalog entry answers
+//! The measurement harness ( §4): the universal consumer every catalog entry answers
 //! to. Four measurement classes — correctness (§4.1), performance (§4.2), resistance (§4.3),
 //! end-to-end (§4.4) — built before the first engine and applied to every entry after it.
 //!

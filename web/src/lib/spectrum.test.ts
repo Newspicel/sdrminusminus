@@ -181,7 +181,7 @@ describe("SpectrumHub", () => {
     expect(hub.watched()).toEqual([{ deviceSet: 1, stream: 2 }]);
   });
 
-  // Subscriptions are per-connection (PLAN §5): without this a dropped socket leaves every
+  // Subscriptions are per-connection (): without this a dropped socket leaves every
   // scope face permanently blank.
   it("re-subscribes every lane still watched when the socket comes back", () => {
     const fake = fakeSocket();

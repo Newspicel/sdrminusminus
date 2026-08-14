@@ -46,7 +46,7 @@ export function Slider({
         }
       }}
     >
-      {/* The control, not the track, carries the hit area: DESIGN.md §4's 40px coarse-pointer
+      {/* The control, not the track, carries the hit area: 's 40px coarse-pointer
           floor is bought with padding around a track that stays 6px. */}
       {/* The thumb is a `<div>`, so nothing gives it a cursor for free. `data-dragging` on the
           control, not only the thumb: a sweep that outruns the pointer leaves it over bare

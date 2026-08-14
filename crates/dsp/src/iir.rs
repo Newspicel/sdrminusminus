@@ -1,4 +1,4 @@
-//! Single-pole IIR helpers (PLAN §7): FM deemphasis, DC removal, and the complex baseband
+//! Single-pole IIR helpers (): FM deemphasis, DC removal, and the complex baseband
 //! smoother a mixed-down carrier is extracted with.
 
 use std::f64::consts::TAU;

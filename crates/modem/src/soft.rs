@@ -1,5 +1,5 @@
 //! The soft-decision vocabulary of the boundary `IQ → demod → soft symbols → demapper → LLRs →
-//! FEC` (MODEM-PLAN §3.3). Both types carry the crate-root sign convention — positive means
+//! FEC` ( §3.3). Both types carry the crate-root sign convention — positive means
 //! logical 1 — and both are one `f32`. What separates them is calibration: a [`SoftBit`]'s
 //! magnitude is confidence on whatever scale its producer used, while an [`Llr`] is the actual
 //! log-likelihood ratio `ln(P(bit = 1 | y) / P(bit = 0 | y))`, which can only be computed with

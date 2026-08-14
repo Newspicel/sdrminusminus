@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @import "@xyflow/react/dist/base.css";
 
-/* The instrument palette (DESIGN.md §2). Authored in OKLCH so the light theme is the same role
+/* The instrument palette (). Authored in OKLCH so the light theme is the same role
    table re-anchored rather than a second set of hand-picked values, and so elevation is a
    lightness step — on an L≈.2 ground a drop shadow cannot reach popover-grade edge contrast at
    any alpha, so depth has to live in the surface itself.
@@ -40,10 +40,10 @@
   --color-plot-ink: oklch(0.97 0.01 85);
   --color-plot-ink-dim: oklch(0.72 0.01 85);
 
-  /* Hue encodes the data type a port and its wire carry, and nothing else (DESIGN.md §2). Each is
+  /* Hue encodes the data type a port and its wire carry, and nothing else (). Each is
      paired with a marker shape in `NodeShell`, so the graph reads by shape alone; the set stays
      small on purpose — four streams the engine moves, tuning ownership, and the transmit input
-     reserved by PLAN §12a, which is drawn hollow because nothing can fill it yet.
+     reserved by , which is drawn hollow because nothing can fill it yet.
      Chroma is held below the accent's so a lit wire never outshouts a tuned control. */
   --color-port-iq: oklch(0.72 0.11 235);
   --color-port-audio: oklch(0.74 0.12 158);
@@ -60,7 +60,7 @@
   --color-cat-feature: oklch(0.62 0.07 60);
   --color-cat-sink: oklch(0.58 0.03 80);
 
-  /* Service categories on the band ruler (DESIGN.md §9a). The ruler is a gutter *beside* the
+  /* Service categories on the band ruler (). The ruler is a gutter *beside* the
      plot rectangle, not an overlay on it, which is the only reason hue is licensed here at all —
      inside the plot the colormap still owns the whole budget. Nine hues plus a neutral is more
      than any other family in this file carries, so every block also states its service in words
@@ -78,7 +78,7 @@
 
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo, monospace;
 
-  /* Elevation 3 only (DESIGN.md §4): popovers and menus. A tight contact shadow plus a long
+  /* Elevation 3 only (): popovers and menus. A tight contact shadow plus a long
      falloff, led by the 1px top highlight — light catching the upper edge is the physically
      honest inverse of a shadow, and on an L≈.3 surface it does more of the work than either
      dark layer can. */
@@ -107,7 +107,7 @@
 
     /* Re-anchored, not inherited. Left dark, these five measure 1.8–2.1:1 against the light
        ground — under the 3:1 floor a non-text graphic has to clear, which made a patch
-       unreadable in this theme (DESIGN.md §2 carried it as an open defect). Each is the
+       unreadable in this theme ( carried it as an open defect). Each is the
        lightness that puts its hue at 3.5:1 on `bg`, 3.2:1 on `panel-2`. */
     --color-port-iq: oklch(0.592 0.11 235);
     --color-port-audio: oklch(0.583 0.12 158);
@@ -216,7 +216,7 @@
 }
 
 @layer components {
-  /* The silkscreen voice (DESIGN.md §3): units, column heads, section labels. Never values. */
+  /* The silkscreen voice (): units, column heads, section labels. Never values. */
   .legend {
     font-family: var(--font-mono);
     font-size: 10px;
@@ -232,7 +232,7 @@
 
    A wire is drawn in the hue of what it carries and nothing else, and it is the *only* place
    these three hues appear besides their ports — the marker shape is what a colourblind operator
-   reads (DESIGN.md §2). */
+   reads (). */
 .react-flow__pane {
   background: var(--color-bg);
 }

@@ -1,4 +1,4 @@
-//! The multicarrier waveforms beyond CP-OFDM (MODEM-PLAN §3.1 `multicarrier/`, §7 phase 9): four
+//! The multicarrier waveforms beyond CP-OFDM ( §3.1 `multicarrier/`, §7 phase 9): four
 //! frameworks that keep OFDM's "turn one hard channel into many easy ones" and each give up one
 //! of the things that makes OFDM cheap.
 //!

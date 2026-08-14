@@ -1,4 +1,4 @@
-//! The workspace's *settings*, as opposed to its shape (PLAN §7, §10).
+//! The workspace's *settings*, as opposed to its shape (, §10).
 //!
 //! A [`crate::WorkspaceSnapshot`] says which radios a workspace names and what hangs off them; it
 //! deliberately says nothing about where they are tuned, because a node names a device by durable
@@ -48,7 +48,7 @@ pub struct WorkspaceDevice {
 
 /// One channel node's settings. `settings.params` also carries the channel's *type*, which is not
 /// the same thing as the node's declared [`crate::ChannelNode::channel_type`]: a mode changed in
-/// place on a live channel (PLAN §8) replaces the params without touching the node that drew it.
+/// place on a live channel () replaces the params without touching the node that drew it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceChannel {
     /// [`crate::PatchNode::id`] of the channel node these settings belong to.

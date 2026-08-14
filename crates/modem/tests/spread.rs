@@ -1,4 +1,4 @@
-//! §5 measurement bundle for the four spread-spectrum entries (MODEM-PLAN §7 phase 7): committed
+//! §5 measurement bundle for the four spread-spectrum entries ( §7 phase 7): committed
 //! BER curves for direct sequence, CCK, chirp spreading and hopping; the processing gain measured
 //! against `10·log₁₀(chips/symbol)`; the §4.3 limits tables; and level-1 E2E loopbacks.
 //!
@@ -224,7 +224,7 @@ fn every_oracle_row_sits_on_its_own_closed_form() {
 
 /// **The processing gain, and what a BER threshold does and does not read.**
 ///
-/// MODEM-PLAN §7 phase 7 asks for the gain measured against `10·log₁₀(chips/symbol)`, and it is —
+///  §7 phase 7 asks for the gain measured against `10·log₁₀(chips/symbol)`, and it is —
 /// directly, on the correlator, in `spread::dsss`: at a stated C/I the length-31 code collects
 /// `10·log10(31/11) = 4.50 dB` less interference than Barker-11, measured, and against an
 /// unspread system of the same data rate each code collects `10·log₁₀(N)` less.
@@ -352,7 +352,7 @@ fn hopping_costs_nothing_over_the_entry_it_carries() {
 /// third of the dwells destroyed the average BER is already 0.17, far past the §4.3 failure
 /// floor, so the hopping entry fails at very nearly the level that destroys those dwells at all.
 /// What recovers the other two thirds is coding and interleaving *across hops*, which is channel
-/// coding and lives beside the FEC in `sdrmm-dsp` rather than here (MODEM-PLAN §1.1) — the same
+/// coding and lives beside the FEC in `sdrmm-dsp` rather than here ( §1.1) — the same
 /// conclusion, and for the same reason, that phase 6 reached about a nulled subcarrier.
 #[test]
 fn a_parked_jammer_reaches_only_its_own_share_of_a_hopped_burst() {

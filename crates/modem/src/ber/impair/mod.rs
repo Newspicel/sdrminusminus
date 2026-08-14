@@ -1,4 +1,4 @@
-//! Calibrated impairment models (MODEM-PLAN §3.1 `ber/impair`) — every axis the limits runner
+//! Calibrated impairment models ( §3.1 `ber/impair`) — every axis the limits runner
 //! sweeps in §4.3, as a test instrument rather than a channel simulator: each impairment is
 //! parameterised in the physical unit its limits-table row is stated in, and each carries a
 //! unit test that applies it and *measures the applied value back from the waveform*. That

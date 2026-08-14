@@ -1,7 +1,7 @@
-//! ADS-B / Mode S decoder (PLAN §13 P2): 1090 MHz PPM at 1 Mbit/s, preamble correlation
+//! ADS-B / Mode S decoder ( P2): 1090 MHz PPM at 1 Mbit/s, preamble correlation
 //! and the Mode S CRC-24. A bit is two half-chips of 0.5 µs and a 1 is energy in the first of
 //! them, so the whole decoder is a comparison between two windows — 2-PPM, and since phase 5 it
-//! is the library's [`PpmDemod`] that makes that comparison (MODEM-PLAN §7 phase 5). What stays
+//! is the library's [`PpmDemod`] that makes that comparison ( §7 phase 5). What stays
 //! here is everything that is Mode S rather than modulation: the preamble's four-pulse
 //! signature, the CRC-24 and its overlays, the downlink formats, CPR.
 //!
@@ -50,7 +50,7 @@ use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, 
 /// Below it a half-chip can hold no sample at all and the modulation is simply not there.
 pub(crate) const INPUT_RATE_HZ: f64 = 2_000_000.0;
 /// The highest. Every sample above this buys nothing a slicer can use, and the scan costs a
-/// magnitude per sample on the DSP thread — the Pi 4 is the budget floor (PLAN §1), and the
+/// magnitude per sample on the DSP thread — the Pi 4 is the budget floor (), and the
 /// rates a receiver actually offers for 1090 (2.048, 2.4, 2.56, 2.88, 3.2 Msps) all fit under it.
 pub(crate) const MAX_INPUT_RATE_HZ: f64 = 4_000_000.0;
 
@@ -999,7 +999,7 @@ mod tests {
         messages.into_iter().next().unwrap()
     }
 
-    /// The rule PLAN §18 wrote — "ADS-B needs the device at exactly 2 Msps" — cost the commonest
+    /// The rule  wrote — "ADS-B needs the device at exactly 2 Msps" — cost the commonest
     /// ADS-B receiver there is: no RTL-SDR can produce 2.000 Msps, and its nearest rate is 2.048.
     /// The decoder runs at the radio's rate now, so these are the rates a real one offers — and
     /// the phases: a frame off the sample grid is what the air always sends, and the alignment

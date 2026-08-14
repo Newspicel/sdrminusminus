@@ -1,8 +1,8 @@
-//! WebSocket hub (PLAN §5): one socket per client carrying JSON events + client commands and
+//! WebSocket hub (): one socket per client carrying JSON events + client commands and
 //! binary spectrum/audio/video frames. A single writer task owns the sink; event and
 //! per-subscription stream tasks feed it through a bounded mpsc. Stream tasks *await* that
 //! send: a full queue backpressures the task, its broadcast receiver lags, and tokio's
-//! broadcast sheds the oldest entries — drop-oldest per connection (PLAN §5). Control events
+//! broadcast sheds the oldest entries — drop-oldest per connection (). Control events
 //! stay lossless, with a full-state resync if their receiver ever lags.
 
 use std::{
@@ -50,7 +50,7 @@ pub(crate) async fn handler(ws: WebSocketUpgrade, State(state): State<AppState>)
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
-/// Serialize each decoder frame once for the whole server, not once per connection (PLAN §16
+/// Serialize each decoder frame once for the whole server, not once per connection (
 /// M5 multi-client). Under ADS-B traffic the per-connection cost was N× the same JSON; the
 /// per-connection tasks now clone a `Utf8Bytes`, which is a refcount bump. Runs until the
 /// engine is dropped (the decoded broadcast closes).
@@ -109,7 +109,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     // Subscribe BEFORE snapshotting the revision so no event emitted after the snapshot can slip
     // through the gap — otherwise a mutation between snapshot and subscribe would be lost, and
-    // StateChanged carries no revision for the client to detect it (PLAN §5).
+    // StateChanged carries no revision for the client to detect it ().
     let event_rx = engine.subscribe_events();
     // Subscribed alongside the control stream, before the snapshot, for the same reason: a
     // decode landing in the gap would otherwise never reach this client's live view.
@@ -446,7 +446,7 @@ fn alloc_stream_id(
 /// enough for the engine's event buffer to wrap), the dropped invalidations are gone for good
 /// and StateChanged carries no revision to detect that — so synthesize a full-scope
 /// invalidation and the client refetches everything instead of rendering stale state forever
-/// (PLAN §10: these events are the only cache-invalidation path).
+/// (: these events are the only cache-invalidation path).
 fn spawn_events(
     mut event_rx: broadcast::Receiver<ServerEvent>,
     out_tx: mpsc::Sender<Message>,
@@ -474,7 +474,7 @@ fn spawn_events(
     })
 }
 
-/// Forward decoder frames (PLAN §5). Unlike the control events above, this stream is lossy by
+/// Forward decoder frames (). Unlike the control events above, this stream is lossy by
 /// design: a lagging client loses decodes, and the honest answer is to say how many rather
 /// than force a full-state refetch — the log endpoint holds the authoritative history, so a
 /// gap here costs the live view, not correctness.
@@ -550,7 +550,7 @@ impl FrameThrottle {
 }
 
 /// Per-subscription task: throttle to `fps`, decimate to `bins`, quantize over the adaptive dB
-/// window, and emit a binary [`SpectrumFrame`] (PLAN §9).
+/// window, and emit a binary [`SpectrumFrame`] ().
 /// Which lane a spectrum task is carrying, and under which wire id.
 ///
 /// One value rather than three parameters: the id is allocated per connection while `(ds, stream)`
@@ -611,7 +611,7 @@ fn spawn_spectrum(
 
                     // Awaited on purpose: a full out queue parks this task, the broadcast
                     // receiver lags, and the *oldest* snapshots are shed (drop-oldest,
-                    // PLAN §5). A failed send means the connection is gone.
+                    // ). A failed send means the connection is gone.
                     if out_tx.send(Message::Binary(frame.into())).await.is_err() {
                         break;
                     }
@@ -621,7 +621,7 @@ fn spawn_spectrum(
                 Err(broadcast::error::RecvError::Lagged(_)) => continue,
                 Err(broadcast::error::RecvError::Closed) => {
                     // The broadcast closes for two very different reasons: the device set was
-                    // removed, or auto-reconnect (PLAN §16 M5) replaced its whole runtime
+                    // removed, or auto-reconnect ( M5) replaced its whole runtime
                     // after a replug. Re-subscribing distinguishes them — a set that came
                     // back hands out a receiver on the new runtime and the stream resumes,
                     // and only a set that is really gone gets the stop event. On the *same*
@@ -649,7 +649,7 @@ fn spawn_spectrum(
 }
 
 /// Per-subscription task: forward the channel's Opus packets as binary [`AudioFrame`]s
-/// (PLAN §9) with the same drop-oldest backpressure as [`spawn_spectrum`]. The channel layout
+/// () with the same drop-oldest backpressure as [`spawn_spectrum`]. The channel layout
 /// comes from the packet: a channel may switch between mono and stereo mid-stream.
 fn spawn_audio(
     stream_id: u16,
@@ -670,7 +670,7 @@ fn spawn_audio(
                     .encode();
 
                     // Awaited on purpose: backpressure lags the broadcast receiver and the
-                    // oldest packets are shed (drop-oldest, PLAN §5).
+                    // oldest packets are shed (drop-oldest, ).
                     if out_tx.send(Message::Binary(frame.into())).await.is_err() {
                         break;
                     }
@@ -732,7 +732,7 @@ fn spawn_video(
                     .encode();
 
                     // Awaited on purpose: backpressure lags the broadcast receiver and the
-                    // oldest pictures are shed (drop-oldest, PLAN §5).
+                    // oldest pictures are shed (drop-oldest, ).
                     if out_tx.send(Message::Binary(frame.into())).await.is_err() {
                         break;
                     }
@@ -780,7 +780,7 @@ mod tests {
 
     const WAIT: Duration = Duration::from_secs(5);
 
-    /// Hermetic engine: virtual driver only (PLAN §14: no hardware in CI, ever).
+    /// Hermetic engine: virtual driver only (: no hardware in CI, ever).
     fn test_engine() -> Arc<Engine> {
         let mut registry = sdrmm_device::DeviceRegistry::new();
         registry.register(1, Box::new(sdrmm_device_virtual::VirtualDriver::new()));
@@ -1655,7 +1655,7 @@ mod tests {
     }
 
     /// A client that connects after the decoding started must not begin with an empty map: the
-    /// server hands it what it missed, after `Hello` and before anything live (PLAN §10).
+    /// server hands it what it missed, after `Hello` and before anything live ().
     #[tokio::test(flavor = "multi_thread")]
     async fn a_late_client_is_handed_the_recent_past() {
         let engine = test_engine();

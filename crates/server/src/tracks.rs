@@ -1,4 +1,4 @@
-//! What the decoders have heard lately, so a client that connects late is not blind (PLAN §10).
+//! What the decoders have heard lately, so a client that connects late is not blind ().
 //!
 //! Decoder frames are pushed live and never replayed: a browser that reloads starts with an empty
 //! map and refills it only as aircraft happen to transmit again, which for a slow-moving contact
@@ -6,7 +6,7 @@
 //! the whole time.
 //!
 //! This is a bounded, in-memory replay buffer of the last few records per station. Deliberately
-//! not SQLite: the decoder log already persists everything for querying and export (PLAN §6), and
+//! not SQLite: the decoder log already persists everything for querying and export (), and
 //! this answers a different question — "what is on the air right now" — whose answer is worthless
 //! after a restart, because the aircraft have flown on.
 //!

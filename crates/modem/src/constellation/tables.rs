@@ -1,4 +1,4 @@
-//! The catalog's point tables (MODEM-PLAN §6 linear rows), as *functions returning*
+//! The catalog's point tables ( §6 linear rows), as *functions returning*
 //! [`Constellation`] — never new types, never match arms inside an engine (§3.3). Everything
 //! downstream (the one demapper, the linear engine, every measured curve) sees only a validated
 //! table, which is exactly why the exotic families below can exist at all: cross-QAM's missing
@@ -161,7 +161,7 @@ pub fn qam_square(m: u32) -> Result<Constellation, ConstellationError> {
     Constellation::from_points(points, labels)
 }
 
-/// Cross-QAM 32 and 128 (MODEM-PLAN §6; DVB-C's odd-bit orders). Built the standard way — the
+/// Cross-QAM 32 and 128 ( §6; DVB-C's odd-bit orders). Built the standard way — the
 /// smallest odd-integer square grid that holds M points, with its four corner blocks removed —
 /// so 32 is the 6×6 grid less one corner point each and 128 the 12×12 grid less a 2×2 block
 /// each. Labels come from [`label_by_descent`]: the geometry is not a product of two rails, and

@@ -1,4 +1,4 @@
-//! The M-ary CPFSK catalog entry (MODEM-PLAN §6 CPM row 1): M ∈ {2, 4, 8} measured chains,
+//! The M-ary CPFSK catalog entry ( §6 CPM row 1): M ∈ {2, 4, 8} measured chains,
 //! shared by every consumer of the entry — the curve/limits/E2E tests, the perf baseline, and
 //! `cargo xtask ber mfsk` — so every committed artifact of the entry is taken on the *same*
 //! chain.

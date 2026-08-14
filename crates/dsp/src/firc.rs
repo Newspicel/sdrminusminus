@@ -1,4 +1,4 @@
-//! Complex-coefficient FIR (PLAN §7): a real lowpass prototype modulated to an arbitrary
+//! Complex-coefficient FIR (): a real lowpass prototype modulated to an arbitrary
 //! center frequency. Unlike a real filter, the response is one-sided — the SSB band-selection
 //! primitive (USB keeps positive frequencies, LSB negative).
 

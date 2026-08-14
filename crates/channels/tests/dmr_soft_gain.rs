@@ -1,4 +1,4 @@
-//! Soft-BPTC gain on the DMR chain (MODEM-PLAN §7 phase 1, re-measured on the phase-3 chain):
+//! Soft-BPTC gain on the DMR chain ( §7 phase 1, re-measured on the phase-3 chain):
 //! the same testgen C4FM → channel filter → `CpmDemod` chain the committed uncoded `*_cpm`
 //! baselines were measured on, carrying BPTC(196,96)-coded payloads decoded twice from the
 //! *identical* received stream — once hard (`Bptc196::decode` on the signs), once soft
@@ -98,7 +98,7 @@ const SEED: u64 = 0x0d5f;
 const FULL_MIN_ERRORS: u64 = 600;
 const FULL_MAX_FRAMES: u64 = 30_000;
 
-/// The committed gain is read at this post-FEC BER (MODEM-PLAN §7 phase 1).
+/// The committed gain is read at this post-FEC BER ( §7 phase 1).
 const AT_BER: f64 = 1e-3;
 
 const RECIPE: &str = "96 info bits -> Bptc196 -> tg::dibits -> steady framing \

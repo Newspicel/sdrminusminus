@@ -1,4 +1,4 @@
-// The spectrum's view transform and axis arithmetic (DESIGN.md §9), kept pure so the display
+// The spectrum's view transform and axis arithmetic (), kept pure so the display
 // component only routes pointer events.
 //
 // A view is a window `[start, end] ⊆ [0, 1]` over the device's span. The server streams a fixed

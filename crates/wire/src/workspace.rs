@@ -1,16 +1,16 @@
-//! Workspaces — the persisted workspace (PLAN §10, CANVAS §4). A workspace holds one patch graph
+//! Workspaces — the persisted workspace (, CANVAS §4). A workspace holds one patch graph
 //! and one rack layout, and exactly one workspace is active server-side, so every client that
 //! opens the workspace sees the same setup.
 //!
 //! The graph is *our* model, not the canvas library's serialization: templates author workspaces in
-//! Rust (CANVAS §8 phase ④), the server is the source of truth for type definitions (PLAN §2),
+//! Rust (CANVAS §8 phase ④), the server is the source of truth for type definitions (),
 //! and a React Flow major must not invalidate stored workspaces. The shape lives in
 //! [`crate::patch`]; this module is the stored row around it.
 //!
 //! What a stored node may name changed at M7 and the reason did not: engine ids are allocated per
 //! run and reused, so a node names a *device* by durable identity ([`crate::DeviceRef`]) and
 //! never a device set. The M6 rule that a panel could name no radio at all is retired — spatial
-//! identity is the point of the canvas (PLAN §18) — but nothing per-run is stored to buy it.
+//! identity is the point of the canvas () — but nothing per-run is stored to buy it.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -40,7 +40,7 @@ const MERGE_GAP: f32 = 120.0;
 /// them — erring high only opens a gap, erring low overlaps two workspaces.
 const NATURAL_NODE_H: f32 = 380.0;
 
-/// The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written
+/// The stored body of a workspace (: one JSON snapshot per row, like presets — written
 /// atomically, read whole, never queried by inner field).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct WorkspaceSnapshot {
@@ -94,7 +94,7 @@ impl Default for WorkspaceSettings {
 
 /// Why a snapshot was refused. Structural only — the checks are pure, so they run in `wire` and
 /// the server has one rejection point instead of scattered guards. `Display` is written out
-/// rather than derived because this crate carries no error-derive dependency (PLAN §3).
+/// rather than derived because this crate carries no error-derive dependency ().
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorkspaceError {
     Version(u32),
@@ -419,7 +419,7 @@ pub struct PatchApplyReport {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub absent: Vec<String>,
     /// Nodes apply could not satisfy, with the reason — a wideband channel on a device running
-    /// at the wrong rate is the common one (PLAN §18). Reported, never silently skipped.
+    /// at the wrong rate is the common one (). Reported, never silently skipped.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<PatchRefusal>,
 }

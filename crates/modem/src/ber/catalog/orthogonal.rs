@@ -1,4 +1,4 @@
-//! The noncoherent orthogonal M-FSK catalog entry (MODEM-PLAN §6, orthogonal row): M ∈ {2, 4, 8}
+//! The noncoherent orthogonal M-FSK catalog entry ( §6, orthogonal row): M ∈ {2, 4, 8}
 //! measured chains, shared by every consumer of the entry — the curve/limits/E2E tests, the perf
 //! baseline, and `cargo xtask ber mfsk-orthogonal` — so every committed artifact is taken on the
 //! *same* chain.

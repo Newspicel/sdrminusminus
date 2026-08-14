@@ -54,7 +54,7 @@ const CATALOG: PatchCatalog = {
           direction: "in",
           multi: false,
           condition: "device_is_tx_capable",
-          note: "reserved: transmit is not built (PLAN §12a)",
+          note: "reserved: transmit is not built ()",
           repeat: "per_tx_stream",
         },
         { name: "iq", port_type: "iq", direction: "out", multi: true, repeat: "per_rx_stream" },
@@ -360,7 +360,7 @@ describe("connectionRefusal", () => {
     );
   });
 
-  // Two devices into one channel is refused until `CoherentArray` exists (PLAN §6).
+  // Two devices into one channel is refused until `CoherentArray` exists ().
   it("refuses a second device on a channel and names why", () => {
     const graph = {
       ...workspace(),
@@ -396,7 +396,7 @@ describe("connectionRefusal", () => {
     ).toMatch(/takes one wire/);
   });
 
-  /** The transmit input is reserved (PLAN §12a): nothing emits its type, and what the operator
+  /** The transmit input is reserved (): nothing emits its type, and what the operator
    * gets for trying is the server's own reason rather than a type-mismatch line. Only a radio
    * that can transmit has the input at all — on a receiver there is nothing there to aim at. */
   it("refuses everything at the reserved transmit input, with the reason", () => {
@@ -413,7 +413,7 @@ describe("connectionRefusal", () => {
     );
   });
 
-  /// PLAN §18: the rate rule is a fault *on* the wire, not a refusal of it — the rate is one
+  /// : the rate rule is a fault *on* the wire, not a refusal of it — the rate is one
   /// setting away, and the face at the end of the wire offers that setting.
   it("allows a wideband channel on a rate outside its range and marks the wire instead", () => {
     const graph = {

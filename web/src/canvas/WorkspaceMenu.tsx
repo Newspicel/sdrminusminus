@@ -98,7 +98,7 @@ function Setting({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** Which band plan this workspace reads, and whether its scopes draw the ruler (FEATURES §5). */
+/** Which band plan this workspace reads, and whether its scopes draw the ruler (). */
 function BandSettings() {
   const { region, regions, ruler, setRegion, setRuler } = useBandPlan();
   const [locating, setLocating] = useState(false);

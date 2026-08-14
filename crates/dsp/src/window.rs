@@ -1,4 +1,4 @@
-//! Window functions for spectral analysis (PLAN §7 dsp inventory).
+//! Window functions for spectral analysis ( dsp inventory).
 
 use std::f32::consts::PI;
 

@@ -1,4 +1,4 @@
-// Per-decoder live readouts (PLAN §13). All of them read the decoded store, never TanStack Query:
+// Per-decoder live readouts (). All of them read the decoded store, never TanStack Query:
 // decoder frames are a stream, not server state. The projection/format/sort logic lives in
 // `decoderViews.ts`; these components only render it.
 //

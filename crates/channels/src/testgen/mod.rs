@@ -1,11 +1,11 @@
-//! Reference modulators for the decoders that have no transmitter of their own (PLAN §14:
+//! Reference modulators for the decoders that have no transmitter of their own (:
 //! every decoder ships with a fixture and an expected decode).
 //!
 //! Each submodule encodes a real protocol message down to complex baseband IQ at a caller-
 //! chosen sample rate, so the same generator feeds three consumers without duplication:
 //! the decoder's own unit tests, the engine's end-to-end tests through `device-virtual`,
 //! and `cargo xtask fixtures`, which renders them into SigMF pairs. Keeping the encoders
-//! here — rather than in `device-virtual` — is what preserves the crate boundary (PLAN §3:
+//! here — rather than in `device-virtual` — is what preserves the crate boundary (:
 //! `channels` depends only on `dsp` + `wire`); downstream crates enable the `test-signals`
 //! feature to reach them.
 //!

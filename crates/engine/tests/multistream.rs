@@ -1,5 +1,5 @@
-//! Engine e2e over the multi-stream virtual radios (design §6, §9, and the per-stream
-//! settings design §4): a channel, a spectrum subscription, and a recording each address one
+//! Engine e2e over the multi-stream virtual radios (, §9, and the per-stream
+//! settings ): a channel, a spectrum subscription, and a recording each address one
 //! lane, and lane k must carry stream k's signal — the per-stream markers make a wrong lane
 //! observable, not just a wrong count. The 2×2 transceiver (per-stream tuning) proves a
 //! per-stream retune reaches exactly one lane's DSP meta; the coherent array proves shared
@@ -243,7 +243,7 @@ async fn an_out_of_range_stream_is_a_clean_bad_request_naming_the_count() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// One recording per set, on the named stream (design §6b): the live status, the finalized
+/// One recording per set, on the named stream (b): the live status, the finalized
 /// hand-off, and the SigMF meta all say stream 2 — and the data really is lane 2's, which
 /// only the recorded IQ itself can prove.
 #[tokio::test]
@@ -321,7 +321,7 @@ async fn settle(
     }
 }
 
-/// Design §4 + §6.3 on the 2×2 transceiver (per-stream tuning): a per-stream retune must
+///  + §6.3 on the 2×2 transceiver (per-stream tuning): a per-stream retune must
 /// reach exactly its lane's DSP meta — visible as the lane spectrum's `center_hz`, with the
 /// lane's marker displaced by the difference — and a later radio-wide retune moves only the
 /// lanes without an override, never wiping the override that exists.
@@ -388,7 +388,7 @@ async fn a_per_stream_retune_moves_only_that_lanes_centre() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// Design §4/§6: a `streams` entry the capability cannot honour is a clean bad request from
+/// /§6: a `streams` entry the capability cannot honour is a clean bad request from
 /// the engine, refused before the device sees any of the delta — and the refusal is per
 /// capability, not blanket: what one radio refuses another accepts.
 #[tokio::test]
@@ -464,7 +464,7 @@ async fn a_bad_streams_entry_is_a_clean_bad_request_naming_the_problem() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// Design §6.5: a scan owns the radio-wide dial, and a per-stream-tuning radio has none — a
+/// : a scan owns the radio-wide dial, and a per-stream-tuning radio has none — a
 /// sweep would silently drag every unpinned lane. Shared-tuning radios stay sweepable.
 #[tokio::test]
 async fn a_scan_is_refused_where_tuning_is_per_stream() {
@@ -487,7 +487,7 @@ async fn a_scan_is_refused_where_tuning_is_per_stream() {
     engine.remove_device_set(ds).unwrap();
 }
 
-/// A recording on a per-stream-retuned lane must file under that lane's centre (design §4):
+/// A recording on a per-stream-retuned lane must file under that lane's centre ():
 /// the meta's opening capture and the tap's block stamps agree, so the pair holds exactly one
 /// segment at the lane's frequency — a radio-wide value in either place would split or
 /// mislabel it.
@@ -669,7 +669,7 @@ impl SdrDevice for PagingDevice {
     }
 }
 
-/// Design §4: a decoded frame's `freq_hz` is *its lane's* centre plus the channel offset.
+/// : a decoded frame's `freq_hz` is *its lane's* centre plus the channel offset.
 /// After a per-stream retune, lane 1's records must carry lane 1's absolute frequency while
 /// lane 0's still carry the radio-wide one — a frame filed under the wrong frequency is
 /// silent and wrong, the failure this asserts against end to end.

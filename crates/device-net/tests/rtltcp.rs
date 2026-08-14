@@ -2,7 +2,7 @@
 //! A harness that cannot bind a loopback socket or clone it has nothing left to assert,
 //! so its helpers panic. Clippy exempts `#[test]` functions from this by config, but not
 //! the free functions and closures a fake server is built out of.
-//! The rtl_tcp backend against a fake server (PLAN §14: no hardware in CI, ever).
+//! The rtl_tcp backend against a fake server (: no hardware in CI, ever).
 //!
 //! A socket is the one part of this backend that cannot be a pure function, so it is the part
 //! these cover: the greeting, the exact command bytes the server observes, the samples that come

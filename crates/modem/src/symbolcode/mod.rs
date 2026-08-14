@@ -1,4 +1,4 @@
-//! Line / symbol codes (MODEM-PLAN §3.1 `symbolcode/`, §6 "Symbol codes"): NRZ, NRZI,
+//! Line / symbol codes ( §3.1 `symbolcode/`, §6 "Symbol codes"): NRZ, NRZI,
 //! differential, Manchester and bi-phase — each implemented once, with both directions, so the
 //! modulators, `testgen` and the protocol framings all draw on the same tables. Every code here
 //! buys something a raw bit stream lacks: transitions to clock from (Manchester, bi-phase, NRZI

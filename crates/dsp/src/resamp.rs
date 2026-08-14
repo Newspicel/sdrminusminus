@@ -1,4 +1,4 @@
-//! Arbitrary-ratio fractional resampler (PLAN §7): a polyphase windowed-sinc interpolation
+//! Arbitrary-ratio fractional resampler (): a polyphase windowed-sinc interpolation
 //! bank with linear interpolation between adjacent phases. Output timing is tracked in f64
 //! input-sample units, so the long-run output count matches the ratio to within a sample.
 

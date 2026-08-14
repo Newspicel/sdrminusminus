@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use num_complex::Complex;
 use sdrmm_wire::{Capabilities, DeviceInfo, DeviceSettings, StreamScope};
 
-/// Sample delivered by every backend: interleaved IQ as `Complex<f32>` (PLAN §7: one format
+/// Sample delivered by every backend: interleaved IQ as `Complex<f32>` (: one format
 /// end-to-end, conversion happens at the device edge only).
 pub type Sample = Complex<f32>;
 
@@ -30,7 +30,7 @@ pub enum DeviceError {
     Io(String),
     #[error("device is already streaming")]
     AlreadyStreaming,
-    /// The radio has both directions but cannot run them together (PLAN §6: half duplex).
+    /// The radio has both directions but cannot run them together (: half duplex).
     #[error("device is {active} and cannot start {requested} until that stops")]
     DuplexConflict {
         /// The direction holding the radio.
@@ -172,7 +172,7 @@ impl std::fmt::Debug for RxSink {
     }
 }
 
-/// A backend that can enumerate and open devices (PLAN §6).
+/// A backend that can enumerate and open devices ().
 pub trait DeviceDriver: Send + Sync {
     /// Stable driver id, such as `"virtual"`, `"soapy"`, `"rtltcp"`, or `"spyserver"`.
     fn id(&self) -> &'static str;
@@ -206,7 +206,7 @@ pub trait DeviceDriver: Send + Sync {
 /// The mirror of [`RxSink`], and deliberately a pull rather than a push — a transmitter runs at
 /// the caller's pace, and the queue's backpressure is the only thing that keeps a burst on time.
 ///
-/// Nothing in `engine`, `server` or the web UI holds one of these: PLAN §12a gates every
+/// Nothing in `engine`, `server` or the web UI holds one of these:  gates every
 /// application-level transmit feature behind an authorized-use switch that has not been built,
 /// and until it is, nothing above this crate holds a [`TxStream`] — whatever
 /// `Capabilities::duplex` says the hardware has.
@@ -250,12 +250,12 @@ pub trait TxStream: Send {
 
 /// An opened radio.
 ///
-/// The RX half is what the engine drives. The TX half is declared here from day one, as PLAN §6
+/// The RX half is what the engine drives. The TX half is declared here from day one, as
 /// always specified, and is implemented by the backends whose hardware has it — but no code path
 /// above this crate calls it, and [`Duplex`] is what decides whether a given radio may run a
-/// direction at all (PLAN §12a).
+/// direction at all ().
 pub trait SdrDevice: Send {
-    /// Serialized to the client as-is to drive backend-driven UI (PLAN §6).
+    /// Serialized to the client as-is to drive backend-driven UI ().
     fn capabilities(&self) -> &Capabilities;
     /// Currently-applied settings.
     fn settings(&self) -> &DeviceSettings;

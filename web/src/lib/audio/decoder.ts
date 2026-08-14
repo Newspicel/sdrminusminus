@@ -1,4 +1,4 @@
-// Opus packet decoding (PLAN §9): WebCodecs `AudioDecoder` when the platform supports the
+// Opus packet decoding (): WebCodecs `AudioDecoder` when the platform supports the
 // exact stream config, else the "opus-decoder" WASM build (the likely WKWebView/Tauri path).
 // Both paths emit interleaved Float32 PCM at 48 kHz, in the channel count they were built for.
 import { SAMPLE_RATE } from "./worklet";
@@ -13,7 +13,7 @@ export interface OpusPacketDecoder {
 
 /**
  * Opus decode is far faster than realtime, so a queue that stays deep means the pipeline is
- * stuck; drop instead of queueing unboundedly (PLAN §5: UI streams are drop-oldest). The cap is
+ * stuck; drop instead of queueing unboundedly (: UI streams are drop-oldest). The cap is
  * ~1.3 s rather than a handful of packets because WebCodecs delivers its output on the main
  * thread: anything that blocks that thread (a render burst, GC) lets the socket queue packets,
  * which then all submit before a single output can come back. Cutting that burst off at the

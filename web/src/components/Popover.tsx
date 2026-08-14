@@ -1,4 +1,4 @@
-// The one non-modal overlay in the UI (DESIGN.md §11). Settings clusters and menus live here
+// The one non-modal overlay in the UI (). Settings clusters and menus live here
 // rather than in a bar row: they are consulted, not watched, and a row spent on them is a row
 // the plot does not get.
 //

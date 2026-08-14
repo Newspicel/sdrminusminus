@@ -1,4 +1,4 @@
-//! The known-symbol hook (MODEM-PLAN §3.4), CPM form: data-aided level and centre estimation
+//! The known-symbol hook ( §3.4), CPM form: data-aided level and centre estimation
 //! anchored to the known sequences every burst standard embeds — "positions i..j carry known
 //! sequence S", generalising `sdrmm_dsp::fsk4::SyncLevels` from packed DMR dibits to any M and
 //! any pattern length.

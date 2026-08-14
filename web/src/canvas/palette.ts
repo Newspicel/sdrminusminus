@@ -1,4 +1,4 @@
-// What the "+ Node" menu offers, arranged (PLAN §2: the server describes the palette, the client
+// What the "+ Node" menu offers, arranged (: the server describes the palette, the client
 // only renders it). The catalog's own `category` does the arranging, so a node kind added
 // server-side lands in the right section with no frontend edit.
 //

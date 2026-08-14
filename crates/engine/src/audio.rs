@@ -1,4 +1,4 @@
-//! Per-channel Opus encode (PLAN §9): a dedicated thread per channel turns the gated 48 kHz
+//! Per-channel Opus encode (): a dedicated thread per channel turns the gated 48 kHz
 //! PCM broadcast into 20 ms Opus packets on its own broadcast stream. The thread exits
 //! when every PCM sender is gone (channel removed / set stopped); removal joins it.
 //!
@@ -13,7 +13,7 @@ use tokio::sync::broadcast::{self, error::RecvError};
 
 use crate::EngineError;
 
-/// 20 ms at the fixed 48 kHz channel audio rate (PLAN §9), counted in sample frames — a
+/// 20 ms at the fixed 48 kHz channel audio rate (), counted in sample frames — a
 /// stereo frame holds twice as many `f32`s.
 pub const OPUS_FRAME_SAMPLES: usize = 960;
 const MONO_BITRATE_BPS: i32 = 64_000;
@@ -23,7 +23,7 @@ const STEREO_BITRATE_BPS: i32 = 96_000;
 /// libopus's recommended packet buffer; any single 20 ms frame fits.
 const MAX_PACKET_BYTES: usize = 4000;
 /// PCM blocks arrive at drain cadence (~25 ms each); 32 buffers ~0.8 s of encoder stall
-/// before the drop-oldest contract kicks in (PLAN §5).
+/// before the drop-oldest contract kicks in ().
 pub(crate) const PCM_CHANNEL_CAP: usize = 32;
 pub(crate) const AUDIO_CHANNEL_CAP: usize = 64;
 
@@ -46,7 +46,7 @@ pub(crate) enum PcmPayload {
 }
 
 /// One encoded audio frame. `timestamp` is the position of the frame's first sample frame in
-/// the channel's 48 kHz audio stream (PLAN §5 sample-count timestamps); a jump beyond the
+/// the channel's 48 kHz audio stream ( sample-count timestamps); a jump beyond the
 /// frame size marks PCM lost upstream while `seq` stays a contiguous packet counter. The
 /// clock is in frames, so a layout change does not disturb it.
 #[derive(Clone, Debug)]
@@ -77,7 +77,7 @@ impl Encoder {
 }
 
 /// Build the encoder control-side so construction errors surface to the caller, then hand it
-/// to a dedicated thread — Opus encode must never run on the DSP thread (PLAN §7).
+/// to a dedicated thread — Opus encode must never run on the DSP thread ().
 /// `channels` is the layout the channel starts in; the thread follows it from there.
 pub(crate) fn spawn_encoder(
     channels: u8,
@@ -169,7 +169,7 @@ fn encode_loop(
                     pending_start += OPUS_FRAME_SAMPLES as u64;
                 }
             }
-            // Drop-oldest is the UI-stream contract (PLAN §5): a stalled encoder skips PCM
+            // Drop-oldest is the UI-stream contract (): a stalled encoder skips PCM
             // rather than stalling the DSP thread. The next block's stamp resyncs the
             // timeline; the stale partial frame goes now.
             Err(RecvError::Lagged(skipped)) => {

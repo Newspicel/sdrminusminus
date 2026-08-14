@@ -1,4 +1,4 @@
-// Pure view logic for the live decoder readouts (PLAN §13). Everything a test can pin down —
+// Pure view logic for the live decoder readouts (). Everything a test can pin down —
 // row projection, ageing, sorting, the transcript trim rule — lives here so the components in
 // `DecoderPanels.tsx` stay render-only.
 //

@@ -1,4 +1,4 @@
-//! The linear engine (MODEM-PLAN §3.1 `linear/`) — one implementation behind every
+//! The linear engine ( §3.1 `linear/`) — one implementation behind every
 //! amplitude/phase modulation in the catalog: OOK and M-ASK, M-PAM, BPSK through M-PSK, the DPSK
 //! family, OQPSK and π/2-BPSK, π/4-DQPSK, square and cross QAM, star-QAM, hierarchical QAM and
 //! APSK. What distinguishes one from another is [`LinearParams`] — a point table, an amplitude

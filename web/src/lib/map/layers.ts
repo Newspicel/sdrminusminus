@@ -1,4 +1,4 @@
-// The pure half of the target map (PLAN §10 Maps, §13 P2): store rows in, GeoJSON out. No
+// The pure half of the target map ( Maps, §13 P2): store rows in, GeoJSON out. No
 // MapLibre import and no browser globals — the projection rules (which kinds carry a position,
 // what a label falls back to, when a target is too old to draw) are the part worth testing, and
 // MapPanel.tsx keeps everything that needs a canvas.
@@ -11,7 +11,7 @@ export const MAP_KINDS = ["adsb", "ais", "aprs"] as const satisfies readonly Dec
 export type MapKind = (typeof MAP_KINDS)[number];
 export type Target = StationOf<MapKind>;
 
-/** Semantic per-kind colours (PLAN §10: one accent, semantic status colours only). Chosen to
+/** Semantic per-kind colours (: one accent, semantic status colours only). Chosen to
  * stay apart under deuteranopia — teal / amber / violet, not a red-green pair — and mid-tone so
  * they read on OpenFreeMap's light basemap and on the dark offline backdrop alike. */
 export const KIND_STYLE: Record<MapKind, { title: string; color: string }> = {

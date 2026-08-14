@@ -18,7 +18,7 @@
 - Adding a decoder should touch: one module in `channels`, one settings struct in `wire`,
   optionally one React panel. If it needs more, reconsider the design.
 - Hot DSP path: no locks, no allocation, no async. Settings via command queue, state via
-  snapshot channels. Keep the control plane and DSP plane separated as the plan describes.
+   snapshot channels. Keep the control plane and DSP plane separated.
 - Errors: no `unwrap()`/`expect()` outside tests and startup. Use `Result` and the project's
   error types. No silent failure — a dropped decoder frame or truncated result must surface.
 - Keep functions small and single-purpose. Prefer clear names over comments.
@@ -27,9 +27,7 @@
 - Always Format, Lint, Check & Test at the End of Every Change. But only test what you changed, full test suite will run in the CI. 
 - Max 3000 lines per file, 200 lines per function. Split large files into modules, large functions into helpers.
 
-## Software Features
+## Product
 - Beginner-friendly, expert-deep
 - Desktop-only
-- Follow DESIGN.md for Design Principles
-
-Always update done features in FEATURES.md. (Do not add anything after implementation)
+- Keep comments concise and limited to non-obvious constraints, invariants, and rationale.

@@ -1,4 +1,4 @@
-//! Which directions a radio can run, and which of them are running now (PLAN §6).
+//! Which directions a radio can run, and which of them are running now ().
 //!
 //! Every backend needs the same arbitration and every backend would otherwise hand-roll it: the
 //! HackRF's single transceiver selects one data path at a time, an RTL-SDR has no transmitter at
@@ -10,7 +10,7 @@
 //!
 //! [`Duplex`] and [`Direction`] themselves live in `sdrmm-wire`: what a radio *is* is something
 //! the device picker, a workspace template and the canvas all have to see, and a shape the
-//! client renders belongs on the wire (PLAN §2). Only the arbitration is here.
+//! client renders belongs on the wire (). Only the arbitration is here.
 
 use sdrmm_wire::{Direction, Duplex};
 

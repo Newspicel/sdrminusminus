@@ -1,5 +1,5 @@
 // Pure helpers for the scanner panel, kept out of the component so the parsing and the
-// readout logic are testable without a DOM (PLAN §14, and the pattern the decoder views use).
+// readout logic are testable without a DOM (, and the pattern the decoder views use).
 import type { ChannelInfo, DeviceSet, ScannerStatus, ScanRange } from "../lib/types";
 
 /** One line of the range editor: three MHz/kHz fields as the user typed them. */
@@ -86,7 +86,7 @@ export function holdCandidates(set: DeviceSet | null): readonly ChannelInfo[] {
 
 /** Why this radio cannot be scanned, or `null`. A sweep owns the whole radio's tuning, and a
  * radio whose streams tune independently has no such thing to own — the server refuses the
- * start (PLAN §18), and the panel says so up front instead of surfacing a raw 400 after the
+ * start (), and the panel says so up front instead of surfacing a raw 400 after the
  * click. */
 export function scanRefusal(set: DeviceSet | null): string | null {
   return set?.capabilities.per_stream?.tuning === true

@@ -1,4 +1,4 @@
-//! Frequency-allocation types (FEATURES §5): what a frequency is *for*, layered from the ITU
+//! Frequency-allocation types (): what a frequency is *for*, layered from the ITU
 //! world table down through a national regulator, with the amateur band plan as an overlay.
 //!
 //! The layering is resolved server-side and shipped as one already-merged document per region
@@ -61,7 +61,7 @@ pub enum BandService {
 }
 
 /// One source of allocations: a table someone published, identified so a block can say where it
-/// came from. Adding a region is adding one of these plus its entries (FEATURES §5's "pluggable
+/// came from. Adding a region is adding one of these plus its entries ('s "pluggable
 /// importers"); nothing else in the resolution knows the difference.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BandLayerInfo {

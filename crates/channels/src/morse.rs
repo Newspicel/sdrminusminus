@@ -1,4 +1,4 @@
-//! Morse/CW decoder (PLAN §13 P2): envelope detection with adaptive element timing.
+//! Morse/CW decoder ( P2): envelope detection with adaptive element timing.
 //!
 //! The host has already applied the CW filter at `MorseParams::bandwidth_hz`, so the tone
 //! arrives near DC and its magnitude is the key line. Smoothing it and slicing it against a
@@ -16,7 +16,7 @@ use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, 
 
 const CHANNEL_TAPS: usize = 257;
 
-/// **Why this decoder does not run the library's envelope tier** (MODEM-PLAN §7 phase 4). Hand-sent
+/// **Why this decoder does not run the library's envelope tier** ( §7 phase 4). Hand-sent
 /// CW has no symbol clock at all: an element's length is the operator's, the ratio of dot to dash
 /// is only nominally 1:3, and the decoder's whole job is to infer the timing from what it hears.
 /// `sdrmm_modem::linear::EnvelopeDemod` is symbol-synchronous by construction — it needs an

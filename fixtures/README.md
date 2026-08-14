@@ -1,6 +1,6 @@
 # fixtures/ — golden IQ fixture library
 
-IQ samples for decoder golden tests (PLAN §14): every decoder ships with short fixtures plus
+IQ samples for decoder golden tests (): every decoder ships with short fixtures plus
 expected decoded output, and building this library *is* part of building each decoder. The
 library starts at M3 (record & replay); the wave-1 decoders landed at M4 and wave 2 (NAVTEX,
 ACARS, sub-GHz) after M6.
@@ -39,7 +39,7 @@ recorded off air, one frozen render no current generator reproduces.
 
 ADS-B is the one fixture whose device rate is not negotiable: it fills its whole 2 MHz
 channel, so a resampling DDC cannot carry it and the engine refuses the channel at any other
-rate (PLAN §18). ATV is the one whose output is not a log line: play it, wire the channel's
+rate (). ATV is the one whose output is not a log line: play it, wire the channel's
 face into view, and the picture is on the face itself.
 
 Every fixture is a SigMF pair — `<stem>.sigmf-meta` + `<stem>.sigmf-data`, mono-channel
@@ -60,7 +60,7 @@ device.
   all `*.sigmf-*` so a generated pair can't land in a commit by accident.
 - **Recorded off-air captures** arrive with their M4+ decoders: kept to seconds, stripped
   to the band of interest, and either committed case-by-case (small) or fetched by
-  `cargo xtask fixtures` (PLAN §14). Committing one means force-adding past the
+  `cargo xtask fixtures` (). Committing one means force-adding past the
   `.gitignore` — that friction is the case-by-case review.
 - **A frozen render is committed when no generator still reproduces it.** `cargo xtask
   fixtures` writes today's output, so a test that pins behaviour against an *older* render

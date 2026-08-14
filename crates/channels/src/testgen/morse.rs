@@ -1,4 +1,4 @@
-//! Morse/CW reference modulator (PLAN §14): PARIS-timed on-off keying of one tone.
+//! Morse/CW reference modulator (): PARIS-timed on-off keying of one tone.
 //!
 //! The element table here is written as pattern strings while the decoder's is written as
 //! packed codes; keeping the two independent is deliberate, so a typo in either table shows up

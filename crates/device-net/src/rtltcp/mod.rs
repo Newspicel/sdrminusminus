@@ -1,5 +1,5 @@
 //! The rtl_tcp client backend: an RTL-SDR on someone else's machine, driven over the protocol
-//! osmocom's `rtl_tcp` speaks (PLAN §6).
+//! osmocom's `rtl_tcp` speaks ().
 //!
 //! Layers, in dependency order:
 //!

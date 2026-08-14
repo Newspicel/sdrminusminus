@@ -1,5 +1,5 @@
 // The band plan as the UI consumes it: the region list, the workspace's choice, and that
-// region's resolved table (FEATURES §5).
+// region's resolved table ().
 //
 // One hook because two very different surfaces need exactly the same things — the ruler on every
 // scope face and the explorer in the library drawer — and because the fallback to the server's

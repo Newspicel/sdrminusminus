@@ -8,7 +8,7 @@
 //! `Fsk4Demod` artifacts (`baselines/dmr/dmr_steady_uncoded.json`, `dmr_burst_uncoded.json`,
 //! `dmr_limits.json`, `dmr_bptc_*.json`) stay committed untouched as the pre-migration
 //! reference; the new chain's measurements live alongside as `*_cpm.json`, and
-//! `dmr_baseline.rs` holds the two generations to MODEM-PLAN §7's migration rule (within
+//! `dmr_baseline.rs` holds the two generations to  §7's migration rule (within
 //! 0.5 dB, limits no worse).
 
 // Each integration-test binary compiles its own copy of this module and uses a subset of it.

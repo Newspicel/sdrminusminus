@@ -1,4 +1,4 @@
-//! §5 measurement bundle for every linear catalog entry (MODEM-PLAN §7 phase 4 accept): the
+//! §5 measurement bundle for every linear catalog entry ( §7 phase 4 accept): the
 //! committed BER curves, the §4.3 limits tables, the perf baselines and the level-1 E2E loopbacks.
 //! The chains under measurement live in `ber::catalog::{ask, psk, qam}` on the shared
 //! `ber::catalog::linear` substrate; the committed artifacts live in `baselines/linear/`.
@@ -244,7 +244,7 @@ fn feedforward_timing_beats_the_tracking_loop_by_its_committed_margin() {
     );
 }
 
-/// π/4-DQPSK coherent against π/4-DQPSK differential — the acceptance MODEM-PLAN §7 phase 4 states
+/// π/4-DQPSK coherent against π/4-DQPSK differential — the acceptance  §7 phase 4 states
 /// in as many words ("coherent beats differential by the measured, recorded margin"). Measured
 /// 1.76 dB at 1e-3, not the asymptotic 3: differential detection's penalty grows toward 3 dB only
 /// deep in the tail, and this tier pays a little of it back for the 8th-power detector its

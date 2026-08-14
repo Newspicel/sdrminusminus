@@ -1,7 +1,7 @@
 //! The reference linear transmitter: table lookup, per-symbol rotation, optional quadrature
 //! stagger, pulse shaping, complex baseband out. This is *the* modulator behind every linear
 //! catalog entry — `testgen` builds the demodulator's test signals from it and `tx.rs` drives it
-//! as a signal generator, so modulator and demodulator can never drift apart (MODEM-PLAN §1.2).
+//! as a signal generator, so modulator and demodulator can never drift apart ( §1.2).
 //!
 //! Energy accounting, stated once: the table is mean-Es = 1 and the pulse is unit energy, so a
 //! block of n symbols carries n units of energy up to the pulse cascade's cross-terms — which is

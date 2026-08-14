@@ -1,5 +1,5 @@
 // The WebAudio half of a channel: Opus decoder → worklet jitter buffer → per-channel gain.
-// One shared AudioContext for all channels; mixing is just parallel graphs (PLAN §9).
+// One shared AudioContext for all channels; mixing is just parallel graphs ().
 import type { OpusPacketDecoder } from "./decoder";
 import { createOpusPacketDecoder } from "./decoder";
 import type { AudioSink, SinkFactory } from "./engine";

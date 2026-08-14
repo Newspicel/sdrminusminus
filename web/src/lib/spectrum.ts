@@ -36,7 +36,7 @@ export interface SpectrumSocket {
   removeEventListener(listener: (event: ServerEvent) => void): void;
 }
 
-/** Frame rate and bin count asked of the server. Per connection, not per face (PLAN §9): the
+/** Frame rate and bin count asked of the server. Per connection, not per face (): the
  * server clamps both, and one stream feeds every face watching that lane. */
 export const SPECTRUM_FPS = 30;
 export const SPECTRUM_BINS = 1024;

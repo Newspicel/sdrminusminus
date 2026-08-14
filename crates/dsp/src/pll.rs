@@ -1,4 +1,4 @@
-//! Carrier recovery loops (PLAN §7): a shared second-order loop filter, a tracking PLL for a
+//! Carrier recovery loops (): a shared second-order loop filter, a tracking PLL for a
 //! residual carrier or pilot tone, and a Costas loop for BPSK. Every frequency here is
 //! normalised to the sample rate (cycles/sample), so the loops are rate-agnostic — the caller
 //! divides by `fs` once. No allocation in `process`.

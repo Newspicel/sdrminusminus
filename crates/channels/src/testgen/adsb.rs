@@ -1,4 +1,4 @@
-//! Mode S reference modulator (PLAN §14): DF17 extended squitters and the DF4/5/11/20/21
+//! Mode S reference modulator (): DF17 extended squitters and the DF4/5/11/20/21
 //! replies a transponder sends, PPM-modulated onto complex baseband at 1 Mbit/s.
 //!
 //! The CPR, Gillham and 6-bit-callsign encoders here are written straight from DO-260B rather

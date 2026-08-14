@@ -12,7 +12,7 @@
 //!
 //! Callsigns travel in the data channel alongside the vocoder frames and are not decoded here:
 //! they need the payload de-interleaver and the same Viterbi pass per sub-block, which is
-//! follow-up work (FEATURES §9).
+//! follow-up work ().
 
 use std::sync::LazyLock;
 

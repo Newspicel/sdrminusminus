@@ -1,4 +1,4 @@
-//! AX.25 / APRS decoder (PLAN §13 P2): Bell 202 AFSK1200 and 9600 baud G3RUH.
+//! AX.25 / APRS decoder ( P2): Bell 202 AFSK1200 and 9600 baud G3RUH.
 //!
 //! Both physical layers hand the same thing to the link layer — NRZI line levels — so the
 //! frame path below them is shared: NRZI decode, HDLC deframing, CRC-16/X.25, then the AX.25

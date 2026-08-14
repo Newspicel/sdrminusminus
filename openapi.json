@@ -1998,7 +1998,7 @@
       },
       "AcarsMessage": {
         "type": "object",
-        "description": "One ACARS block (PLAN §13: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow\nthe standard's, so a message here reads the same as in every other ACARS tool.",
+        "description": "One ACARS block (: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow\nthe standard's, so a message here reads the same as in every other ACARS tool.",
         "required": [
           "mode",
           "registration",
@@ -2069,7 +2069,7 @@
       },
       "AdsbMessage": {
         "type": "object",
-        "description": "One decoded Mode S / ADS-B frame (PLAN §13: preamble correlation + Mode S CRC).\nFields are `Option` because which ones a frame carries depends on its type code — a\nposition frame has no callsign, an identification frame has no altitude.",
+        "description": "One decoded Mode S / ADS-B frame (: preamble correlation + Mode S CRC).\nFields are `Option` because which ones a frame carries depends on its type code — a\nposition frame has no callsign, an identification frame has no altitude.",
         "required": [
           "icao",
           "df",
@@ -2196,7 +2196,7 @@
       },
       "AisMessage": {
         "type": "object",
-        "description": "One decoded AIS message (PLAN §13: GMSK/NRZI over HDLC framing).",
+        "description": "One decoded AIS message (: GMSK/NRZI over HDLC framing).",
         "required": [
           "mmsi",
           "msg_type",
@@ -2345,7 +2345,7 @@
       },
       "AprsMode": {
         "type": "string",
-        "description": "AX.25 physical layer (PLAN §13: AFSK1200 + 9600 G3RUH).",
+        "description": "AX.25 physical layer (: AFSK1200 + 9600 G3RUH).",
         "enum": [
           "afsk1200",
           "g3ruh9600"
@@ -2353,7 +2353,7 @@
       },
       "AprsPacket": {
         "type": "object",
-        "description": "One decoded AX.25 frame, with the APRS fields parsed out when the info field carries them\n(PLAN §13: AFSK1200 + 9600 G3RUH).",
+        "description": "One decoded AX.25 frame, with the APRS fields parsed out when the info field carries them\n(: AFSK1200 + 9600 G3RUH).",
         "required": [
           "source",
           "destination",
@@ -2585,7 +2585,7 @@
       },
       "AtvModulation": {
         "type": "string",
-        "description": "How an analog television transmission carries its video, and with it the polarity the\ndemodulated signal arrives in (PLAN §13: ATV).",
+        "description": "How an analog television transmission carries its video, and with it the polarity the\ndemodulated signal arrives in (: ATV).",
         "enum": [
           "am",
           "fm"
@@ -2626,7 +2626,7 @@
       },
       "AuthInfo": {
         "type": "object",
-        "description": "`GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before\nits first real request (PLAN §12: optional single shared token).",
+        "description": "`GET /api/auth` — unauthenticated, so a client knows whether to ask for a token before\nits first real request (: optional single shared token).",
         "required": [
           "token_required"
         ],
@@ -2787,7 +2787,7 @@
       },
       "BandLayerInfo": {
         "type": "object",
-        "description": "One source of allocations: a table someone published, identified so a block can say where it\ncame from. Adding a region is adding one of these plus its entries (FEATURES §5's \"pluggable\nimporters\"); nothing else in the resolution knows the difference.",
+        "description": "One source of allocations: a table someone published, identified so a block can say where it\ncame from. Adding a region is adding one of these plus its entries ('s \"pluggable\nimporters\"); nothing else in the resolution knows the difference.",
         "required": [
           "id",
           "name",
@@ -2973,7 +2973,7 @@
       },
       "Bookmark": {
         "type": "object",
-        "description": "A stored frequency bookmark (PLAN §11).",
+        "description": "A stored frequency bookmark ().",
         "required": [
           "id",
           "label",
@@ -3008,7 +3008,7 @@
       },
       "Capabilities": {
         "type": "object",
-        "description": "Everything the client needs to render device controls without hand-written DTOs (PLAN §6).",
+        "description": "Everything the client needs to render device controls without hand-written DTOs ().",
         "required": [
           "freq_ranges",
           "sample_rates",
@@ -3043,7 +3043,7 @@
           },
           "duplex": {
             "$ref": "#/components/schemas/Duplex",
-            "description": "Which directions this radio has, and whether it can run them together. Receive-only\nunless a backend says otherwise, so a device cannot advertise a transmitter by omission.\nThis is the *hardware's* shape, not a permission: PLAN §12a gates transmit behind an\nauthorized-use switch that does not exist, so a `half` radio still transmits nothing."
+            "description": "Which directions this radio has, and whether it can run them together. Receive-only\nunless a backend says otherwise, so a device cannot advertise a transmitter by omission.\nThis is the *hardware's* shape, not a permission:  gates transmit behind an\nauthorized-use switch that does not exist, so a `half` radio still transmits nothing."
           },
           "extra": {
             "type": "array",
@@ -3099,7 +3099,7 @@
           "tx_streams": {
             "type": "integer",
             "format": "int32",
-            "description": "How many independent transmit streams it accepts. Reported for symmetry and for the\ndevice picker; the canvas still draws a single reserved transmit input, because there is\nnothing to wire into it until PLAN §12a lands.",
+            "description": "How many independent transmit streams it accepts. Reported for symmetry and for the\ndevice picker; the canvas still draws a single reserved transmit input, because there is\nnothing to wire into it until  lands.",
             "minimum": 0
           }
         }
@@ -3219,7 +3219,7 @@
       },
       "ChannelDescriptor": {
         "type": "object",
-        "description": "Static description of a channel type, surfaced to drive the \"add channel\" UI (PLAN §8).",
+        "description": "Static description of a channel type, surfaced to drive the \"add channel\" UI ().",
         "required": [
           "type_id",
           "name",
@@ -3234,7 +3234,7 @@
           },
           "can_transmit": {
             "type": "boolean",
-            "description": "The type ships a modulator as well as a demodulator, so a transmit channel of it can be\nbuilt (PLAN §20). Says only that the waveform exists — whether it may ever reach an\nantenna is the authorized-use gate's question, and that gate has not been built.\nDefaults to `false`, which is every receive-only type."
+            "description": "The type ships a modulator as well as a demodulator, so a transmit channel of it can be\nbuilt (). Says only that the waveform exists — whether it may ever reach an\nantenna is the authorized-use gate's question, and that gate has not been built.\nDefaults to `false`, which is every receive-only type."
           },
           "decoder_kind": {
             "type": [
@@ -3245,15 +3245,15 @@
           },
           "exact_rate_only": {
             "type": "boolean",
-            "description": "The type occupies its whole channel rate, so it runs only with the device tuned to\nexactly `input_rate_hz` — a resampling DDC has no guard band left to give it (PLAN §18).\nReported so the canvas can refuse the wire where the operator draws it, naming the rate\nthat works, instead of letting the engine reject it after the fact. Defaults to `false`,\nwhich is every type that leaves a guard band."
+            "description": "The type occupies its whole channel rate, so it runs only with the device tuned to\nexactly `input_rate_hz` — a resampling DDC has no guard band left to give it ().\nReported so the canvas can refuse the wire where the operator draws it, naming the rate\nthat works, instead of letting the engine reject it after the fact. Defaults to `false`,\nwhich is every type that leaves a guard band."
           },
           "has_audio": {
             "type": "boolean",
-            "description": "Whether the channel produces listenable audio. Data decoders (PLAN §13 wave 1) do\nnot, so the client hides their audio controls instead of offering a silent stream.\nDefaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour."
+            "description": "Whether the channel produces listenable audio. Data decoders ( wave 1) do\nnot, so the client hides their audio controls instead of offering a silent stream.\nDefaults to `true` so a snapshot from an older peer keeps the pre-M4 behaviour."
           },
           "has_video": {
             "type": "boolean",
-            "description": "Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames\nrather than as decoder events (ATV, PLAN §13). The client subscribes and mounts a video\npanel on the channel's face when this is set. Defaults to `false`, which is every mode\nthat predates the video transport."
+            "description": "Whether the channel produces a picture, delivered as [`crate::VideoFrame`] binary frames\nrather than as decoder events (ATV, ). The client subscribes and mounts a video\npanel on the channel's face when this is set. Defaults to `false`, which is every mode\nthat predates the video transport."
           },
           "input_rate_hz": {
             "type": "number",
@@ -3270,7 +3270,7 @@
               "null"
             ],
             "format": "double",
-            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B is the one such type (PLAN §18, amended): a 0.5 µs pulse is a single sample at\n2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder\nmeets the radio at its rate instead. Mutually exclusive with `exact_rate_only`."
+            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B is the one such type (, amended): a 0.5 µs pulse is a single sample at\n2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder\nmeets the radio at its rate instead. Mutually exclusive with `exact_rate_only`."
           },
           "type_id": {
             "type": "string",
@@ -3725,7 +3725,7 @@
       },
       "ChannelTypesResponse": {
         "type": "object",
-        "description": "The channel types this server build offers, driving the \"add channel\" UI (PLAN §8).",
+        "description": "The channel types this server build offers, driving the \"add channel\" UI ().",
         "required": [
           "types"
         ],
@@ -3769,7 +3769,7 @@
                   "bins": {
                     "type": "integer",
                     "format": "int32",
-                    "description": "Requested display bins (≤ 4096, PLAN §9); server clamps.",
+                    "description": "Requested display bins (≤ 4096, ); server clamps.",
                     "minimum": 0
                   },
                   "device_set": {
@@ -3979,11 +3979,11 @@
             }
           }
         ],
-        "description": "Client → server commands over the same socket (PLAN §5). Stream subscriptions are\nper-connection, so a phone can request a lighter stream than a desktop."
+        "description": "Client → server commands over the same socket (). Stream subscriptions are\nper-connection, so a phone can request a lighter stream than a desktop."
       },
       "ClientsResponse": {
         "type": "object",
-        "description": "`GET /api/clients` — how many clients share this server right now (PLAN §16 M5\nmulti-client). Includes the caller.",
+        "description": "`GET /api/clients` — how many clients share this server right now ( M5\nmulti-client). Includes the caller.",
         "required": [
           "clients"
         ],
@@ -4380,11 +4380,11 @@
             }
           }
         ],
-        "description": "Typed decoder output (PLAN §5). Adjacently tagged so the generated TypeScript is a\ndiscriminated union on `kind` that panels can exhaustively `switch` on, and so the log\ndatabase can index on `kind` without parsing the blob."
+        "description": "Typed decoder output (). Adjacently tagged so the generated TypeScript is a\ndiscriminated union on `kind` that panels can exhaustively `switch` on, and so the log\ndatabase can index on `kind` without parsing the blob."
       },
       "DecoderLogEntry": {
         "type": "object",
-        "description": "One stored decoder frame (PLAN §11: decoder logs are queryable and exportable, not\nscroll-back-only). The typed `event` is stored verbatim so an export loses nothing;\n`kind`, `summary` and `station` are the indexed projections the list view filters on.",
+        "description": "One stored decoder frame (: decoder logs are queryable and exportable, not\nscroll-back-only). The typed `event` is stored verbatim so an export loses nothing;\n`kind`, `summary` and `station` are the indexed projections the list view filters on.",
         "required": [
           "id",
           "at",
@@ -4456,7 +4456,7 @@
           "dropped": {
             "type": "integer",
             "format": "int64",
-            "description": "Frames dropped on the way to the log since the server started, because a consumer\nfell behind (PLAN §5: bounded queues surface their loss).",
+            "description": "Frames dropped on the way to the log since the server started, because a consumer\nfell behind (: bounded queues surface their loss).",
             "minimum": 0
           },
           "entries": {
@@ -4489,7 +4489,7 @@
       },
       "DeviceInfo": {
         "type": "object",
-        "description": "A discovered receiver, produced by a driver's probe (PLAN §6).",
+        "description": "A discovered receiver, produced by a driver's probe ().",
         "required": [
           "driver",
           "key",
@@ -4524,7 +4524,7 @@
               "string",
               "null"
             ],
-            "description": "Serial number when the driver exposes one (used to collapse probe duplicates, PLAN §6)."
+            "description": "Serial number when the driver exposes one (used to collapse probe duplicates, )."
           }
         }
       },
@@ -4627,7 +4627,7 @@
       },
       "DeviceSet": {
         "type": "object",
-        "description": "One opened device and everything hosted on it (PLAN §2: \"one device set per opened device\").",
+        "description": "One opened device and everything hosted on it (: \"one device set per opened device\").",
         "required": [
           "id",
           "device",
@@ -4663,7 +4663,7 @@
           "overruns": {
             "type": "integer",
             "format": "int64",
-            "description": "Cumulative device samples dropped at the capture ring since the set opened. Growth\nmeans the DSP thread cannot keep up — audio and spectrum have gaps even while\n`status` stays `running` (PLAN §5 backpressure; CLAUDE.md no-silent-failure).",
+            "description": "Cumulative device samples dropped at the capture ring since the set opened. Growth\nmeans the DSP thread cannot keep up — audio and spectrum have gaps even while\n`status` stays `running` ( backpressure; CLAUDE.md no-silent-failure).",
             "minimum": 0
           },
           "playback": {
@@ -4684,7 +4684,7 @@
               },
               {
                 "$ref": "#/components/schemas/RecordingStatus",
-                "description": "Active IQ recording, if any (M3, PLAN §5)."
+                "description": "Active IQ recording, if any (M3, )."
               }
             ]
           },
@@ -4695,7 +4695,7 @@
               },
               {
                 "$ref": "#/components/schemas/ScannerStatus",
-                "description": "Running frequency scan, if any (M5, PLAN §13). While a scan runs the set's\n`settings.center_hz` moves every dwell, so live progress arrives as\n[`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step."
+                "description": "Running frequency scan, if any (M5, ). While a scan runs the set's\n`settings.center_hz` moves every dwell, so live progress arrives as\n[`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step."
               }
             ]
           },
@@ -4718,7 +4718,7 @@
       },
       "DeviceSettings": {
         "type": "object",
-        "description": "A mutation applied to a device. Absent fields are left unchanged (PLAN §5 PATCH device).",
+        "description": "A mutation applied to a device. Absent fields are left unchanged ( PATCH device).",
         "properties": {
           "antenna": {
             "type": [
@@ -4778,7 +4778,7 @@
       },
       "DevicesResponse": {
         "type": "object",
-        "description": "`GET /api/devices` — discovered hardware across all drivers (PLAN §5).",
+        "description": "`GET /api/devices` — discovered hardware across all drivers ().",
         "required": [
           "devices"
         ],
@@ -5220,7 +5220,7 @@
       },
       "DvMode": {
         "type": "string",
-        "description": "Which digital-voice mode a [`DvFrame`] was heard on (PLAN §13 wave 3). One event type\nserves all of them because the *question* is the same in every mode — who is talking, to\nwhom, on which network — and only the names for it differ.",
+        "description": "Which digital-voice mode a [`DvFrame`] was heard on ( wave 3). One event type\nserves all of them because the *question* is the same in every mode — who is talking, to\nwhom, on which network — and only the names for it differ.",
         "enum": [
           "dmr",
           "dstar",
@@ -5259,7 +5259,7 @@
       },
       "ExportFormat": {
         "type": "string",
-        "description": "Export format for `GET /api/decoderlog/export/{format}` (PLAN §11: CSV/JSON). It is a\npath segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing\n[`DecoderLogQuery`] across list/export/clear requires the format to live elsewhere.",
+        "description": "Export format for `GET /api/decoderlog/export/{format}` (: CSV/JSON). It is a\npath segment, not a query field: `serde_urlencoded` cannot flatten a struct, so sharing\n[`DecoderLogQuery`] across list/export/clear requires the format to live elsewhere.",
         "enum": [
           "csv",
           "json"
@@ -5368,7 +5368,7 @@
             }
           }
         ],
-        "description": "A typed device-specific setting the client renders generically when it has no\nfirst-class UI (PLAN §6: \"typed extra settings\")."
+        "description": "A typed device-specific setting the client renders generically when it has no\nfirst-class UI (: \"typed extra settings\")."
       },
       "ExtraValue": {
         "type": "object",
@@ -5484,7 +5484,7 @@
       },
       "NavtexMessage": {
         "type": "object",
-        "description": "One NAVTEX broadcast (PLAN §13: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is\nparsed out because that is what a receiver filters on — station, subject and serial are how\na ship decides whether it has already seen this message.",
+        "description": "One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is\nparsed out because that is what a receiver filters on — station, subject and serial are how\na ship decides whether it has already seen this message.",
         "required": [
           "text",
           "errors_corrected",
@@ -5577,7 +5577,7 @@
       },
       "NfmToneMode": {
         "type": "string",
-        "description": "What an NFM channel does about the subaudible signalling under the voice (PLAN §8).\nCTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating\nunder it at 134.4 bit/s. Both are how a repeater tells its own users apart from the\nco-channel traffic 50 km away.",
+        "description": "What an NFM channel does about the subaudible signalling under the voice ().\nCTCSS is a continuous tone below the voice band; DCS is a 23-bit Golay word repeating\nunder it at 134.4 bit/s. Both are how a repeater tells its own users apart from the\nco-channel traffic 50 km away.",
         "enum": [
           "off",
           "detect",
@@ -5640,7 +5640,7 @@
           },
           {
             "type": "object",
-            "description": "Client-side audio mix (PLAN §9: the server ships streams, not a mix).",
+            "description": "Client-side audio mix (: the server ships streams, not a mix).",
             "required": [
               "kind"
             ],
@@ -5745,7 +5745,7 @@
           },
           {
             "type": "object",
-            "description": "Frequency scanner. Its edge runs *into* the device it drives, because it is ownership and\nnot consumption: a running scan owns that set's centre frequency and client retunes are\nrefused while it does (PLAN §18).",
+            "description": "Frequency scanner. Its edge runs *into* the device it drives, because it is ownership and\nnot consumption: a running scan owns that set's centre frequency and client retunes are\nrefused while it does ().",
             "required": [
               "kind"
             ],
@@ -5759,7 +5759,7 @@
             }
           }
         ],
-        "description": "What a node is. Adjacently tagged like [`crate::ChannelParams`], so the generated TypeScript\nis a union the client can exhaustively switch on.\n\nThe catalog is deliberately shorter than CANVAS §1's table: the GPS source, the UDP sink and\nthe WAV audio-file sink need server features that do not exist (PLAN §13 Phase 2/4), and a\nnode whose backend is unbuilt is a face that can only apologise."
+        "description": "What a node is. Adjacently tagged like [`crate::ChannelParams`], so the generated TypeScript\nis a union the client can exhaustively switch on.\n\nThe catalog is deliberately shorter than CANVAS §1's table: the GPS source, the UDP sink and\nthe WAV audio-file sink need server features that do not exist ( Phase 2/4), and a\nnode whose backend is unbuilt is a face that can only apologise."
       },
       "NodeCategory": {
         "type": "string",
@@ -5774,7 +5774,7 @@
       },
       "NodeTypeInfo": {
         "type": "object",
-        "description": "One entry of the node palette the client renders its \"add node\" menu from (PLAN §2: the client\nrenders what the server describes).",
+        "description": "One entry of the node palette the client renders its \"add node\" menu from (: the client\nrenders what the server describes).",
         "required": [
           "kind",
           "name",
@@ -5864,7 +5864,7 @@
             "items": {
               "$ref": "#/components/schemas/PatchRefusal"
             },
-            "description": "Nodes apply could not satisfy, with the reason — a wideband channel on a device running\nat the wrong rate is the common one (PLAN §18). Reported, never silently skipped."
+            "description": "Nodes apply could not satisfy, with the reason — a wideband channel on a device running\nat the wrong rate is the common one (). Reported, never silently skipped."
           }
         }
       },
@@ -6124,7 +6124,7 @@
       },
       "PocsagPayload": {
         "type": "string",
-        "description": "POCSAG message class (PLAN §13: 512/1200/2400 baud pagers).",
+        "description": "POCSAG message class (: 512/1200/2400 baud pagers).",
         "enum": [
           "tone",
           "numeric",
@@ -6205,7 +6205,7 @@
               "string",
               "null"
             ],
-            "description": "Why this port refuses everything, for the ports that do. The client renders what the\nserver describes (PLAN §2), and a port with no wire and no explanation reads as broken."
+            "description": "Why this port refuses everything, for the ports that do. The client renders what the\nserver describes (), and a port with no wire and no explanation reads as broken."
           },
           "port_type": {
             "$ref": "#/components/schemas/PortType"
@@ -6217,7 +6217,7 @@
       },
       "PortType": {
         "type": "string",
-        "description": "What a wire carries. Hue encodes this and only this (`DESIGN.md` §2), so the set stays small\nand every member is something the engine actually moves today — with one named exception,\n[`PortType::Tx`], which is reserved and unwireable until transmit exists (PLAN §12a).\n\n`iq-tap` (decimated channel IQ) and `position` (GPS) stay absent for the reason that exception\ndoes *not* apply to them: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4,\nso a port for either would be a wire that dangles with nothing reserving it.",
+        "description": "What a wire carries. Hue encodes this and only this (), so the set stays small\nand every member is something the engine actually moves today — with one named exception,\n[`PortType::Tx`], which is reserved and unwireable until transmit exists ().\n\n`iq-tap` (decimated channel IQ) and `position` (GPS) stay absent for the reason that exception\ndoes *not* apply to them: the channel analyzer is  Phase 2 and the GPS source Phase 4,\nso a port for either would be a wire that dangles with nothing reserving it.",
         "enum": [
           "iq",
           "audio",
@@ -6305,7 +6305,7 @@
       },
       "PresetSnapshot": {
         "type": "object",
-        "description": "The stored body of a preset: where every radio a workspace draws was tuned, and what hung off\nthem (PLAN §11).\n\nA preset is workspace-wide because a workspace is: an operator who saved \"the morning airband\nbench\" means every radio on it, and a per-device preset made that several saves that could be\nrestored in the wrong order or half-applied. Applying one is one gesture over the whole patch.",
+        "description": "The stored body of a preset: where every radio a workspace draws was tuned, and what hung off\nthem ().\n\nA preset is workspace-wide because a workspace is: an operator who saved \"the morning airband\nbench\" means every radio on it, and a per-device preset made that several saves that could be\nrestored in the wrong order or half-applied. Applying one is one gesture over the whole patch.",
         "required": [
           "version"
         ],
@@ -6415,7 +6415,7 @@
       },
       "RdsUpdate": {
         "type": "object",
-        "description": "RDS state after a group changed it (PLAN §13: 57 kHz BPSK, group/AF/RT decode). RDS is a\nslowly-accreting picture rather than a stream of independent frames, so an event is the\ncurrent best view of the station, emitted only when a field actually changed.",
+        "description": "RDS state after a group changed it (: 57 kHz BPSK, group/AF/RT decode). RDS is a\nslowly-accreting picture rather than a stream of independent frames, so an event is the\ncurrent best view of the station, emitted only when a field actually changed.",
         "required": [
           "groups",
           "block_errors"
@@ -6511,7 +6511,7 @@
       },
       "RecordRequest": {
         "type": "object",
-        "description": "`POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream\n(PLAN §5: the recording path is lossless).",
+        "description": "`POST /api/devicesets/{ds}/record` — start or stop recording the set's raw IQ stream\n(: the recording path is lossless).",
         "required": [
           "action"
         ],
@@ -6537,7 +6537,7 @@
       },
       "RecordingInfo": {
         "type": "object",
-        "description": "One finalized SigMF recording in the library (PLAN §11: the files on disk are the source\nof truth; this row is its SQLite index entry).",
+        "description": "One finalized SigMF recording in the library (: the files on disk are the source\nof truth; this row is its SQLite index entry).",
         "required": [
           "id",
           "file",
@@ -6597,7 +6597,7 @@
       },
       "RecordingStatus": {
         "type": "object",
-        "description": "Live IQ recording on a device set (PLAN §5: the recording path is lossless, so a writer\nfault must surface here rather than dropping samples silently).",
+        "description": "Live IQ recording on a device set (: the recording path is lossless, so a writer\nfault must surface here rather than dropping samples silently).",
         "required": [
           "file",
           "started_at",
@@ -6625,7 +6625,7 @@
           "overruns": {
             "type": "integer",
             "format": "int64",
-            "description": "Capture-ring drops while this recording ran. The file stays contiguous as the DSP\nplane saw the stream, so growth means the recording has upstream gaps (PLAN §5).",
+            "description": "Capture-ring drops while this recording ran. The file stays contiguous as the DSP\nplane saw the stream, so growth means the recording has upstream gaps ().",
             "minimum": 0
           },
           "samples": {
@@ -6697,7 +6697,7 @@
       },
       "RttyText": {
         "type": "object",
-        "description": "A run of decoded RTTY characters (PLAN §13: Baudot over FSK).",
+        "description": "A run of decoded RTTY characters (: Baudot over FSK).",
         "required": [
           "text"
         ],
@@ -6763,7 +6763,7 @@
       },
       "ScanSettings": {
         "type": "object",
-        "description": "What a scan covers and how it behaves on a hit (PLAN §13: \"frequency scanner\").",
+        "description": "What a scan covers and how it behaves on a hit (: \"frequency scanner\").",
         "properties": {
           "dwell_ms": {
             "type": "integer",
@@ -7100,7 +7100,7 @@
           },
           {
             "type": "object",
-            "description": "A decoder produced a frame (PLAN §5: typed JSON decoder output). Pushed to every\nconnected client; the same record is persisted to the decoder log (PLAN §11).\n\nBoxed so one rare variant does not set the size of every `ServerEvent`: the control\nbroadcast carries hundreds of buffered `StateChanged`s, which would each pay for a\nrecord they never hold. `Box` is transparent to serde and to the schema.",
+            "description": "A decoder produced a frame (: typed JSON decoder output). Pushed to every\nconnected client; the same record is persisted to the decoder log ().\n\nBoxed so one rare variant does not set the size of every `ServerEvent`: the control\nbroadcast carries hundreds of buffered `StateChanged`s, which would each pay for a\nrecord they never hold. `Box` is transparent to serde and to the schema.",
             "required": [
               "data",
               "type"
@@ -7108,7 +7108,7 @@
             "properties": {
               "data": {
                 "$ref": "#/components/schemas/DecodedRecord",
-                "description": "A decoder produced a frame (PLAN §5: typed JSON decoder output). Pushed to every\nconnected client; the same record is persisted to the decoder log (PLAN §11).\n\nBoxed so one rare variant does not set the size of every `ServerEvent`: the control\nbroadcast carries hundreds of buffered `StateChanged`s, which would each pay for a\nrecord they never hold. `Box` is transparent to serde and to the schema."
+                "description": "A decoder produced a frame (: typed JSON decoder output). Pushed to every\nconnected client; the same record is persisted to the decoder log ().\n\nBoxed so one rare variant does not set the size of every `ServerEvent`: the control\nbroadcast carries hundreds of buffered `StateChanged`s, which would each pay for a\nrecord they never hold. `Box` is transparent to serde and to the schema."
               },
               "type": {
                 "type": "string",
@@ -7151,7 +7151,7 @@
           },
           {
             "type": "object",
-            "description": "Decoder frames were dropped before reaching clients or the log because a consumer\nfell behind. Loss is surfaced, never silent (PLAN §5).",
+            "description": "Decoder frames were dropped before reaching clients or the log because a consumer\nfell behind. Loss is surfaced, never silent ().",
             "required": [
               "data",
               "type"
@@ -7159,7 +7159,7 @@
             "properties": {
               "data": {
                 "type": "object",
-                "description": "Decoder frames were dropped before reaching clients or the log because a consumer\nfell behind. Loss is surfaced, never silent (PLAN §5).",
+                "description": "Decoder frames were dropped before reaching clients or the log because a consumer\nfell behind. Loss is surfaced, never silent ().",
                 "required": [
                   "count"
                 ],
@@ -7242,7 +7242,7 @@
             }
           }
         ],
-        "description": "Server → client push (PLAN §5). Adjacently tagged so unit variants stay compact."
+        "description": "Server → client push (). Adjacently tagged so unit variants stay compact."
       },
       "Sideband": {
         "type": "string",
@@ -7415,7 +7415,7 @@
           },
           {
             "type": "object",
-            "description": "The stored workspaces changed: created, renamed, deleted, switched, or the active\nlayout was re-persisted (M6, PLAN §10). Layout writes are debounced to the end of a\nuser gesture at the writer — one event per resize frame would be the decoder-traffic\nmistake repeated on the control plane.",
+            "description": "The stored workspaces changed: created, renamed, deleted, switched, or the active\nlayout was re-persisted (M6, ). Layout writes are debounced to the end of a\nuser gesture at the writer — one event per resize frame would be the decoder-traffic\nmistake repeated on the control plane.",
             "required": [
               "scope"
             ],
@@ -7429,11 +7429,11 @@
             }
           }
         ],
-        "description": "Granularity of a `StateChanged` invalidation. The client maps each scope to the\nTanStack Query keys it must invalidate (PLAN §10: the *only* cache-invalidation path)."
+        "description": "Granularity of a `StateChanged` invalidation. The client maps each scope to the\nTanStack Query keys it must invalidate (: the *only* cache-invalidation path)."
       },
       "StateSnapshot": {
         "type": "object",
-        "description": "Full state snapshot for initial load (PLAN §5 `GET /api/state`).",
+        "description": "Full state snapshot for initial load ( `GET /api/state`).",
         "required": [
           "device_sets",
           "revision"
@@ -7515,7 +7515,7 @@
       },
       "SubghzEncoding": {
         "type": "string",
-        "description": "What a decoded sub-GHz burst turned out to be (PLAN §8b).",
+        "description": "What a decoded sub-GHz burst turned out to be ().",
         "enum": [
           "pwm",
           "manchester",
@@ -7600,7 +7600,7 @@
       },
       "SubghzModulation": {
         "type": "string",
-        "description": "How a sub-GHz device keys its carrier (PLAN §8b). The two need different front ends —\nan envelope detector versus a discriminator — but produce the same pulse-width stream, so\neverything above the detector is shared.",
+        "description": "How a sub-GHz device keys its carrier (). The two need different front ends —\nan envelope detector versus a discriminator — but produce the same pulse-width stream, so\neverything above the detector is shared.",
         "enum": [
           "ook",
           "fsk"
@@ -7633,7 +7633,7 @@
       },
       "TemplateInfo": {
         "type": "object",
-        "description": "One built-in workspace template (PLAN §10: the template gallery). Read-only and\ndevice-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry\napplies to whatever hardware is open, provided the device can tune it.",
+        "description": "One built-in workspace template (: the template gallery). Read-only and\ndevice-agnostic — unlike a [`PresetSnapshot`] it names no device, so the same entry\napplies to whatever hardware is open, provided the device can tune it.",
         "required": [
           "id",
           "name",
@@ -7667,11 +7667,11 @@
           },
           "exact_rate": {
             "type": "boolean",
-            "description": "Whether `sample_rate` is the only rate that works, rather than a starting point. ADS-B\nfills its whole 2 MHz channel, so a resampled one decodes nothing (PLAN §18) — a radio\nwhose rate menu misses 2 Msps cannot run it at all, while an FM template is happy at\nanything wide enough."
+            "description": "Whether `sample_rate` is the only rate that works, rather than a starting point. ADS-B\nfills its whole 2 MHz channel, so a resampled one decodes nothing () — a radio\nwhose rate menu misses 2 Msps cannot run it at all, while an FM template is happy at\nanything wide enough."
           },
           "explainer": {
             "type": "string",
-            "description": "The \"what am I looking at\" text shown once it is applied (PLAN §10)."
+            "description": "The \"what am I looking at\" text shown once it is applied ()."
           },
           "id": {
             "type": "string",
@@ -7730,7 +7730,7 @@
       },
       "ToneSquelchStatus": {
         "type": "object",
-        "description": "Subaudible signalling heard under an NFM channel's voice (PLAN §8).\n\nEmitted only when the picture changes. Both CTCSS and DCS run for the whole of a\ntransmission, so an event per block would be the same event forty times a second.",
+        "description": "Subaudible signalling heard under an NFM channel's voice ().\n\nEmitted only when the picture changes. Both CTCSS and DCS run for the whole of a\ntransmission, so an event per block would be the same event forty times a second.",
         "required": [
           "open"
         ],
@@ -7900,7 +7900,7 @@
       },
       "WorkspaceSnapshot": {
         "type": "object",
-        "description": "The stored body of a workspace (PLAN §11: one JSON snapshot per row, like presets — written\natomically, read whole, never queried by inner field).",
+        "description": "The stored body of a workspace (: one JSON snapshot per row, like presets — written\natomically, read whole, never queried by inner field).",
         "required": [
           "version",
           "graph"

@@ -1,4 +1,4 @@
-//! Reference modulators for the digital-voice decoders (PLAN §14).
+//! Reference modulators for the digital-voice decoders ().
 //!
 //! The shaping lives here and the framing lives in the per-mode submodules, because that is how
 //! the modes actually differ: they all put four levels on a carrier the same way, and then each

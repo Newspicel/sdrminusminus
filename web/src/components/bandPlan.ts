@@ -1,5 +1,5 @@
 // Reading a band plan: clipping it to a window, identifying a frequency in it, and searching it
-// (FEATURES §5). Kept pure so the ruler component only routes pointer events, the same split
+// (). Kept pure so the ruler component only routes pointer events, the same split
 // `spectrumView.ts` uses for the view transform.
 //
 // All three run client-side over the whole region document, which the server serves already
@@ -244,7 +244,7 @@ export function serviceEdge(service: BandService): string {
   return EDGE[service];
 }
 
-/** The service as a word, because no block is identified by its hue alone (DESIGN.md §2). */
+/** The service as a word, because no block is identified by its hue alone (). */
 export function serviceLabel(service: BandService): string {
   return service === "ism" ? "ISM" : service.charAt(0).toUpperCase() + service.slice(1);
 }

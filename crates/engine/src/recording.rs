@@ -1,4 +1,4 @@
-//! The lossless IQ recording pipeline (PLAN §5, §7): a DSP-thread tap Arc-copies each
+//! The lossless IQ recording pipeline (, §7): a DSP-thread tap Arc-copies each
 //! drained slice into a bounded queue feeding a dedicated SigMF writer thread. Unlike the
 //! audio path's drop-oldest contract, backpressure here is a hard fault — a full queue (or
 //! a dead writer) disarms the tap and surfaces one error, so a recording never has silent
@@ -24,7 +24,7 @@ use crate::EngineError;
 /// blocks, but only ~0.13 s at a real backend's ~2 ms hot-loop drain.
 const REC_CHANNEL_CAP: usize = 64;
 
-/// What [`crate::Engine::stop_recording`] hands back for indexing (PLAN §11: the files are
+/// What [`crate::Engine::stop_recording`] hands back for indexing (: the files are
 /// the source of truth; the server upserts this into its recordings index).
 #[derive(Clone, Debug)]
 pub struct FinalizedRecording {
@@ -83,7 +83,7 @@ pub(crate) struct RecBlock {
 }
 
 /// DSP-thread side of the pipeline. `push` is hot-path: one `Arc` copy plus a non-blocking
-/// bounded send per drained slice — the sanctioned PCM hand-off precedent (PLAN §7).
+/// bounded send per drained slice — the sanctioned PCM hand-off precedent ().
 pub(crate) struct RecorderTap {
     tx: mpsc::SyncSender<RecBlock>,
     shared: Arc<RecordingShared>,
@@ -212,7 +212,7 @@ pub(crate) fn create_writer(
             match SigmfWriter::create(&stem, sample_rate, center_hz, hw) {
                 Ok(mut writer) => {
                     // Stamped even for stream 0, so the meta states the stream rather than
-                    // leaving it implied (design §6b); absent means "predates multi-stream".
+                    // leaving it implied (b); absent means "predates multi-stream".
                     writer.set_rx_stream(stream);
                     return Ok((writer, name));
                 }

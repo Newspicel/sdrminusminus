@@ -1,4 +1,4 @@
-//! Sub-GHz reference modulator (PLAN §14): pulse trains → OOK or 2-FSK at complex baseband.
+//! Sub-GHz reference modulator (): pulse trains → OOK or 2-FSK at complex baseband.
 //!
 //! The generators work in microseconds, the way a remote's datasheet specifies its timing, and
 //! never in bits — so a decoder that mis-measures an edge cannot be rescued by a generator
@@ -142,7 +142,7 @@ pub fn manchester(bits: &[bool], half_cell_us: u32, repeats: u32, rate: f64) -> 
 /// The same pulse train carried by 2-FSK: the carrier never stops, it moves between two
 /// frequencies. `deviation_hz` is the half-separation of the pair.
 ///
-/// The tone keying is the library's own CPFSK modulator (MODEM-PLAN §1.2) with the remote's
+/// The tone keying is the library's own CPFSK modulator ( §1.2) with the remote's
 /// base clock period as the symbol: every PWM duration is a whole number of base periods by
 /// construction, so the pulse train *is* a symbol stream at `1e6/short_us` baud, mark (pulse
 /// high) at index 1. Carrier on only for the burst itself; the silence either side is what a

@@ -1,8 +1,8 @@
-// The band ruler (FEATURES §5, DESIGN.md §9a): a gutter of coloured allocation blocks above the
+// The band ruler (, ): a gutter of coloured allocation blocks above the
 // trace, aligned to the same frequency axis, with click-to-identify and one-click tune.
 //
 // It sits *outside* the plot rectangle on purpose. Inside it the colormap owns the whole colour
-// budget and every overlay is achromatic (DESIGN.md §2), which a ruler whose entire job is to
+// budget and every overlay is achromatic (), which a ruler whose entire job is to
 // distinguish ten services by sight cannot obey. Moving it into its own opaque strip is the same
 // licence the marker label chip already has, and it costs the trace no pixels of data.
 //

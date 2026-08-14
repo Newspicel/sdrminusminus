@@ -1,4 +1,4 @@
-//! Spread spectrum (MODEM-PLAN §3.1 `spread/`, §7 phase 7): the waveforms that occupy far more
+//! Spread spectrum ( §3.1 `spread/`, §7 phase 7): the waveforms that occupy far more
 //! bandwidth than their data rate needs, and the four different things they buy with it.
 //!
 //! **A framework is not a peer of a mapper** (§3.3). [`dsss`] and [`fhss`] carry a

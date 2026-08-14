@@ -1,4 +1,4 @@
-// Audio-loss detection (PLAN §9). Each Opus frame carries a 48 kHz-domain sample-frame
+// Audio-loss detection (). Each Opus frame carries a 48 kHz-domain sample-frame
 // timestamp; a hole in that clock is the loss signal (seq is per-stream bookkeeping, not
 // authoritative). Counting frames rather than samples is what keeps this independent of the
 // stream's channel layout, which can change mid-stream. Pure logic so the engine's gap

@@ -1,16 +1,16 @@
 // The one WebGL2 context in the document, shared by every scope on the canvas (CANVAS §7,
-// PLAN §17). Browsers cap live contexts at roughly 8–16 per document, and a patch full of scope
+// ). Browsers cap live contexts at roughly 8–16 per document, and a patch full of scope
 // nodes walks straight past that: the browser then drops the oldest context and some *other*
 // plot goes black. So the context lives here, module-level, on one offscreen canvas. A plot
 // owns nothing but its history texture and its window into it; one rAF loop draws each visible
 // plot into the shared buffer at that plot's device-pixel size and blits the result into the
 // plot's own 2D canvas.
 //
-// Each spectrum frame is one row of an R8 texture ring (PLAN §9, §10); a full-screen quad
+// Each spectrum frame is one row of an R8 texture ring (, §10); a full-screen quad
 // samples the ring through the view window and maps intensity through a colormap in the
 // fragment shader.
 //
-// Every colormap here is perceptually uniform and monotone in luminance (DESIGN.md §2): jet and
+// Every colormap here is perceptually uniform and monotone in luminance (): jet and
 // its relatives invent bands in smooth data, so they are not offered.
 
 import {

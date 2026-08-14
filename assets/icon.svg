@@ -4,7 +4,7 @@
        (`cargo xtask icons`). A carrier peak over a noise floor broken into two dashes: the
        spectrum the receiver draws, and the name.
 
-       Colours are DESIGN.md §2 dark-theme tokens resolved to sRGB, because a static asset
+       Colours are  dark-theme tokens resolved to sRGB, because a static asset
        cannot read CSS variables: bg #141210, line #3a3733, accent #f3ae51. The floor is the
        accent one lightness step down (oklch .68 .115 72) rather than `accent-dim` — at 16px
        the dashes are two pixels and need the 6.4:1 they get here, not 5.1:1.

@@ -114,7 +114,7 @@ function unwiredOutputs(
 /**
  * The one refusal an operator meets by accident, so it answers "why" and not just "no", and
  * offers a rate *this* radio actually has: a decoder that reads the device's own samples runs
- * over a range of rates (PLAN §18), and the nearest one inside it is a click away. Naming a
+ * over a range of rates (), and the nearest one inside it is a click away. Naming a
  * number the receiver cannot produce is how "set it to 2.000 MHz" became a dead end on every
  * RTL-SDR, whose nearest rate is 2.048.
  */

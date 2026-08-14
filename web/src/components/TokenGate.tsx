@@ -1,4 +1,4 @@
-// Shared-token prompt (PLAN §12). The probe is `GET /api/auth`, which answers without
+// Shared-token prompt (). The probe is `GET /api/auth`, which answers without
 // authentication — the browser WebSocket API reports a rejected handshake as a plain close,
 // indistinguishable from "server down", so without this probe a wrong token would look like
 // an outage and reconnect forever.

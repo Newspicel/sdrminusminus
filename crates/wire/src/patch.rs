@@ -1,20 +1,20 @@
 //! The patch graph — the workspace drawn as nodes and wires (CANVAS §1, §4).
 //!
 //! A workspace stores a [`PatchGraph`] and a [`RackLayout`]: every radio, demodulator, decoder,
-//! map and sink is a node, an edge names which existing stream (PLAN §5) a node consumes, and the
+//! map and sink is a node, an edge names which existing stream () a node consumes, and the
 //! rack holds the faces being operated. This is *our* model, never the canvas library's
 //! serialization — templates author workspaces in Rust and a React Flow major must not invalidate a
 //! stored workspace (CANVAS §4, the same rule the M6 layout tree followed).
 //!
 //! The graph is control plane only (CANVAS §2). It is a description the server validates and
 //! applies through the existing command queue; no wire is a data path in itself and the DSP plane
-//! (PLAN §7) never sees it.
+//! () never sees it.
 //!
 //! Two things it deliberately does *not* store. Settings: a channel node names its *type*, and
 //! the live settings stay where they already live (`ChannelSettings` on the engine's channel), so
 //! turning a squelch knob is not a workspace write. And bindings: which engine device set or
 //! channel a node is currently driving is recomputed per run from durable identity, because
-//! engine ids are allocated per run and reused (PLAN §18, the M6 rule).
+//! engine ids are allocated per run and reused (, the M6 rule).
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -80,33 +80,33 @@ pub fn port_stream(base: &str, name: &str) -> Option<u32> {
     Some(n - 1)
 }
 
-/// What a wire carries. Hue encodes this and only this (`DESIGN.md` §2), so the set stays small
+/// What a wire carries. Hue encodes this and only this (), so the set stays small
 /// and every member is something the engine actually moves today — with one named exception,
-/// [`PortType::Tx`], which is reserved and unwireable until transmit exists (PLAN §12a).
+/// [`PortType::Tx`], which is reserved and unwireable until transmit exists ().
 ///
 /// `iq-tap` (decimated channel IQ) and `position` (GPS) stay absent for the reason that exception
-/// does *not* apply to them: the channel analyzer is PLAN §13 Phase 2 and the GPS source Phase 4,
+/// does *not* apply to them: the channel analyzer is  Phase 2 and the GPS source Phase 4,
 /// so a port for either would be a wire that dangles with nothing reserving it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PortType {
     /// Wideband complex baseband at the device rate.
     Iq,
-    /// 48 kHz demodulated audio (Opus on the wire, PLAN §9).
+    /// 48 kHz demodulated audio (Opus on the wire, ).
     Audio,
     /// Typed decoder frames ([`crate::DecodedRecord`]).
     Events,
-    /// Scanned pictures, one raster per field (`VIDEO_GRAY` on the wire, PLAN §13 ATV).
+    /// Scanned pictures, one raster per field (`VIDEO_GRAY` on the wire,  ATV).
     Video,
     /// Tuning ownership, not a stream: a scanner sweeps the radio it is wired into, and client
-    /// retunes on that radio are refused while it does (PLAN §18). The wire *is* the ownership,
+    /// retunes on that radio are refused while it does (). The wire *is* the ownership,
     /// which is what makes "which radio has this sweep taken over" a thing you can see.
     Control,
     /// Complex baseband to be transmitted at the device rate.
     ///
     /// **Reserved, and inert by construction.** No node kind in this build emits it, so no edge
     /// into a transmit input can validate — the port is the shape transmit will arrive in, not a
-    /// path to it. PLAN §12a owns what has to exist first: the authorized-use gate.
+    /// path to it.  owns what has to exist first: the authorized-use gate.
     ///
     /// The input it sits on is [`PortCondition::DeviceIsTxCapable`], so it is drawn on the radios
     /// that have a send side and nowhere else — an RTL-SDR node has no transmit input at all.
@@ -219,7 +219,7 @@ pub struct PortSpec {
     #[serde(default, skip_serializing_if = "is_once")]
     pub repeat: PortRepeat,
     /// Why this port refuses everything, for the ports that do. The client renders what the
-    /// server describes (PLAN §2), and a port with no wire and no explanation reads as broken.
+    /// server describes (), and a port with no wire and no explanation reads as broken.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
@@ -381,7 +381,7 @@ pub struct ChannelNode {
 /// is a union the client can exhaustively switch on.
 ///
 /// The catalog is deliberately shorter than CANVAS §1's table: the GPS source, the UDP sink and
-/// the WAV audio-file sink need server features that do not exist (PLAN §13 Phase 2/4), and a
+/// the WAV audio-file sink need server features that do not exist ( Phase 2/4), and a
 /// node whose backend is unbuilt is a face that can only apologise.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
@@ -390,7 +390,7 @@ pub enum NodeBody {
     Channel(ChannelNode),
     /// Spectrum + waterfall over a device's IQ.
     Scope,
-    /// Client-side audio mix (PLAN §9: the server ships streams, not a mix).
+    /// Client-side audio mix (: the server ships streams, not a mix).
     Speaker,
     /// MapLibre, one layer per connected decoder.
     Map,
@@ -409,7 +409,7 @@ pub enum NodeBody {
     Export,
     /// Frequency scanner. Its edge runs *into* the device it drives, because it is ownership and
     /// not consumption: a running scan owns that set's centre frequency and client retunes are
-    /// refused while it does (PLAN §18).
+    /// refused while it does ().
     Scanner,
 }
 
@@ -503,7 +503,7 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new("tx", Tx, In, false, DeviceIsTxCapable)
                 .repeated(PortRepeat::PerTxStream)
                 .noted(
-                    "reserved: transmit is not built (PLAN §12a), so nothing in this build emits \
+                    "reserved: transmit is not built (), so nothing in this build emits \
                      a signal to key a radio with",
                 ),
             PortSpec::new("iq", Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
@@ -525,7 +525,7 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
     }
 }
 
-/// One entry of the node palette the client renders its "add node" menu from (PLAN §2: the client
+/// One entry of the node palette the client renders its "add node" menu from (: the client
 /// renders what the server describes).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NodeTypeInfo {
@@ -662,7 +662,7 @@ pub struct RackLayout {
 
 /// Why a graph was refused. Structural and semantic checks both land here so the server has one
 /// rejection point; `Display` is written out rather than derived because this crate carries no
-/// error-derive dependency (PLAN §3).
+/// error-derive dependency ().
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatchError {
     TooManyNodes,
@@ -1193,7 +1193,7 @@ mod tests {
     }
 
     /// A channel has exactly one IQ input: two devices into one channel is refused until
-    /// `CoherentArray` exists (CANVAS §1, PLAN §6).
+    /// `CoherentArray` exists (CANVAS §1, ).
     #[test]
     fn a_single_input_takes_one_wire_and_an_output_fans_out() {
         let mut two_devices = workspace();
@@ -1243,7 +1243,7 @@ mod tests {
     /// rewritten each time a kind grows a port.
     ///
     /// It stops being the whole proof the day something emits [`PortType::Tx`]: bench loopback is
-    /// a named use of PLAN §12a and is device → channel → modulator → device by design, so cycle
+    /// a named use of  and is device → channel → modulator → device by design, so cycle
     /// checking moves to the instance level then. That nothing emits it today is pinned below.
     #[test]
     fn the_port_table_admits_no_cycle() {
@@ -1280,7 +1280,7 @@ mod tests {
         );
     }
 
-    /// The transmit gate at this layer (PLAN §12a). The device node reserves the input transmit
+    /// The transmit gate at this layer (). The device node reserves the input transmit
     /// will arrive on, and *nothing in this build emits that type* — so no edge into it validates,
     /// and the reservation cannot quietly become a path to a keyed radio.
     #[test]
@@ -1298,7 +1298,7 @@ mod tests {
         assert!(
             !ports()
                 .any(|port| port.port_type == PortType::Tx && port.direction == PortDirection::Out),
-            "nothing may emit transmit baseband before PLAN §12a's gate exists"
+            "nothing may emit transmit baseband before  gate exists"
         );
 
         // The nearest thing to a transmit source is another radio's IQ, and the types do not join.

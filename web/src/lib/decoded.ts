@@ -1,4 +1,4 @@
-// The live decoder stream (PLAN §5, §13). Decoder frames never go through TanStack Query: ADS-B
+// The live decoder stream (, §13). Decoder frames never go through TanStack Query: ADS-B
 // alone can run to hundreds of frames a second, and Query is for server state that a WS
 // `StateChanged` invalidates. The stored history stays server state (`GET /api/decoderlog`);
 // this store is a bounded in-memory tail of what is arriving right now, plus the per-station
@@ -56,7 +56,7 @@ export interface DecodedState {
   frames: FramesByKind;
   stations: StationsByKind;
   /** Frames the server reported as dropped (`ServerEvent::DecodedLost`) — the gaps in this
-   * store, surfaced rather than silently absent (PLAN §5). */
+   * store, surfaced rather than silently absent (). */
   lost: number;
   /** Frames published since the last `clear()`; with `lost`, the denominator of a gap readout. */
   received: number;

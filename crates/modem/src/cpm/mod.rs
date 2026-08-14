@@ -1,4 +1,4 @@
-//! The M-ary CPM/CPFSK engine (MODEM-PLAN §3.1 `cpm/`) — the one implementation thirteen of
+//! The M-ary CPM/CPFSK engine ( §3.1 `cpm/`) — the one implementation thirteen of
 //! the channels stand on (APRS is the fourteenth, waiting on a centre-tracking axis; see
 //! `CATALOG.md`'s AFSK row). Everything that distinguishes one entry from another is
 //! **data** ([`CpmParams`]): M and the symbol→level table ([`Mapping`]), the modulation index

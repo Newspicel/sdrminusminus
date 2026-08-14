@@ -9,7 +9,7 @@ import "./index.css";
 initTheme();
 
 // Server state never goes stale on its own: WS `StateChanged` events drive every refetch
-// (PLAN §10). No window-focus refetch, no polling.
+// (). No window-focus refetch, no polling.
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: Number.POSITIVE_INFINITY, refetchOnWindowFocus: false, retry: 1 },

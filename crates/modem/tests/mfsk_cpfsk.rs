@@ -1,4 +1,4 @@
-//! §5 measurement bundle for the M-ary CPFSK catalog entry (MODEM-PLAN §7 phase 3 accept):
+//! §5 measurement bundle for the M-ary CPFSK catalog entry ( §7 phase 3 accept):
 //! committed BER curves for M ∈ {2, 4, 8}, the §4.3 limits table at the M = 4 reference
 //! configuration, and the level-1 E2E loopbacks. The chains under measurement live in
 //! `ber::catalog::mfsk`; the committed artifacts live in `baselines/cpm/` and regress here:
@@ -120,7 +120,7 @@ fn mfsk2_committed_curve_sits_at_theory_plus_documented_offset() {
     );
 }
 
-// --- Level-1 E2E (MODEM-PLAN §4.4) -----------------------------------------------------------
+// --- Level-1 E2E ( §4.4) -----------------------------------------------------------
 
 /// The §5 item-7 property: payloads survive bit-for-bit at a stated margin over each
 /// entry's own measured 1e-3 sensitivity (read off the committed curve, so the margin

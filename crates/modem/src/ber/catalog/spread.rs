@@ -1,4 +1,4 @@
-//! The four spread-spectrum catalog entries (MODEM-PLAN §6, frameworks table; §7 phase 7): the
+//! The four spread-spectrum catalog entries ( §6, frameworks table; §7 phase 7): the
 //! direct-sequence rows, the CCK codebook rows, chirp spreading across SF7–SF12, and the hopping
 //! framework carrying one of them.
 //!

@@ -1,5 +1,5 @@
-//! POCSAG reference modulator (PLAN §14): pages → BCH codewords → two-level FSK baseband
-//! keyed by the library's own [`CpmMod`] (MODEM-PLAN §1.2: testgen builds every demodulator's
+//! POCSAG reference modulator (): pages → BCH codewords → two-level FSK baseband
+//! keyed by the library's own [`CpmMod`] ( §1.2: testgen builds every demodulator's
 //! test signals from the library's modulators, so the two can never drift apart).
 //!
 //! Everything here follows ITU-R M.584: 18 transmitted address bits plus a frame index, a

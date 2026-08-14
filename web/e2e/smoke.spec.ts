@@ -2,7 +2,7 @@
 // channel, hear the graph become a running workspace, pin a face and find it on the rack.
 //
 // This is the one suite that exercises the composition — canvas, faces, WebSocket, apply — that
-// the unit suite cannot reach (PLAN §14). It asserts behaviour, not markup: what an operator
+// the unit suite cannot reach (). It asserts behaviour, not markup: what an operator
 // would check after each gesture. The flow above runs first and the legs below build on the
 // workspace it leaves, which the single worker and the throwaway database below make sound.
 import { expect, type Locator, type Page, test } from "@playwright/test";
@@ -208,7 +208,7 @@ test.describe("the workspace", () => {
     // The squelch row: the box and its word are the label, the threshold beside them is not. A
     // row that labelled the whole line forwarded a click on the readout to the box and turned
     // the gate off. The cursors are the other half of the same claim — what acts says so, and
-    // says which way it acts (DESIGN.md §4, `index.css`).
+    // says which way it acts (, `index.css`).
     const squelch = channel.getByRole("checkbox", { name: /squelch/i });
     await squelch.click();
     const threshold = channel.getByRole("slider", { name: /squelch threshold/i });
@@ -328,7 +328,7 @@ test.describe("the workspace", () => {
       .poll(async () => (await slots(page)).map((slot) => slot.w))
       .toEqual([(before[0]?.w ?? 0) + 1, (before[1]?.w ?? 0) - 1]);
 
-    // The arrangement is server state, not browser state (PLAN §10): a reload restores it — and
+    // The arrangement is server state, not browser state (): a reload restores it — and
     // the workspace comes back bound, which is what applying on load buys.
     await page.reload();
     await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();

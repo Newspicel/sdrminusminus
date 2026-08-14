@@ -1,12 +1,12 @@
 //! Device capability model and settings. `Capabilities` is the backbone of the
-//! backend-driven UI (PLAN §6): the client auto-renders controls from it.
+//! backend-driven UI (): the client auto-renders controls from it.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// A discovered receiver, produced by a driver's probe (PLAN §6).
+/// A discovered receiver, produced by a driver's probe ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceInfo {
     /// Driver id that produced this entry: `"virtual"`, `"soapy"`, `"rtlsdr"`, …
@@ -15,7 +15,7 @@ pub struct DeviceInfo {
     pub key: String,
     /// Human label for the device picker.
     pub label: String,
-    /// Serial number when the driver exposes one (used to collapse probe duplicates, PLAN §6).
+    /// Serial number when the driver exposes one (used to collapse probe duplicates, ).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
     /// What the driver can say about this radio *without opening it* — enough to tell whether a
@@ -118,7 +118,7 @@ impl DeviceProfile {
 }
 
 impl DeviceInfo {
-    /// The `driver:key` handle used by `POST /api/devicesets` (PLAN §5).
+    /// The `driver:key` handle used by `POST /api/devicesets` ().
     #[must_use]
     pub fn id(&self) -> String {
         format!("{}:{}", self.driver, self.key)
@@ -227,7 +227,7 @@ pub struct GainStage {
 }
 
 /// A typed device-specific setting the client renders generically when it has no
-/// first-class UI (PLAN §6: "typed extra settings").
+/// first-class UI (: "typed extra settings").
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ExtraSetting {
@@ -399,7 +399,7 @@ pub struct StreamScope {
     pub antenna: bool,
 }
 
-/// Everything the client needs to render device controls without hand-written DTOs (PLAN §6).
+/// Everything the client needs to render device controls without hand-written DTOs ().
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Capabilities {
     /// Tunable center-frequency ranges in Hz (multiple = discontiguous tuner ranges).
@@ -426,7 +426,7 @@ pub struct Capabilities {
     pub ppm: bool,
     /// Which directions this radio has, and whether it can run them together. Receive-only
     /// unless a backend says otherwise, so a device cannot advertise a transmitter by omission.
-    /// This is the *hardware's* shape, not a permission: PLAN §12a gates transmit behind an
+    /// This is the *hardware's* shape, not a permission:  gates transmit behind an
     /// authorized-use switch that does not exist, so a `half` radio still transmits nothing.
     #[serde(default)]
     pub duplex: Duplex,
@@ -437,7 +437,7 @@ pub struct Capabilities {
     pub rx_streams: u32,
     /// How many independent transmit streams it accepts. Reported for symmetry and for the
     /// device picker; the canvas still draws a single reserved transmit input, because there is
-    /// nothing to wire into it until PLAN §12a lands.
+    /// nothing to wire into it until  lands.
     #[serde(default)]
     pub tx_streams: u32,
     /// Which settings each receive stream holds on its own. Which settings are per-stream is a
@@ -489,7 +489,7 @@ pub struct ExtraValue {
     pub value: serde_json::Value,
 }
 
-/// A mutation applied to a device. Absent fields are left unchanged (PLAN §5 PATCH device).
+/// A mutation applied to a device. Absent fields are left unchanged ( PATCH device).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DeviceSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -550,7 +550,7 @@ fn merge_gains(gains: &mut Vec<GainValue>, delta: &[GainValue]) {
 }
 
 impl DeviceSettings {
-    /// Overlay the present fields of `delta` onto `self` (PLAN §5 PATCH: absent fields are
+    /// Overlay the present fields of `delta` onto `self` ( PATCH: absent fields are
     /// unchanged). Gains and extras merge per name, so a delta carrying one stage patches only
     /// that stage — required for the capability UI, which sends one control's value at a time.
     /// Stream overrides merge by stream index, and each entry's gains per stage name again.
