@@ -148,6 +148,23 @@ jobs:
           # index is the only proof the UI is actually in the image.
           curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root"'
 
+  nix:
+    name: Nix desktop package (amd64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      - name: Build and smoke-test the package
+        run: |
+          nix build --print-build-logs
+          test -x result/bin/sdrmm-desktop
+          test ! -e result/bin/sdrmm
+          test -f result/share/applications/sdrmm-desktop.desktop
+          test -f result/share/icons/hicolor/128x128/apps/dev.newspicel.sdrmm.png
+          ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libwebkit2gtk-4.1'
+          ldd result/bin/.sdrmm-desktop-wrapped | grep -q 'libSoapySDR'
+          test -z "$(find -L result -path '*/SoapySDR/modules*' -print -quit)"
+
   advisories:
     name: Dependency advisories (ubuntu)
     runs-on: ubuntu-24.04

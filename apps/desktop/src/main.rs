@@ -25,8 +25,11 @@ fn configure_soapy_runtime() -> anyhow::Result<()> {
     let resources = executable_dir.to_path_buf();
     let root = resources.join("soapy");
     let modules = root.join("lib").join("SoapySDR").join("modules0.8");
-    unsafe { sdrmm_device_soapy::configure_bundled_runtime(&root, &modules) }
-        .map_err(anyhow::Error::msg)
+    if modules.is_dir() {
+        unsafe { sdrmm_device_soapy::configure_bundled_runtime(&root, &modules) }
+            .map_err(anyhow::Error::msg)?;
+    }
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
