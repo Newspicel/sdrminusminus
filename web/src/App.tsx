@@ -16,6 +16,7 @@ import { Rack } from "./canvas/Rack";
 import { useHotkeys } from "./canvas/useHotkeys";
 import { useWorkspace } from "./canvas/useWorkspace";
 import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
+import { AboutPanel } from "./components/AboutPanel";
 import { BTN_PRIMARY } from "./components/controls";
 import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
 import { Shortcuts } from "./components/Shortcuts";
@@ -56,6 +57,7 @@ export function App() {
   const [view, setView] = useState<View>("patch");
   const [stepHz, setStepHz] = useState(100_000);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
 
   const state = useQuery(stateQuery());
   const channelTypes = useQuery(channelTypesQuery());
@@ -316,6 +318,7 @@ export function App() {
               onCreate={workspace.create}
               onRemove={workspace.remove}
               onShowShortcuts={() => setShowShortcuts(true)}
+              onShowAbout={() => setShowAbout(true)}
             />
             {view === "patch" ? (
               <ReactFlowProvider>
@@ -342,6 +345,7 @@ export function App() {
         )}
 
         <Shortcuts open={showShortcuts} onOpenChange={setShowShortcuts} />
+        <AboutPanel open={showAbout} onOpenChange={setShowAbout} />
         <Toasts />
       </div>
     </TokenGate>

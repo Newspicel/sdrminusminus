@@ -6,6 +6,7 @@
 //! offense (CLAUDE.md non-negotiable #1). This crate has no internal dependencies so anything
 //! may use it.
 
+pub mod about;
 pub mod bandplan;
 pub mod channel;
 pub mod decode;
@@ -20,6 +21,7 @@ pub mod workspace;
 pub mod workspace_state;
 pub mod ws;
 
+pub use about::{AboutResponse, Attribution, ComponentSource, LicenseTextResponse};
 pub use bandplan::{
     BandAllocation, BandBlock, BandLane, BandLayerInfo, BandLayerKind, BandPlan, BandRegion,
     BandRegionMatch, BandRegionsResponse, BandService, ItuRegion, LocateQuery,

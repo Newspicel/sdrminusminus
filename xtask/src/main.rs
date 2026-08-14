@@ -17,6 +17,7 @@ mod bandplan;
 mod ber;
 mod catalog;
 mod icons;
+mod licenses;
 mod linkage;
 mod updater;
 
@@ -31,6 +32,10 @@ struct Cli {
 enum Cmd {
     /// Regenerate OpenAPI + the TypeScript client (run after changing `crates/wire`).
     Codegen,
+    /// Re-harvest the third-party notices from the lockfiles (run after changing a dependency).
+    /// Writes `crates/server/data/notices.json` and `THIRD_PARTY_NOTICES.md`; `check` verifies
+    /// both are current.
+    Licenses,
     /// Server + Vite dev server with HMR.
     Dev,
     /// Full local gate = fmt + clippy + biome + oxlint + tsgo + web build + codegen-drift.
@@ -127,6 +132,7 @@ enum Cmd {
 fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Codegen => codegen(&root()),
+        Cmd::Licenses => licenses::run(&root(), PNPM),
         Cmd::Dev => dev(&root()),
         Cmd::Check => check(&root()),
         Cmd::Test => test(&root()),
@@ -317,6 +323,22 @@ fn check(root: &Path) -> Result<()> {
         root,
     )
     .context("codegen drift: regenerate with `cargo xtask codegen` and commit")?;
+
+    // Same contract for the notices: a dependency bump that does not update them ships a
+    // release whose attribution describes the previous one.
+    licenses::run(root, PNPM)?;
+    run(
+        "git",
+        &[
+            "diff",
+            "--exit-code",
+            "--",
+            licenses::NOTICES_JSON,
+            licenses::NOTICES_MARKDOWN,
+        ],
+        root,
+    )
+    .context("notices drift: regenerate with `cargo xtask licenses` and commit")?;
     println!("check: all gates green");
     Ok(())
 }

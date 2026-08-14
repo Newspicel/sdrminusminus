@@ -62,6 +62,10 @@ The dial and the plot were built so this could hang off them without rework, and
 
 ## 7. UI, workspaces & onboarding
 
+- **[shipped]** An About panel carrying the build's version, sdr--'s own MIT license, and every
+  third-party component it distributes, with each license text readable in the app. The list is
+  harvested from the workspace lockfiles by `cargo xtask licenses`, compiled into the binary, and
+  gated against drift by `cargo xtask check`
 - **[planned]** Node kinds whose backends do not exist yet: GPS source, UDP sink, WAV sink, and the `iq-tap`/`position` port types that go with them
 - **[planned]** A scope on a channel tap — a scope only takes a device today
 - **[planned]** Theme/skin system and a layout marketplace

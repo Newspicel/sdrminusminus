@@ -15,17 +15,18 @@ use sdrmm_recorder::{
     Export, ExportKind, SigmfMeta, SigmfReader, data_path, meta_path, scan_stems,
 };
 use sdrmm_wire::{
-    ApiError, ApplyTemplateRequest, AuthInfo, BandPlan, BandRegionMatch, BandRegionsResponse,
-    Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand, ClientsResponse,
-    CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
-    CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery,
-    DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse, DoctorReport,
-    ExportFormat, LocateQuery, NodeBody, PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding,
-    PatchCatalog, PatchRefusal, PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo,
-    PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery, RecordingFormat,
-    RecordingStatus, RecordingsResponse, ScanAction, ScanRequest, ScannerStatus, ServerEvent,
-    StateScope, StateSnapshot, TemplateInfo, TemplatesResponse, UpdateWorkspaceRequest,
-    WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot, WorkspaceState, WorkspacesResponse,
+    AboutResponse, ApiError, ApplyTemplateRequest, AuthInfo, BandPlan, BandRegionMatch,
+    BandRegionsResponse, Bookmark, ChannelSettings, ChannelTypesResponse, ClientCommand,
+    ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
+    CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
+    DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
+    DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery, NodeBody,
+    PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal,
+    PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
+    RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus, RecordingsResponse,
+    ScanAction, ScanRequest, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TemplateInfo,
+    TemplatesResponse, UpdateWorkspaceRequest, WorkspaceDetail, WorkspaceInfo, WorkspaceSnapshot,
+    WorkspaceState, WorkspacesResponse,
 };
 use utoipa::OpenApi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -1818,6 +1819,40 @@ async fn get_doctor(State(state): State<AppState>) -> Result<Json<DoctorReport>,
     Ok(Json(report))
 }
 
+#[utoipa::path(
+    get, path = "/api/about",
+    responses((
+        status = 200,
+        description = "This build, its license, and every third-party component it distributes",
+        body = AboutResponse,
+    )),
+)]
+async fn get_about() -> Json<AboutResponse> {
+    Json(crate::notices::about())
+}
+
+#[utoipa::path(
+    get, path = "/api/about/licenses/{id}",
+    params(("id" = String, Path, description = "Content id from an attribution's `texts`")),
+    responses(
+        (status = 200, description = "The full license text", body = LicenseTextResponse),
+        (status = 404, description = "No component ships a text with that id", body = ApiError),
+    ),
+)]
+async fn get_license_text(Path(id): Path<String>) -> Result<Json<LicenseTextResponse>, AppError> {
+    // Texts are fetched one at a time rather than inlined into `GET /api/about`: together they
+    // are the best part of a megabyte, and a reader opening the panel wants the list.
+    crate::notices::license_text(&id)
+        .map(Json)
+        .ok_or_else(|| AppError {
+            status: StatusCode::NOT_FOUND,
+            body: ApiError {
+                error: "unknown license text".to_string(),
+                detail: Some(format!("no component ships a license text with id `{id}`")),
+            },
+        })
+}
+
 /// OpenAPI metadata plus the schemas no path references — the WS message enums and the stored
 /// preset blob — which must be force-registered as components (PLAN §4) to appear in the
 /// generated TypeScript.
@@ -1876,4 +1911,6 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_auth))
         .routes(routes!(get_clients))
         .routes(routes!(get_doctor))
+        .routes(routes!(get_about))
+        .routes(routes!(get_license_text))
 }

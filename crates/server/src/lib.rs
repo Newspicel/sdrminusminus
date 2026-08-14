@@ -34,6 +34,7 @@ mod bandplan;
 mod decoderlog;
 pub mod doctor;
 mod mcp;
+pub mod notices;
 mod rest;
 mod store;
 mod templates;
@@ -2809,6 +2810,40 @@ mod tests {
             Some(r#"{"action":"stop"}"#),
         )
         .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// The notices are a shipping obligation, so the route that delivers them is part of the
+    /// contract: a component's `texts` ids have to be fetchable, or the binary carries the
+    /// copyright notices without ever handing them to anybody.
+    #[tokio::test]
+    async fn about_serves_the_notices_and_their_texts() {
+        let app = test_router();
+        let (status, body) = request(app.clone(), "GET", "/api/about", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let about: sdrmm_wire::AboutResponse = serde_json::from_slice(&body).expect("json");
+        assert_eq!(about.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(about.license, "MIT");
+
+        let component = about
+            .components
+            .iter()
+            .find(|component| !component.texts.is_empty())
+            .expect("some component ships a license text");
+        let id = &component.texts[0];
+        let (status, body) = request(
+            app.clone(),
+            "GET",
+            &format!("/api/about/licenses/{id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let text: sdrmm_wire::LicenseTextResponse = serde_json::from_slice(&body).expect("json");
+        assert_eq!(&text.id, id);
+        assert!(!text.text.is_empty());
+
+        let (status, _) = request(app, "GET", "/api/about/licenses/nosuchtext", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 

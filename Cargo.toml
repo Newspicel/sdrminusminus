@@ -115,6 +115,10 @@ dirs = "6"
 # Static asset embedding
 rust-embed = "8"
 
+# Content-addresses the license texts `cargo xtask licenses` harvests, so several hundred
+# byte-identical Apache-2.0 copies are stored once. xtask only.
+sha2 = "0.11"
+
 # Errors / logging / util
 libc = "0.2"
 thiserror = "2"

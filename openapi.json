@@ -13,6 +13,61 @@
     "version": "0.0.0"
   },
   "paths": {
+    "/api/about": {
+      "get": {
+        "operationId": "get_about",
+        "responses": {
+          "200": {
+            "description": "This build, its license, and every third-party component it distributes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AboutResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/about/licenses/{id}": {
+      "get": {
+        "operationId": "get_license_text",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Content id from an attribution's `texts`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The full license text",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseTextResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No component ships a text with that id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth": {
       "get": {
         "operationId": "get_auth",
@@ -1902,6 +1957,45 @@
   },
   "components": {
     "schemas": {
+      "AboutResponse": {
+        "type": "object",
+        "description": "`GET /api/about` — the running build and everything it owes attribution to.",
+        "required": [
+          "name",
+          "version",
+          "license",
+          "license_text",
+          "repository",
+          "components"
+        ],
+        "properties": {
+          "components": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Attribution"
+            },
+            "description": "Third-party components, ordered by source and then by name."
+          },
+          "license": {
+            "type": "string",
+            "description": "SPDX id of sdr-- itself."
+          },
+          "license_text": {
+            "type": "string",
+            "description": "The project's own `LICENSE`, in full."
+          },
+          "name": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "description": "`CARGO_PKG_VERSION` of the running server, not of the generated notices: the notices are\ncommitted and the version is stamped at release, so only one of the two can be trusted\nto say which build this is."
+          }
+        }
+      },
       "AcarsMessage": {
         "type": "object",
         "description": "One ACARS block (PLAN §13: MSK 2400 bit/s over AM, ARINC 618 framing). Field names follow\nthe standard's, so a message here reads the same as in every other ACARS tool.",
@@ -2439,6 +2533,55 @@
           "int",
           "string"
         ]
+      },
+      "Attribution": {
+        "type": "object",
+        "description": "One third-party component the release distributes.",
+        "required": [
+          "name",
+          "license",
+          "source",
+          "texts"
+        ],
+        "properties": {
+          "license": {
+            "type": "string",
+            "description": "The SPDX expression the component declares for itself, verbatim. Not normalized:\n`MIT/Apache-2.0` and `MIT OR Apache-2.0` are the same offer, but only one of them is\nwhat the package actually says, and the notice should say what the package says."
+          },
+          "name": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set only where the SPDX id is not the whole story: a copyleft relink offer, a patent\nencumbrance, a library that is loaded but never linked."
+          },
+          "source": {
+            "$ref": "#/components/schemas/ComponentSource"
+          },
+          "texts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ids of the license texts this component ships, resolvable through\n`GET /api/about/licenses/{id}`. Empty when the component declares an SPDX expression but\npublishes no license file of its own — common for crates that rely on the SPDX id alone.\n\nAlways serialized, empty included: a client that has to tell \"no texts\" apart from \"the\nfield was omitted\" is a client that will one day render neither."
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent for native libraries, whose version is whatever the platform package pinned."
+          }
+        }
       },
       "AtvModulation": {
         "type": "string",
@@ -3851,6 +3994,15 @@
             "minimum": 0
           }
         }
+      },
+      "ComponentSource": {
+        "type": "string",
+        "description": "Which part of the product a component arrives through.\n\nThe distinction is about how it reaches the user, not about language: [`Native`] components\nare shipped as libraries next to the binary and loaded at runtime, so their obligations\nattach to the installer rather than to the executable.\n\n[`Native`]: ComponentSource::Native",
+        "enum": [
+          "rust",
+          "web",
+          "native"
+        ]
       },
       "CreateBookmarkRequest": {
         "type": "object",
@@ -5272,6 +5424,22 @@
           "r2",
           "r3"
         ]
+      },
+      "LicenseTextResponse": {
+        "type": "object",
+        "description": "`GET /api/about/licenses/{id}` — one license text, addressed by content.\n\nTexts are addressed by a hash of themselves because that is what deduplicates them: several\nhundred crates offer Apache-2.0 and ship byte-identical copies of it, while every MIT copy\ndiffers in its copyright line and none may be collapsed into another. Content addressing\nkeeps the first case cheap without lying about the second.",
+        "required": [
+          "id",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
       },
       "M17Params": {
         "type": "object",

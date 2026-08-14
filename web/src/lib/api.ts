@@ -7,6 +7,7 @@ import { migrateSnapshot } from "../canvas/graph";
 import type { paths } from "../generated/schema";
 import { getToken, rejectToken, withToken } from "./auth";
 import type {
+  AboutResponse,
   ApiError,
   AuthInfo,
   BandPlan,
@@ -22,6 +23,7 @@ import type {
   DevicesResponse,
   DoctorReport,
   ExportFormat,
+  LicenseTextResponse,
   PatchApplyReport,
   PatchCatalog,
   PlaybackAction,
@@ -73,6 +75,7 @@ export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
 export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
 export const AUTH_KEY = ["get", "/api/auth"] as const;
 export const DOCTOR_KEY = ["get", "/api/doctor"] as const;
+export const ABOUT_KEY = ["get", "/api/about"] as const;
 export const WORKSPACES_KEY = ["get", "/api/workspaces"] as const;
 export const PATCH_CATALOG_KEY = ["get", "/api/patch/catalog"] as const;
 export const BAND_REGIONS_KEY = ["get", "/api/bandplan/regions"] as const;
@@ -386,6 +389,31 @@ export function bandPlanQuery(region: string | null) {
  * "detect", and its answer is a suggestion they then confirm. */
 export async function locateBandRegion(lat: number, lon: number): Promise<BandRegionMatch> {
   return unwrap(await client.GET("/api/bandplan/locate", { params: { query: { lat, lon } } }));
+}
+
+/** The build, its license, and everything it is built out of. Compiled into the binary, so it
+ * never changes while the server is up. */
+export function aboutQuery(enabled: boolean) {
+  return queryOptions({
+    queryKey: ABOUT_KEY,
+    queryFn: async (): Promise<AboutResponse> => unwrap(await client.GET("/api/about")),
+    enabled,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** One license text, fetched only when a reader opens it. Together they are the best part of a
+ * megabyte, which is why `/api/about` carries the ids and not the texts. */
+export function licenseTextQuery(id: string | null) {
+  return queryOptions({
+    queryKey: ["get", "/api/about/licenses", id] as const,
+    queryFn: async (): Promise<LicenseTextResponse> =>
+      unwrap(await client.GET("/api/about/licenses/{id}", { params: { path: { id: id ?? "" } } })),
+    enabled: id !== null,
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
 }
 
 export function doctorQuery(enabled: boolean) {

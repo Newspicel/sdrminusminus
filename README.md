@@ -62,6 +62,7 @@ on <http://localhost:5173>, proxying `/api` and the WebSocket to the server.
 | `cargo xtask smoke` | The Playwright browser flow against the real binary (needs `pnpm --dir web exec playwright install chromium`) |
 | `cargo xtask audit` | Check the dependency graph against RustSec (`deny.toml`; needs `cargo install --locked cargo-deny`) |
 | `cargo xtask fixtures` | Regenerate the synthesized SigMF decoder fixtures in `fixtures/` |
+| `cargo xtask licenses` | Re-harvest the third-party notices from the lockfiles (run after changing a dependency) |
 | `cargo xtask icons` | Re-render every icon (favicons, desktop `.ico`/`.icns`) from `assets/icon.svg` |
 | `cargo xtask dist [--target <triple>]` | The release archive for that target into `dist/` — exactly what the release pipeline uploads |
 | `cargo xtask desktop [--bundles <list>]` | The Tauri shell: compile gate by default, installers with `--bundles` (needs `cargo install --locked tauri-cli`) |
@@ -78,3 +79,14 @@ on <http://localhost:5173>, proxying `/api` and the WebSocket to the server.
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
+
+Third-party components are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md), which
+`cargo xtask licenses` regenerates from the lockfiles. Their full license texts ship inside the
+binary and are readable in the app's About panel; installers additionally carry each bundled
+hardware package's own texts in `soapy/licenses`.
+
+Two components need more than their SPDX id. `codec2` is LGPL-2.1-only and statically linked —
+publishing sdr--'s complete source is what satisfies the relink right the LGPL reserves for
+users. `librtlsdr` and `libhackrf` are GPL-2.0-or-later and shipped in installers as SoapySDR
+modules, loaded at runtime through SoapySDR's own plugin API rather than linked, so the GPL
+applies to those libraries and not to this product.
