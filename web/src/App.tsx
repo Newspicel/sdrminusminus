@@ -13,6 +13,7 @@ import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
 import { AboutPanel } from "./components/AboutPanel";
 import { BTN_PRIMARY } from "./components/controls";
 import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
+import { ServerDown } from "./components/ServerDown";
 import { Shortcuts } from "./components/Shortcuts";
 import { Toasts } from "./components/Toasts";
 import { TokenGate } from "./components/TokenGate";
@@ -131,6 +132,8 @@ export function App() {
       pushToast(`Workspace: ${workspace.error}`);
     }
   }, [workspace.error]);
+
+  const retrySocket = useCallback(() => socket?.retryNow(), [socket]);
 
   const snapshot = workspace.active?.snapshot ?? null;
   const graph: PatchGraph = useMemo(
@@ -353,9 +356,13 @@ export function App() {
           </WorkspaceProvider>
         )}
 
+        {workspace.unreachable !== null && (
+          <ServerDown reason={workspace.unreachable} onReachable={retrySocket} />
+        )}
+
         {/* Deleting the last workspace leaves the workspace with none, honestly (the server says
             so rather than inventing one); the only thing to offer is a new one. */}
-        {workspace.active === null && !workspace.pending && (
+        {workspace.unreachable === null && workspace.active === null && !workspace.pending && (
           <div className="flex min-h-0 flex-1 items-center justify-center">
             <button
               type="button"

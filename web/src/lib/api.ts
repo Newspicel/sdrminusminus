@@ -301,6 +301,17 @@ export function authQuery() {
   });
 }
 
+/** One cheap probe of the same unauthenticated endpoint: is anything answering yet? The offline
+ * screen polls this instead of refetching every startup query, so a server that is still down
+ * costs one refused connection per attempt rather than one per query. */
+export async function serverReachable(): Promise<boolean> {
+  try {
+    return (await client.GET("/api/auth")).response.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** The workspace switcher's view: every workspace plus the active one ( — the shell is
  * workspace config, so it is server-side and every client converges on it). */
 export function workspacesQuery() {

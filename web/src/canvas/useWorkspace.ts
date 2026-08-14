@@ -37,6 +37,10 @@ export interface WorkspaceStore {
   /** The list has not answered yet — distinct from "there are no workspaces", which is a real
    * state the server reports after the last one is deleted. */
   pending: boolean;
+  /** The list could not be read at all, with why. Also distinct from "there are no workspaces":
+   * an unreachable server has told us nothing, so offering to create one would be a button that
+   * can only fail. */
+  unreachable: string | null;
 }
 
 export function useWorkspace(): WorkspaceStore {
@@ -221,6 +225,7 @@ export function useWorkspace(): WorkspaceStore {
     apply,
     applied: applyMut.data ?? null,
     pending: list.isPending || (activeId !== null && detail.isPending),
+    unreachable: errorOf(list.error),
   };
 }
 
