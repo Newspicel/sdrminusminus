@@ -4,6 +4,7 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 
 mod bnetza;
+mod cept;
 mod fcc;
 mod ofcom;
 
@@ -58,8 +59,8 @@ struct Source {
 }
 
 enum Kind {
-    /// Fetch, `pdftotext -layout`, parse.
-    Pdf,
+    PdfLayout,
+    PdfBbox,
     /// Fetch, parse the bytes as they arrived.
     Text,
 }
@@ -77,13 +78,19 @@ static SOURCES: &[Source] = &[
                Sachgebiete/Telekommunikation/Unternehmen_Institutionen/Frequenzen/\
                20210114_frequenzplan.pdf",
         file: "bnetza-frequenzplan.pdf",
-        kind: Kind::Pdf,
+        kind: Kind::PdfLayout,
+    },
+    Source {
+        generator: "cept",
+        url: "https://efis.cept.org/reports/ReportDownloader?reportid=3",
+        file: "cept-eca.csv",
+        kind: Kind::Text,
     },
     Source {
         generator: "fcc",
         url: "https://transition.fcc.gov/oet/spectrum/table/fcctable.pdf",
         file: "fcc-table.pdf",
-        kind: Kind::Pdf,
+        kind: Kind::PdfBbox,
     },
 ];
 
@@ -112,25 +119,31 @@ pub(crate) fn run(root: &Path, offline: bool) -> Result<()> {
                     path.display()
                 );
             }
-            fetch(source.url, &path)?;
+            fetch(source, &path)?;
         }
         let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
         let digest = sha256(&bytes);
         let text = match source.kind {
-            Kind::Pdf => pdftotext(&path)?,
+            Kind::PdfLayout => pdftotext(&path, "-layout")?,
+            Kind::PdfBbox => pdftotext(&path, "-bbox-layout")?,
             Kind::Text => String::from_utf8_lossy(&bytes).into_owned(),
         };
 
         let layers = match source.generator {
             "ofcom" => vec![(ofcom::TARGET, ofcom::parse(&text)?)],
             "bnetza" => vec![(bnetza::TARGET, bnetza::parse(&text)?)],
+            "cept" => vec![(cept::TARGET, cept::parse(&text)?)],
             "fcc" => fcc::parse(&text)?,
             other => bail!("no importer named {other}"),
         };
 
         for (target, rows) in layers {
             let path = out.join(format!("{}.json", target.id));
-            write_layer(&path, source, target, &rows, &digest, poppler.as_deref())?;
+            let version = match source.kind {
+                Kind::PdfLayout | Kind::PdfBbox => poppler.as_deref(),
+                Kind::Text => None,
+            };
+            write_layer(&path, source, target, &rows, &digest, version)?;
             println!(
                 "{}: {} rows → {}",
                 source.generator,
@@ -174,23 +187,51 @@ fn write_layer(
     Ok(())
 }
 
-fn fetch(url: &str, to: &Path) -> Result<()> {
-    println!("fetching {url}");
-    let status = Command::new("curl")
-        .args(["-fsSL", "--max-time", "600", "-o"])
-        .arg(to)
-        .arg(url)
-        .status()
-        .context("curl not found — it is how this fetches its sources")?;
+fn fetch(source: &Source, to: &Path) -> Result<()> {
+    println!("fetching {}", source.url);
+    let status = curl(source.url, to, None)?;
+    if status.success() {
+        return Ok(());
+    }
+    if source.generator != "cept" {
+        bail!("curl failed for {}", source.url);
+    }
+
+    let der = to.with_extension("ca.der");
+    let pem = to.with_extension("ca.pem");
+    let status = curl(
+        "https://cacerts.digicert.com/RapidSSLTLSRSACAG1.crt",
+        &der,
+        None,
+    )?;
     if !status.success() {
-        bail!("curl failed for {url}");
+        bail!("curl failed for the EFIS TLS intermediate");
+    }
+    fs::write(&pem, pem_certificate(&fs::read(&der)?))?;
+    let status = curl(source.url, to, Some(&pem))?;
+    if !status.success() {
+        bail!("curl failed for {}", source.url);
     }
     Ok(())
 }
 
-fn pdftotext(path: &Path) -> Result<String> {
+fn curl(url: &str, to: &Path, ca: Option<&Path>) -> Result<std::process::ExitStatus> {
+    let mut command = Command::new("curl");
+    command
+        .args(["-fsSL", "--max-time", "600", "-o"])
+        .arg(to)
+        .arg(url);
+    if let Some(ca) = ca {
+        command.arg("--cacert").arg(ca);
+    }
+    command
+        .status()
+        .context("curl not found — it is how this fetches its sources")
+}
+
+fn pdftotext(path: &Path, mode: &str) -> Result<String> {
     let out = Command::new("pdftotext")
-        .arg("-layout")
+        .arg(mode)
         .arg(path)
         .arg("-")
         .output()
@@ -204,7 +245,36 @@ fn pdftotext(path: &Path) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Recorded in each document's provenance: `-layout` column output has shifted between poppler
+fn pem_certificate(der: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(der.len().div_ceil(3) * 4);
+    for chunk in der.chunks(3) {
+        let bits = (u32::from(chunk[0]) << 16)
+            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*chunk.get(2).unwrap_or(&0));
+        encoded.push(char::from(ALPHABET[((bits >> 18) & 63) as usize]));
+        encoded.push(char::from(ALPHABET[((bits >> 12) & 63) as usize]));
+        encoded.push(if chunk.len() > 1 {
+            char::from(ALPHABET[((bits >> 6) & 63) as usize])
+        } else {
+            '='
+        });
+        encoded.push(if chunk.len() > 2 {
+            char::from(ALPHABET[(bits & 63) as usize])
+        } else {
+            '='
+        });
+    }
+    let body = encoded
+        .as_bytes()
+        .chunks(64)
+        .map(|line| String::from_utf8_lossy(line))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("-----BEGIN CERTIFICATE-----\n{body}\n-----END CERTIFICATE-----\n")
+}
+
+/// Recorded in each document's provenance: text extraction has shifted between poppler
 /// releases, and a regenerated table that differs for that reason is a different kind of news
 /// from one where the regulator changed something.
 fn poppler_version() -> Option<String> {
@@ -434,5 +504,13 @@ mod tests {
         assert_eq!(unmapped, vec!["QUANTUM TELEPATHY"]);
         service_of("QUANTUM TELEPATHY", &table, &mut unmapped);
         assert_eq!(unmapped.len(), 1);
+    }
+
+    #[test]
+    fn der_certificate_is_wrapped_as_standard_pem() {
+        assert_eq!(
+            pem_certificate(b"abcde"),
+            "-----BEGIN CERTIFICATE-----\nYWJjZGU=\n-----END CERTIFICATE-----\n"
+        );
     }
 }

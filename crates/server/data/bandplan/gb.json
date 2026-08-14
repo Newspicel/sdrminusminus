@@ -12417,7 +12417,6 @@
   "name": "United Kingdom — Ofcom",
   "provenance": {
     "generator": "ofcom",
-    "pdftotext": "pdftotext version 24.02.0",
     "sha256": "4d92e401a792bb04a34c7ac6a815cc824ccdffa8799a3723d783898d082f5bfc",
     "url": "https://static.ofcom.org.uk/static/spectrum/data/fatMapping.json"
   },

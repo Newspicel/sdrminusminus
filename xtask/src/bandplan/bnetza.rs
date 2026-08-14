@@ -15,6 +15,9 @@ pub(super) static TARGET: &Target = &Target {
 /// before the bare one it contains. Extended from the importer's own "fell through to `other`"
 /// report, which is what that report is for.
 static SERVICES: &[(&str, &str)] = &[
+    ("(nicht zugewiesen)", "other"),
+    ("funknachrichten", "mobile"),
+    ("erde)", "satellite"),
     // Satellite first: "FESTER FUNKDIENST ÜBER SATELLITEN" is a satellite service, not a fixed
     // one, and matching "fester funkdienst" first would lose that.
     ("über satelliten", "satellite"),
