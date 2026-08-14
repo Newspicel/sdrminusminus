@@ -27,7 +27,7 @@ pub mod runtime;
 pub mod scanner;
 mod spectrum;
 pub mod video;
-pub use audio::AudioPacket;
+pub use audio::{AudioPacket, PcmBlock, PcmPayload};
 pub use recording::FinalizedRecording;
 pub use runtime::{SpectrumSnapshot, adaptive_db_window};
 pub use video::VideoPacket;
@@ -1842,6 +1842,23 @@ impl Engine {
             .get(&ch)
             .ok_or(EngineError::ChannelNotFound(ch, ds))?;
         Ok(handle.audio_tx.subscribe())
+    }
+
+    pub fn subscribe_pcm(
+        &self,
+        ds: u32,
+        ch: u32,
+    ) -> Result<broadcast::Receiver<PcmBlock>, EngineError> {
+        let inner = self.lock();
+        let state = inner
+            .device_sets
+            .get(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let handle = state
+            .media
+            .get(&ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        Ok(handle.sinks.pcm_tx.subscribe())
     }
 
     /// Subscribe to a channel's picture stream ( SubscribeVideo). A channel whose type

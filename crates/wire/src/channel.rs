@@ -637,6 +637,8 @@ impl DmrSlots {
 pub struct DmrParams {
     #[serde(default)]
     pub slots: DmrSlots,
+    #[serde(default)]
+    pub ignore_crc: bool,
 }
 
 /// The two NXDN channel widths. They are different radios as far as the receiver is

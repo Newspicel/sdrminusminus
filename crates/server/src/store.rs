@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::Path,
     sync::{LazyLock, Mutex, MutexGuard},
 };
@@ -810,8 +810,136 @@ fn read_workspace(conn: &Connection, id: i64) -> Result<WorkspaceDetail, StoreEr
     )?;
     Ok(WorkspaceDetail {
         info,
-        snapshot: serde_json::from_str(&json)?,
+        snapshot: parse_workspace_snapshot(&json)?,
     })
+}
+
+fn parse_workspace_snapshot(json: &str) -> Result<WorkspaceSnapshot, serde_json::Error> {
+    let mut value: serde_json::Value = serde_json::from_str(json)?;
+    migrate_call_buffers(&mut value);
+    serde_json::from_value(value)
+}
+
+fn migrate_call_buffers(snapshot: &mut serde_json::Value) {
+    let Some(graph) = snapshot.get_mut("graph") else {
+        return;
+    };
+    let legacy: HashMap<String, serde_json::Value> = graph
+        .get("nodes")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|node| node.get("kind").and_then(serde_json::Value::as_str) == Some("call_buffer"))
+        .filter_map(|node| {
+            Some((
+                node.get("id")?.as_str()?.to_owned(),
+                node.get("data").cloned().unwrap_or_default(),
+            ))
+        })
+        .collect();
+    if legacy.is_empty() {
+        return;
+    }
+    let legacy_ids: HashSet<&str> = legacy.keys().map(String::as_str).collect();
+    let system_settings: HashMap<String, serde_json::Value> = graph
+        .get("edges")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|edge| {
+            let source = edge.get("from")?.get("node")?.as_str()?;
+            let target = edge.get("to")?.get("node")?.as_str()?;
+            legacy
+                .get(target)
+                .cloned()
+                .map(|settings| (source.to_owned(), settings))
+        })
+        .collect();
+    let systems: HashSet<String> = graph
+        .get("nodes")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|node| node.get("kind").and_then(serde_json::Value::as_str) == Some("dmr_trunk"))
+        .filter_map(|node| node.get("id")?.as_str().map(str::to_owned))
+        .collect();
+    if let Some(nodes) = graph
+        .get_mut("nodes")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        nodes.retain(|node| {
+            node.get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|id| !legacy_ids.contains(id))
+        });
+        for node in nodes {
+            let Some(id) = node.get("id").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            let Some(settings) = system_settings
+                .get(id)
+                .and_then(serde_json::Value::as_object)
+            else {
+                continue;
+            };
+            let Some(data) = node
+                .get_mut("data")
+                .and_then(serde_json::Value::as_object_mut)
+            else {
+                continue;
+            };
+            if let Some(value) = settings.get("retention_seconds") {
+                data.insert("retention_seconds".to_owned(), value.clone());
+            }
+        }
+    }
+    if let Some(edges) = graph
+        .get_mut("edges")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        edges.retain(|edge| {
+            let source = edge
+                .get("from")
+                .and_then(|end| end.get("node"))
+                .and_then(serde_json::Value::as_str);
+            let target = edge
+                .get("to")
+                .and_then(|end| end.get("node"))
+                .and_then(serde_json::Value::as_str);
+            !source.is_some_and(|id| legacy_ids.contains(id))
+                && !target.is_some_and(|id| legacy_ids.contains(id))
+                && !(source.is_some_and(|id| systems.contains(id))
+                    && edge
+                        .get("from")
+                        .and_then(|end| end.get("port"))
+                        .and_then(serde_json::Value::as_str)
+                        == Some("trunk_audio"))
+        });
+        for edge in edges {
+            let target_is_system = edge
+                .get("to")
+                .and_then(|end| end.get("node"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|id| systems.contains(id));
+            let source_is_system = edge
+                .get("from")
+                .and_then(|end| end.get("node"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|id| systems.contains(id));
+            if target_is_system
+                && let Some(port) = edge.get_mut("to").and_then(|end| end.get_mut("port"))
+                && port.as_str() == Some("carriers")
+            {
+                *port = serde_json::Value::String("events".to_owned());
+            }
+            if source_is_system
+                && let Some(port) = edge.get_mut("from").and_then(|end| end.get_mut("port"))
+                && port.as_str() == Some("trunk_events")
+            {
+                *port = serde_json::Value::String("events".to_owned());
+            }
+        }
+    }
 }
 
 /// `name` is `UNIQUE`, and a collision is the user picking a name that is already taken — a
@@ -1896,6 +2024,72 @@ mod tests {
                 .snapshot,
             WorkspaceSnapshot::starter()
         );
+    }
+
+    #[test]
+    fn a_stored_call_buffer_is_folded_into_its_dmr_system() {
+        let mut value = serde_json::to_value(WorkspaceSnapshot::starter()).expect("snapshot");
+        let graph = value
+            .get_mut("graph")
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("graph");
+        let nodes = graph
+            .get_mut("nodes")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("nodes");
+        nodes.extend([
+            serde_json::json!({
+                "id": "carrier",
+                "position": { "x": 0.0, "y": 0.0 },
+                "kind": "channel",
+                "data": { "channel_type": "dmr" }
+            }),
+            serde_json::json!({
+                "id": "system",
+                "position": { "x": 100.0, "y": 0.0 },
+                "kind": "dmr_trunk",
+                "data": { "protocol": "auto" }
+            }),
+            serde_json::json!({
+                "id": "buffer",
+                "position": { "x": 200.0, "y": 0.0 },
+                "kind": "call_buffer",
+                "data": { "record_audio": false, "retention_seconds": 900 }
+            }),
+        ]);
+        let edges = graph
+            .get_mut("edges")
+            .and_then(serde_json::Value::as_array_mut)
+            .expect("edges");
+        edges.extend([
+            serde_json::json!({
+                "from": { "node": "carrier", "port": "events" },
+                "to": { "node": "system", "port": "carriers" }
+            }),
+            serde_json::json!({
+                "from": { "node": "system", "port": "trunk_events" },
+                "to": { "node": "buffer", "port": "trunk_events" }
+            }),
+            serde_json::json!({
+                "from": { "node": "system", "port": "trunk_audio" },
+                "to": { "node": "buffer", "port": "trunk_audio" }
+            }),
+        ]);
+
+        let migrated = parse_workspace_snapshot(&value.to_string()).expect("migrated");
+        migrated.validate().expect("valid");
+        assert!(migrated.graph.node("buffer").is_none());
+        let system = migrated.graph.node("system").expect("system");
+        let sdrmm_wire::NodeBody::DmrTrunk(settings) = &system.body else {
+            panic!("DMR system");
+        };
+        assert_eq!(settings.retention_seconds, 900);
+        assert!(migrated.graph.edges.iter().any(|edge| {
+            edge.from.node == "carrier"
+                && edge.from.port == "events"
+                && edge.to.node == "system"
+                && edge.to.port == "events"
+        }));
     }
 
     #[test]

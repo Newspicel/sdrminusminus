@@ -39,31 +39,37 @@ const CATEGORY_STRIP: Record<NodeCategory, string> = {
   sink: "bg-cat-sink",
 };
 
-// Every shape is cut out of the handle's own box. A rotation would be the obvious way to draw the
-// diamond and is wrong here: React Flow centres a handle on its anchor with `transform:
-// translate(±50%, -50%)`, and CSS applies the `rotate` property *before* `transform`, so that
-// translation runs along the rotated axes and the marker lands off its own wire.
-const PORT_SHAPE: Record<PortType, string> = {
-  iq: "rounded-full",
-  audio: "[clip-path:polygon(50%_0,100%_50%,50%_100%,0_50%)]",
-  events: "rounded-[1px]",
-  video: "[clip-path:polygon(50%_0,100%_100%,0_100%)]",
-  // An arrowhead, because control is the one wire that carries an instruction rather than a
-  // stream: it points at the radio it drives.
-  control: "[clip-path:polygon(0_0,100%_50%,0_100%)]",
-  tx: "rounded-full",
+const PORT_COLOR: Record<PortType, string> = {
+  iq: "text-port-iq",
+  audio: "text-port-audio",
+  events: "text-port-events",
+  video: "text-port-video",
+  control: "text-port-control",
+  tx: "text-port-tx",
 };
 
-/** Fill and edge per type. React Flow's base stylesheet sets the handle's border and size, which
- * is why those two are forced and the fill is not. */
-const PORT_PAINT: Record<PortType, string> = {
-  iq: "!border !border-line-strong bg-port-iq",
-  audio: "!border !border-line-strong bg-port-audio",
-  events: "!border !border-line-strong bg-port-events",
-  video: "!border !border-line-strong bg-port-video",
-  control: "!border !border-line-strong bg-port-control",
-  tx: "!border-2 !border-port-tx bg-transparent",
-};
+function PortGlyph({ type }: { type: PortType }) {
+  const common = {
+    fill: type === "tx" ? "none" : "currentColor",
+    stroke: type === "tx" ? "currentColor" : "var(--color-line-strong)",
+    strokeWidth: 1,
+  };
+  return (
+    <svg aria-hidden viewBox="0 0 12 12" className="pointer-events-none size-3 overflow-visible">
+      {type === "iq" || type === "tx" ? (
+        <circle cx="6" cy="6" r="4.5" {...common} />
+      ) : type === "audio" ? (
+        <path d="M6 1 11 6 6 11 1 6Z" {...common} />
+      ) : type === "events" ? (
+        <path d="M3 1h6l2 5-2 5H3L1 6Z" {...common} />
+      ) : type === "video" ? (
+        <path d="M6 1 11 11H1Z" {...common} />
+      ) : (
+        <path d="M1 1 11 6 1 11Z" {...common} />
+      )}
+    </svg>
+  );
+}
 
 export interface NodeShellProps {
   node: PatchNode;
@@ -235,8 +241,10 @@ function PortHandle({
         style={{ top: offset }}
         title={description}
         aria-label={`${out ? "output" : "input"} ${description}`}
-        className={`!size-2.5 ${PORT_PAINT[port.port_type]} ${PORT_SHAPE[port.port_type]}`}
-      />
+        className={`!size-3 !border-0 !bg-transparent ${PORT_COLOR[port.port_type]}`}
+      >
+        <PortGlyph type={port.port_type} />
+      </Handle>
       {/* : hue + marker shape + a *text* label, because with colour removed the graph
           must still be unambiguous.
           Outside the face rather than inset: a label over the body sits on whatever the instrument
@@ -249,7 +257,7 @@ function PortHandle({
         aria-hidden
         style={{ top: offset }}
         className={`legend pointer-events-none absolute z-10 -translate-y-1/2 rounded-xs bg-bg/85 px-1 whitespace-nowrap select-none text-ink-faint ${
-          out ? "left-full ml-1" : "right-full mr-1"
+          out ? "left-full ml-2.5" : "right-full mr-2.5"
         }`}
       >
         {label}

@@ -3,9 +3,50 @@ use utoipa::ToSchema;
 
 use crate::{
     channel::{ChannelDescriptor, ChannelSettings},
-    decode::DecoderEvent,
+    decode::{DecoderEvent, DvMode},
     device::{DeviceInfo, DeviceSettings},
 };
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct EventAudio {
+    pub url: String,
+    pub media_type: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct VoiceCall {
+    pub id: u64,
+    pub node: String,
+    pub source_node: String,
+    pub started_at: String,
+    pub ended_at: String,
+    pub duration_ms: u64,
+    pub device_set: u32,
+    pub channel: u32,
+    pub freq_hz: f64,
+    pub mode: DvMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_code: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_call: Option<bool>,
+    pub encrypted: bool,
+    pub emergency: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<EventAudio>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct VoiceCallsResponse {
+    pub calls: Vec<VoiceCall>,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct DevicesResponse {

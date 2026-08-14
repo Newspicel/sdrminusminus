@@ -52,7 +52,12 @@ export function WorkspaceBar({
           ? { kind: "channel" as const, data: { channel_type: channelType ?? "nfm" } }
           : kind === "device"
             ? { kind: "device" as const, data: {} }
-            : { kind }),
+            : kind === "dmr_trunk"
+              ? {
+                  kind: "dmr_trunk" as const,
+                  data: { protocol: "auto", retention_seconds: 300 },
+                }
+              : { kind }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });

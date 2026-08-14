@@ -663,12 +663,21 @@ function ModeControls({
       );
     case "dmr":
       return (
-        <Segmented
-          label="Slot"
-          value={params.settings.slots ?? "both"}
-          options={DMR_SLOTS}
-          onChange={(slots) => onParams({ type: "dmr", settings: { ...params.settings, slots } })}
-        />
+        <>
+          <Segmented
+            label="Slot"
+            value={params.settings.slots ?? "both"}
+            options={DMR_SLOTS}
+            onChange={(slots) => onParams({ type: "dmr", settings: { ...params.settings, slots } })}
+          />
+          <Toggle
+            label="Ignore data CRC"
+            checked={params.settings.ignore_crc ?? false}
+            onChange={(ignore_crc) =>
+              onParams({ type: "dmr", settings: { ...params.settings, ignore_crc } })
+            }
+          />
+        </>
       );
     case "nxdn":
       return (

@@ -61,7 +61,7 @@ pub enum PortType {
     Iq,
     /// 48 kHz demodulated audio (Opus on the wire).
     Audio,
-    /// Typed decoder frames ([`crate::DecodedRecord`]).
+    /// Typed decoder and completed-call events.
     Events,
     /// Scanned pictures, one raster per field (`VIDEO_GRAY` on the wire, ATV).
     Video,
@@ -196,14 +196,13 @@ fn is_once(repeat: &PortRepeat) -> bool {
 
 impl PortSpec {
     fn new(
-        name: &str,
         port_type: PortType,
         direction: PortDirection,
         multi: bool,
         condition: PortCondition,
     ) -> Self {
         Self {
-            name: name.to_owned(),
+            name: port_type.as_str().to_owned(),
             port_type,
             direction,
             multi,
@@ -322,6 +321,36 @@ pub struct ChannelNode {
     pub channel_type: String,
 }
 
+const fn default_call_retention_seconds() -> u32 {
+    300
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DmrTrunkProtocol {
+    #[default]
+    Auto,
+    CapacityPlus,
+    TierThree,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DmrTrunkNode {
+    #[serde(default)]
+    pub protocol: DmrTrunkProtocol,
+    #[serde(default = "default_call_retention_seconds")]
+    pub retention_seconds: u32,
+}
+
+impl Default for DmrTrunkNode {
+    fn default() -> Self {
+        Self {
+            protocol: DmrTrunkProtocol::Auto,
+            retention_seconds: default_call_retention_seconds(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum NodeBody {
@@ -340,6 +369,7 @@ pub enum NodeBody {
     Readout,
     /// The stored decoder log, filtered to the decoders wired into it.
     DecoderLog,
+    DmrTrunk(DmrTrunkNode),
     /// The raster a video channel scans out.
     Video,
     /// SigMF recording of a device's IQ.
@@ -361,6 +391,7 @@ impl NodeBody {
             Self::Map => "map",
             Self::Readout => "readout",
             Self::DecoderLog => "decoder_log",
+            Self::DmrTrunk(_) => "dmr_trunk",
             Self::Video => "video",
             Self::Recorder => "recorder",
             Self::Export => "export",
@@ -376,7 +407,7 @@ impl NodeBody {
             Self::Scope | Self::Map | Self::Readout | Self::DecoderLog | Self::Video => {
                 NodeCategory::Display
             }
-            Self::Scanner => NodeCategory::Feature,
+            Self::Scanner | Self::DmrTrunk(_) => NodeCategory::Feature,
             Self::Speaker | Self::Recorder | Self::Export => NodeCategory::Sink,
         }
     }
@@ -435,28 +466,32 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
         // socket to key, and a port that could never do anything on the commonest SDR there is
         // reads as a broken node rather than as a reservation.
         "device" => vec![
-            PortSpec::new("control", Control, In, false, Always),
-            PortSpec::new("tx", Tx, In, false, DeviceIsTxCapable)
+            PortSpec::new(Control, In, false, Always),
+            PortSpec::new(Tx, In, false, DeviceIsTxCapable)
                 .repeated(PortRepeat::PerTxStream)
                 .noted(
                     "reserved: transmit is not built (), so nothing in this build emits \
                      a signal to key a radio with",
                 ),
-            PortSpec::new("iq", Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
+            PortSpec::new(Iq, Out, true, Always).repeated(PortRepeat::PerRxStream),
         ],
         "channel" => vec![
-            PortSpec::new("iq", Iq, In, false, Always),
-            PortSpec::new("audio", Audio, Out, true, ChannelHasAudio),
-            PortSpec::new("events", Events, Out, true, ChannelIsDecoder),
-            PortSpec::new("video", Video, Out, true, ChannelHasVideo),
+            PortSpec::new(Iq, In, false, Always),
+            PortSpec::new(Audio, Out, true, ChannelHasAudio),
+            PortSpec::new(Events, Out, true, ChannelIsDecoder),
+            PortSpec::new(Video, Out, true, ChannelHasVideo),
         ],
-        "scope" | "recorder" => vec![PortSpec::new("iq", Iq, In, false, Always)],
-        "scanner" => vec![PortSpec::new("control", Control, Out, false, Always)],
-        "speaker" => vec![PortSpec::new("audio", Audio, In, true, Always)],
-        "video" => vec![PortSpec::new("video", Video, In, true, Always)],
+        "scope" | "recorder" => vec![PortSpec::new(Iq, In, false, Always)],
+        "scanner" => vec![PortSpec::new(Control, Out, false, Always)],
+        "speaker" => vec![PortSpec::new(Audio, In, true, Always)],
+        "video" => vec![PortSpec::new(Video, In, true, Always)],
         "map" | "readout" | "decoder_log" | "export" => {
-            vec![PortSpec::new("events", Events, In, true, Always)]
+            vec![PortSpec::new(Events, In, true, Always)]
         }
+        "dmr_trunk" => vec![
+            PortSpec::new(Events, In, true, Always),
+            PortSpec::new(Events, Out, true, Always),
+        ],
         _ => Vec::new(),
     }
 }
@@ -507,6 +542,10 @@ impl PatchCatalog {
                 entry(&NodeBody::Map, "Map"),
                 entry(&NodeBody::Readout, "Readout"),
                 entry(&NodeBody::DecoderLog, "Decoder log"),
+                entry(
+                    &NodeBody::DmrTrunk(DmrTrunkNode::default()),
+                    "DMR trunk system",
+                ),
                 entry(&NodeBody::Video, "Video"),
                 entry(&NodeBody::Recorder, "Recorder"),
                 entry(&NodeBody::Export, "Export"),
@@ -604,6 +643,7 @@ pub enum PatchError {
     Geometry(String),
     Backend(String),
     ChannelType(String),
+    NodeSettings(String),
     UnknownNode(String),
     UnknownPort(PortRef),
     Direction(PortRef),
@@ -627,6 +667,7 @@ impl std::fmt::Display for PatchError {
             Self::Geometry(id) => write!(f, "node {id} sits outside the canvas bounds"),
             Self::Backend(id) => write!(f, "node {id} names no backend"),
             Self::ChannelType(ty) => write!(f, "unknown channel type {ty:?}"),
+            Self::NodeSettings(id) => write!(f, "invalid settings for node {id}"),
             Self::UnknownNode(id) => write!(f, "edge names unknown node {id}"),
             Self::UnknownPort(port) => {
                 write!(f, "node {} has no port {}", port.node, port.port)
@@ -768,6 +809,24 @@ impl PatchGraph {
                         return Err(PatchError::ChannelType(channel.channel_type.clone()));
                     }
                 }
+                NodeBody::DmrTrunk(settings) => {
+                    if settings.retention_seconds != 0
+                        && !(10..=86_400).contains(&settings.retention_seconds)
+                    {
+                        return Err(PatchError::NodeSettings(node.id.clone()));
+                    }
+                    let only_dmr = self.sources_of(&node.id, "events").all(|source| {
+                        self.node(source).is_some_and(|source| {
+                            matches!(
+                                &source.body,
+                                NodeBody::Channel(channel) if channel.channel_type == "dmr"
+                            )
+                        })
+                    });
+                    if !only_dmr {
+                        return Err(PatchError::NodeSettings(node.id.clone()));
+                    }
+                }
                 _ => {}
             }
         }
@@ -826,19 +885,23 @@ impl PatchGraph {
         // over the stored graph and runs on every write, so refusing a stored `iq3` here would
         // refuse every later write — a node drag included. [`MAX_STREAMS`] is what keeps an
         // arbitrary name `UnknownPort`.
-        let spec = node
-            .body
-            .ports()
-            .into_iter()
-            .find(|port| {
-                port.name == reference.port
-                    || (port.repeat != PortRepeat::Once
-                        && port_stream(&port.name, &reference.port).is_some())
-            })
-            .ok_or_else(|| PatchError::UnknownPort(reference.clone()))?;
-        if spec.direction != direction {
-            return Err(PatchError::Direction(reference.clone()));
-        }
+        let matches_name = |port: &PortSpec| {
+            port.name == reference.port
+                || (port.repeat != PortRepeat::Once
+                    && port_stream(&port.name, &reference.port).is_some())
+        };
+        let ports = node.body.ports();
+        let Some(spec) = ports
+            .iter()
+            .find(|port| port.direction == direction && matches_name(port))
+            .cloned()
+        else {
+            return if ports.iter().any(matches_name) {
+                Err(PatchError::Direction(reference.clone()))
+            } else {
+                Err(PatchError::UnknownPort(reference.clone()))
+            };
+        };
         // A conditional port is only real on a type that produces it: wiring an ADS-B channel's
         // audio out would otherwise be a wire the engine has no stream for.
         //
@@ -1063,6 +1126,66 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_dmr_trunk_system_accepts_only_dmr_carrier_events() {
+        let system = node("system", NodeBody::DmrTrunk(DmrTrunkNode::default()));
+        let dmr = PatchGraph {
+            nodes: vec![channel("carrier", "dmr"), system.clone()],
+            edges: vec![edge(("carrier", "events"), ("system", "events"))],
+        };
+        dmr.validate().expect("DMR carrier");
+
+        let other = PatchGraph {
+            nodes: vec![channel("carrier", "nfm"), system],
+            edges: vec![edge(("carrier", "events"), ("system", "events"))],
+        };
+        assert_eq!(
+            other.validate(),
+            Err(PatchError::NodeSettings("system".to_owned()))
+        );
+    }
+
+    #[test]
+    fn dmr_trunk_call_retention_can_be_off() {
+        let graph = PatchGraph {
+            nodes: vec![node(
+                "system",
+                NodeBody::DmrTrunk(DmrTrunkNode {
+                    retention_seconds: 0,
+                    ..DmrTrunkNode::default()
+                }),
+            )],
+            edges: Vec::new(),
+        };
+        graph.validate().expect("retention off");
+
+        let mut invalid = graph;
+        let NodeBody::DmrTrunk(settings) = &mut invalid.nodes[0].body else {
+            panic!("DMR trunk node");
+        };
+        settings.retention_seconds = 1;
+        assert_eq!(
+            invalid.validate(),
+            Err(PatchError::NodeSettings("system".to_owned()))
+        );
+    }
+
+    #[test]
+    fn dmr_trunk_wires_use_the_same_name_at_both_ends() {
+        let graph = PatchGraph {
+            nodes: vec![
+                channel("carrier", "dmr"),
+                node("system", NodeBody::DmrTrunk(DmrTrunkNode::default())),
+                node("log", NodeBody::DecoderLog),
+            ],
+            edges: vec![
+                edge(("carrier", "events"), ("system", "events")),
+                edge(("system", "events"), ("log", "events")),
+            ],
+        };
+        graph.validate().expect("matching wire names");
+    }
+
     /// An ADS-B channel has no audio, so the port it would be wired by does not exist on it —
     /// the wire is refused where the operator drew it, not at stream time.
     #[test]
@@ -1161,7 +1284,7 @@ mod tests {
     }
 
     #[test]
-    fn the_port_table_admits_no_cycle() {
+    fn the_only_type_level_cycle_is_the_guarded_dmr_transform() {
         let catalog = PatchCatalog::build();
         let reaches = |from: &NodeTypeInfo, to: &NodeTypeInfo| {
             from.ports
@@ -1173,25 +1296,25 @@ mod tests {
                     })
                 })
         };
-        let edges: Vec<(usize, usize)> = (0..catalog.nodes.len())
-            .flat_map(|a| (0..catalog.nodes.len()).map(move |b| (a, b)))
-            .filter(|&(a, b)| reaches(&catalog.nodes[a], &catalog.nodes[b]))
-            .collect();
-        let mut open: Vec<usize> = (0..catalog.nodes.len()).collect();
-        while let Some(at) = open
-            .iter()
-            .position(|&kind| !edges.iter().any(|&(a, b)| b == kind && open.contains(&a)))
-        {
-            open.remove(at);
+        let count = catalog.nodes.len();
+        let mut reachable = vec![vec![false; count]; count];
+        for (a, row) in reachable.iter_mut().enumerate() {
+            for (b, cell) in row.iter_mut().enumerate() {
+                *cell = reaches(&catalog.nodes[a], &catalog.nodes[b]);
+            }
         }
-        let cycle: Vec<&str> = open
-            .iter()
-            .map(|&k| catalog.nodes[k].kind.as_str())
+        for through in 0..count {
+            for from in 0..count {
+                for to in 0..count {
+                    reachable[from][to] |= reachable[from][through] && reachable[through][to];
+                }
+            }
+        }
+        let cycle: Vec<&str> = (0..count)
+            .filter(|&kind| reachable[kind][kind])
+            .map(|kind| catalog.nodes[kind].kind.as_str())
             .collect();
-        assert!(
-            cycle.is_empty(),
-            "these kinds can feed each other: {cycle:?}"
-        );
+        assert_eq!(cycle, vec!["dmr_trunk"]);
     }
 
     #[test]
@@ -1723,6 +1846,11 @@ mod tests {
     #[test]
     fn the_catalog_describes_every_node_kind_once() {
         let catalog = PatchCatalog::build();
+        for node in &catalog.nodes {
+            for port in &node.ports {
+                assert_eq!(port.name, port.port_type.as_str());
+            }
+        }
         let mut kinds: Vec<&str> = catalog.nodes.iter().map(|n| n.kind.as_str()).collect();
         let total = kinds.len();
         kinds.sort_unstable();

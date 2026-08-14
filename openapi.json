@@ -286,6 +286,59 @@
         }
       }
     },
+    "/api/calls": {
+      "get": {
+        "operationId": "list_calls",
+        "responses": {
+          "200": {
+            "description": "Completed temporary voice calls",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceCallsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/calls/{id}/audio": {
+      "get": {
+        "operationId": "call_audio",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Call id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Call audio as mono 48 kHz PCM",
+            "content": {
+              "audio/wav": {}
+            }
+          },
+          "404": {
+            "description": "Call or clear audio not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/channeltypes": {
       "get": {
         "operationId": "get_channel_types",
@@ -4847,6 +4900,9 @@
       "DmrParams": {
         "type": "object",
         "properties": {
+          "ignore_crc": {
+            "type": "boolean"
+          },
           "slots": {
             "$ref": "#/components/schemas/DmrSlots"
           }
@@ -4859,6 +4915,27 @@
           "both",
           "one",
           "two"
+        ]
+      },
+      "DmrTrunkNode": {
+        "type": "object",
+        "properties": {
+          "protocol": {
+            "$ref": "#/components/schemas/DmrTrunkProtocol"
+          },
+          "retention_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "DmrTrunkProtocol": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "capacity_plus",
+          "tier_three"
         ]
       },
       "DoctorCheck": {
@@ -4938,6 +5015,39 @@
           "full"
         ]
       },
+      "DvChannelDefinition": {
+        "type": "object",
+        "required": [
+          "channel",
+          "tx_hz",
+          "rx_hz"
+        ],
+        "properties": {
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "color_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "rx_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tx_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "DvFrame": {
         "type": "object",
         "required": [
@@ -4962,6 +5072,16 @@
             "format": "int32",
             "description": "Logical or absolute channel number named by trunking signalling.",
             "minimum": 0
+          },
+          "channel_definition": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DvChannelDefinition"
+              }
+            ]
           },
           "color_code": {
             "type": [
@@ -5037,6 +5157,12 @@
               "null"
             ],
             "format": "double"
+          },
+          "late_entry": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "lon": {
             "type": [
@@ -5222,6 +5348,21 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "EventAudio": {
+        "type": "object",
+        "required": [
+          "url",
+          "media_type"
+        ],
+        "properties": {
+          "media_type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         }
       },
@@ -5660,6 +5801,24 @@
                 "type": "string",
                 "enum": [
                   "decoder_log"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/DmrTrunkNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dmr_trunk"
                 ]
               }
             }
@@ -7371,6 +7530,20 @@
               "scope": {
                 "type": "string",
                 "enum": [
+                  "calls"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "scope"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
                   "workspaces"
                 ]
               }
@@ -7747,6 +7920,138 @@
           "prod_el",
           "unknown"
         ]
+      },
+      "VoiceCall": {
+        "type": "object",
+        "required": [
+          "id",
+          "node",
+          "source_node",
+          "started_at",
+          "ended_at",
+          "duration_ms",
+          "device_set",
+          "channel",
+          "freq_hz",
+          "mode",
+          "encrypted",
+          "emergency"
+        ],
+        "properties": {
+          "audio": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EventAudio"
+              }
+            ]
+          },
+          "audio_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "color_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "destination": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "device_set": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "duration_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "emergency": {
+            "type": "boolean"
+          },
+          "encrypted": {
+            "type": "boolean"
+          },
+          "ended_at": {
+            "type": "string"
+          },
+          "freq_hz": {
+            "type": "number",
+            "format": "double"
+          },
+          "group_call": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/DvMode"
+          },
+          "node": {
+            "type": "string"
+          },
+          "slot": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "source": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "source_node": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          }
+        }
+      },
+      "VoiceCallsResponse": {
+        "type": "object",
+        "required": [
+          "calls"
+        ],
+        "properties": {
+          "calls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VoiceCall"
+            }
+          }
+        }
       },
       "WfmParams": {
         "type": "object",

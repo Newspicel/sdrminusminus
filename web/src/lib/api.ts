@@ -34,6 +34,7 @@ import type {
   ScanSettings,
   StateSnapshot,
   TemplatesResponse,
+  VoiceCallsResponse,
   WorkspaceDetail,
   WorkspaceInfo,
   WorkspaceSnapshot,
@@ -66,6 +67,7 @@ export const CHANNEL_TYPES_KEY = ["get", "/api/channeltypes"] as const;
 export const PRESETS_KEY = ["get", "/api/presets"] as const;
 export const BOOKMARKS_KEY = ["get", "/api/bookmarks"] as const;
 export const RECORDINGS_KEY = ["get", "/api/recordings"] as const;
+export const CALLS_KEY = ["get", "/api/calls"] as const;
 export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
 export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
 export const AUTH_KEY = ["get", "/api/auth"] as const;
@@ -80,6 +82,17 @@ export function stateQuery() {
     queryKey: STATE_KEY,
     queryFn: async (): Promise<StateSnapshot> => unwrap(await client.GET("/api/state")),
   });
+}
+
+export function callsQuery() {
+  return queryOptions({
+    queryKey: CALLS_KEY,
+    queryFn: async (): Promise<VoiceCallsResponse> => unwrap(await client.GET("/api/calls")),
+  });
+}
+
+export function callAudioUrl(url: string): string {
+  return withToken(url);
 }
 
 export function devicesQuery() {

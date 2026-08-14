@@ -4,6 +4,7 @@ import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
 import { ChannelFace } from "./ChannelFace";
 import { DeviceFace } from "./DeviceFace";
+import { DmrTrunkFace } from "./DmrTrunkFace";
 import { CanvasSurface } from "./NodeShell";
 import { ScopeFace } from "./ScopeFace";
 import {
@@ -37,6 +38,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   map: mount(MapFace),
   readout: mount(ReadoutFace),
   decoder_log: mount(DecoderLogFace),
+  dmr_trunk: mount(DmrTrunkFace),
   video: mount(VideoFace),
   recorder: mount(RecorderFace),
   export: mount(ExportFace),
@@ -53,6 +55,7 @@ export const FACES: Record<NodeKind, Face> = {
   map: MapFace,
   readout: ReadoutFace,
   decoder_log: DecoderLogFace,
+  dmr_trunk: DmrTrunkFace,
   video: VideoFace,
   recorder: RecorderFace,
   export: ExportFace,
