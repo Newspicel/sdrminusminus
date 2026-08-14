@@ -1,5 +1,6 @@
-//! `sdrmm-device-virtual` — always-on backend (PLAN §6) providing a signal generator and
-//! SigMF file playback (PLAN §3: playback lives here, SigMF IO in `sdrmm-recorder`). This is
+//! `sdrmm-device-virtual` — backend (PLAN §6) providing developer-only signal generators and
+//! always-available SigMF file playback (PLAN §3: playback lives here, SigMF IO in
+//! `sdrmm-recorder`). This is
 //! how CI, demo mode, and decoder golden tests run without hardware. The siggen synthesizes a
 //! baseband IQ stream: a few fixed tones, one slowly drifting tone, and a white-noise floor
 //! (the M0 spectrum path), plus NFM/AM/WFM carriers modulated by a 1 kHz tone that the M2
@@ -78,23 +79,37 @@ const DEFAULT_SAMPLE_RATE_HZ: f64 = 2_048_000.0;
 /// streams are sample-identical even where their markers are muted.
 const NOISE_SEED: u64 = 0x5DEE_CE66_D00D_1234;
 
-/// Driver that exposes the virtual devices: the signal generator always, plus one playback
-/// device per finalized SigMF recording when constructed with a recordings dir.
-#[derive(Default)]
+/// Driver that exposes developer signal generators when enabled, plus one playback device per
+/// finalized SigMF recording when constructed with a recordings dir.
 pub struct VirtualDriver {
     recordings_dir: Option<PathBuf>,
+    synthetic_devices: bool,
 }
 
 impl VirtualDriver {
+    /// A synthetic-only driver for hermetic tests and developer tooling.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self::configured(None, true)
     }
 
+    /// Synthetic devices plus playback for hermetic tests and developer tooling.
     #[must_use]
     pub fn with_recordings(dir: PathBuf) -> Self {
+        Self::configured(Some(dir), true)
+    }
+
+    /// The driver policy used by application builds: debug builds expose the synthetic radios,
+    /// while production builds retain only recording playback.
+    #[must_use]
+    pub fn for_build(recordings_dir: Option<PathBuf>) -> Self {
+        Self::configured(recordings_dir, cfg!(debug_assertions))
+    }
+
+    fn configured(recordings_dir: Option<PathBuf>, synthetic_devices: bool) -> Self {
         Self {
-            recordings_dir: Some(dir),
+            recordings_dir,
+            synthetic_devices,
         }
     }
 
@@ -141,8 +156,11 @@ impl DeviceDriver for VirtualDriver {
     }
 
     fn probe(&self) -> Vec<DeviceInfo> {
-        let mut infos = vec![Self::siggen_info()];
-        infos.extend(MARKER_SHAPES.iter().map(Self::marker_info));
+        let mut infos = Vec::new();
+        if self.synthetic_devices {
+            infos.push(Self::siggen_info());
+            infos.extend(MARKER_SHAPES.iter().map(Self::marker_info));
+        }
         // The hotplug prober calls this every 5 s: scan_stems is one readdir, no meta
         // parses. An unreadable dir hides the playback devices, never fails the probe.
         if let Some(dir) = &self.recordings_dir
@@ -156,6 +174,9 @@ impl DeviceDriver for VirtualDriver {
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
         if let Some(stem) = info.key.strip_prefix(FILE_KEY_PREFIX) {
             return Ok(Box::new(FilePlayback::open(Path::new(stem))?));
+        }
+        if !self.synthetic_devices {
+            return Err(DeviceError::NotFound(format!("{DRIVER_ID}:{}", info.key)));
         }
         if info.key == SIGGEN_KEY {
             return Ok(Box::new(SigGen::new()));
@@ -927,6 +948,22 @@ mod tests {
     }
 
     #[test]
+    fn application_build_policy_matches_the_profile() {
+        let d = VirtualDriver::for_build(None);
+        let infos = d.probe();
+        assert_eq!(
+            infos.iter().any(|info| info.id() == "virtual:siggen"),
+            cfg!(debug_assertions)
+        );
+        if !cfg!(debug_assertions) {
+            assert!(matches!(
+                d.open(&VirtualDriver::siggen_info()),
+                Err(DeviceError::NotFound(id)) if id == "virtual:siggen"
+            ));
+        }
+    }
+
+    #[test]
     fn probe_lists_finalized_recordings() {
         let dir = tempfile::TempDir::new().unwrap();
         let stem = dir.path().join("capture");
@@ -955,6 +992,17 @@ mod tests {
         assert!(recording.serial.is_none());
         // The probed info must be openable — the registry's open path re-probes and matches it.
         d.open(recording).unwrap();
+
+        // Production keeps the recording path but neither advertises nor opens a synthetic id.
+        let production = VirtualDriver::configured(Some(dir.path().to_path_buf()), false);
+        let production_infos = production.probe();
+        assert_eq!(production_infos.len(), 1);
+        assert_eq!(production_infos[0].id(), recording.id());
+        production.open(&production_infos[0]).unwrap();
+        assert!(matches!(
+            production.open(&VirtualDriver::siggen_info()),
+            Err(DeviceError::NotFound(id)) if id == "virtual:siggen"
+        ));
 
         assert!(matches!(
             d.open(&DeviceInfo {

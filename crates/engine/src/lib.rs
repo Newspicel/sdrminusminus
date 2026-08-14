@@ -66,17 +66,14 @@ const DECODED_CHANNEL_CAP: usize = 1024;
 const DEFAULT_CENTER_HZ: f64 = 100_000_000.0;
 const DEFAULT_SAMPLE_RATE: f64 = 2_048_000.0;
 
-/// The driver registry every binary gets: the virtual driver plus whichever hardware backends
-/// this build compiled in. Split
+/// The driver registry every binary gets: recording playback, developer-only synthetic radios,
+/// and whichever hardware backends this build compiled in. Split
 /// out of [`Engine::new`] so `sdrmm --doctor` reports the same set the server would open,
 /// rather than forking the registration policy.
 #[must_use]
 pub fn builtin_registry(recordings_dir: Option<PathBuf>) -> DeviceRegistry {
     let mut registry = DeviceRegistry::new();
-    let virtual_driver = match recordings_dir {
-        Some(dir) => VirtualDriver::with_recordings(dir),
-        None => VirtualDriver::new(),
-    };
+    let virtual_driver = VirtualDriver::for_build(recordings_dir);
     registry.register(VIRTUAL_PRIORITY, Box::new(virtual_driver));
     #[cfg(feature = "soapy")]
     registry.register(
@@ -558,10 +555,10 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Build the engine with the built-in drivers registered (virtual always; native backends
-    /// join here as their milestones land, PLAN §16). `recordings_dir` is both where
-    /// `start_recording` writes and what the virtual driver scans for playback devices, so
-    /// a finalized recording is immediately replayable.
+    /// Build the engine with the built-in drivers registered (recording playback always,
+    /// synthetic radios in debug builds, and native backends as their milestones land, PLAN
+    /// §16). `recordings_dir` is both where `start_recording` writes and what the virtual driver
+    /// scans for playback devices, so a finalized recording is immediately replayable.
     #[must_use]
     pub fn new(recordings_dir: Option<PathBuf>) -> Arc<Self> {
         let registry = builtin_registry(recordings_dir.clone());
