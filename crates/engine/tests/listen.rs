@@ -146,7 +146,6 @@ async fn wfm_stereo_toggle_changes_the_layout_of_the_live_stream() {
         settings(
             ChannelParams::Wfm(WfmParams {
                 deemphasis_us: 50.0,
-                rds: false,
                 stereo,
             }),
             WFM_CARRIER_OFFSET_HZ,
