@@ -215,8 +215,8 @@ impl SdrMcp {
     }
 
     #[tool(
-        description = "Discover attached SDR hardware and recorded files that can be opened as \
-                       playback devices.",
+        description = "Discover attached SDR hardware, recorded files exposed as virtual \
+                       playback devices, and synthetic radios available in development builds.",
         annotations(title = "List devices", read_only_hint = true)
     )]
     async fn list_devices(&self) -> Result<CallToolResult, ErrorData> {

@@ -556,9 +556,9 @@ pub struct Engine {
 
 impl Engine {
     /// Build the engine with the built-in drivers registered (recording playback always,
-    /// synthetic radios in debug builds, and native backends as their milestones land, PLAN
-    /// §16). `recordings_dir` is both where `start_recording` writes and what the virtual driver
-    /// scans for playback devices, so a finalized recording is immediately replayable.
+    /// synthetic radios in debug builds, and native hardware backends). `recordings_dir` is both
+    /// where `start_recording` writes and what the virtual driver scans for playback devices, so
+    /// a finalized recording is immediately replayable.
     #[must_use]
     pub fn new(recordings_dir: Option<PathBuf>) -> Arc<Self> {
         let registry = builtin_registry(recordings_dir.clone());

@@ -1,6 +1,6 @@
-//! `sdrmm-device-virtual` — backend (PLAN §6) providing developer-only signal generators and
-//! always-available SigMF file playback (PLAN §3: playback lives here, SigMF IO in
-//! `sdrmm-recorder`). This is
+//! `sdrmm-device-virtual` — backend providing developer-only signal generators and
+//! always-available SigMF file playback. Playback lives here; SigMF IO lives in
+//! `sdrmm-recorder`. This is
 //! how CI, demo mode, and decoder golden tests run without hardware. The siggen synthesizes a
 //! baseband IQ stream: a few fixed tones, one slowly drifting tone, and a white-noise floor
 //! (the M0 spectrum path), plus NFM/AM/WFM carriers modulated by a 1 kHz tone that the M2
@@ -88,7 +88,7 @@ pub struct VirtualDriver {
 
 impl Default for VirtualDriver {
     fn default() -> Self {
-        Self::new()
+        Self::for_build(None)
     }
 }
 
@@ -953,20 +953,34 @@ mod tests {
         assert_eq!(infos[3].id(), "virtual:halfduplex");
     }
 
+    fn assert_synthetic_policy(d: &VirtualDriver, enabled: bool) {
+        let infos = d.probe();
+        let expected = std::iter::once(VirtualDriver::siggen_info())
+            .chain(MARKER_SHAPES.iter().map(VirtualDriver::marker_info));
+        for info in expected {
+            assert_eq!(
+                infos.iter().any(|probed| probed.key == info.key),
+                enabled,
+                "{} has the wrong probe visibility",
+                info.id()
+            );
+            if enabled {
+                d.open(&info).unwrap();
+            } else {
+                assert!(matches!(
+                    d.open(&info),
+                    Err(DeviceError::NotFound(id)) if id == info.id()
+                ));
+            }
+        }
+    }
+
     #[test]
     fn application_build_policy_matches_the_profile() {
-        let d = VirtualDriver::for_build(None);
-        let infos = d.probe();
-        assert_eq!(
-            infos.iter().any(|info| info.id() == "virtual:siggen"),
-            cfg!(debug_assertions)
-        );
-        if !cfg!(debug_assertions) {
-            assert!(matches!(
-                d.open(&VirtualDriver::siggen_info()),
-                Err(DeviceError::NotFound(id)) if id == "virtual:siggen"
-            ));
-        }
+        assert_synthetic_policy(&VirtualDriver::for_build(None), cfg!(debug_assertions));
+        assert_synthetic_policy(&VirtualDriver::default(), cfg!(debug_assertions));
+        assert_synthetic_policy(&VirtualDriver::configured(None, true), true);
+        assert_synthetic_policy(&VirtualDriver::configured(None, false), false);
     }
 
     #[test]
@@ -1005,10 +1019,7 @@ mod tests {
         assert_eq!(production_infos.len(), 1);
         assert_eq!(production_infos[0].id(), recording.id());
         production.open(&production_infos[0]).unwrap();
-        assert!(matches!(
-            production.open(&VirtualDriver::siggen_info()),
-            Err(DeviceError::NotFound(id)) if id == "virtual:siggen"
-        ));
+        assert_synthetic_policy(&production, false);
 
         assert!(matches!(
             d.open(&DeviceInfo {

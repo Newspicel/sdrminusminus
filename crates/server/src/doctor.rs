@@ -67,11 +67,7 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
     let hardware: Vec<&str> = ids.iter().copied().filter(|id| *id != "virtual").collect();
     let detail = format!("compiled backends: {}", ids.join(", "));
     if hardware.is_empty() {
-        let virtual_capabilities = if cfg!(debug_assertions) {
-            "the signal generator and SigMF playback"
-        } else {
-            "SigMF playback"
-        };
+        let virtual_capabilities = virtual_capabilities(cfg!(debug_assertions));
         return DoctorCheck {
             id: "backends".to_string(),
             name: "Device backends".to_string(),
@@ -89,6 +85,15 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
         status: CheckStatus::Ok,
         detail,
         hint: None,
+    }
+}
+
+fn virtual_capabilities(debug_build: bool) -> &'static str {
+    if debug_build {
+        "synthetic signal-generator and marker radios, plus SigMF playback through the virtual \
+         driver"
+    } else {
+        "SigMF playback through the virtual driver"
     }
 }
 
@@ -404,6 +409,19 @@ mod tests {
         assert_eq!(check.status, CheckStatus::Warn);
         assert!(check.detail.contains("virtual"));
         assert!(check.hint.is_some_and(|h| h.contains("soapy")));
+    }
+
+    #[test]
+    fn virtual_backend_description_matches_the_build_policy() {
+        assert_eq!(
+            virtual_capabilities(true),
+            "synthetic signal-generator and marker radios, plus SigMF playback through the \
+             virtual driver"
+        );
+        assert_eq!(
+            virtual_capabilities(false),
+            "SigMF playback through the virtual driver"
+        );
     }
 
     #[cfg(feature = "soapy")]
