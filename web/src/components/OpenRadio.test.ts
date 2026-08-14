@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceInfo } from "../lib/types";
-import { deviceId, NETWORK_BACKENDS, networkDeviceId, rankDevices } from "./OpenRadio";
+import {
+  deviceId,
+  NETWORK_BACKENDS,
+  networkDeviceId,
+  rankDevices,
+  visibleDevices,
+} from "./OpenRadio";
 
 function device(driver: string, key: string, label = `${driver} ${key}`): DeviceInfo {
   return { driver, key, label };
@@ -22,6 +28,26 @@ describe("rankDevices", () => {
         .toSorted(),
     ).toEqual(["rtlsdr", "rtltcp"]);
     expect(ranked.at(-1)?.driver).toBe("virtual");
+  });
+});
+
+describe("visibleDevices", () => {
+  const devices = [
+    device("virtual", "siggen", "Signal Generator"),
+    device("virtual", "array4", "Coherent Array"),
+    device("rtlsdr", "00000001", "RTL-SDR 00000001"),
+  ];
+
+  it("includes virtual devices in a development build", () => {
+    expect(visibleDevices(devices, true).map(deviceId)).toEqual([
+      "rtlsdr:00000001",
+      "virtual:array4",
+      "virtual:siggen",
+    ]);
+  });
+
+  it("omits virtual devices from a production build", () => {
+    expect(visibleDevices(devices, false).map(deviceId)).toEqual(["rtlsdr:00000001"]);
   });
 });
 

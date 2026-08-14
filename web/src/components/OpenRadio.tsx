@@ -21,6 +21,15 @@ export function rankDevices(devices: readonly DeviceInfo[]): readonly DeviceInfo
   );
 }
 
+/** Radios offered by this build. The synthetic backend is a development aid; recordings have
+ * their own picker, so a production UI has no reason to expose any `virtual` probe results here. */
+export function visibleDevices(
+  devices: readonly DeviceInfo[],
+  devMode = import.meta.env.DEV,
+): readonly DeviceInfo[] {
+  return rankDevices(devMode ? devices : devices.filter((device) => device.driver !== "virtual"));
+}
+
 /** The id `POST /api/devicesets` opens a device by. Not a `DeviceRef`: that names a radio in a
  * stored patch, this addresses one probe result in this run (CANVAS §3). */
 export function deviceId(device: DeviceInfo): string {
@@ -119,7 +128,7 @@ export function DeviceChoices({
   const devices = useQuery(devicesQuery());
   const [showDoctor, setShowDoctor] = useState(false);
   const [showNetwork, setShowNetwork] = useState(false);
-  const found = rankDevices(devices.data?.devices ?? []);
+  const found = visibleDevices(devices.data?.devices ?? []);
 
   return (
     <div className="flex w-full flex-col gap-2">

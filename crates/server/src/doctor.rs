@@ -67,16 +67,16 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
     let hardware: Vec<&str> = ids.iter().copied().filter(|id| *id != "virtual").collect();
     let detail = format!("compiled backends: {}", ids.join(", "));
     if hardware.is_empty() {
+        let virtual_capabilities = virtual_capabilities(cfg!(debug_assertions));
         return DoctorCheck {
             id: "backends".to_string(),
             name: "Device backends".to_string(),
             status: CheckStatus::Warn,
             detail,
-            hint: Some(
-                "this build has no hardware backend — only the signal generator and SigMF \
-                 playback. Use a normal build, or rebuild with --features soapy."
-                    .to_string(),
-            ),
+            hint: Some(format!(
+                "this build has no hardware backend — only {virtual_capabilities}. Use a normal \
+                 build, or rebuild with --features soapy."
+            )),
         };
     }
     DoctorCheck {
@@ -85,6 +85,15 @@ fn backends_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
         status: CheckStatus::Ok,
         detail,
         hint: None,
+    }
+}
+
+fn virtual_capabilities(debug_build: bool) -> &'static str {
+    if debug_build {
+        "synthetic signal-generator and marker radios, plus SigMF playback through the virtual \
+         driver"
+    } else {
+        "SigMF playback through the virtual driver"
     }
 }
 
@@ -141,8 +150,8 @@ fn soapy_check(info: &sdrmm_device_soapy::RuntimeInfo) -> DoctorCheck {
 
 fn devices_check(registry: &sdrmm_device::DeviceRegistry) -> DoctorCheck {
     let devices = registry.probe_all();
-    // The virtual driver always probes at least the signal generator, so "only virtual" is
-    // the honest way to say "no hardware was found".
+    // Recording playback is virtual too; in a production build the count may be zero because
+    // synthetic radios are absent and there are no recordings yet.
     let hardware: Vec<String> = devices
         .iter()
         .filter(|d| d.driver != "virtual")
@@ -400,6 +409,19 @@ mod tests {
         assert_eq!(check.status, CheckStatus::Warn);
         assert!(check.detail.contains("virtual"));
         assert!(check.hint.is_some_and(|h| h.contains("soapy")));
+    }
+
+    #[test]
+    fn virtual_backend_description_matches_the_build_policy() {
+        assert_eq!(
+            virtual_capabilities(true),
+            "synthetic signal-generator and marker radios, plus SigMF playback through the \
+             virtual driver"
+        );
+        assert_eq!(
+            virtual_capabilities(false),
+            "SigMF playback through the virtual driver"
+        );
     }
 
     #[cfg(feature = "soapy")]
