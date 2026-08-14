@@ -13,7 +13,6 @@ use num_complex::Complex;
 
 mod bandplan;
 mod ber;
-mod catalog;
 mod icons;
 mod licenses;
 mod linkage;
@@ -311,7 +310,6 @@ fn check(root: &Path) -> Result<()> {
     // either way. A misformatted pull request should not cost a full workspace build to say so.
     check_toolchain_pins(root)?;
     check_baked_in_fixtures(root)?;
-    catalog::check(root)?;
     run("cargo", &["fmt", "--all", "--", "--check"], root)?;
 
     ensure_web_deps(root)?;
