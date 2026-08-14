@@ -148,12 +148,7 @@ static TEMPLATES: &[Entry] = &[
                     or edit its offset to move between stations.",
         center_hz: 98_000_000.0,
         sample_rate: 2_400_000.0,
-        channels: &[(98_000_000.0, || {
-            ChannelParams::Wfm(WfmParams {
-                rds: true,
-                ..WfmParams::default()
-            })
-        })],
+        channels: &[(98_000_000.0, || ChannelParams::Wfm(WfmParams::default()))],
         shape: Shape::Listen,
         readout: true,
         exact_rate: false,

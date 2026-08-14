@@ -361,11 +361,6 @@ function ModeControls({
               onParams({ type: "wfm", settings: { ...params.settings, stereo } })
             }
           />
-          <Toggle
-            label="RDS"
-            checked={params.settings.rds ?? false}
-            onChange={(rds) => onParams({ type: "wfm", settings: { ...params.settings, rds } })}
-          />
         </>
       );
     case "pocsag":

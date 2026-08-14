@@ -209,7 +209,7 @@ pub struct ChannelOutputs {
     /// [`audio_channels`] for the channel's params — a whole number of sample frames.
     pub audio_pcm: Vec<f32>,
     pub audio_rate: u32,
-    /// Typed decoder frames produced this block (PLAN §5). The host stamps them with time and
+    /// Typed decoder frames produced this block. The host stamps them with time and
     /// frequency; a decoder never formats or serializes on the DSP thread.
     pub events: Vec<DecoderEvent>,
     /// Pictures completed this block. A `Vec` rather than one slot because a block is sized by

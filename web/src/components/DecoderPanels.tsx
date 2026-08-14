@@ -57,7 +57,7 @@ export function RdsView({ scope = {} }: { scope?: DecoderScope }) {
   if (rds === null) {
     return (
       <div className={PANE}>
-        <span className={EMPTY}>No RDS yet — tune a WFM channel with RDS enabled.</span>
+        <span className={EMPTY}>No RDS yet — tune a WFM channel to a station that carries it.</span>
       </div>
     );
   }

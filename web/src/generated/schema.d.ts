@@ -3169,11 +3169,6 @@ export interface components {
              */
             deemphasis_us?: number;
             /**
-             * @description Decode the 57 kHz RDS subcarrier alongside the audio (PLAN §13 P2). Off by default:
-             *     it costs a second demod chain on the same channel.
-             */
-            rds?: boolean;
-            /**
              * @description Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.
              *     A station without a 19 kHz pilot still plays: L and R carry the same mono programme.
              */

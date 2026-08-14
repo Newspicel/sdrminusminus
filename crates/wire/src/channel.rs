@@ -214,10 +214,6 @@ pub struct WfmParams {
     /// De-emphasis time constant in µs (50 in most of the world, 75 in the Americas).
     #[serde(default = "default_deemphasis_us")]
     pub deemphasis_us: f32,
-    /// Decode the 57 kHz RDS subcarrier alongside the audio (PLAN §13 P2). Off by default:
-    /// it costs a second demod chain on the same channel.
-    #[serde(default)]
-    pub rds: bool,
     /// Recover the 38 kHz stereo difference signal, making the channel's audio two-channel.
     /// A station without a 19 kHz pilot still plays: L and R carry the same mono programme.
     #[serde(default = "default_stereo")]
@@ -228,7 +224,6 @@ impl Default for WfmParams {
     fn default() -> Self {
         Self {
             deemphasis_us: default_deemphasis_us(),
-            rds: false,
             stereo: default_stereo(),
         }
     }
