@@ -727,6 +727,7 @@ impl Decoder {
                 frame.rest_channel = Some(bits_to_u32(lc, 52, 4) as u16);
             }
             (0x68, 0 | 3 | 9) => {
+                frame.trunk_protocol = Some(DvTrunkProtocol::HyteraXpt);
                 frame.opcode = Some(
                     if flco == 9 {
                         "Hytera XPT call alert"
@@ -920,6 +921,7 @@ fn decode_short_lc(bits: &[bool]) -> DvFrame {
         }
         8 => {
             frame.opcode = Some("Hytera XPT Short LC".to_owned());
+            frame.trunk_protocol = Some(DvTrunkProtocol::HyteraXpt);
             frame.vendor = Some(Vendor::Hytera);
             frame.manufacturer_id = Some(0x68);
             frame.channel = Some(bits_to_u32(bits, 12, 4) as u16);
@@ -1025,6 +1027,8 @@ fn set_dmr_vendor(frame: &mut DvFrame, fid: u8) {
 fn decode_vendor_csbk(frame: &mut DvFrame, fid: u8, opcode: u8, payload: &[bool]) {
     if fid == 0x10 && matches!(opcode, 0x3A | 0x3B | 0x3E) {
         frame.trunk_protocol = Some(DvTrunkProtocol::CapacityPlus);
+    } else if fid == 0x68 && matches!(opcode, 0x0A | 0x0B) {
+        frame.trunk_protocol = Some(DvTrunkProtocol::HyteraXpt);
     }
     match (fid, opcode) {
         (0x10, 0x3A | 0x3E) => {
@@ -1940,6 +1944,18 @@ mod tests {
         assert_eq!(csbk.opcode.as_deref(), Some("Hytera CSBK, unparsed"));
         assert_eq!(csbk.destination, None);
         assert_eq!(csbk.source, None);
+    }
+
+    #[test]
+    fn a_hytera_xpt_csbk_names_its_protocol() {
+        let iq = tx::csbk_with_fid(3, 0x68, 0x0A, 505, 2_621_001, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(DmrSlots::Both), &iq);
+        let csbk = frames
+            .iter()
+            .find(|frame| frame.kind == DvFrameKind::Control)
+            .expect("Hytera XPT CSBK");
+        assert_eq!(csbk.trunk_protocol, Some(DvTrunkProtocol::HyteraXpt));
+        assert_eq!(csbk.crc_verified, Some(true));
     }
 
     #[test]

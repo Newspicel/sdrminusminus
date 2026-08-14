@@ -341,6 +341,7 @@ pub enum DmrTrunkProtocol {
     #[default]
     Auto,
     CapacityPlus,
+    HyteraXpt,
     TierThree,
 }
 
