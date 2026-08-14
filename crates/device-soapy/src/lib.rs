@@ -411,6 +411,28 @@ fn read_settings(device: &soapysdr::Device, capabilities: &Capabilities) -> Devi
     settings
 }
 
+const RATE_COERCION_TOLERANCE: f64 = 1e-6;
+
+fn rate_was_coerced(requested: f64, actual: f64) -> bool {
+    requested.is_finite() && actual.is_finite() && requested != 0.0 && {
+        ((actual - requested) / requested).abs() > RATE_COERCION_TOLERANCE
+    }
+}
+
+fn warn_coerced_rate(requested: Option<f64>, actual: Option<f64>) {
+    let (Some(requested), Some(actual)) = (requested, actual) else {
+        return;
+    };
+    if rate_was_coerced(requested, actual) {
+        tracing::warn!(
+            requested_hz = requested,
+            actual_hz = actual,
+            "device would not take the requested sample rate; \
+             the rate it reports is the one everything downstream is built on"
+        );
+    }
+}
+
 pub struct SoapyDevice {
     device: soapysdr::Device,
     capabilities: Capabilities,
@@ -655,6 +677,10 @@ impl SdrDevice for SoapyDevice {
             return Err(error);
         }
         self.settings.merge_from(delta);
+        // Merged, not assigned: ppm is not read back and would be erased.
+        let actual = read_settings(&self.device, &self.capabilities);
+        warn_coerced_rate(delta.sample_rate, actual.sample_rate);
+        self.settings.merge_from(&actual);
         Ok(())
     }
 
@@ -1126,6 +1152,16 @@ mod tests {
             code,
             message: format!("{code:?}"),
         }
+    }
+
+    #[test]
+    fn only_a_substituted_sample_rate_counts_as_coerced() {
+        assert!(!rate_was_coerced(2_048_000.0, 2_048_000.0));
+        assert!(!rate_was_coerced(2_048_000.0, 2_048_000.001));
+        assert!(rate_was_coerced(2_048_000.0, 2_286_826.0));
+        assert!(rate_was_coerced(2_400_000.0, 2_048_000.0));
+        assert!(!rate_was_coerced(0.0, 2_048_000.0));
+        assert!(!rate_was_coerced(2_048_000.0, f64::NAN));
     }
 
     #[test]

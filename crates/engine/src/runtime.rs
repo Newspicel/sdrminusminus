@@ -426,7 +426,14 @@ impl CaptureRuntime {
         // consume the ring's finite headroom. Every lane then shares the resulting device/queue.
         let spectrum_plan = SpectrumPlan::new(FFT_SIZE, lane_count);
         let per_stream = device.capabilities().per_stream;
-        let sample_rate = crate::sample_rate_of(settings);
+        // Every DDC ratio, symbol clock, spectrum span and recorded `core:sample_rate` derives
+        // from this; a default stood in here runs the whole chain mistuned and silent.
+        let Some(sample_rate) = settings.sample_rate else {
+            return Err(DeviceError::Unsupported(
+                "device did not report a sample rate; everything downstream is derived from it"
+                    .to_string(),
+            ));
+        };
         let fatal: Arc<Mutex<Option<FatalReport>>> = Arc::new(Mutex::new(Some(Box::new(on_fatal))));
 
         let mut sinks: Vec<RxSink> = Vec::with_capacity(lane_count);

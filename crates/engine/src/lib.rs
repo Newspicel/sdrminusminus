@@ -144,6 +144,8 @@ struct RebuildEntry {
     sinks: ChannelSinks,
 }
 
+/// [`CaptureRuntime::start`] refuses a device that reported no rate, so the fallback is
+/// unreachable for a running set.
 fn sample_rate_of(settings: &DeviceSettings) -> f64 {
     settings.sample_rate.unwrap_or(DEFAULT_SAMPLE_RATE)
 }
@@ -2172,6 +2174,13 @@ mod tests {
         }
     }
 
+    fn mock_settings() -> DeviceSettings {
+        DeviceSettings {
+            sample_rate: Some(2_048_000.0),
+            ..DeviceSettings::default()
+        }
+    }
+
     fn empty_capabilities() -> Capabilities {
         Capabilities {
             freq_ranges: Vec::new(),
@@ -2205,7 +2214,7 @@ mod tests {
         fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
             Ok(Box::new(DyingDevice {
                 capabilities: empty_capabilities(),
-                settings: DeviceSettings::default(),
+                settings: mock_settings(),
                 worker: None,
             }))
         }
@@ -2266,7 +2275,7 @@ mod tests {
         fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
             Ok(Box::new(InstantFailDevice {
                 capabilities: empty_capabilities(),
-                settings: DeviceSettings::default(),
+                settings: mock_settings(),
             }))
         }
     }
@@ -2320,6 +2329,26 @@ mod tests {
         fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
             Ok(Box::new(SilentDevice {
                 capabilities: empty_capabilities(),
+                settings: mock_settings(),
+            }))
+        }
+    }
+
+    /// Radio that will not say what rate it is running at.
+    struct RatelessDriver;
+
+    impl DeviceDriver for RatelessDriver {
+        fn id(&self) -> &'static str {
+            "mock"
+        }
+
+        fn probe(&self) -> Vec<DeviceInfo> {
+            vec![mock_info("rateless", None)]
+        }
+
+        fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
+            Ok(Box::new(SilentDevice {
+                capabilities: empty_capabilities(),
                 settings: DeviceSettings::default(),
             }))
         }
@@ -2367,7 +2396,7 @@ mod tests {
         fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
             Ok(Box::new(FloodingDevice {
                 capabilities: empty_capabilities(),
-                settings: DeviceSettings::default(),
+                settings: mock_settings(),
             }))
         }
     }
@@ -2419,7 +2448,7 @@ mod tests {
         fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
             Ok(Box::new(FaultOnDemandDevice {
                 capabilities: empty_capabilities(),
-                settings: DeviceSettings::default(),
+                settings: mock_settings(),
                 die: self.die.clone(),
                 stop: Arc::new(AtomicBool::new(false)),
                 worker: None,
@@ -2493,7 +2522,7 @@ mod tests {
         fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
             Ok(Box::new(BlockingApplyDevice {
                 capabilities: empty_capabilities(),
-                settings: DeviceSettings::default(),
+                settings: mock_settings(),
                 entered_tx: self.entered_tx.clone(),
                 release_rx: self.release_rx.lock().unwrap().take(),
             }))
@@ -2523,6 +2552,7 @@ mod tests {
                     let _ = rx.recv();
                 }
             }
+            self.settings.merge_from(settings);
             Ok(())
         }
 
@@ -2647,6 +2677,8 @@ mod tests {
     /// value the hardware holds is routinely not the value that was requested.
     struct SnappingDriver;
 
+    const SNAPPED_RATE: f64 = 2_400_000.0;
+
     impl DeviceDriver for SnappingDriver {
         fn id(&self) -> &'static str {
             "mock"
@@ -2659,7 +2691,7 @@ mod tests {
         fn open(&self, _info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
             Ok(Box::new(SnappingDevice {
                 capabilities: empty_capabilities(),
-                settings: DeviceSettings::default(),
+                settings: mock_settings(),
             }))
         }
     }
@@ -2685,6 +2717,9 @@ mod tests {
             }
             for gain in &mut snapped.gains {
                 gain.value_db = (gain.value_db / 8.0).round() * 8.0;
+            }
+            if snapped.sample_rate.is_some() {
+                snapped.sample_rate = Some(SNAPPED_RATE);
             }
             self.settings.merge_from(&snapped);
             Ok(())
@@ -2719,7 +2754,7 @@ mod tests {
             }
             Ok(Box::new(ExclusiveDevice {
                 capabilities: empty_capabilities(),
-                settings: DeviceSettings::default(),
+                settings: mock_settings(),
                 claimed: self.claimed.clone(),
                 die: self.die.clone(),
                 stop: Arc::new(AtomicBool::new(false)),
@@ -2802,7 +2837,7 @@ mod tests {
             if self.opens.fetch_add(1, Ordering::SeqCst) == 0 {
                 return Ok(Box::new(SilentDevice {
                     capabilities: empty_capabilities(),
-                    settings: DeviceSettings::default(),
+                    settings: mock_settings(),
                 }));
             }
             Err(DeviceError::Io(
@@ -3784,6 +3819,50 @@ mod tests {
         let set = &engine.snapshot().device_sets[0];
         assert_eq!(set.settings.antenna.as_deref(), Some("RX2"));
         assert_eq!(set.settings.center_hz, Some(100_000_000.0));
+        engine.remove_device_set(ds).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_device_that_reports_no_sample_rate_is_refused() {
+        let mut registry = DeviceRegistry::new();
+        registry.register(50, Box::new(RatelessDriver));
+        let engine = Engine::with_registry(registry, None);
+
+        let err = engine.create_device_set("mock:rateless").unwrap_err();
+        assert!(err.to_string().contains("sample rate"), "{err}");
+        assert!(engine.snapshot().device_sets.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_snapped_rate_is_what_channels_are_rebuilt_on() {
+        let mut registry = DeviceRegistry::new();
+        registry.register(50, Box::new(SnappingDriver));
+        let engine = Engine::with_registry(registry, None);
+        let ds = engine.create_device_set("mock:snapping").unwrap();
+        let channel = engine
+            .add_channel(ds, 0, nfm_settings(0.0))
+            .expect("hosted channel");
+
+        engine
+            .patch_device(
+                ds,
+                DeviceSettings {
+                    sample_rate: Some(1_024_000.0),
+                    ..DeviceSettings::default()
+                },
+            )
+            .unwrap();
+
+        let set = &engine.snapshot().device_sets[0];
+        assert_eq!(
+            set.settings.sample_rate,
+            Some(SNAPPED_RATE),
+            "the request was echoed instead of the rate the device streams at"
+        );
+        assert!(
+            set.channels.iter().any(|c| c.id == channel),
+            "the channel did not survive the rebuild onto the device's rate"
+        );
         engine.remove_device_set(ds).unwrap();
     }
 

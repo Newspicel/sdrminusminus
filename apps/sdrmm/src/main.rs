@@ -23,6 +23,10 @@ struct Args {
     /// Print environment diagnostics (backends, devices, USB permissions, paths) and exit.
     #[arg(long)]
     doctor: bool,
+    /// Ask every radio for each sample rate it advertises, report what it actually holds, and
+    /// exit. Opens and retunes the radios, so nothing else may be using them.
+    #[arg(long)]
+    doctor_rates: bool,
 }
 
 fn resolve_db_path(cli: Option<PathBuf>) -> anyhow::Result<PathBuf> {
@@ -70,6 +74,14 @@ async fn main() -> anyhow::Result<()> {
                 Some(&db_path),
                 Some(&recordings_dir),
             ))
+        );
+        return Ok(());
+    }
+    if args.doctor_rates {
+        let registry = sdrmm_engine::builtin_registry(None);
+        print!(
+            "{}",
+            sdrmm_server::doctor::render(&sdrmm_server::doctor::rate_report(&registry))
         );
         return Ok(());
     }
