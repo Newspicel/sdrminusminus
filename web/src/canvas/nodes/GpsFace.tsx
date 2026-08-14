@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Input } from "../../components/BaseControls";
-import { FIELD, LABEL } from "../../components/controls";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { LABEL } from "../../components/controls";
 import { Select } from "../../components/Select";
 import { TextAutocomplete } from "../../components/TextAutocomplete";
 import { nmeaDevicesQuery } from "../../lib/api";
@@ -38,7 +39,9 @@ export function GpsFace({ node }: { node: PatchNode }) {
         <div className="flex flex-col gap-2 p-2">
           <SourceSettings source={source} onChange={setSource} />
           {fix === null ? (
-            <span className="text-xs text-ink-dim">{state?.error ?? "Waiting for a fix…"}</span>
+            <span className="text-xs text-muted-foreground">
+              {state?.error ?? "Waiting for a fix…"}
+            </span>
           ) : (
             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
               <span className={LABEL}>Position</span>
@@ -82,14 +85,15 @@ function SourceSettings({
 }) {
   switch (source.type) {
     case "device":
-      return <span className="text-xs text-ink-dim">This device's live location provider</span>;
+      return (
+        <span className="text-xs text-muted-foreground">This device's live location provider</span>
+      );
     case "gpsd":
       return (
-        <label className={LABEL}>
+        <Label className={LABEL}>
           GPSD address
           <Input
             key={source.address}
-            className={FIELD}
             defaultValue={source.address}
             onBlur={(event) => {
               const address = event.currentTarget.value.trim();
@@ -102,7 +106,7 @@ function SourceSettings({
               }
             }}
           />
-        </label>
+        </Label>
       );
     case "nmea":
       return <NmeaSettings source={source} onChange={onChange} />;
@@ -140,7 +144,7 @@ function NmeaSettings({
         />
       </div>
       {devices.isError && (
-        <span className="text-[10px] text-danger">Serial device discovery failed</span>
+        <span className="text-[10px] text-destructive">Serial device discovery failed</span>
       )}
       <div className="grid grid-cols-2 gap-2">
         <div className={LABEL}>
@@ -162,7 +166,7 @@ function NmeaSettings({
             }}
           />
         </div>
-        <label className={LABEL}>
+        <Label className={LABEL}>
           Update rate
           <Select
             label="Update rate"
@@ -176,9 +180,9 @@ function NmeaSettings({
             ]}
             onChange={(next) => onChange({ ...source, update_interval_ms: next })}
           />
-        </label>
+        </Label>
       </div>
-      <span className="text-[10px] text-ink-faint">
+      <span className="text-[10px] text-muted-foreground/70">
         NMEA receivers push sentences; update rate limits how often fixes are published.
       </span>
     </div>

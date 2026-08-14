@@ -4,8 +4,7 @@ import { controlPlayback, STATE_KEY } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet, PlaybackAction, PlaybackStatus } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
-import { Button } from "./BaseControls";
-import { ICON_BTN } from "./controls";
+import { IconButton } from "./IconButton";
 import {
   formatClock,
   isLooping,
@@ -39,42 +38,34 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
   const atEnd = status.total_samples > 0 && position >= status.total_samples;
 
   return (
-    <div className="flex items-center gap-2 border-b border-line p-2">
-      <Button
-        type="button"
-        className={ICON_BTN}
-        aria-label={status.paused ? "Play" : "Pause"}
+    <div className="flex items-center gap-2 border-b border-border p-2">
+      <IconButton
+        label={status.paused ? "Play" : "Pause"}
         aria-pressed={!status.paused}
-        title={status.paused ? "Play" : "Pause"}
         onClick={() => drive.mutate({ action: status.paused ? "play" : "pause" })}
       >
         {status.paused ? "▶" : "❚❚"}
-      </Button>
-      <Button
-        type="button"
-        className={ICON_BTN}
-        aria-label="Stop"
-        title="Stop and return to the start"
+      </IconButton>
+      <IconButton
+        label="Stop and return to the start"
         onClick={() => drive.mutate({ action: "stop" })}
       >
         ■
-      </Button>
-      <Button
-        type="button"
-        className={`${ICON_BTN} ${looping ? "text-accent" : ""}`}
-        aria-label="Loop"
-        aria-pressed={looping}
-        title={
+      </IconButton>
+      <IconButton
+        label={
           looping
             ? "Looping: replays from the start"
             : atEnd
               ? "At the end — turn looping on, or stop and play again"
               : "Plays once, then holds silent"
         }
+        className={looping ? "text-primary" : undefined}
+        aria-pressed={looping}
         onClick={() => applyPatch(set.id, { extra: [{ name: LOOP_SETTING, value: !looping }] })}
       >
         ↻
-      </Button>
+      </IconButton>
       <Slider
         label="Playback position"
         className="min-w-0 flex-1"
@@ -89,7 +80,7 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
           drive.mutate({ action: "seek", position: target });
         }}
       />
-      <span className="shrink-0 font-mono text-[10px] tabular-nums text-ink-dim">
+      <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
         {formatClock(samplesToSeconds(position, sampleRate))}
         {" / "}
         {formatClock(samplesToSeconds(status.total_samples, sampleRate))}

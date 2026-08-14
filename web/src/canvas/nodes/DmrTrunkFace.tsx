@@ -1,5 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { CHIP, LABEL } from "../../components/controls";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { LABEL } from "../../components/controls";
+import { InlineAlert } from "../../components/InlineAlert";
 import { Select } from "../../components/Select";
 import { callsQuery } from "../../lib/api";
 import type { DmrTrunkProtocol, DvTrunkProtocol, PatchNode } from "../../lib/types";
@@ -56,8 +59,8 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
       live={sources.length > 0}
     >
       <FaceBody>
-        <div className="flex flex-wrap items-end gap-3 border-b border-line p-2">
-          <label className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-end gap-3 border-b border-border p-2">
+          <Label className="flex flex-col gap-1">
             <span className={LABEL}>Protocol</span>
             <Select
               label="Protocol"
@@ -66,8 +69,8 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
               options={PROTOCOLS}
               onChange={(next) => edit({ protocol: next })}
             />
-          </label>
-          <label className="flex flex-col gap-1">
+          </Label>
+          <Label className="flex flex-col gap-1">
             <span className={LABEL}>Keep calls</span>
             <Select
               label="Keep calls"
@@ -76,40 +79,41 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
               options={RETENTION_OPTIONS}
               onChange={(next) => edit({ retention_seconds: next })}
             />
-          </label>
+          </Label>
         </div>
         {sources.length === 0 ? (
           <FaceEmpty>Wire DMR decoder events into the events input.</FaceEmpty>
         ) : (
           <>
-            <p className="border-b border-line p-2 text-xs text-ink-dim">
+            <p className="border-b border-border p-2 text-xs text-muted-foreground">
               {guidance(protocol, status?.detected ?? null)} Runs on the server while this page is
               closed.
             </p>
             {status !== undefined && status.followers.length > 0 && (
-              <ul className="flex flex-wrap gap-1 border-b border-line p-2">
+              <ul className="flex flex-wrap gap-1 border-b border-border p-2">
                 {status.followers.map((follower) => (
-                  <li key={`${follower.freq_hz}-${follower.slot}`} className={CHIP}>
+                  <Badge
+                    key={`${follower.freq_hz}-${follower.slot}`}
+                    render={<li />}
+                    variant="secondary"
+                  >
                     {(follower.freq_hz / 1e6).toFixed(4)} MHz TS {follower.slot}
                     {follower.logical_channel == null ? "" : ` · LCN ${follower.logical_channel}`}
-                  </li>
+                  </Badge>
                 ))}
               </ul>
             )}
             {status?.problems.map((problem) => (
-              <p
+              <InlineAlert
                 key={`${problem.freq_hz}-${problem.slot}`}
-                role="alert"
-                className="border-b border-line p-2 text-xs text-warning"
+                className="rounded-none border-x-0 border-t-0 p-2 text-xs"
               >
                 Cannot follow {(problem.freq_hz / 1e6).toFixed(4)} MHz TS {problem.slot}:{" "}
                 {problem.reason}
-              </p>
+              </InlineAlert>
             ))}
             {result.isError ? (
-              <p role="alert" className="p-3 text-xs text-danger">
-                {result.error.message}
-              </p>
+              <InlineAlert className="m-2 text-xs">{result.error.message}</InlineAlert>
             ) : calls.length === 0 ? (
               <FaceEmpty>Waiting for a completed call.</FaceEmpty>
             ) : (

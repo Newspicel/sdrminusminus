@@ -1,4 +1,5 @@
-import { Button } from "./BaseControls";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   AttributionControl,
@@ -133,11 +134,11 @@ export function MapPanel({
 
     // One token does double duty: the offline backdrop, and the outline that keeps every target
     // readable against whichever basemap is under it.
-    const edge = themeColor(container, "--color-bg", "#0b0e14");
+    const edge = themeColor(container, "--background", "#0b0e14");
     edgeRef.current = edge;
     // The station mark is *ours* — the one place the map spends the app accent rather than a
     // kind colour, so it can never be mistaken for a target.
-    accentRef.current = themeColor(container, "--color-accent", "#e0a458");
+    accentRef.current = themeColor(container, "--primary", "#e0a458");
 
     void (async () => {
       const style = await fetchStyle();
@@ -345,38 +346,41 @@ export function MapPanel({
       {/* Sized in flow, not `absolute inset-0`: MapLibre stamps `maplibregl-map` onto this
           element, and its stylesheet's unlayered `position: relative` beats Tailwind's layered
           utilities — `inset-0` then anchors to nothing and the box collapses to zero height. */}
-      <div ref={containerRef} className="h-full w-full bg-bg" />
+      <div ref={containerRef} className="h-full w-full bg-background" />
 
       <div className="pointer-events-none absolute top-2 left-2 flex flex-col items-start gap-1">
-        <div className="flex flex-col gap-1 rounded border border-line bg-bg/85 px-2 py-1.5">
+        <div className="flex flex-col gap-1 rounded border border-border bg-background/85 px-2 py-1.5">
           {kinds.map((kind) => (
             <div key={kind} className="flex items-center gap-2 font-mono text-[10px] tabular-nums">
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full"
                 style={{ backgroundColor: KIND_STYLE[kind].color }}
               />
-              <span className="text-ink-dim">{KIND_STYLE[kind].title}</span>
-              <span className="ml-auto text-ink">{counts[kind]}</span>
+              <span className="text-muted-foreground">{KIND_STYLE[kind].title}</span>
+              <span className="ml-auto text-foreground">{counts[kind]}</span>
             </div>
           ))}
           {positionNodes.length > 0 && (
             <div className="flex items-center gap-2 font-mono text-[10px] tabular-nums">
-              <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-accent" />
-              <span className="text-ink-dim">GPS trail</span>
-              <span className="ml-auto text-ink">{positionCount}</span>
+              <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-primary" />
+              <span className="text-muted-foreground">GPS trail</span>
+              <span className="ml-auto text-foreground">{positionCount}</span>
             </div>
           )}
         </div>
         {basemap === "offline" && (
-          <div className="rounded border border-line bg-bg/85 px-2 py-1 font-mono text-[10px] text-ink-dim">
+          <div className="rounded border border-border bg-background/85 px-2 py-1 font-mono text-[10px] text-muted-foreground">
             basemap unavailable (offline)
           </div>
         )}
       </div>
 
       {detail !== null && (
-        <div className="absolute inset-x-2 bottom-2 rounded border border-line bg-panel/95 md:inset-x-auto md:right-2 md:w-64">
-          <div className="flex items-center justify-between gap-2 border-b border-line px-2 py-1">
+        <Card
+          size="sm"
+          className="absolute inset-x-2 bottom-2 gap-0 py-0 md:inset-x-auto md:right-2 md:w-64"
+        >
+          <div className="flex items-center justify-between gap-2 border-b border-border px-2 py-1">
             <span
               className="truncate font-mono text-sm"
               style={{ color: KIND_STYLE[detail.kind].color }}
@@ -385,7 +389,7 @@ export function MapPanel({
             </span>
             <Button
               type="button"
-              className="shrink-0 px-1 font-mono text-xs text-ink-dim hover:text-ink"
+              className="shrink-0 px-1 font-mono text-xs text-muted-foreground hover:text-foreground"
               onClick={() => {
                 selectedRef.current = null;
                 setDetail(null);
@@ -399,17 +403,19 @@ export function MapPanel({
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 px-2 py-1.5">
             {detail.rows.map(([label, value]) => (
               <div key={label} className="col-span-2 grid grid-cols-subgrid">
-                <dt className="text-[10px] text-ink-dim uppercase tracking-wider">{label}</dt>
-                <dd className="truncate text-right font-mono text-xs tabular-nums text-ink">
+                <dt className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  {label}
+                </dt>
+                <dd className="truncate text-right font-mono text-xs tabular-nums text-foreground">
                   {value}
                 </dd>
               </div>
             ))}
           </dl>
-          <div className="border-t border-line px-2 py-1 font-mono text-[10px] tabular-nums text-ink-dim">
+          <div className="border-t border-border px-2 py-1 font-mono text-[10px] tabular-nums text-muted-foreground">
             {formatMhz(detail.freqHz)} · last seen {formatUtc(detail.lastSeen)}
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );

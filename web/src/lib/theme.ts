@@ -68,6 +68,7 @@ function apply(): void {
         : "dark"
       : state.choice;
   document.documentElement.dataset.theme = resolved;
+  document.documentElement.classList.toggle("dark", resolved === "dark");
   state = { choice: state.choice, resolved };
   for (const listener of listeners) {
     listener();

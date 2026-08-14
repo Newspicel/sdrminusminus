@@ -114,7 +114,7 @@ interface Watched {
   listeners: Set<(frame: SpectrumFrame) => void>;
   history: History;
   /** A pending stop, or 0 — non-zero is precisely "subscribed, but nothing is watching". */
-  release: number;
+  release: ReturnType<typeof setTimeout> | 0;
 }
 
 export class SpectrumHub {

@@ -1,8 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { serverReachable } from "../lib/api";
-import { Button } from "./BaseControls";
-import { BTN_PRIMARY } from "./controls";
 
 /** Failures that say nothing the headline has not already said. A browser reports a refused
  * connection as "Failed to fetch" (Safari: "Load failed"), and the dev proxy turns the same
@@ -67,39 +74,39 @@ export function ServerDown({ reason, onReachable }: { reason: string; onReachabl
   }, [reconnect]);
 
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center bg-bg px-4 py-10">
-      <div
-        role="alert"
-        className="flex w-full max-w-md flex-col gap-3 rounded border border-line bg-panel px-4 py-4"
-      >
-        <div className="flex items-center gap-2">
-          <img src="/icon.svg" alt="" width={28} height={28} className="shrink-0" />
-          <div className="font-mono text-lg font-semibold text-accent">sdr--</div>
-        </div>
-        <div>
-          <h1 className="text-sm font-semibold text-ink">Can't reach the server</h1>
-          <p className="mt-1 text-sm text-ink-dim">
+    <div className="flex min-h-0 flex-1 items-center justify-center bg-background px-4 py-10">
+      <Card role="alert" className="w-full max-w-md">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <img src="/icon.svg" alt="" width={28} height={28} className="shrink-0" />
+            <div className="font-mono text-lg font-semibold text-primary">sdr--</div>
+          </div>
+          <CardTitle>Can't reach the server</CardTitle>
+          <CardDescription>
             This window is running, but the sdr-- server behind it is not answering. Nothing you
             arranged is lost — it lives on the server, and this page picks it up again by itself as
             soon as the server is back.
-          </p>
-        </div>
-        {detail !== null && (
-          <p className="font-mono text-xs break-words text-ink-faint">{detail}</p>
-        )}
-        {import.meta.env.DEV && (
-          <p className="text-sm text-ink-dim">
-            Start it with <code className="font-mono text-ink">cargo run -p sdrmm</code> — the dev
-            server proxies <code className="font-mono text-ink">/api</code> to 127.0.0.1:8080.
-          </p>
-        )}
-        <div className="flex items-center gap-3">
-          <Button type="button" className={BTN_PRIMARY} onClick={reconnect}>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {detail !== null && (
+            <p className="font-mono text-xs break-words text-muted-foreground/70">{detail}</p>
+          )}
+          {import.meta.env.DEV && (
+            <p className="text-sm text-muted-foreground">
+              Start it with <code className="font-mono text-foreground">cargo run -p sdrmm</code> —
+              the dev server proxies <code className="font-mono text-foreground">/api</code> to
+              127.0.0.1:8080.
+            </p>
+          )}
+        </CardContent>
+        <CardFooter className="gap-3">
+          <Button type="button" onClick={reconnect}>
             Try again
           </Button>
-          <span className="text-xs text-ink-faint">Retrying every few seconds…</span>
-        </div>
-      </div>
+          <span className="text-xs text-muted-foreground/70">Retrying every few seconds…</span>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

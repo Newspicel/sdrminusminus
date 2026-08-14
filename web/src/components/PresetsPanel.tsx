@@ -1,5 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
+import { Input } from "@/components/ui/input";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@/components/ui/item";
 import {
   applyPreset,
   createPreset,
@@ -9,8 +20,7 @@ import {
   STATE_KEY,
 } from "../lib/api";
 import { pushToast } from "../lib/toasts";
-import { Button, Form, Input } from "./BaseControls";
-import { BTN, FIELD } from "./controls";
+import { EmptyState } from "./EmptyState";
 
 export function PresetsPanel() {
   const queryClient = useQueryClient();
@@ -41,8 +51,8 @@ export function PresetsPanel() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <Form
-        className="flex gap-2"
+      <form
+        className="flex"
         onSubmit={(e) => {
           e.preventDefault();
           if (name.trim() !== "") {
@@ -50,48 +60,55 @@ export function PresetsPanel() {
           }
         }}
       >
-        <Input
-          className={`${FIELD} min-w-0 flex-1`}
-          placeholder="Name this bench"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          aria-label="Preset name"
-        />
-        <Button type="submit" className={BTN} disabled={name.trim() === "" || saveMut.isPending}>
-          Save
-        </Button>
-      </Form>
+        <ButtonGroup className="w-full">
+          <Input
+            placeholder="Name this bench"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label="Preset name"
+          />
+          <Button type="submit" disabled={name.trim() === "" || saveMut.isPending}>
+            Save
+          </Button>
+        </ButtonGroup>
+      </form>
 
-      {(presets.data ?? []).map((p) => (
-        <div key={p.id} className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm text-ink">{p.name}</div>
-            <div className="truncate font-mono text-[10px] tabular-nums text-ink-dim">
-              {p.devices} radio{p.devices === 1 ? "" : "s"}
-            </div>
-          </div>
-          <Button
-            type="button"
-            className={BTN}
-            disabled={applyMut.isPending}
-            onClick={() => applyMut.mutate(p.id)}
-          >
-            Apply
-          </Button>
-          <Button
-            type="button"
-            className={`${BTN} hover:border-danger hover:text-danger`}
-            disabled={deleteMut.isPending}
-            onClick={() => deleteMut.mutate(p.id)}
-          >
-            Delete
-          </Button>
-        </div>
-      ))}
+      <ItemGroup>
+        {(presets.data ?? []).map((p) => (
+          <Item key={p.id} size="xs">
+            <ItemContent>
+              <ItemTitle>{p.name}</ItemTitle>
+              <ItemDescription className="font-mono text-[10px] tabular-nums">
+                {p.devices} radio{p.devices === 1 ? "" : "s"}
+              </ItemDescription>
+            </ItemContent>
+            <ItemActions>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={applyMut.isPending}
+                onClick={() => applyMut.mutate(p.id)}
+              >
+                Apply
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={deleteMut.isPending}
+                onClick={() => deleteMut.mutate(p.id)}
+              >
+                Delete
+              </Button>
+            </ItemActions>
+          </Item>
+        ))}
+      </ItemGroup>
       {presets.data?.length === 0 && (
-        <span className="text-sm text-ink-dim">
+        <EmptyState>
           No presets saved. Saving one takes every radio this workspace has open, where it is now.
-        </span>
+        </EmptyState>
       )}
     </div>
   );

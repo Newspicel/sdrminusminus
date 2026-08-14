@@ -1,6 +1,5 @@
-import { Toggle } from "@base-ui/react/toggle";
-import { ToggleGroup } from "@base-ui/react/toggle-group";
-import { type Options, segment } from "./controls";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { type Options } from "./controls";
 
 export function Segmented<T extends string | number>({
   label,
@@ -19,7 +18,9 @@ export function Segmented<T extends string | number>({
       // (`useHotkeys`).
       data-hotkeys="off"
       aria-label={label}
-      className="flex overflow-hidden rounded-[3px] border border-line"
+      variant="outline"
+      size="sm"
+      spacing={0}
       // Stringified because the group's value is a string list. A value that is not on the list
       // (a preset field holding a typed-in number) simply shows nothing pressed, and pressing
       // the pressed member yields an empty list, which falls through as "no change" — a
@@ -33,13 +34,13 @@ export function Segmented<T extends string | number>({
       }}
     >
       {options.map((option) => (
-        <Toggle
+        <ToggleGroupItem
           key={String(option.value)}
           value={String(option.value)}
-          className={(state) => `${segment(state.pressed)} rounded-none font-mono tabular-nums`}
+          className="font-mono tabular-nums data-pressed:bg-primary/10 data-pressed:text-primary"
         >
           {option.label}
-        </Toggle>
+        </ToggleGroupItem>
       ))}
     </ToggleGroup>
   );

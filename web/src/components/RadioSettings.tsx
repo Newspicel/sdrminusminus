@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { Input } from "@/components/ui/input";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
 import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
-import { Input } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import { formatHz } from "./format";
 import { NumberField } from "./NumberField";
@@ -28,7 +28,10 @@ const formatMsps = (hz: number): string => `${(hz / 1e6).toFixed(3)} MS/s`;
 /** A setting named by its driver: shown as words, hovered as the key itself. */
 function SettingName({ name }: { name: string }) {
   return (
-    <span className="legend wrap-anywhere" title={name}>
+    <span
+      className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 wrap-anywhere"
+      title={name}
+    >
       {settingLabel(name)}
     </span>
   );
@@ -60,12 +63,14 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
   return (
     <div className="@container flex flex-col gap-2">
       <div className={ROW}>
-        <span className="legend">Rate</span>
+        <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+          Rate
+        </span>
         {caps.sample_rates.length === 1 && rateRange == null ? (
           // One rate and nothing to pick between it and: a recording plays at the rate it was
           // captured at, and a single-rate receiver says the same thing. A dropdown of one is
           // a control that cannot act, so this is a readout.
-          <span className="font-mono text-xs text-ink">{formatMsps(sampleRate)}</span>
+          <span className="font-mono text-xs text-foreground">{formatMsps(sampleRate)}</span>
         ) : caps.sample_rates.length > 0 ? (
           <Select
             label="Sample rate"
@@ -89,14 +94,18 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
               onCommit={(msps) => applyPatch(active.id, { sample_rate: Math.round(msps * 1e6) })}
               className="w-24"
             />
-            <span className="legend">MS/s</span>
+            <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+              MS/s
+            </span>
           </span>
         )}
       </div>
 
       {caps.bandwidths.length > 0 && (
         <div className={ROW}>
-          <span className="legend">Filter</span>
+          <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+            Filter
+          </span>
           <Select
             label="Analog bandwidth"
             className={PICKER}
@@ -113,7 +122,9 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
 
       {caps.antennas.length > 1 && !streamedAntenna && (
         <div className={ROW}>
-          <span className="legend">Antenna</span>
+          <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+            Antenna
+          </span>
           <Select
             label="Antenna"
             className={PICKER}
@@ -143,11 +154,15 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
         // is actually running at.
         const lane = forStream(settings, stream, scope);
         return (
-          <div key={stream} className="flex flex-col gap-2 border-t border-line pt-2">
-            <span className="legend">{port}</span>
+          <div key={stream} className="flex flex-col gap-2 border-t border-border pt-2">
+            <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+              {port}
+            </span>
             {streamedAntenna && (
               <div className={ROW}>
-                <span className="legend">Antenna</span>
+                <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+                  Antenna
+                </span>
                 <Select
                   label={`${port} antenna`}
                   className={PICKER}
@@ -183,7 +198,9 @@ export function RadioSettings({ active }: { active: DeviceSet }) {
           whether it worked, errored, or lied. */}
       {caps.ppm && (
         <div className={ROW}>
-          <span className="legend">PPM</span>
+          <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+            PPM
+          </span>
           <NumberField
             label="Frequency correction (ppm)"
             value={settings.ppm ?? 0}
@@ -235,8 +252,8 @@ function GainControl({
           value={shown}
           onChange={change}
         />
-        <span className="w-14 shrink-0 text-right font-mono text-xs text-ink">
-          {shown.toFixed(1)} <span className="text-ink-faint">dB</span>
+        <span className="w-14 shrink-0 text-right font-mono text-xs text-foreground">
+          {shown.toFixed(1)} <span className="text-muted-foreground/70">dB</span>
         </span>
       </span>
     </div>
@@ -308,7 +325,9 @@ function ExtraControl({
               onCommit={onCommit}
               className="w-24"
             />
-            <span className="legend">{setting.unit}</span>
+            <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+              {setting.unit}
+            </span>
           </span>
         </div>
       );
@@ -318,7 +337,7 @@ function ExtraControl({
           <SettingName name={setting.name} />
           <Input
             aria-label={setting.name}
-            className={`${PICKER} min-w-0 rounded border border-line bg-surface px-2 py-1 font-mono text-xs text-ink`}
+            className={`${PICKER} min-w-0 font-mono text-xs`}
             value={draft}
             onChange={(event) => {
               setDraft(event.currentTarget.value);

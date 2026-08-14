@@ -6,10 +6,18 @@
 // operator has to ask to be current.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { clearDecoderLog, DECODER_LOG_KEY, decoderLogExportUrl, decoderLogQuery } from "../lib/api";
 import { useDecodedStore } from "../lib/decoded";
-import { Button, Input } from "./BaseControls";
-import { BTN, FIELD } from "./controls";
 import { eventDetail } from "./decoderDetail";
 import {
   buildRows,
@@ -30,12 +38,14 @@ import {
   type WireScope,
 } from "./decoderLog";
 import { formatMhz } from "./format";
+import { InlineAlert } from "./InlineAlert";
 import { Select } from "./Select";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const CLEAR_ARM_MS = 3000;
 const CELL = "px-2 py-1 align-top";
-const HEAD = "px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-dim";
+const HEAD =
+  "px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground";
 
 const NO_FRAMES = {};
 
@@ -141,7 +151,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
         />
 
         <Input
-          className={`${FIELD} min-w-0 flex-1 text-sm`}
+          className="min-w-0 flex-1"
           placeholder="Search station or summary"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -155,18 +165,26 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
           onChange={(limit) => patch({ limit })}
         />
 
-        <a className={BTN} href={decoderLogExportUrl("csv", query)} download>
+        <Button
+          render={<a href={decoderLogExportUrl("csv", query)} download />}
+          variant="outline"
+          size="sm"
+        >
           CSV
-        </a>
-        <a className={BTN} href={decoderLogExportUrl("json", query)} download>
+        </Button>
+        <Button
+          render={<a href={decoderLogExportUrl("json", query)} download />}
+          variant="outline"
+          size="sm"
+        >
           JSON
-        </a>
+        </Button>
 
         <Button
           type="button"
-          className={`${BTN} hover:border-danger hover:text-danger ${
-            armed ? "border-danger text-danger" : ""
-          }`}
+          variant="destructive"
+          size="sm"
+          className={` ${armed ? "border-destructive text-destructive" : ""}`}
           disabled={clearMut.isPending}
           onClick={() => (armed ? clearMut.mutate() : setArmed(true))}
         >
@@ -175,41 +193,35 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
       </div>
 
       {error !== null && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
+        <InlineAlert className="flex-row items-center justify-between font-mono text-sm">
           <span>Rejected: {error}</span>
           <Button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
             dismiss
           </Button>
-        </div>
+        </InlineAlert>
       )}
 
       {log.isError && (
-        <div
-          role="alert"
-          className="rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
+        <InlineAlert className="font-mono text-sm">
           Log unavailable: {log.error.message}
-        </div>
+        </InlineAlert>
       )}
 
       {dropped !== null && (
         <div
           role="status"
-          className="rounded border border-danger/50 px-3 py-1.5 font-mono text-xs tabular-nums text-danger"
+          className="rounded border border-destructive/50 px-3 py-1.5 font-mono text-xs tabular-nums text-destructive"
         >
           {dropped}
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-3 font-mono text-[10px] tabular-nums text-ink-dim">
+      <div className="flex flex-wrap items-center gap-x-3 font-mono text-[10px] tabular-nums text-muted-foreground">
         <span>
           {rows.length} shown · {total} stored
         </span>
         {armed && (
-          <span className="text-danger">
+          <span className="text-destructive">
             Clear removes every stored row from the decoders wired in that matches this filter.
           </span>
         )}
@@ -218,18 +230,18 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
 
       {/* Fills the panel it is docked in: a fixed cap would waste a tall panel and overflow a
           short one. */}
-      <div className="min-h-0 flex-1 overflow-auto rounded border border-line">
-        <table className="w-full border-collapse font-mono text-xs">
-          <thead className="sticky top-0 bg-panel">
-            <tr className="border-b border-line">
-              <th className={HEAD}>Time UTC</th>
-              <th className={HEAD}>Kind</th>
-              <th className={`${HEAD} text-right`}>Frequency</th>
-              <th className={HEAD}>Station</th>
-              <th className={HEAD}>Summary</th>
-            </tr>
-          </thead>
-          <tbody>
+      <div className="min-h-0 flex-1 overflow-auto rounded border border-border">
+        <Table className="font-mono text-xs">
+          <TableHeader className="sticky top-0 bg-card">
+            <TableRow>
+              <TableHead className={HEAD}>Time UTC</TableHead>
+              <TableHead className={HEAD}>Kind</TableHead>
+              <TableHead className={`${HEAD} text-right`}>Frequency</TableHead>
+              <TableHead className={HEAD}>Station</TableHead>
+              <TableHead className={HEAD}>Summary</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((row) => (
               <Fragment key={row.key}>
                 {/* The whole row is the control: a summary is truncated by design, and the frame
@@ -237,42 +249,49 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
                 {/* No live/stored distinction is drawn: every row arrives through the tail and
                     turns into its stored twin within a flush, so marking the difference would be
                     half a second of tint on every row in the table. */}
-                <tr
-                  className="cursor-pointer border-b border-line/50 hover:bg-panel-2"
+                <TableRow
+                  className="cursor-pointer border-b border-border/50 hover:bg-muted"
                   aria-expanded={opened === row.key}
                   onClick={() => setOpened(opened === row.key ? null : row.key)}
                 >
-                  <td
-                    className={`${CELL} whitespace-nowrap tabular-nums text-ink-dim`}
+                  <TableCell
+                    className={`${CELL} whitespace-nowrap tabular-nums text-muted-foreground`}
                     title={row.at}
                   >
                     {formatLogTime(row.at)}
-                  </td>
-                  <td className={`${CELL} whitespace-nowrap text-ink-dim`}>
+                  </TableCell>
+                  <TableCell className={`${CELL} whitespace-nowrap text-muted-foreground`}>
                     {kindLabel(row.kind)}
-                  </td>
-                  <td className={`${CELL} whitespace-nowrap text-right tabular-nums text-ink`}>
+                  </TableCell>
+                  <TableCell
+                    className={`${CELL} whitespace-nowrap text-right tabular-nums text-foreground`}
+                  >
                     {formatMhz(row.freqHz)}
-                  </td>
-                  <td className={`${CELL} whitespace-nowrap text-ink`}>{row.station ?? "—"}</td>
-                  <td className={`${CELL} max-w-0 truncate text-ink`} title={row.summary}>
+                  </TableCell>
+                  <TableCell className={`${CELL} whitespace-nowrap text-foreground`}>
+                    {row.station ?? "—"}
+                  </TableCell>
+                  <TableCell
+                    className={`${CELL} max-w-0 truncate text-foreground`}
+                    title={row.summary}
+                  >
                     {row.summary}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
                 {opened === row.key && (
-                  <tr className="border-b border-line/50 bg-panel-2">
-                    <td colSpan={5} className="px-3 py-2">
+                  <TableRow className="bg-muted">
+                    <TableCell colSpan={5} className="px-3 py-2">
                       <RowDetail row={row} />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 )}
               </Fragment>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
 
         {rows.length === 0 && (
-          <div className="px-3 py-2 text-sm text-ink-dim">
+          <div className="px-3 py-2 text-sm text-muted-foreground">
             {log.isPending
               ? "Loading…"
               : isFiltered(filter)
@@ -300,19 +319,21 @@ function RowDetail({ row }: { row: LogRow }) {
         <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5">
           {detail.fields.map(([label, value]) => (
             <Fragment key={label}>
-              <dt className="text-ink-dim">{label}</dt>
-              <dd className="min-w-0 break-all text-ink">{value}</dd>
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="min-w-0 break-all text-foreground">{value}</dd>
             </Fragment>
           ))}
         </dl>
       )}
       {detail.body !== null && (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-panel px-2 py-1.5 text-ink">
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-card px-2 py-1.5 text-foreground">
           {detail.body}
         </pre>
       )}
       {detail.fields.length === 0 && detail.body === null && (
-        <span className="text-ink-dim">This frame carried nothing beyond its summary.</span>
+        <span className="text-muted-foreground">
+          This frame carried nothing beyond its summary.
+        </span>
       )}
     </div>
   );

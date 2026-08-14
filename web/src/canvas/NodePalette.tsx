@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Button, Input } from "../components/BaseControls";
-import { FIELD, LABEL } from "../components/controls";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { LABEL } from "../components/controls";
+import { EmptyState } from "../components/EmptyState";
 import { formatHz } from "../components/format";
 import type { NodeKind, PositionSource } from "../lib/types";
 import { useWorkspaceContext } from "./context";
@@ -25,15 +27,12 @@ export function NodePalette({
   return (
     <div className="flex flex-col gap-2">
       <Input
-        className={FIELD}
         placeholder="Search nodes — scope, nfm, adsb…"
         aria-label="Search the node palette"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
       />
-      {groups.length === 0 && (
-        <span className="px-1 py-2 text-sm text-ink-dim">Nothing in the palette matches that.</span>
-      )}
+      {groups.length === 0 && <EmptyState>Nothing in the palette matches that.</EmptyState>}
       {groups.map((group) => (
         <div key={group.id} className="flex flex-col gap-1">
           <span className={`${LABEL} px-1`}>{group.title}</span>
@@ -56,16 +55,16 @@ function Entry({ item, onAdd }: { item: PaletteItem; onAdd: () => void }) {
   return (
     <Button
       type="button"
-      className="flex min-w-0 flex-col items-start rounded-[3px] border border-transparent px-2 py-1 text-left transition-colors duration-100 hover:border-accent-dim hover:bg-panel-2"
+      className="flex min-w-0 flex-col items-start rounded-[3px] border border-transparent px-2 py-1 text-left transition-colors duration-100 hover:border-primary/70 hover:bg-muted"
       onClick={onAdd}
     >
-      <span className="w-full truncate text-xs text-ink">{item.name}</span>
+      <span className="w-full truncate text-xs text-foreground">{item.name}</span>
       {/* Hidden from the accessible name, which must read as the action alone: the bandwidth is a
           hint about where this will fit, and the face states it again once the node is drawn. */}
       {item.type !== undefined && (
         <span
           aria-hidden
-          className="w-full truncate font-mono text-[10px] tabular-nums text-ink-faint"
+          className="w-full truncate font-mono text-[10px] tabular-nums text-muted-foreground/70"
         >
           {formatHz(item.type.bandwidth_hz)}
         </span>

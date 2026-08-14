@@ -1,11 +1,15 @@
 import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { pushToast } from "../lib/toasts";
 import type { ChannelParams, DeviceSet } from "../lib/types";
 import { useBandPlan } from "../lib/useBandPlan";
 import { useDevicePatch } from "../lib/useDevicePatch";
-import { Button, Input } from "./BaseControls";
 import { searchPlan, serviceEdge, serviceLabel } from "./bandPlan";
-import { CHIP, FIELD, LABEL } from "./controls";
+import { LABEL } from "./controls";
+import { EmptyState } from "./EmptyState";
 import { formatHz } from "./format";
 
 /** Enough to fill the drawer without turning a two-letter query into a wall. */
@@ -34,27 +38,26 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
   return (
     <div className="flex flex-col gap-2 p-3">
       {active === null && (
-        <span className="text-sm text-ink-dim">
+        <span className="text-sm text-muted-foreground">
           Nothing to tune: select a device node on the canvas first.
         </span>
       )}
 
       <Input
-        className={FIELD}
         placeholder="marine VHF, 70 cm ham, 145.500…"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         aria-label="Search the band plan"
       />
 
-      {plan === null && <span className="text-sm text-ink-dim">Loading the band plan…</span>}
+      {plan === null && <Skeleton className="h-8 w-full" />}
       {plan !== null && query.trim() === "" && (
-        <span className="text-sm text-ink-dim">
+        <span className="text-sm text-muted-foreground">
           Search {plan.region.name} by service, band name, wavelength or frequency.
         </span>
       )}
       {plan !== null && query.trim() !== "" && hits.length === 0 && (
-        <span className="text-sm text-ink-dim">Nothing in {plan.region.name} matches that.</span>
+        <EmptyState>Nothing in {plan.region.name} matches that.</EmptyState>
       )}
 
       {hits.map((hit) => {
@@ -63,7 +66,7 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
           <div key={`${hit.laneId}:${allocation.id}`} className="flex items-start gap-2">
             <Button
               type="button"
-              className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-panel-2 disabled:opacity-40"
+              className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-muted disabled:opacity-40"
               disabled={active === null}
               onClick={() =>
                 tune(allocation.start_hz, allocation.stop_hz, allocation.suggested ?? null)
@@ -74,9 +77,9 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
                   aria-hidden
                   className={`size-2 shrink-0 rounded-[1px] ${serviceEdge(allocation.service)}`}
                 />
-                <span className="min-w-0 truncate text-sm text-ink">{allocation.name}</span>
+                <span className="min-w-0 truncate text-sm text-foreground">{allocation.name}</span>
                 {allocation.suggested != null && (
-                  <span className={CHIP}>{allocation.suggested.type}</span>
+                  <Badge variant="secondary">{allocation.suggested.type}</Badge>
                 )}
               </span>
               <span className={`${LABEL} mt-0.5`}>
@@ -85,7 +88,9 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
                 {hit.laneId !== "allocation" && ` · ${hit.laneName}`}
               </span>
               {allocation.notes != null && (
-                <p className="mt-0.5 text-xs leading-snug text-ink-dim">{allocation.notes}</p>
+                <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                  {allocation.notes}
+                </p>
               )}
             </Button>
           </div>

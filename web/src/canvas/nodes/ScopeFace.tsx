@@ -5,8 +5,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { Button } from "../../components/BaseControls";
-import { plotButton, segment } from "../../components/controls";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { plotButton } from "../../components/controls";
 import { formatSignedKhz } from "../../components/format";
 import { Popover } from "../../components/Popover";
 import {
@@ -451,7 +452,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
       )}
 
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-1.5">
-        <span className="legend self-end text-right whitespace-pre text-plot-ink-dim">
+        <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 self-end text-right whitespace-pre text-plot-ink-dim">
           {meta !== null && `${formatCentre(meta, view)}${formatRange(meta)}`}
         </span>
         {/* Bottom-left: the only corner of the plot no data occupies, so the toolbar costs the
@@ -459,21 +460,24 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
         <div data-plot-chrome className="pointer-events-auto flex items-center gap-1 self-start">
           <Popover label={colormap} triggerClass={plotButton(false)} width="w-36">
             {(close) => (
-              <div className="flex flex-col gap-0.5">
+              <ToggleGroup
+                value={[colormap]}
+                orientation="vertical"
+                className="w-full items-stretch"
+                onValueChange={(next) => {
+                  const picked = next[0];
+                  if (picked !== undefined) {
+                    chooseColormap(picked as Colormap);
+                    close();
+                  }
+                }}
+              >
                 {COLORMAPS.map((name) => (
-                  <Button
-                    key={name}
-                    type="button"
-                    className={`${segment(name === colormap)} justify-start`}
-                    onClick={() => {
-                      chooseColormap(name);
-                      close();
-                    }}
-                  >
+                  <ToggleGroupItem key={name} value={name} className="justify-start">
                     {name}
-                  </Button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
+              </ToggleGroup>
             )}
           </Popover>
           <Button
@@ -505,7 +509,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
 
       {glError !== null && (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
-          <span className="rounded-[3px] border border-danger bg-bg/90 px-2 py-1 font-mono text-xs text-danger">
+          <span className="rounded-[3px] border border-destructive bg-background/90 px-2 py-1 font-mono text-xs text-destructive">
             waterfall unavailable: {glError}
           </span>
         </div>
@@ -558,7 +562,7 @@ function Divider({
     >
       <span
         aria-hidden
-        className="absolute inset-x-0 top-1 h-px bg-plot-ink-dim/25 group-hover:bg-accent"
+        className="absolute inset-x-0 top-1 h-px bg-plot-ink-dim/25 group-hover:bg-primary"
       />
     </div>
   );
@@ -624,7 +628,9 @@ function Markers({
             <span
               aria-hidden
               className={`absolute top-7 -translate-x-1/2 rounded-[2px] border px-1 py-px font-mono text-[10px] whitespace-nowrap tabular-nums ${
-                active ? "border-accent bg-bg text-accent" : "border-line bg-bg/85 text-ink-dim"
+                active
+                  ? "border-primary bg-background text-primary"
+                  : "border-border bg-background/85 text-muted-foreground"
               }`}
               style={{ left: `${at * 100}%` }}
             >

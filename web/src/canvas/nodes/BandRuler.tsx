@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Button } from "../../components/BaseControls";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import type { BandIdentity } from "../../components/bandPlan";
 import {
   identify,
@@ -9,7 +11,7 @@ import {
   spansIn,
   suggestedAt,
 } from "../../components/bandPlan";
-import { CHIP, LABEL, SURFACE } from "../../components/controls";
+import { LABEL } from "../../components/controls";
 import { formatHz } from "../../components/format";
 import { type SpectrumView, spanToOffset, viewWidth } from "../../components/spectrumView";
 import type { ChannelParams } from "../../lib/types";
@@ -62,14 +64,14 @@ export function BandRuler({
   };
 
   return (
-    <div ref={rulerRef} data-plot-chrome className="relative shrink-0 bg-bg">
+    <div ref={rulerRef} data-plot-chrome className="relative shrink-0 bg-background">
       {plan.lanes.map((lane) => {
         const spans = spansIn(plan, lane, lowHz, visibleHz);
         return (
           <Button
             key={lane.id}
             type="button"
-            className="relative block w-full cursor-help border-b border-line/60 last:border-b-0"
+            className="relative block w-full cursor-help border-b border-border/60 last:border-b-0"
             style={{ height: `${ROW_H}px` }}
             onClick={(event) => {
               event.stopPropagation();
@@ -91,7 +93,7 @@ export function BandRuler({
                   />
                 )}
                 {span.width >= LABEL_MIN && (
-                  <span className="absolute inset-y-0 left-1 flex items-center whitespace-nowrap font-mono text-[10px] text-ink">
+                  <span className="absolute inset-y-0 left-1 flex items-center whitespace-nowrap font-mono text-[10px] text-foreground">
                     {span.allocation.name}
                   </span>
                 )}
@@ -135,27 +137,23 @@ function IdentifyCard({
 }) {
   const suggested = suggestedAt(found);
   return (
-    <div
-      className={`absolute top-full z-20 mt-1 flex w-64 -translate-x-1/2 flex-col gap-1.5 p-2 ${SURFACE}`}
+    <Card
+      size="sm"
+      className="absolute top-full z-20 mt-1 w-64 -translate-x-1/2 gap-1.5 p-2"
       style={{ left: `clamp(8rem, ${at * 100}%, calc(100% - 8rem))` }}
       onKeyDown={(event) => event.key === "Escape" && onClose()}
       role="dialog"
       aria-label={`Allocation at ${formatHz(hz)}`}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-mono text-sm text-ink tabular-nums">{formatHz(hz)}</span>
-        <Button
-          type="button"
-          className="text-ink-faint hover:text-ink"
-          aria-label="Close"
-          onClick={onClose}
-        >
+        <span className="font-mono text-sm text-foreground tabular-nums">{formatHz(hz)}</span>
+        <Button type="button" variant="ghost" size="icon-xs" aria-label="Close" onClick={onClose}>
           ✕
         </Button>
       </div>
 
       {found.length === 0 && (
-        <span className="text-xs text-ink-dim">
+        <span className="text-xs text-muted-foreground">
           Nothing allocated here in this region's tables.
         </span>
       )}
@@ -173,7 +171,8 @@ function IdentifyCard({
       {found.length > 0 && (
         <Button
           type="button"
-          className="mt-0.5 h-7 rounded-[3px] border border-accent bg-accent/12 px-2 font-mono text-xs text-accent hover:bg-accent/20"
+          size="sm"
+          className="mt-0.5 font-mono"
           onClick={() => {
             onTune(hz, suggested);
             onClose();
@@ -183,7 +182,7 @@ function IdentifyCard({
           {suggested !== null && ` · ${suggested.type.toUpperCase()}`}
         </Button>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -198,24 +197,24 @@ function BandDetail({
 }) {
   const { allocation } = entry;
   return (
-    <div className="flex flex-col gap-0.5 border-t border-line pt-1.5 first:border-t-0 first:pt-0">
+    <div className="flex flex-col gap-0.5 border-t border-border pt-1.5 first:border-t-0 first:pt-0">
       <div className="flex items-center gap-1.5">
         <span
           aria-hidden
           className={`size-2 shrink-0 rounded-[1px] ${serviceEdge(allocation.service)}`}
         />
-        <span className="min-w-0 truncate text-sm text-ink">{allocation.name}</span>
+        <span className="min-w-0 truncate text-sm text-foreground">{allocation.name}</span>
         {!allocation.primary && (
-          <span className={CHIP} title="Must accept interference from every primary service">
+          <Badge variant="secondary" title="Must accept interference from every primary service">
             secondary
-          </span>
+          </Badge>
         )}
       </div>
       {/* The regulator's own wording, under the operator's. It is the citable one and the one a
           reader checking against the source document will search for — and where the friendly
           name came from an annotation, this is the line that says what was actually allocated. */}
       {allocation.official_name !== allocation.name && (
-        <span className="truncate font-mono text-[11px] text-ink-dim">
+        <span className="truncate font-mono text-[11px] text-muted-foreground">
           {allocation.official_name}
         </span>
       )}
@@ -225,14 +224,14 @@ function BandDetail({
         {allocation.reference != null && ` · ${allocation.reference}`}
       </span>
       {allocation.channel_step_hz != null && (
-        <span className={CHIP}>{formatHz(allocation.channel_step_hz)} channels</span>
+        <Badge variant="secondary">{formatHz(allocation.channel_step_hz)} channels</Badge>
       )}
       {allocation.notes != null && (
-        <p className="text-xs leading-snug text-ink-dim">{allocation.notes}</p>
+        <p className="text-xs leading-snug text-muted-foreground">{allocation.notes}</p>
       )}
       {covered &&
         entry.covered.map((under) => (
-          <span key={under.id} className="text-[11px] text-ink-faint">
+          <span key={under.id} className="text-[11px] text-muted-foreground/70">
             {under.layer === allocation.layer ? "also" : `over ${layerName(under.layer)}:`}{" "}
             {under.name}
           </span>

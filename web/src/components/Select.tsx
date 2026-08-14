@@ -1,5 +1,11 @@
-import { Select as Primitive } from "@base-ui/react/select";
-import { FIELD, type Options, SURFACE, segment } from "./controls";
+import {
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Select as ShadcnSelect,
+} from "@/components/ui/select";
+import { type Options } from "./controls";
 import { usePortalContainer } from "./PortalContainer";
 
 /** A device — or a preset — can hold a value that is not one of the discrete points its
@@ -30,7 +36,7 @@ export function Select<T extends string | number>({
 }) {
   const portalContainer = usePortalContainer();
   return (
-    <Primitive.Root
+    <ShadcnSelect
       items={options}
       value={value}
       // Matching the option back by value keeps the call site's literal union; the change
@@ -42,52 +48,28 @@ export function Select<T extends string | number>({
         }
       }}
     >
-      <Primitive.Trigger
+      <SelectTrigger
         // The list owns the arrows and the typeahead letters; without this the tuning layer
         // would act on them too (`useHotkeys`).
         data-hotkeys="off"
         aria-label={label}
-        className={`${FIELD} justify-between ${className ?? ""}`}
+        size="sm"
+        className={className}
       >
-        <Primitive.Value className="truncate" />
-        <Primitive.Icon aria-hidden className="shrink-0 text-ink-faint">
-          ▾
-        </Primitive.Icon>
-      </Primitive.Trigger>
-      <Primitive.Portal container={portalContainer} className="contents">
-        {/* A drop-down, not the macOS overlay Base UI defaults to: a list that opens on top of
-            its own trigger hides the value being changed. */}
-        <Primitive.Positioner
-          className="z-30"
-          alignItemWithTrigger={false}
-          side="bottom"
-          align="start"
-          sideOffset={4}
-        >
-          <Primitive.Popup
-            data-hotkeys="off"
-            className={`${SURFACE} max-w-[calc(100vw-1rem)] min-w-[var(--anchor-width)]`}
-          >
-            {/* A column flex, not `w-full` items: the positioner is shrink-to-fit, and a
-                percentage width inside one resolves against the whole viewport. */}
-            <Primitive.List className="flex max-h-[var(--available-height)] flex-col overflow-y-auto p-0.5">
-              {options.map((option) => (
-                <Primitive.Item
-                  key={String(option.value)}
-                  value={option.value}
-                  className={(state) =>
-                    `${segment(state.selected)} justify-start ${
-                      state.highlighted && !state.selected ? "bg-panel-2 text-ink" : ""
-                    }`
-                  }
-                >
-                  <Primitive.ItemText>{option.label}</Primitive.ItemText>
-                </Primitive.Item>
-              ))}
-            </Primitive.List>
-          </Primitive.Popup>
-        </Primitive.Positioner>
-      </Primitive.Portal>
-    </Primitive.Root>
+        <SelectValue className="truncate" />
+      </SelectTrigger>
+      <SelectContent
+        container={portalContainer}
+        data-hotkeys="off"
+        alignItemWithTrigger={false}
+        align="start"
+      >
+        {options.map((option) => (
+          <SelectItem key={String(option.value)} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </ShadcnSelect>
   );
 }

@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { BOOKMARKS_KEY, bookmarksQuery, createBookmark, deleteBookmark } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { CreateBookmarkRequest, DeviceSet } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
-import { Button, Form, Input } from "./BaseControls";
-import { BTN, FIELD } from "./controls";
+import { EmptyState } from "./EmptyState";
 import { formatMhz } from "./format";
 
 export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
@@ -42,11 +43,11 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
   return (
     <div className="flex flex-col gap-2 p-3">
       {active === null && (
-        <span className="text-sm text-ink-dim">
+        <span className="text-sm text-muted-foreground">
           Nothing to tune or save from: select a device node on the canvas first.
         </span>
       )}
-      <Form
+      <form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
           e.preventDefault();
@@ -60,14 +61,14 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
         }}
       >
         <Input
-          className={`${FIELD} min-w-0 flex-1`}
+          className="min-w-0 flex-1"
           placeholder="Label current frequency"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           aria-label="Bookmark label"
         />
         <Input
-          className={`${FIELD} w-16`}
+          className="w-16"
           placeholder="mode"
           value={mode}
           onChange={(e) => setMode(e.target.value)}
@@ -75,32 +76,36 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
         />
         <Button
           type="submit"
-          className={BTN}
+          variant="outline"
+          size="sm"
           disabled={centerHz == null || label.trim() === "" || addMut.isPending}
         >
           Save
         </Button>
-      </Form>
+      </form>
 
       {sorted.map((b) => (
         <div key={b.id} className="flex items-center gap-2">
           <Button
             type="button"
-            className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-panel-2 disabled:opacity-40 max-md:min-h-10"
+            className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-muted disabled:opacity-40 max-md:min-h-10"
             disabled={!active}
             onClick={() => active && applyPatch(active.id, { center_hz: b.freq_hz })}
           >
-            <span className="font-mono text-sm tabular-nums text-ink">{formatMhz(b.freq_hz)}</span>
-            <span className="ml-2 text-sm text-ink-dim">{b.label}</span>
+            <span className="font-mono text-sm tabular-nums text-foreground">
+              {formatMhz(b.freq_hz)}
+            </span>
+            <span className="ml-2 text-sm text-muted-foreground">{b.label}</span>
             {b.mode != null && b.mode !== "" && (
-              <span className="ml-2 rounded border border-line px-1 font-mono text-[10px] uppercase text-ink-dim">
+              <span className="ml-2 rounded border border-border px-1 font-mono text-[10px] uppercase text-muted-foreground">
                 {b.mode}
               </span>
             )}
           </Button>
           <Button
             type="button"
-            className={`${BTN} hover:border-danger hover:text-danger`}
+            variant="destructive"
+            size="sm"
             disabled={deleteMut.isPending}
             onClick={() => deleteMut.mutate(b.id)}
           >
@@ -108,9 +113,7 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
           </Button>
         </div>
       ))}
-      {bookmarks.data?.length === 0 && (
-        <span className="text-sm text-ink-dim">No bookmarks yet.</span>
-      )}
+      {bookmarks.data?.length === 0 && <EmptyState>No bookmarks yet.</EmptyState>}
     </div>
   );
 }

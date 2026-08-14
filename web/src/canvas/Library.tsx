@@ -6,10 +6,9 @@
 // radio wholesale, so its cards name the radio on the button that does it; presets cover the
 // whole workspace (`PresetSnapshot`); bookmarks and the band search tune whatever the operator
 // has selected, and only say so when there is nothing to tune.
-import { Tabs } from "@base-ui/react/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BandsPanel } from "../components/BandsPanel";
 import { BookmarksPanel } from "../components/BookmarksPanel";
-import { segment } from "../components/controls";
 import { PresetsPanel } from "../components/PresetsPanel";
 import { RecordingsPanel } from "../components/RecordingsPanel";
 import { TemplatesPanel } from "../components/TemplatesPanel";
@@ -61,35 +60,36 @@ export function Library() {
   };
 
   return (
-    <Tabs.Root defaultValue="templates" className="flex flex-col overflow-hidden rounded-md">
+    <Tabs defaultValue="templates" className="flex flex-col gap-0 overflow-hidden rounded-md">
       {/* A header band, like a node's: the sections stay put while their content scrolls under
           them, and the drawer reads as one instrument rather than a list that starts with five
           loose buttons. */}
-      <Tabs.List
-        className="flex shrink-0 items-center gap-0.5 border-b border-line bg-panel-2 px-2 py-1.5"
+      <TabsList
+        variant="line"
+        className="flex h-10 w-full shrink-0 items-center justify-start gap-0.5 border-b border-border bg-muted px-2 py-1.5"
         aria-label="Library section"
       >
         {TABS.map((entry) => (
-          <Tabs.Tab key={entry.id} value={entry.id} className={(state) => segment(state.active)}>
+          <TabsTrigger key={entry.id} value={entry.id}>
             {entry.label}
-          </Tabs.Tab>
+          </TabsTrigger>
         ))}
-      </Tabs.List>
-      <Tabs.Panel value="templates" className="max-h-[28rem] overflow-y-auto">
+      </TabsList>
+      <TabsContent value="templates" className="max-h-[28rem] overflow-y-auto">
         <TemplatesPanel active={active} onApplied={() => workspace.apply()} />
-      </Tabs.Panel>
-      <Tabs.Panel value="presets" className="max-h-[28rem] overflow-y-auto">
+      </TabsContent>
+      <TabsContent value="presets" className="max-h-[28rem] overflow-y-auto">
         <PresetsPanel />
-      </Tabs.Panel>
-      <Tabs.Panel value="bookmarks" className="max-h-[28rem] overflow-y-auto">
+      </TabsContent>
+      <TabsContent value="bookmarks" className="max-h-[28rem] overflow-y-auto">
         <BookmarksPanel active={active} />
-      </Tabs.Panel>
-      <Tabs.Panel value="bands" className="max-h-[28rem] overflow-y-auto">
+      </TabsContent>
+      <TabsContent value="bands" className="max-h-[28rem] overflow-y-auto">
         <BandsPanel active={active} />
-      </Tabs.Panel>
-      <Tabs.Panel value="recordings" className="max-h-[28rem] overflow-y-auto">
+      </TabsContent>
+      <TabsContent value="recordings" className="max-h-[28rem] overflow-y-auto">
         <RecordingsPanel onOpen={openRecording} />
-      </Tabs.Panel>
-    </Tabs.Root>
+      </TabsContent>
+    </Tabs>
   );
 }

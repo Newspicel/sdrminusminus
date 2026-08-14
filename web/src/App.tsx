@@ -1,6 +1,14 @@
 import { type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { bindChannels, bindDevices, deviceNodeOf } from "./canvas/binding";
 import { Canvas } from "./canvas/Canvas";
 import { WorkspaceProvider } from "./canvas/context";
@@ -11,8 +19,6 @@ import { useHotkeys } from "./canvas/useHotkeys";
 import { useWorkspace } from "./canvas/useWorkspace";
 import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
 import { AboutPanel } from "./components/AboutPanel";
-import { Button } from "./components/BaseControls";
-import { BTN_PRIMARY } from "./components/controls";
 import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
 import { ServerDown } from "./components/ServerDown";
 import { Shortcuts } from "./components/Shortcuts";
@@ -320,7 +326,7 @@ export function App() {
 
   return (
     <TokenGate onToken={() => socket?.retryNow()}>
-      <div className="flex h-full flex-col bg-bg text-ink">
+      <div className="flex h-full flex-col bg-background text-foreground">
         {socket !== null && snapshot !== null && (
           <WorkspaceProvider
             value={{
@@ -364,15 +370,17 @@ export function App() {
         {/* Deleting the last workspace leaves the workspace with none, honestly (the server says
             so rather than inventing one); the only thing to offer is a new one. */}
         {workspace.unreachable === null && workspace.active === null && !workspace.pending && (
-          <div className="flex min-h-0 flex-1 items-center justify-center">
-            <Button
-              type="button"
-              className={BTN_PRIMARY}
-              onClick={() => workspace.create("Workspace")}
-            >
-              Create a workspace
-            </Button>
-          </div>
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No workspace</EmptyTitle>
+              <EmptyDescription>Create one to start arranging a radio patch.</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button type="button" onClick={() => workspace.create("Workspace")}>
+                Create a workspace
+              </Button>
+            </EmptyContent>
+          </Empty>
         )}
 
         <Shortcuts open={showShortcuts} onOpenChange={setShowShortcuts} />

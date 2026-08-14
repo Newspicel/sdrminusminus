@@ -1,10 +1,12 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Button } from "../../components/BaseControls";
-import { BTN, BTN_DANGER, CHIP, LABEL } from "../../components/controls";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { LABEL } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
 import type { WireScope } from "../../components/decoderLog";
+import { InlineAlert } from "../../components/InlineAlert";
 import { MapPanel } from "../../components/MapPanel";
 import {
   deriveRecordControl,
@@ -91,11 +93,12 @@ function AudioInput({ input }: { input: Input }) {
   const audio = useChannelAudio(workspace.socket, input.deviceSet, input.channel.id);
   const label = workspace.graph.nodes.find((n) => n.id === input.node)?.label;
   return (
-    <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">
+    <div className="flex flex-col gap-1 border-b border-border p-2 last:border-b-0">
       <div className="flex items-center gap-2">
         <Button
           type="button"
-          className={audio.playing ? BTN_DANGER : BTN}
+          variant={audio.playing ? "destructive" : "outline"}
+          size="sm"
           onClick={() => {
             // iOS resumes output only inside a gesture, so the click does both.
             audio.resumeOutput();
@@ -108,7 +111,7 @@ function AudioInput({ input }: { input: Input }) {
         >
           {audio.playing ? "Stop" : audio.pending ? "…" : "Play"}
         </Button>
-        <span className="legend truncate">
+        <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 truncate">
           {label ?? input.channel.settings.params.type.toUpperCase()}
         </span>
       </div>
@@ -121,16 +124,12 @@ function AudioInput({ input }: { input: Input }) {
         onChange={audio.setVolume}
       />
       {audio.suspended && (
-        <Button type="button" className={BTN} onClick={audio.resumeOutput}>
+        <Button type="button" variant="outline" size="sm" onClick={audio.resumeOutput}>
           Audio is suspended — click to resume
         </Button>
       )}
       <AudioHealth lostFrames={audio.lostFrames} underruns={audio.underruns} />
-      {audio.error !== null && (
-        <p role="alert" className="text-xs text-danger">
-          {audio.error}
-        </p>
-      )}
+      {audio.error !== null && <InlineAlert className="text-xs">{audio.error}</InlineAlert>}
     </div>
   );
 }
@@ -149,22 +148,26 @@ function AudioHealth({
   return (
     <span className="flex flex-wrap gap-1">
       {lostFrames > 0 && (
-        <span
-          className={CHIP}
+        <Badge
+          variant="secondary"
           title="Audio that never reached the browser — dropped at the radio, the encoder or the link. Check the radio's overruns and the server, not this machine."
         >
-          <span className="legend">Dropped</span>
+          <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+            Dropped
+          </span>
           {(lostFrames / 48).toFixed(0)} ms
-        </span>
+        </Badge>
       )}
       {underruns > 0 && (
-        <span
-          className={CHIP}
+        <Badge
+          variant="secondary"
           title="Audio arrived but playback ran dry before it could be played — this machine's scheduling or a clock the buffer could not track. The buffer holds more after each one."
         >
-          <span className="legend">Stalls</span>
+          <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+            Stalls
+          </span>
           {underruns}
-        </span>
+        </Badge>
       )}
     </span>
   );
@@ -254,9 +257,9 @@ export function ReadoutFace({ node }: { node: PatchNode }) {
           </FaceEmpty>
         ) : (
           readable.map(({ input, kind }) => (
-            <div key={input.node} className="border-b border-line last:border-b-0">
+            <div key={input.node} className="border-b border-border last:border-b-0">
               {readable.length > 1 && (
-                <span className="legend block px-3 pt-2">
+                <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 block px-3 pt-2">
                   {workspace.graph.nodes.find((n) => n.id === input.node)?.label ??
                     input.channel.settings.params.type.toUpperCase()}
                 </span>
@@ -335,13 +338,13 @@ export function CallRow({ call }: { call: VoiceCall }) {
     second: "2-digit",
   });
   return (
-    <article className="flex flex-col gap-2 border-b border-line p-2 last:border-b-0">
+    <article className="flex flex-col gap-2 border-b border-border p-2 last:border-b-0">
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <strong className="truncate font-mono text-xs text-ink">{destination}</strong>
-        <span className={CHIP}>{source}</span>
-        {call.slot != null && <span className={CHIP}>TS {call.slot}</span>}
-        {call.color_code != null && <span className={CHIP}>CC {call.color_code}</span>}
-        <span className="ml-auto font-mono text-[10px] text-ink-faint">
+        <strong className="truncate font-mono text-xs text-foreground">{destination}</strong>
+        <Badge variant="secondary">{source}</Badge>
+        {call.slot != null && <Badge variant="secondary">TS {call.slot}</Badge>}
+        {call.color_code != null && <Badge variant="secondary">CC {call.color_code}</Badge>}
+        <span className="ml-auto font-mono text-[10px] text-muted-foreground/70">
           {when} · {(call.duration_ms / 1000).toFixed(1)} s
         </span>
       </div>
@@ -355,12 +358,10 @@ export function CallRow({ call }: { call: VoiceCall }) {
           src={callAudioUrl(call.audio.url)}
         />
       ) : (
-        <span className="text-xs text-ink-dim">Audio was not retained.</span>
+        <span className="text-xs text-muted-foreground">Audio was not retained.</span>
       )}
       {call.audio_error != null && (
-        <p role="alert" className="text-xs text-danger">
-          {call.audio_error}
-        </p>
+        <InlineAlert className="text-xs">{call.audio_error}</InlineAlert>
       )}
     </article>
   );
@@ -387,9 +388,14 @@ export function ExportFace({ node }: { node: PatchNode }) {
             <span className={LABEL}>Stored rows</span>
             <div className="flex gap-2">
               {(["csv", "json"] as const).map((format) => (
-                <a key={format} className={BTN} href={decoderLogExportUrl(format, wires)} download>
+                <Button
+                  key={format}
+                  render={<a href={decoderLogExportUrl(format, wires)} download />}
+                  variant="outline"
+                  size="sm"
+                >
                   {format.toUpperCase()}
-                </a>
+                </Button>
               ))}
             </div>
           </div>
@@ -437,12 +443,13 @@ function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
       <div className="flex flex-col gap-2 p-2">
         <Button
           type="button"
-          className={BTN}
+          variant="outline"
+          size="sm"
           disabled={!control.canStart || record.isPending}
           title={control.canStart ? "Record IQ to a SigMF pair" : "The radio must be running"}
           onClick={() => record.mutate("start")}
         >
-          <span aria-hidden className="text-danger">
+          <span aria-hidden className="text-destructive">
             ●
           </span>
           Record
@@ -455,19 +462,16 @@ function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
     <div className="flex flex-col gap-2 p-2">
       <Button
         type="button"
-        className={BTN_DANGER}
+        variant="destructive"
+        size="sm"
         disabled={record.isPending}
         onClick={() => record.mutate("stop")}
       >
         Stop
       </Button>
       <RecordingReadout status={status} sampleRate={set.settings.sample_rate ?? 0} />
-      <span className={CHIP}>{status.file}</span>
-      {status.error != null && (
-        <p role="alert" className="text-xs text-danger">
-          {status.error}
-        </p>
-      )}
+      <Badge variant="secondary">{status.file}</Badge>
+      {status.error != null && <InlineAlert className="text-xs">{status.error}</InlineAlert>}
     </div>
   );
 }
@@ -486,10 +490,10 @@ function RecordingReadout({ status, sampleRate }: { status: RecordingStatus; sam
     return () => clearInterval(timer);
   }, [faulted]);
   return (
-    <span className={CHIP}>
+    <Badge variant="secondary">
       {formatDuration(recordingElapsedS(status, now, sampleRate))} · {formatBytes(status.bytes)}
       {status.overruns > 0 && ` · ${status.overruns} drops`}
-    </span>
+    </Badge>
   );
 }
 

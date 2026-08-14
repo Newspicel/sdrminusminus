@@ -1,10 +1,11 @@
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import type { ChannelDescriptor, ChannelInfo, ChannelParams } from "../lib/types";
 import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
-import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import { type ChannelParamsOf, clampOffsetHz, offsetLimitHz } from "./channelSettings";
-import { BTN, CHECK_LABEL, LABEL, type Options } from "./controls";
+import { CHECK_LABEL, LABEL, type Options } from "./controls";
 import { formatKhz } from "./format";
 import { NumberField, OptionalNumberField } from "./NumberField";
 import { Segmented } from "./Segmented";
@@ -145,7 +146,9 @@ export function ChannelControls({
           <Button
             key={step}
             type="button"
-            className={`${BTN} font-mono tabular-nums`}
+            variant="outline"
+            size="sm"
+            className="font-mono tabular-nums"
             onClick={() =>
               onEdit((current) => ({
                 offset_hz: clampOffsetHz((current.offset_hz ?? 0) + step, limitHz),
@@ -165,7 +168,9 @@ export function ChannelControls({
           onCommit={(khz) => onEdit({ offset_hz: Math.round(khz * 1000) })}
           className="w-24"
         />
-        <span className="legend">kHz</span>
+        <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+          kHz
+        </span>
       </div>
 
       {/* Wrapping, not nowrap: a node face is as narrow as the operator drags it, and the
@@ -174,7 +179,7 @@ export function ChannelControls({
         {/* The label is the box and its word, not the row: with the slider inside it too, a
             click anywhere in the row — the threshold readout included — was forwarded to the
             box and turned squelch off. */}
-        <label className={CHECK_LABEL}>
+        <Label className={CHECK_LABEL}>
           <Checkbox
             checked={squelchDb !== null}
             onChange={(on) => {
@@ -187,8 +192,10 @@ export function ChannelControls({
               }
             }}
           />
-          <span className="legend">Squelch</span>
-        </label>
+          <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+            Squelch
+          </span>
+        </Label>
         {squelchDb !== null && (
           <>
             <Slider
@@ -200,7 +207,7 @@ export function ChannelControls({
               value={squelchSlider.pending ?? squelchDb}
               onChange={squelchSlider.change}
             />
-            <span className="w-12 text-right font-mono text-xs text-ink tabular-nums">
+            <span className="w-12 text-right font-mono text-xs text-foreground tabular-nums">
               {(squelchSlider.pending ?? squelchDb).toFixed(0)}
             </span>
           </>
@@ -227,15 +234,15 @@ function ModeControls({
       const set = (settings: ChannelParamsOf<"nfm">) => onParams({ type: "nfm", settings });
       return (
         <>
-          <label className={LABEL}>
+          <Label className={LABEL}>
             BW
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 12_500}
               optionsHz={[12_500, 25_000]}
               onCommit={(bandwidth_hz) => set({ ...params.settings, bandwidth_hz })}
             />
-          </label>
-          <label className={LABEL}>
+          </Label>
+          <Label className={LABEL}>
             Tone
             <Select
               label="Tone squelch"
@@ -252,9 +259,9 @@ function ModeControls({
                 })
               }
             />
-          </label>
+          </Label>
           {mode === "ctcss" && (
-            <label className={LABEL}>
+            <Label className={LABEL}>
               CTCSS
               <Select
                 label="CTCSS tone"
@@ -262,10 +269,10 @@ function ModeControls({
                 options={CTCSS_OPTIONS}
                 onChange={(ctcss_hz) => set({ ...params.settings, ctcss_hz })}
               />
-            </label>
+            </Label>
           )}
           {mode === "dcs" && (
-            <label className={LABEL}>
+            <Label className={LABEL}>
               DCS
               <Select
                 label="DCS code"
@@ -273,7 +280,7 @@ function ModeControls({
                 options={DCS_OPTIONS}
                 onChange={(dcs_code) => set({ ...params.settings, dcs_code })}
               />
-            </label>
+            </Label>
           )}
         </>
       );
@@ -281,7 +288,7 @@ function ModeControls({
     case "am":
       return (
         <>
-          <label className={LABEL}>
+          <Label className={LABEL}>
             BW
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 10_000}
@@ -290,7 +297,7 @@ function ModeControls({
                 onParams({ type: "am", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
+          </Label>
           <Toggle
             label="AGC"
             checked={params.settings.agc ?? true}
@@ -309,7 +316,7 @@ function ModeControls({
               onParams({ type: "ssb", settings: { ...params.settings, sideband } })
             }
           />
-          <label className={LABEL}>
+          <Label className={LABEL}>
             BW
             <NumberField
               label="SSB bandwidth (Hz)"
@@ -323,7 +330,7 @@ function ModeControls({
               className="w-20"
             />
             Hz
-          </label>
+          </Label>
           <Toggle
             label="AGC"
             checked={params.settings.agc ?? true}
@@ -334,7 +341,7 @@ function ModeControls({
     case "wfm":
       return (
         <>
-          <label className={LABEL}>
+          <Label className={LABEL}>
             De-emphasis
             <Select
               label="De-emphasis (µs)"
@@ -344,7 +351,7 @@ function ModeControls({
                 onParams({ type: "wfm", settings: { ...params.settings, deemphasis_us } })
               }
             />
-          </label>
+          </Label>
           <Toggle
             label="Stereo"
             checked={params.settings.stereo ?? true}
@@ -357,7 +364,7 @@ function ModeControls({
     case "pocsag":
       return (
         <>
-          <label className={LABEL}>
+          <Label className={LABEL}>
             Baud
             <Select
               label="POCSAG baud"
@@ -367,8 +374,8 @@ function ModeControls({
                 onParams({ type: "pocsag", settings: { ...params.settings, baud } })
               }
             />
-          </label>
-          <label className={LABEL}>
+          </Label>
+          <Label className={LABEL}>
             BW
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 12_500}
@@ -377,7 +384,7 @@ function ModeControls({
                 onParams({ type: "pocsag", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
+          </Label>
           <Toggle
             label="Invert"
             checked={params.settings.invert ?? false}
@@ -416,7 +423,7 @@ function ModeControls({
     case "aprs":
       return (
         <>
-          <label className={LABEL}>
+          <Label className={LABEL}>
             Mode
             <Select
               label="APRS mode"
@@ -426,8 +433,8 @@ function ModeControls({
                 onParams({ type: "aprs", settings: { ...params.settings, mode } })
               }
             />
-          </label>
-          <label className={LABEL}>
+          </Label>
+          <Label className={LABEL}>
             BW
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 12_500}
@@ -436,7 +443,7 @@ function ModeControls({
                 onParams({ type: "aprs", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
+          </Label>
         </>
       );
     case "rtty":
@@ -471,7 +478,7 @@ function ModeControls({
             />
             Hz
           </span>
-          <label className={LABEL}>
+          <Label className={LABEL}>
             Stop
             <Select
               label="RTTY stop bits"
@@ -481,7 +488,7 @@ function ModeControls({
                 onParams({ type: "rtty", settings: { ...params.settings, stop_bits } })
               }
             />
-          </label>
+          </Label>
           <Toggle
             label="Invert"
             checked={params.settings.invert ?? false}
@@ -501,7 +508,7 @@ function ModeControls({
     case "morse":
       return (
         <>
-          <label className={LABEL}>
+          <Label className={LABEL}>
             BW
             <NumberField
               label="CW filter bandwidth (Hz)"
@@ -514,8 +521,8 @@ function ModeControls({
               }
             />
             Hz
-          </label>
-          <label className={LABEL}>
+          </Label>
+          <Label className={LABEL}>
             WPM
             <OptionalNumberField
               label="Morse speed (WPM), empty to auto-track"
@@ -526,7 +533,7 @@ function ModeControls({
               step={1}
               onCommit={(wpm) => onParams({ type: "morse", settings: { ...params.settings, wpm } })}
             />
-          </label>
+          </Label>
         </>
       );
     case "navtex":
@@ -543,7 +550,7 @@ function ModeControls({
       );
     case "acars":
       return (
-        <label className={LABEL}>
+        <Label className={LABEL}>
           BW
           <BandwidthSelect
             valueHz={params.settings.bandwidth_hz ?? 12_500}
@@ -552,7 +559,7 @@ function ModeControls({
               onParams({ type: "acars", settings: { ...params.settings, bandwidth_hz } })
             }
           />
-        </label>
+        </Label>
       );
     case "subghz":
       return (
@@ -565,7 +572,7 @@ function ModeControls({
               onParams({ type: "subghz", settings: { ...params.settings, modulation } })
             }
           />
-          <label className={LABEL}>
+          <Label className={LABEL}>
             BW
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 150_000}
@@ -574,8 +581,8 @@ function ModeControls({
                 onParams({ type: "subghz", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
-          <label className={LABEL}>
+          </Label>
+          <Label className={LABEL}>
             Min pulse
             <NumberField
               label="Shortest keying edge accepted (µs)"
@@ -589,8 +596,8 @@ function ModeControls({
               className="w-20"
             />
             µs
-          </label>
-          <label className={LABEL}>
+          </Label>
+          <Label className={LABEL}>
             Frame gap
             <NumberField
               label="Silence that ends a frame (µs)"
@@ -604,7 +611,7 @@ function ModeControls({
               className="w-24"
             />
             µs
-          </label>
+          </Label>
         </>
       );
     case "atv":
@@ -618,7 +625,7 @@ function ModeControls({
               onParams({ type: "atv", settings: { ...params.settings, modulation } })
             }
           />
-          <label className={LABEL}>
+          <Label className={LABEL}>
             Lines
             <Select
               label="Scanning standard"
@@ -628,8 +635,8 @@ function ModeControls({
                 onParams({ type: "atv", settings: { ...params.settings, standard } })
               }
             />
-          </label>
-          <label className={LABEL}>
+          </Label>
+          <Label className={LABEL}>
             BW
             <BandwidthSelect
               valueHz={params.settings.bandwidth_hz ?? 1_500_000}
@@ -638,7 +645,7 @@ function ModeControls({
                 onParams({ type: "atv", settings: { ...params.settings, bandwidth_hz } })
               }
             />
-          </label>
+          </Label>
           <Toggle
             label="Interlace"
             checked={params.settings.interlace ?? true}
@@ -728,10 +735,10 @@ function Toggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className={CHECK_LABEL}>
+    <Label className={CHECK_LABEL}>
       <Checkbox checked={checked} onChange={onChange} />
       {label}
-    </label>
+    </Label>
   );
 }
 

@@ -1,10 +1,22 @@
-import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { devicesQuery, doctorQuery } from "../lib/api";
 import type { DeviceInfo } from "../lib/types";
-import { Button, Form, Input } from "./BaseControls";
-import { BTN, BTN_PRIMARY, BTN_QUIET, FIELD, LABEL, SURFACE } from "./controls";
+import { LABEL } from "./controls";
+import { EmptyState } from "./EmptyState";
+import { InlineAlert } from "./InlineAlert";
 import { Select } from "./Select";
 
 function deviceRank(device: DeviceInfo): number {
@@ -93,7 +105,7 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
   const id = networkDeviceId(driver, address);
 
   return (
-    <Form
+    <form
       className="flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault();
@@ -114,22 +126,22 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
       </div>
       <div className="flex items-center gap-2">
         <Input
-          className={`${FIELD} w-full`}
+          className="w-full"
           type="text"
           aria-label="Radio address"
           placeholder={backend.placeholder}
           value={address}
           onChange={(event) => setAddress(event.target.value)}
         />
-        <Button type="submit" className={BTN} disabled={busy || id === null}>
+        <Button type="submit" variant="outline" size="sm" disabled={busy || id === null}>
           Add
         </Button>
       </div>
-      <p className="text-xs text-ink-dim">
+      <p className="text-xs text-muted-foreground">
         The port may be left off — {backend.label} defaults to{" "}
         {backend.placeholder.split(":").pop()}.
       </p>
-    </Form>
+    </form>
   );
 }
 
@@ -146,58 +158,55 @@ function RecordingChoices({
   const filtered = filterRecordingDevices(recordings, query);
 
   return (
-    <Dialog.Root
+    <Dialog
       onOpenChange={(open) => {
         if (!open) setQuery("");
       }}
     >
-      <Dialog.Trigger className={`${BTN} justify-center`} disabled={busy}>
+      <DialogTrigger
+        render={<Button variant="outline" size="sm" className="justify-center" disabled={busy} />}
+      >
         Recordings ({recordings.length})
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-bg/70" />
-        <Dialog.Popup
-          className={`${SURFACE} fixed top-1/2 left-1/2 z-40 flex max-h-[80vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col p-4`}
-        >
-          <Dialog.Title className="text-base font-medium text-ink">Recordings</Dialog.Title>
-          <Dialog.Description className="mt-1 text-xs text-ink-dim">
-            Choose a saved IQ recording to open as a source.
-          </Dialog.Description>
-          <Input
-            className={`${FIELD} mt-3 w-full shrink-0`}
-            type="search"
-            name="recording-filter"
-            placeholder="Search recordings"
-            aria-label="Search recordings"
-            autoFocus
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <div className="mt-2 flex min-h-0 flex-col gap-1 overflow-y-auto">
-            {filtered.map((device) => (
-              <Button
-                key={deviceId(device)}
-                type="button"
-                className={`${BTN} h-auto min-h-7 shrink-0 justify-start py-1.5 text-left`}
-                disabled={busy}
-                onClick={() => onChoose(device)}
-              >
-                <span className="truncate">{device.label}</span>
-              </Button>
-            ))}
-            {recordings.length === 0 && (
-              <p className="py-3 text-center text-sm text-ink-dim">No recordings yet.</p>
-            )}
-            {recordings.length > 0 && filtered.length === 0 && (
-              <p className="py-3 text-center text-sm text-ink-dim">No matching recordings.</p>
-            )}
-          </div>
-          <div className="mt-4 flex shrink-0 justify-end">
-            <Dialog.Close className={BTN}>Close</Dialog.Close>
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+      </DialogTrigger>
+      <DialogContent className="flex max-h-[80vh] max-w-lg flex-col" showCloseButton={false}>
+        <DialogTitle className="text-base font-medium text-foreground">Recordings</DialogTitle>
+        <DialogDescription className="mt-1 text-xs text-muted-foreground">
+          Choose a saved IQ recording to open as a source.
+        </DialogDescription>
+        <Input
+          className="mt-3 w-full shrink-0"
+          type="search"
+          name="recording-filter"
+          placeholder="Search recordings"
+          aria-label="Search recordings"
+          autoFocus
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <div className="mt-2 flex min-h-0 flex-col gap-1 overflow-y-auto">
+          {filtered.map((device) => (
+            <Button
+              key={deviceId(device)}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-auto min-h-7 shrink-0 justify-start py-1.5 text-left"
+              disabled={busy}
+              onClick={() => onChoose(device)}
+            >
+              <span className="truncate">{device.label}</span>
+            </Button>
+          ))}
+          {recordings.length === 0 && <EmptyState>No recordings yet.</EmptyState>}
+          {recordings.length > 0 && filtered.length === 0 && (
+            <EmptyState>No matching recordings.</EmptyState>
+          )}
+        </div>
+        <DialogFooter className="mt-4 shrink-0">
+          <DialogClose render={<Button variant="outline" size="sm" />}>Close</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -228,7 +237,9 @@ export function DeviceChoices({
           <Button
             key={deviceId(device)}
             type="button"
-            className={`${index === 0 ? BTN_PRIMARY : BTN} justify-center`}
+            variant={index === 0 ? "default" : "outline"}
+            size="sm"
+            className="justify-center"
             disabled={busy}
             onClick={() => onChoose(device)}
           >
@@ -237,24 +248,22 @@ export function DeviceChoices({
         ))}
       </div>
 
-      {devices.isPending && <p className="text-sm text-ink-dim">Looking for devices…</p>}
+      {devices.isPending && <Skeleton className="h-8 w-full" />}
       {!devices.isPending && radios.length === 0 && (
-        <p className="text-sm text-ink-dim">
+        <p className="text-sm text-muted-foreground">
           No radios found. Plug one in, open a recording, or check the diagnostics below.
         </p>
       )}
 
-      {error !== null && (
-        <p role="alert" className="font-mono text-xs text-danger">
-          {error}
-        </p>
-      )}
+      {error !== null && <InlineAlert className="font-mono text-xs">{error}</InlineAlert>}
 
       <RecordingChoices recordings={recordings} onChoose={onChoose} busy={busy} />
 
       <Button
         type="button"
-        className={`${BTN_QUIET} self-center`}
+        variant="ghost"
+        size="sm"
+        className="self-center"
         onClick={() => setShowNetwork(!showNetwork)}
       >
         {showNetwork ? "Hide network radio" : "Radio on the network?"}
@@ -263,7 +272,9 @@ export function DeviceChoices({
 
       <Button
         type="button"
-        className={`${BTN_QUIET} self-center`}
+        variant="ghost"
+        size="sm"
+        className="self-center"
         onClick={() => setShowDoctor(!showDoctor)}
       >
         {showDoctor ? "Hide diagnostics" : "Hardware not showing up?"}
@@ -277,13 +288,13 @@ export function DeviceChoices({
 function Doctor() {
   const doctor = useQuery(doctorQuery(true));
   if (doctor.isPending) {
-    return <p className="text-sm text-ink-dim">Checking…</p>;
+    return <p className="text-sm text-muted-foreground">Checking…</p>;
   }
   if (doctor.error) {
     return (
-      <p role="alert" className="font-mono text-xs text-danger">
+      <InlineAlert className="font-mono text-xs">
         Diagnostics failed: {doctor.error.message}
-      </p>
+      </InlineAlert>
     );
   }
   return (
@@ -294,17 +305,17 @@ function Doctor() {
             <span
               className={
                 check.status === "fail"
-                  ? "text-danger"
+                  ? "text-destructive"
                   : check.status === "warn"
-                    ? "text-ink"
-                    : "text-ok"
+                    ? "text-foreground"
+                    : "text-success"
               }
             >
               [{check.status}]
             </span>
-            <span className="text-ink">{check.name}</span>
+            <span className="text-foreground">{check.name}</span>
           </dt>
-          <dd className="legend pl-4 whitespace-pre-wrap normal-case">
+          <dd className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 pl-4 whitespace-pre-wrap normal-case">
             {check.detail}
             {check.hint != null && `\n→ ${check.hint}`}
           </dd>

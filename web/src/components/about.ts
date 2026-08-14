@@ -56,7 +56,7 @@ export function licenseSummary(components: Attribution[]): { license: string; co
   }
   return [...counts]
     .map(([license, count]) => ({ license, count }))
-    .sort((a, b) => b.count - a.count || a.license.localeCompare(b.license));
+    .toSorted((a, b) => b.count - a.count || a.license.localeCompare(b.license));
 }
 
 /** The components whose license needs explaining. These are the reason the panel is worth

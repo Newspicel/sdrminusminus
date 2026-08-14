@@ -1,13 +1,6 @@
-import { Toast } from "@base-ui/react/toast";
+import { toast } from "sonner";
 
 export type Tone = "error" | "info";
-
-export interface ToastData {
-  /** How many times this message has repeated while its card was on screen. */
-  repeats: number;
-}
-
-export const toastManager = Toast.createToastManager<ToastData>();
 
 /** Live cards only: cleared on removal so a failure that comes back after the stack emptied
  * starts counting again rather than resuming an old tally. */
@@ -19,11 +12,15 @@ export function pushToast(message: string, tone: Tone = "error"): void {
   const id = `${tone}:${message}`;
   const seen = (repeats.get(id) ?? -1) + 1;
   repeats.set(id, seen);
-  toastManager.add({
+  const options = {
     id,
-    type: tone,
-    title: message,
-    data: { repeats: seen },
-    onRemove: () => repeats.delete(id),
-  });
+    description: seen > 0 ? `Repeated ${seen + 1} times` : undefined,
+    onDismiss: () => repeats.delete(id),
+    onAutoClose: () => repeats.delete(id),
+  };
+  if (tone === "error") {
+    toast.error(message, options);
+  } else {
+    toast.info(message, options);
+  }
 }

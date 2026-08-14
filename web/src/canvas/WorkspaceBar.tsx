@@ -1,5 +1,7 @@
-import { Button } from "../components/BaseControls";
-import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
+import { Separator } from "@/components/ui/separator";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { type Options } from "../components/controls";
+import { IconButton } from "../components/IconButton";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
 import type { NodeKind, PatchNode, PositionSource, WorkspaceInfo } from "../lib/types";
@@ -68,17 +70,13 @@ export function WorkspaceBar({
   };
 
   return (
-    <header className="flex h-9 shrink-0 items-center gap-1 border-b border-line bg-panel px-2">
+    <header className="flex h-9 shrink-0 items-center gap-1 border-b border-border bg-card px-2">
       {/* Decorative: the wordmark beside it is the accessible name, and a second one would
           make every screen reader say the product twice before the first control. */}
       <img src="/icon.svg" alt="" width={20} height={20} className="shrink-0" />
-      <span className="mr-1 font-mono text-sm font-medium tracking-tight text-accent">SDR--</span>
+      <span className="mr-1 font-mono text-sm font-medium tracking-tight text-primary">SDR--</span>
 
-      <Popover
-        label={active?.name ?? "No workspace"}
-        triggerClass={`${BTN_QUIET} font-mono`}
-        width="w-80"
-      >
+      <Popover label={active?.name ?? "No workspace"} triggerClass="font-mono" width="w-80">
         {(close) => (
           <WorkspaceMenu
             workspaces={workspaces}
@@ -101,31 +99,33 @@ export function WorkspaceBar({
       {/* Two plain bar buttons like the ones either side of them — the fill marks the view you
           are in, and the rules around the pair are what say the two belong together. A boxed
           segmented control was tried here and read as a foreign object in a row of flat text. */}
-      <span className="flex items-center" role="group" aria-label="View">
+      <ToggleGroup
+        aria-label="View"
+        value={[view]}
+        size="sm"
+        onValueChange={(next) => {
+          const picked = next[0];
+          if (picked === "patch" || picked === "rack") onView(picked);
+        }}
+      >
         {VIEWS.map((option) => (
-          <Button
-            key={option.value}
-            type="button"
-            className={`${segment(view === option.value)} font-mono`}
-            aria-pressed={view === option.value}
-            onClick={() => onView(option.value)}
-          >
+          <ToggleGroupItem key={option.value} value={option.value} className="font-mono">
             {option.label}
             {/* How many faces are on the rack, so pinning one from the patch view has an answer
                 without switching to it. Hidden from the accessible name — the button is still
                 "Rack", and the count is read from the rack itself. */}
             {option.value === "rack" && pinned > 0 && (
-              <span aria-hidden className="text-[10px] text-ink-faint tabular-nums">
+              <span aria-hidden className="text-[10px] text-muted-foreground/70 tabular-nums">
                 {pinned}
               </span>
             )}
-          </Button>
+          </ToggleGroupItem>
         ))}
-      </span>
+      </ToggleGroup>
 
       <Rule />
 
-      <Popover label="+ Node" triggerClass={BTN_QUIET} width="w-96">
+      <Popover label="+ Node" width="w-96">
         {(close) => (
           <NodePalette
             onAdd={(kind, channelType, source) => {
@@ -137,33 +137,17 @@ export function WorkspaceBar({
       </Popover>
 
       <span className="ml-auto flex items-center gap-1">
-        <Popover
-          label="Library"
-          triggerClass={BTN_QUIET}
-          align="end"
-          width="w-[46rem]"
-          padded={false}
-        >
+        <Popover label="Library" align="end" width="w-[46rem]" padded={false}>
           {() => <Library />}
         </Popover>
         <Rule />
         <ThemeControl />
-        <Button
-          type="button"
-          className={ICON_BTN}
-          aria-label="Keyboard shortcuts"
-          onClick={onShowShortcuts}
-        >
+        <IconButton label="Keyboard shortcuts" onClick={onShowShortcuts}>
           ?
-        </Button>
-        <Button
-          type="button"
-          className={ICON_BTN}
-          aria-label="About sdr-- and its licenses"
-          onClick={onShowAbout}
-        >
+        </IconButton>
+        <IconButton label="About sdr-- and its licenses" onClick={onShowAbout}>
           i
-        </Button>
+        </IconButton>
       </span>
     </header>
   );
@@ -172,5 +156,5 @@ export function WorkspaceBar({
 /** The separator between the bar's groups. Decorative — the groups are already named by their
  * controls, and a role="separator" would be one more thing read out on the way past. */
 function Rule() {
-  return <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line" />;
+  return <Separator aria-hidden orientation="vertical" className="mx-1 h-4" />;
 }

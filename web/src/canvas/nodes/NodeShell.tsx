@@ -1,8 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
 import { createContext, type ReactNode, useContext, useRef } from "react";
-import { Button } from "../../components/BaseControls";
-import { ICON_BTN } from "../../components/controls";
+import { Card } from "@/components/ui/card";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
+import { IconButton } from "../../components/IconButton";
 import { PortalContainerProvider } from "../../components/PortalContainer";
 import { pushToast } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
@@ -47,14 +48,14 @@ const PORT_COLOR: Record<PortType, string> = {
   events: "text-port-events",
   video: "text-port-video",
   control: "text-port-control",
-  position: "text-accent",
+  position: "text-primary",
   tx: "text-port-tx",
 };
 
 function PortGlyph({ type }: { type: PortType }) {
   const common = {
     fill: type === "tx" ? "none" : "currentColor",
-    stroke: type === "tx" ? "currentColor" : "var(--color-line-strong)",
+    stroke: type === "tx" ? "currentColor" : "var(--input)",
     strokeWidth: 1,
   };
   return (
@@ -108,10 +109,10 @@ export function NodeShell({
   const portalContainer = useRef<HTMLDivElement>(null);
 
   return (
-    <div
+    <Card
       ref={portalContainer}
-      className={`relative flex h-full min-h-0 w-full flex-col border bg-panel ${
-        selected ? "border-accent" : "border-line"
+      className={`relative h-full min-h-0 w-full gap-0 rounded-md border py-0 ring-0 ${
+        selected ? "border-primary" : "border-border"
       } ${live ? "" : "opacity-60"}`}
     >
       <PortalContainerProvider container={portalContainer}>
@@ -119,8 +120,8 @@ export function NodeShell({
           <NodeResizer
             minWidth={minimum.w}
             minHeight={minimum.h}
-            lineClassName="!border-accent/40"
-            handleClassName="!size-2 !rounded-none !border-accent !bg-panel"
+            lineClassName="!border-primary/40"
+            handleClassName="!size-2 !rounded-none !border-primary !bg-card"
           />
         )}
         {/* The one place the node can be dragged from, so the one place that says so: the grab
@@ -128,14 +129,18 @@ export function NodeShell({
           promised a drag on every button inside the face. The buttons in here opt back out —
           they are pressed, not dragged. */}
         <header
-          className={`flex h-6.5 shrink-0 items-center gap-2 border-b border-line bg-panel-2 pr-1 ${
+          className={`flex h-6.5 shrink-0 items-center gap-2 border-b border-border bg-muted pr-1 ${
             surface === "canvas" ? "cursor-grab active:cursor-grabbing" : ""
           }`}
         >
           <span aria-hidden className={`h-full w-1 ${CATEGORY_STRIP[category]}`} />
-          <span className="legend truncate text-ink-dim">{node.label ?? title}</span>
+          <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 truncate text-muted-foreground">
+            {node.label ?? title}
+          </span>
           {subtitle !== undefined && (
-            <span className="legend ml-auto truncate text-ink-faint">{subtitle}</span>
+            <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 ml-auto truncate text-muted-foreground/70">
+              {subtitle}
+            </span>
           )}
           <span className={`flex items-center gap-0.5 ${subtitle === undefined ? "ml-auto" : ""}`}>
             {actions}
@@ -143,13 +148,12 @@ export function NodeShell({
               looking at — so it is carried by three things at once: a filled glyph against an
               empty one, the accent, and the pressed fill every other toggle in the kit uses.
               Colour alone would not survive a monochrome eye (). */}
-            <Button
-              type="button"
-              aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
+            <IconButton
+              label={pinned ? "Unpin from the rack" : "Pin to the rack"}
               aria-pressed={pinned}
-              title={pinned ? "On the rack — click to take it off" : "Pin to the rack"}
-              className={`${ICON_BTN} size-5 ${
-                pinned ? "bg-accent/15 text-accent" : "text-ink-faint"
+              size="icon-xs"
+              className={`size-5 ${
+                pinned ? "bg-primary/15 text-primary" : "text-muted-foreground/70"
               }`}
               onClick={() =>
                 workspace.edit((snapshot) => ({
@@ -161,16 +165,15 @@ export function NodeShell({
               }
             >
               {pinned ? "▣" : "□"}
-            </Button>
-            <Button
-              type="button"
-              aria-label={`Remove ${node.label ?? title}`}
-              title="Remove from the patch"
-              className={`${ICON_BTN} size-5 text-ink-faint hover:text-danger`}
+            </IconButton>
+            <IconButton
+              label={`Remove ${node.label ?? title}`}
+              size="icon-xs"
+              className="size-5 text-muted-foreground/70 hover:text-destructive"
               onClick={remove}
             >
               ✕
-            </Button>
+            </IconButton>
           </span>
         </header>
 
@@ -199,7 +202,7 @@ export function NodeShell({
           />
         ))}
       </PortalContainerProvider>
-    </div>
+    </Card>
   );
 }
 
@@ -263,7 +266,7 @@ function PortHandle({
       <span
         aria-hidden
         style={{ top: offset }}
-        className={`legend pointer-events-none absolute z-10 -translate-y-1/2 rounded-xs bg-bg/85 px-1 whitespace-nowrap select-none text-ink-faint ${
+        className={`font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 pointer-events-none absolute z-10 -translate-y-1/2 rounded-xs bg-background/85 px-1 whitespace-nowrap select-none text-muted-foreground/70 ${
           out ? "left-full ml-2.5" : "right-full mr-2.5"
         }`}
       >
@@ -285,5 +288,9 @@ export function FaceBody({ children, scroll = true }: { children: ReactNode; scr
 
 /** What a face shows instead of its instrument when there is nothing behind it yet. */
 export function FaceEmpty({ children }: { children: ReactNode }) {
-  return <p className="p-3 text-sm text-ink-dim">{children}</p>;
+  return (
+    <Empty className="min-h-20 p-3">
+      <EmptyDescription>{children}</EmptyDescription>
+    </Empty>
+  );
 }

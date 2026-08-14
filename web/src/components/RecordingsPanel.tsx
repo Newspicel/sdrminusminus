@@ -3,11 +3,20 @@
 // `virtual:file:` device, so opening one is the same gesture as opening a radio: it draws a
 // source node on the canvas, and apply is what starts it.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@/components/ui/item";
 import { deleteRecording, RECORDINGS_KEY, recordingDownloadUrl, recordingsQuery } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { RecordingInfo } from "../lib/types";
-import { Button } from "./BaseControls";
-import { BTN } from "./controls";
+import { EmptyState } from "./EmptyState";
 import { formatMhz } from "./format";
 import { downloadFormats, formatBytes, formatDuration } from "./recordings";
 
@@ -26,42 +35,47 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      {(recordings.data?.recordings ?? []).map((r) => (
-        <div key={r.id} className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-mono text-sm text-ink">{r.file}</div>
-            <div className="truncate font-mono text-[10px] tabular-nums text-ink-dim">
-              {formatMhz(r.center_hz)} · {(r.sample_rate / 1e6).toFixed(3)} MS/s ·{" "}
-              {formatDuration(r.duration_s)} · {formatBytes(r.bytes)}
-            </div>
-          </div>
-          <Button type="button" className={BTN} onClick={() => onOpen(r)}>
-            Open as source
-          </Button>
-          {downloadFormats.map(({ format, label, hint }) => (
-            <a
-              key={format}
-              className={BTN}
-              href={recordingDownloadUrl(r.id, format)}
-              title={hint}
-              download
-            >
-              {label}
-            </a>
-          ))}
-          <Button
-            type="button"
-            className={`${BTN} hover:border-danger hover:text-danger`}
-            disabled={deleteMut.isPending}
-            onClick={() => deleteMut.mutate(r.id)}
-          >
-            Delete
-          </Button>
-        </div>
-      ))}
-      {recordings.data?.recordings.length === 0 && (
-        <span className="text-sm text-ink-dim">No recordings yet.</span>
-      )}
+      <ItemGroup>
+        {(recordings.data?.recordings ?? []).map((r) => (
+          <Item key={r.id} size="xs">
+            <ItemContent>
+              <ItemTitle className="font-mono">{r.file}</ItemTitle>
+              <ItemDescription className="font-mono text-[10px] tabular-nums">
+                {formatMhz(r.center_hz)} · {(r.sample_rate / 1e6).toFixed(3)} MS/s ·{" "}
+                {formatDuration(r.duration_s)} · {formatBytes(r.bytes)}
+              </ItemDescription>
+            </ItemContent>
+            <ItemActions>
+              <ButtonGroup>
+                <Button type="button" variant="outline" size="sm" onClick={() => onOpen(r)}>
+                  Open as source
+                </Button>
+                {downloadFormats.map(({ format, label, hint }) => (
+                  <Button
+                    key={format}
+                    render={<a href={recordingDownloadUrl(r.id, format)} download />}
+                    variant="outline"
+                    size="sm"
+                    title={hint}
+                  >
+                    {label}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={deleteMut.isPending}
+                  onClick={() => deleteMut.mutate(r.id)}
+                >
+                  Delete
+                </Button>
+              </ButtonGroup>
+            </ItemActions>
+          </Item>
+        ))}
+      </ItemGroup>
+      {recordings.data?.recordings.length === 0 && <EmptyState>No recordings yet.</EmptyState>}
     </div>
   );
 }

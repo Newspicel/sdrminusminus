@@ -1,8 +1,15 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind } from "../lib/types";
-import { Button } from "./BaseControls";
-import { BTN } from "./controls";
 import {
   ageClass,
   aircraftRow,
@@ -25,11 +32,13 @@ import {
   type TargetSort,
   toneLabel,
 } from "./decoderViews";
+import { EmptyState } from "./EmptyState";
+import { InlineAlert } from "./InlineAlert";
 
 const PANE = "flex flex-col gap-2 p-3";
-const CAPTION = "text-[10px] font-semibold uppercase tracking-wider text-ink-dim";
-const EMPTY = "text-sm text-ink-dim";
-const TH = "px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-ink-dim";
+const CAPTION = "text-[10px] font-semibold uppercase tracking-wider text-muted-foreground";
+const TH =
+  "px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground";
 const TD = "px-2 py-1 font-mono text-xs tabular-nums";
 
 /** Targets and pager/APRS ages are wall-clock relative, so the views need a clock. One shared
@@ -50,7 +59,7 @@ export function RdsView({ scope = {} }: { scope?: DecoderScope }) {
   if (rds === null) {
     return (
       <div className={PANE}>
-        <span className={EMPTY}>No RDS yet — tune a WFM channel to a station that carries it.</span>
+        <EmptyState>No RDS yet — tune a WFM channel to a station that carries it.</EmptyState>
       </div>
     );
   }
@@ -61,11 +70,13 @@ export function RdsView({ scope = {} }: { scope?: DecoderScope }) {
   return (
     <div className={PANE}>
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <span className="font-mono text-2xl tracking-wide text-ink">
+        <span className="font-mono text-2xl tracking-wide text-foreground">
           {rds.ps?.trim() || "········"}
         </span>
-        <span className="font-mono text-sm tabular-nums text-ink-dim">PI {rds.pi ?? "—"}</span>
-        <span className="text-sm text-ink-dim">{ptyLabel(rds)}</span>
+        <span className="font-mono text-sm tabular-nums text-muted-foreground">
+          PI {rds.pi ?? "—"}
+        </span>
+        <span className="text-sm text-muted-foreground">{ptyLabel(rds)}</span>
         <div className="ml-auto flex items-center gap-1">
           <Flag label="TP" on={rds.tp === true} />
           <Flag label="TA" on={rds.ta === true} />
@@ -75,8 +86,8 @@ export function RdsView({ scope = {} }: { scope?: DecoderScope }) {
 
       <div>
         <div className={CAPTION}>RadioText</div>
-        <div className="overflow-x-auto whitespace-nowrap rounded border border-line bg-panel px-2 py-1.5 font-mono text-sm text-ink">
-          {rds.radiotext?.trim() || <span className="text-ink-dim">—</span>}
+        <div className="overflow-x-auto whitespace-nowrap rounded border border-border bg-card px-2 py-1.5 font-mono text-sm text-foreground">
+          {rds.radiotext?.trim() || <span className="text-muted-foreground">—</span>}
         </div>
       </div>
 
@@ -84,19 +95,19 @@ export function RdsView({ scope = {} }: { scope?: DecoderScope }) {
         <div className="flex flex-wrap items-center gap-1">
           <span className={CAPTION}>AF</span>
           {altFreqs.length === 0 ? (
-            <span className="font-mono text-xs text-ink-dim">—</span>
+            <span className="font-mono text-xs text-muted-foreground">—</span>
           ) : (
             altFreqs.map((af) => (
               <span
                 key={af}
-                className="rounded border border-line px-1.5 py-0.5 font-mono text-xs tabular-nums text-ink-dim"
+                className="rounded border border-border px-1.5 py-0.5 font-mono text-xs tabular-nums text-muted-foreground"
               >
                 {af}
               </span>
             ))
           )}
         </div>
-        <div className="ml-auto flex items-center gap-2 font-mono text-xs tabular-nums text-ink-dim">
+        <div className="ml-auto flex items-center gap-2 font-mono text-xs tabular-nums text-muted-foreground">
           <span className={CAPTION}>Quality</span>
           <span className={quality.className}>{quality.label}</span>
           <span>
@@ -113,7 +124,7 @@ function Flag({ label, on }: { label: string; on: boolean }) {
   return (
     <span
       className={`rounded border px-1.5 py-0.5 font-mono text-xs ${
-        on ? "border-accent text-accent" : "border-line text-ink-dim opacity-50"
+        on ? "border-primary text-primary" : "border-border text-muted-foreground opacity-50"
       }`}
     >
       {label}
@@ -199,48 +210,50 @@ function TargetTable({
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex items-baseline gap-2">
         <span className={CAPTION}>{title}</span>
-        <span className="font-mono text-[10px] tabular-nums text-ink-dim">{rows.length}</span>
+        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+          {rows.length}
+        </span>
       </div>
       {rows.length === 0 ? (
-        <span className={EMPTY}>No {title.toLowerCase()} heard.</span>
+        <EmptyState>No {title.toLowerCase()} heard.</EmptyState>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[32rem] border-collapse">
-            <thead>
-              <tr className="border-b border-line">
-                <th className={TH} scope="col">
+        <div>
+          <Table className="min-w-[32rem]">
+            <TableHeader>
+              <TableRow>
+                <TableHead className={TH} scope="col">
                   <SortButton label={idHeader + arrow("id")} onClick={() => onSort("id")} />
-                </th>
-                <th className={TH} scope="col">
+                </TableHead>
+                <TableHead className={TH} scope="col">
                   {labelHeader}
-                </th>
-                <th className={TH} scope="col">
+                </TableHead>
+                <TableHead className={TH} scope="col">
                   {primaryHeader}
-                </th>
-                <th className={TH} scope="col">
+                </TableHead>
+                <TableHead className={TH} scope="col">
                   {secondaryHeader}
-                </th>
-                <th className={TH} scope="col">
+                </TableHead>
+                <TableHead className={TH} scope="col">
                   Position
-                </th>
-                <th className={TH} scope="col">
+                </TableHead>
+                <TableHead className={TH} scope="col">
                   <SortButton label={`Age${arrow("age")}`} onClick={() => onSort("age")} />
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rows.map((row) => (
-                <tr key={row.id} className={`border-b border-line/50 ${ageClass(row.ageMs)}`}>
-                  <td className={`${TD} font-semibold`}>{row.id}</td>
-                  <td className={TD}>{row.label}</td>
-                  <td className={TD}>{row.primary}</td>
-                  <td className={TD}>{row.secondary || "—"}</td>
-                  <td className={TD}>{row.position}</td>
-                  <td className={`${TD} text-right`}>{formatAge(row.ageMs)}</td>
-                </tr>
+                <TableRow key={row.id} className={ageClass(row.ageMs)}>
+                  <TableCell className={`${TD} font-semibold`}>{row.id}</TableCell>
+                  <TableCell className={TD}>{row.label}</TableCell>
+                  <TableCell className={TD}>{row.primary}</TableCell>
+                  <TableCell className={TD}>{row.secondary || "—"}</TableCell>
+                  <TableCell className={TD}>{row.position}</TableCell>
+                  <TableCell className={`${TD} text-right`}>{formatAge(row.ageMs)}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>
@@ -249,7 +262,7 @@ function TargetTable({
 
 function SortButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <Button type="button" className="uppercase tracking-wider hover:text-accent" onClick={onClick}>
+    <Button type="button" className="uppercase tracking-wider hover:text-primary" onClick={onClick}>
       {label}
     </Button>
   );
@@ -288,25 +301,29 @@ export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?:
       <div className="flex items-center gap-3">
         <span className={CAPTION}>{kind === "morse" ? "Morse" : "RTTY"}</span>
         {wpm !== null && (
-          <span className="font-mono text-xs tabular-nums text-ink">
-            {wpm.toFixed(0)} <span className="text-ink-dim">WPM</span>
+          <span className="font-mono text-xs tabular-nums text-foreground">
+            {wpm.toFixed(0)} <span className="text-muted-foreground">WPM</span>
           </span>
         )}
-        <Button type="button" className={`${BTN} ml-auto`} disabled={text === ""} onClick={copy}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          disabled={text === ""}
+          onClick={copy}
+        >
           Copy all
         </Button>
       </div>
 
       {copyError !== null && (
-        <div
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
-        >
+        <InlineAlert className="flex-row items-center justify-between font-mono text-sm">
           <span>Copy failed: {copyError}</span>
           <Button type="button" className="shrink-0 underline" onClick={() => setCopyError(null)}>
             dismiss
           </Button>
-        </div>
+        </InlineAlert>
       )}
 
       <pre
@@ -315,7 +332,7 @@ export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?:
         // reachable from the keyboard.
         tabIndex={0}
         aria-label={`${kind} transcript`}
-        className="max-h-72 min-h-32 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-line bg-panel px-2 py-1.5 font-mono text-xs text-ink"
+        className="max-h-72 min-h-32 flex-1 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-card px-2 py-1.5 font-mono text-xs text-foreground"
         onScroll={(e) => {
           stick.current = isAtBottom(e.currentTarget);
         }}
@@ -342,7 +359,7 @@ export function ToneView({ scope = {} }: { scope?: DecoderScope }) {
   if (latest === undefined) {
     return (
       <div className={PANE}>
-        <span className={EMPTY}>No subaudible tone heard.</span>
+        <EmptyState>No subaudible tone heard.</EmptyState>
       </div>
     );
   }
@@ -352,10 +369,10 @@ export function ToneView({ scope = {} }: { scope?: DecoderScope }) {
   return (
     <div className={PANE}>
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="font-mono text-xs tabular-nums text-ink-dim">
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
           {formatClock(latest.at)}
         </span>
-        <span className="font-mono text-xs tabular-nums text-accent">
+        <span className="font-mono text-xs tabular-nums text-primary">
           {label === "" ? "no tone" : label}
         </span>
         <span className={CAPTION}>{status.open ? "open" : "muted"}</span>

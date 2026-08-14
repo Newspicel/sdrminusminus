@@ -1,6 +1,13 @@
-import { nextTheme, setTheme, type ThemeChoice, useTheme } from "../lib/theme";
-import { Button } from "./BaseControls";
-import { ICON_BTN } from "./controls";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { setTheme, type ThemeChoice, useTheme } from "../lib/theme";
 
 const NAMES: Record<ThemeChoice, string> = {
   system: "Auto",
@@ -10,19 +17,37 @@ const NAMES: Record<ThemeChoice, string> = {
 
 export function ThemeControl() {
   const { choice } = useTheme();
-  const next = nextTheme(choice);
   return (
-    <Button
-      type="button"
-      className={ICON_BTN}
-      // The current state first: a control that only named its next state would be a mode you
-      // cannot see you are in.
-      aria-label={`Theme: ${NAMES[choice]}. Switch to ${NAMES[next]}`}
-      title={`Theme: ${NAMES[choice]} — click for ${NAMES[next]}`}
-      onClick={() => setTheme(next)}
-    >
-      <ThemeIcon choice={choice} />
-    </Button>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Theme: ${NAMES[choice]}`}
+            title={`Theme: ${NAMES[choice]}`}
+          />
+        }
+      >
+        <ThemeIcon choice={choice} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>Theme</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={choice}
+          onValueChange={(value) => {
+            if (value === "system" || value === "dark" || value === "light") setTheme(value);
+          }}
+        >
+          {Object.entries(NAMES).map(([value, name]) => (
+            <DropdownMenuRadioItem key={value} value={value}>
+              {name}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

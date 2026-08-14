@@ -52,9 +52,11 @@ export const TARGET_MAX_AGE_MS = 300_000;
 
 export function ageClass(ageMs: number): string {
   if (ageMs < TARGET_STALE_MS) {
-    return "text-ink";
+    return "text-foreground";
   }
-  return ageMs < TARGET_MAX_AGE_MS / 2 ? "text-ink-dim" : "text-ink-dim opacity-50";
+  return ageMs < TARGET_MAX_AGE_MS / 2
+    ? "text-muted-foreground"
+    : "text-muted-foreground opacity-50";
 }
 
 export function formatAge(ageMs: number): string {
@@ -185,15 +187,15 @@ export function rdsQuality(update: RdsUpdate): RdsQuality {
   const blocks = groups * 4 + blockErrors;
   const errorRate = blocks === 0 ? 0 : blockErrors / blocks;
   if (groups === 0) {
-    return { groups, blockErrors, errorRate, label: "no lock", className: "text-danger" };
+    return { groups, blockErrors, errorRate, label: "no lock", className: "text-destructive" };
   }
   if (errorRate < 0.02) {
-    return { groups, blockErrors, errorRate, label: "good", className: "text-accent" };
+    return { groups, blockErrors, errorRate, label: "good", className: "text-primary" };
   }
   if (errorRate < 0.1) {
-    return { groups, blockErrors, errorRate, label: "fair", className: "text-ink" };
+    return { groups, blockErrors, errorRate, label: "fair", className: "text-foreground" };
   }
-  return { groups, blockErrors, errorRate, label: "poor", className: "text-danger" };
+  return { groups, blockErrors, errorRate, label: "poor", className: "text-destructive" };
 }
 
 export function ptyLabel(update: RdsUpdate): string {

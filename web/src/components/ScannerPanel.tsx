@@ -1,11 +1,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { STATE_KEY, startScan, stopScan } from "../lib/api";
 import { useScannerStore } from "../lib/scanner";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet } from "../lib/types";
-import { Button, Input } from "./BaseControls";
-import { BTN, FIELD, LABEL } from "./controls";
+import { LABEL } from "./controls";
+import { InlineAlert } from "./InlineAlert";
 import { Select } from "./Select";
 import {
   DEFAULT_RANGE,
@@ -74,25 +77,25 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
   return (
     <div className="flex flex-col gap-2 p-3">
       {running ? (
-        <div className="flex flex-col gap-1 rounded border border-line bg-panel-2 px-3 py-2">
+        <div className="flex flex-col gap-1 rounded border border-border bg-muted px-3 py-2">
           <div className="flex items-baseline justify-between gap-2">
             <span
               className={`font-mono text-sm ${
-                status.state === "holding" ? "text-accent" : "text-ink"
+                status.state === "holding" ? "text-primary" : "text-foreground"
               }`}
             >
               {status.state === "holding" ? "holding" : "scanning"} · {formatMhz(status.current_hz)}
             </span>
-            <span className="font-mono text-xs text-ink-dim">{formatDb(status.current_db)}</span>
+            <span className="font-mono text-xs text-muted-foreground">
+              {formatDb(status.current_db)}
+            </span>
           </div>
-          <div className="font-mono text-[10px] text-ink-dim">
+          <div className="font-mono text-[10px] text-muted-foreground">
             {status.targets} targets · {status.sweeps} sweeps · {status.hits} hits
             {status.settings.hold_channel != null && ` · channel ${status.settings.hold_channel}`}
           </div>
           {status.error != null && (
-            <div role="alert" className="font-mono text-xs text-danger">
-              {status.error}
-            </div>
+            <InlineAlert className="font-mono text-xs">{status.error}</InlineAlert>
           )}
         </div>
       ) : (
@@ -100,33 +103,38 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
           {ranges.map((range, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2">
               <Input
-                className={`${FIELD} w-24`}
+                className="w-24"
                 inputMode="decimal"
                 aria-label={`Range ${i + 1} start (MHz)`}
                 value={range.startMhz}
                 onChange={(e) => updateRange(setRanges, i, { startMhz: e.target.value })}
               />
-              <span className="text-ink-faint">–</span>
+              <span className="text-muted-foreground/70">–</span>
               <Input
-                className={`${FIELD} w-24`}
+                className="w-24"
                 inputMode="decimal"
                 aria-label={`Range ${i + 1} stop (MHz)`}
                 value={range.stopMhz}
                 onChange={(e) => updateRange(setRanges, i, { stopMhz: e.target.value })}
               />
-              <span className="legend">MHz · step</span>
+              <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+                MHz · step
+              </span>
               <Input
-                className={`${FIELD} w-20`}
+                className="w-20"
                 inputMode="decimal"
                 aria-label={`Range ${i + 1} step (kHz)`}
                 value={range.stepKhz}
                 onChange={(e) => updateRange(setRanges, i, { stepKhz: e.target.value })}
               />
-              <span className="legend">kHz</span>
+              <span className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70">
+                kHz
+              </span>
               {ranges.length > 1 && (
                 <Button
                   type="button"
-                  className={`${BTN} hover:border-danger hover:text-danger`}
+                  variant="destructive"
+                  size="sm"
                   aria-label={`Remove range ${i + 1}`}
                   onClick={() => setRanges(ranges.filter((_, j) => j !== i))}
                 >
@@ -139,23 +147,24 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
-              className={BTN}
+              variant="outline"
+              size="sm"
               onClick={() => setRanges([...ranges, DEFAULT_RANGE])}
             >
               Add range
             </Button>
-            <label className={LABEL}>
+            <Label className={LABEL}>
               Threshold
               <Input
-                className={`${FIELD} w-20`}
+                className="w-20"
                 inputMode="decimal"
                 aria-label="Scan threshold (dB)"
                 value={thresholdDb}
                 onChange={(e) => setThresholdDb(e.target.value)}
               />
               dB
-            </label>
-            <label className={LABEL}>
+            </Label>
+            <Label className={LABEL}>
               Listen on
               <Select
                 label="Hold channel"
@@ -169,8 +178,8 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
                 ]}
                 onChange={setHoldChannel}
               />
-            </label>
-            <span className="font-mono text-[10px] text-ink-dim">
+            </Label>
+            <span className="font-mono text-[10px] text-muted-foreground">
               {typeof parsed === "string" ? parsed : `${count} targets`}
             </span>
           </div>
@@ -181,7 +190,8 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
         {running ? (
           <Button
             type="button"
-            className={BTN}
+            variant="outline"
+            size="sm"
             disabled={!active || busy}
             onClick={() => active && stopMut.mutate(active.id)}
           >
@@ -190,7 +200,8 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
         ) : (
           <Button
             type="button"
-            className={BTN}
+            variant="outline"
+            size="sm"
             disabled={!active || busy || typeof parsed === "string" || refusal !== null}
             onClick={() => active && startMut.mutate(active.id)}
           >
@@ -198,8 +209,8 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
           </Button>
         )}
       </div>
-      {!active && <span className="text-sm text-ink-dim">Open a device to scan.</span>}
-      {refusal !== null && <span className="text-sm text-ink-dim">{refusal}</span>}
+      {!active && <span className="text-sm text-muted-foreground">Open a device to scan.</span>}
+      {refusal !== null && <span className="text-sm text-muted-foreground">{refusal}</span>}
     </div>
   );
 }

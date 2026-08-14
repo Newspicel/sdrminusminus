@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input } from "./BaseControls";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   type DialDigit,
   dialDigits,
@@ -137,7 +138,9 @@ export function FrequencyDial({
           onStep={(direction) => onTune(stepDial(hz, digit.place, direction, range))}
         />
       ))}
-      <span className="ml-2 self-baseline text-[11px] tracking-wide text-ink-faint">MHz</span>
+      <span className="ml-2 self-baseline text-[11px] tracking-wide text-muted-foreground/70">
+        MHz
+      </span>
     </div>
   );
 }
@@ -168,8 +171,12 @@ function Digit({
         className={`relative min-h-7 overflow-hidden rounded-[2px] px-[2px] tabular-nums transition-colors duration-100 pointer-coarse:min-h-10 ${DIGIT_SIZE} ${
           armed === null ? "" : armed > 0 ? "cursor-n-resize" : "cursor-s-resize"
         } ${
-          armed !== null || active ? "text-accent" : digit.leading ? "text-ink-faint" : "text-ink"
-        } ${active ? "bg-accent/12 shadow-[inset_0_-2px_0_var(--color-accent)]" : ""}`}
+          armed !== null || active
+            ? "text-primary"
+            : digit.leading
+              ? "text-muted-foreground/70"
+              : "text-foreground"
+        } ${active ? "bg-primary/12 shadow-[inset_0_-2px_0_var(--primary)]" : ""}`}
         // The press both selects the digit for the keyboard and steps it, so a pointer user
         // never has to aim twice to move the radio one unit.
         onPointerDown={(event) => {
@@ -198,7 +205,7 @@ function Digit({
         {armed !== null && (
           <span
             aria-hidden
-            className={`pointer-events-none absolute inset-x-0 h-1/2 bg-accent/18 ${
+            className={`pointer-events-none absolute inset-x-0 h-1/2 bg-primary/18 ${
               armed > 0 ? "top-0" : "bottom-0"
             }`}
           />
@@ -206,7 +213,7 @@ function Digit({
         <span className="relative">{digit.digit}</span>
       </Button>
       {separator !== "" && (
-        <span aria-hidden className={`text-ink-dim ${DIGIT_SIZE}`}>
+        <span aria-hidden className={`text-muted-foreground ${DIGIT_SIZE}`}>
           {separator}
         </span>
       )}
@@ -239,8 +246,8 @@ function DirectEntry({
       // Deliberately below the digits it replaces: this is a field being typed into for a
       // second, not the readout being watched, and at dial size it reads as if the instrument
       // itself had been swapped for a text box.
-      className={`h-9 w-[15ch] rounded-[3px] border bg-panel-2 px-2 font-mono text-[16px] leading-none tabular-nums text-ink placeholder:text-[11px] placeholder:text-ink-faint @min-[22rem]:text-[20px] ${
-        empty || parsed !== null ? "border-accent" : "border-danger"
+      className={`h-9 w-[15ch] rounded-[3px] border bg-muted px-2 font-mono text-[16px] leading-none tabular-nums text-foreground placeholder:text-[11px] placeholder:text-muted-foreground/70 @min-[22rem]:text-[20px] ${
+        empty || parsed !== null ? "border-primary" : "border-destructive"
       }`}
       value={draft}
       onChange={(event) => onDraft(event.target.value)}

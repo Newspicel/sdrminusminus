@@ -1,5 +1,5 @@
 import { memo, useCallback, useRef, useState } from "react";
-
+import { EmptyState } from "../components/EmptyState";
 import type { PatchNode, RackLayout } from "../lib/types";
 import { useWorkspaceContext } from "./context";
 import { moveSlot, placeSlot, RACK_COLS, RACK_ROWS, type RackEdge, resizeSlot } from "./graph";
@@ -85,18 +85,16 @@ export function Rack() {
   const slots = (preview ?? workspace.rack).slots ?? [];
   if (slots.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center bg-bg">
-        <p className="text-sm text-ink-dim">
-          Nothing pinned. Pin a node's face on the canvas to operate it here.
-        </p>
-      </div>
+      <EmptyState className="min-h-0 flex-1 bg-background">
+        Nothing pinned. Pin a node's face on the canvas to operate it here.
+      </EmptyState>
     );
   }
 
   return (
     <div
       ref={hostRef}
-      className="grid min-h-0 flex-1 gap-px bg-line/40 p-px"
+      className="grid min-h-0 flex-1 gap-px bg-border/40 p-px"
       style={{
         gridTemplateColumns: `repeat(${RACK_COLS}, minmax(0, 1fr))`,
         gridTemplateRows: `repeat(${RACK_ROWS}, minmax(0, 1fr))`,
@@ -176,7 +174,7 @@ function Grips({
       <span
         aria-hidden
         title="Resize"
-        className="absolute right-0 bottom-0 size-3.5 cursor-se-resize border-r-2 border-b-2 border-line-strong"
+        className="absolute right-0 bottom-0 size-3.5 cursor-se-resize border-r-2 border-b-2 border-input"
         onPointerDown={(event) => onBegin(event, node, "corner")}
       />
     </>

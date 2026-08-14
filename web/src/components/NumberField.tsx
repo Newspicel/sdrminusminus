@@ -1,9 +1,9 @@
 // Numeric input that keeps a local draft while typing and commits on blur/Enter — per-keystroke
 // PATCHes would flood the server and fight the WS-refreshed value. Commits clamp to the declared
 // range.
-import { NumberField as Primitive } from "@base-ui/react/number-field";
+
 import { useState } from "react";
-import { FIELD } from "./controls";
+import { Input } from "@/components/ui/input";
 import { fractionDigits } from "./format";
 
 interface Common {
@@ -111,30 +111,44 @@ function Field({
   onRevert: () => void;
 }) {
   return (
-    <Primitive.Root
-      value={value}
+    <Input
+      type="number"
+      value={value ?? ""}
       min={min}
       max={max}
       step={step}
-      // `onValueCommitted` is the contract: it fires on blur, on Enter and on a released
-      // stepper, never per keystroke.
-      onValueChange={onDraft}
-      onValueCommitted={onCommit}
-      format={{ useGrouping: false, maximumFractionDigits: fractionDigits(step) }}
-    >
-      <Primitive.Input
-        aria-label={label}
-        aria-invalid={invalid}
-        placeholder={placeholder}
-        className={`${FIELD} tabular-nums ${className ?? "w-20"} ${invalid === true ? "border-danger" : ""}`}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            onRevert();
-          }
-        }}
-      />
-    </Primitive.Root>
+      aria-label={label}
+      aria-invalid={invalid}
+      placeholder={placeholder}
+      className={`font-mono tabular-nums ${className ?? "w-20"}`}
+      onChange={(event) => onDraft(parseDraft(event.currentTarget.value))}
+      onBlur={() => onCommit(clamp(value, min, max, step))}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          onCommit(clamp(value, min, max, step));
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          onRevert();
+          event.currentTarget.blur();
+        }
+      }}
+    />
   );
+}
+
+function parseDraft(value: string): number | null {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clamp(value: number | null, min?: number, max?: number, step?: number): number | null {
+  if (value === null) return null;
+  const bounded = Math.min(
+    max ?? Number.POSITIVE_INFINITY,
+    Math.max(min ?? Number.NEGATIVE_INFINITY, value),
+  );
+  return Number(bounded.toFixed(fractionDigits(step)));
 }
 
 /** Local while the operator types, replaced whenever the setting itself changes — a WS refresh

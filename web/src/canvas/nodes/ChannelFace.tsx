@@ -1,7 +1,7 @@
-import { Button } from "../../components/BaseControls";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { ChannelControls } from "../../components/ChannelControls";
 import { channelHasAudio, channelHasVideo, rateMismatch } from "../../components/channelSettings";
-import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { formatMhz, formatSignedKhz } from "../../components/format";
 import type { ChannelDescriptor, DeviceSet, PatchGraph, PatchNode } from "../../lib/types";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
@@ -67,7 +67,10 @@ export function ChannelFace({ node }: { node: PatchNode }) {
               spanHz={set.settings.sample_rate ?? null}
             />
             {unwired.map((reason) => (
-              <p key={reason} className="legend px-2 pb-2">
+              <p
+                key={reason}
+                className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 px-2 pb-2"
+              >
                 {reason}
               </p>
             ))}
@@ -119,29 +122,30 @@ function RateMismatch({
       ? `exactly ${mhz(wanted.min)} MHz`
       : `between ${mhz(wanted.min)} and ${mhz(wanted.max)} MHz`;
   return (
-    <div
-      role="alert"
-      className="flex flex-col items-start gap-1.5 border-b border-danger/40 bg-danger/10 px-2 py-1.5 text-xs text-danger"
-    >
-      <p>
-        {name} reads the radio's own samples, so the radio has to run {range}. At{" "}
-        <span className="font-mono tabular-nums">{mhz(set.settings.sample_rate ?? 0)}</span> MHz it
-        decodes nothing at all.
-      </p>
-      {offered === null ? (
+    <Alert variant="destructive" className="rounded-none border-x-0 border-t-0 text-xs">
+      <AlertDescription className="space-y-1.5">
         <p>
-          This radio offers no rate in that range, so it cannot carry {name}. Another radio has to.
+          {name} reads the radio's own samples, so the radio has to run {range}. At{" "}
+          <span className="font-mono tabular-nums">{mhz(set.settings.sample_rate ?? 0)}</span> MHz
+          it decodes nothing at all.
         </p>
-      ) : (
-        <Button
-          type="button"
-          className={BTN}
-          onClick={() => applyPatch(set.id, { sample_rate: offered })}
-        >
-          Set {set.device.label} to {mhz(offered)} MHz
-        </Button>
-      )}
-    </div>
+        {offered === null ? (
+          <p>
+            This radio offers no rate in that range, so it cannot carry {name}. Another radio has
+            to.
+          </p>
+        ) : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => applyPatch(set.id, { sample_rate: offered })}
+          >
+            Set {set.device.label} to {mhz(offered)} MHz
+          </Button>
+        )}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -172,7 +176,7 @@ function bindingLabel(wired: boolean, open: boolean): string {
 function Unbound({ wired, open, onApply }: { wired: boolean; open: boolean; onApply: () => void }) {
   return (
     <div className="flex flex-col items-start gap-2 p-3">
-      <p className="text-sm text-ink-dim">
+      <p className="text-sm text-muted-foreground">
         {!wired
           ? "Nothing feeds this channel — wire a device's IQ output into it."
           : open
@@ -180,7 +184,7 @@ function Unbound({ wired, open, onApply }: { wired: boolean; open: boolean; onAp
             : "Its radio is not open. Applying opens an attached radio; while none is, the wire is kept and the settings wait."}
       </p>
       {wired && (
-        <Button type="button" className={BTN_PRIMARY} onClick={onApply}>
+        <Button type="button" size="sm" onClick={onApply}>
           Apply patch
         </Button>
       )}

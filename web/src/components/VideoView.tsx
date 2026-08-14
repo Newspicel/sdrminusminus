@@ -6,8 +6,6 @@ import { videoHub } from "../lib/video";
  * pixels its bandwidth resolved along the line — far fewer than its 576 rows. So the canvas is
  * drawn at the picture's own size and *displayed* at the shape it was scanned for; stretching in
  * CSS is what keeps the source honest. */
-const DISPLAY_ASPECT = 4 / 3;
-
 /** No picture for this long and the readout says so. Longer than the gap between fields by a wide
  * margin, so a momentary loss of sync does not flicker the label. */
 const STALE_MS = 2_000;
@@ -83,18 +81,14 @@ export function VideoView({ scope }: { scope: VideoScope }) {
 
   return (
     <div className="flex flex-col gap-1 p-2">
-      <div
-        className="w-full overflow-hidden rounded-xs bg-black"
-        style={{ aspectRatio: DISPLAY_ASPECT }}
-      >
+      <div className="aspect-4/3 w-full overflow-hidden rounded-xs bg-black">
         <canvas
           ref={canvasRef}
           aria-label="Decoded video"
-          className="h-full w-full"
-          style={{ imageRendering: "pixelated" }}
+          className="h-full w-full [image-rendering:pixelated]"
         />
       </div>
-      <p className="legend text-ink-faint">
+      <p className="font-mono text-[10px] leading-[1.4] tracking-[0.09em] uppercase text-muted-foreground/70 text-muted-foreground/70">
         {geometry === null
           ? "waiting for sync"
           : `${geometry.width} × ${geometry.height}${live ? "" : " · no sync"}`}

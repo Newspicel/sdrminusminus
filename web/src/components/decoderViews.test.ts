@@ -89,10 +89,10 @@ describe("scoping", () => {
 
 describe("ageing", () => {
   it("dims a target before it disappears", () => {
-    expect(ageClass(0)).toBe("text-ink");
-    expect(ageClass(TARGET_STALE_MS - 1)).toBe("text-ink");
-    expect(ageClass(TARGET_STALE_MS)).toBe("text-ink-dim");
-    expect(ageClass(TARGET_MAX_AGE_MS / 2)).toBe("text-ink-dim opacity-50");
+    expect(ageClass(0)).toBe("text-foreground");
+    expect(ageClass(TARGET_STALE_MS - 1)).toBe("text-foreground");
+    expect(ageClass(TARGET_STALE_MS)).toBe("text-muted-foreground");
+    expect(ageClass(TARGET_MAX_AGE_MS / 2)).toBe("text-muted-foreground opacity-50");
   });
 
   it("formats age as seconds, m:ss then hours", () => {
