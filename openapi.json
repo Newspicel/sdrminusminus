@@ -5339,8 +5339,9 @@
               "options": {
                 "type": "array",
                 "items": {
-                  "type": "string"
-                }
+                  "$ref": "#/components/schemas/ArgumentOption"
+                },
+                "description": "The values the setting accepts, each carrying the driver's own words for it where it\nhas them: `direct_samp` is written as `0`/`1`/`2` and read as Off/I-ADC/Q-ADC."
               }
             }
           },

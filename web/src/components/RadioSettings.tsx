@@ -289,7 +289,10 @@ function ExtraControl({
             label={setting.name}
             className={PICKER}
             value={typeof raw === "string" ? raw : setting.default}
-            options={setting.options.map((option) => ({ value: option, label: option }))}
+            options={setting.options.map((option) => ({
+              value: option.value,
+              label: option.label ?? option.value,
+            }))}
             onChange={onCommit}
           />
         </div>

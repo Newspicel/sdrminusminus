@@ -242,7 +242,9 @@ pub enum ExtraSetting {
     },
     Enum {
         name: String,
-        options: Vec<String>,
+        /// The values the setting accepts, each carrying the driver's own words for it where it
+        /// has them: `direct_samp` is written as `0`/`1`/`2` and read as Off/I-ADC/Q-ADC.
+        options: Vec<ArgumentOption>,
         default: String,
     },
     String {
@@ -280,6 +282,17 @@ pub struct ArgumentOption {
     pub value: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+}
+
+impl ArgumentOption {
+    /// A value whose driver offers no words for it, so the value is what the client shows.
+    #[must_use]
+    pub fn plain(value: impl Into<String>) -> Self {
+        Self {
+            value: value.into(),
+            label: None,
+        }
+    }
 }
 
 /// Lossless wire representation of SoapySDR's `ArgInfo`.

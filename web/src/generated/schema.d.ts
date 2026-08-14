@@ -1971,7 +1971,11 @@ export interface components {
             /** @enum {string} */
             kind: "enum";
             name: string;
-            options: string[];
+            /**
+             * @description The values the setting accepts, each carrying the driver's own words for it where it
+             *     has them: `direct_samp` is written as `0`/`1`/`2` and read as Off/I-ADC/Q-ADC.
+             */
+            options: components["schemas"]["ArgumentOption"][];
         } | {
             default: string;
             /** @enum {string} */

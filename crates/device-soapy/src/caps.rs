@@ -76,7 +76,7 @@ pub(crate) fn extra_write_value(
         ExtraSetting::Bool { .. } => value.as_bool().map(|value| value.to_string()),
         ExtraSetting::Enum { options, .. } => value
             .as_str()
-            .filter(|value| options.iter().any(|option| option == value))
+            .filter(|value| options.iter().any(|option| option.value == *value))
             .map(str::to_string),
         ExtraSetting::Range { range, .. } => value
             .as_f64()
@@ -160,13 +160,11 @@ fn extra_settings_from_wire(infos: &[ArgumentInfo]) -> Vec<ExtraSetting> {
         .iter()
         .map(|info| {
             if !info.options.is_empty() {
+                // The driver's option names come across as they are: `direct_samp` is written as
+                // an ADC index and nobody reads `1` as "sample the I branch".
                 return ExtraSetting::Enum {
                     name: info.key.clone(),
-                    options: info
-                        .options
-                        .iter()
-                        .map(|option| option.value.clone())
-                        .collect(),
+                    options: info.options.clone(),
                     default: info.default.clone(),
                 };
             }
@@ -427,6 +425,30 @@ mod tests {
             extra_write_value(&extras, "iq_swap", &serde_json::json!(true)).unwrap(),
             "true"
         );
+    }
+
+    #[test]
+    fn an_enum_setting_keeps_the_words_its_driver_gives_each_value() {
+        let mut info = soapy_arg("direct_samp", ArgType::Int);
+        info.value = "0".to_string();
+        info.options = vec![
+            ("0".to_string(), Some("Off".to_string())),
+            ("1".to_string(), Some("I-ADC".to_string())),
+            ("2".to_string(), None),
+        ];
+        let extras = extra_settings_from_wire(&argument_infos(&[info]));
+        let ExtraSetting::Enum { options, .. } = &extras[0] else {
+            panic!("an argument with options is an enum control");
+        };
+        assert_eq!(options[0].label.as_deref(), Some("Off"));
+        assert_eq!(options[1].label.as_deref(), Some("I-ADC"));
+        assert_eq!(options[2].label, None);
+        // The label is what is read; the value is still what is written.
+        assert_eq!(
+            extra_write_value(&extras, "direct_samp", &serde_json::json!("1")).unwrap(),
+            "1"
+        );
+        assert!(extra_write_value(&extras, "direct_samp", &serde_json::json!("I-ADC")).is_err());
     }
 
     #[test]
