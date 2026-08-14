@@ -689,7 +689,7 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [gl-matrix](http://glmatrix.net) | 3.4.4 | MIT |
 | [json-stringify-pretty-compact](https://github.com/lydell/json-stringify-pretty-compact#readme) | 4.0.0 | MIT |
 | [kdbush](https://github.com/mourner/kdbush#readme) | 4.1.0 | ISC |
-| [maplibre-gl](https://maplibre.org/) | 6.2.0 | BSD-3-Clause |
+| [maplibre-gl](https://maplibre.org/) | 6.3.0 | BSD-3-Clause |
 | [minimist](https://github.com/minimistjs/minimist) | 1.2.8 | MIT |
 | [murmurhash-js](https://github.com/mikolalysenko/murmurhash-js#readme) | 1.0.0 | MIT |
 | [openapi-fetch](https://openapi-ts.dev) | 0.17.0 | MIT |

@@ -7,7 +7,7 @@
    - Server: handler tests + OpenAPI snapshot + codegen-drift check.
    - Performance gates tests for DSP paths to avoid regressions.
    - Client: unit and smoke tests
-3. No useless comments, delete useless comments. Never refernce PLAN/FEATURE/DESIGN
+3. No comments, delete comments. Unless there is no way to read that out of the Code. Never refernce PLAN/FEATURE/DESIGN
 4. Fix problems directly if you find them, without asking
 5. Match the established pattern, except if you think its stupid. 
 6. Self-written pure Rust first we can use/copy open source code or translate from C/C++ if we have to.
