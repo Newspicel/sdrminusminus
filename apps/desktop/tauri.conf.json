@@ -15,6 +15,11 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "resources": {
+      "resources/soapy": "soapy",
+      "resources/soapy/bin": ".",
+      "../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    },
     "icon": [
       "icons/128x128.png",
       "icons/128x128@2x.png",

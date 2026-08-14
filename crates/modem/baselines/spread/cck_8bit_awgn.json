@@ -1,0 +1,35 @@
+{
+  "label": "cck-8bit uncoded, CCK 8 bits/symbol over 8 chips at 11 Mchip/s, 4 samples/chip, RRC α=0.35, differential φ1, 64-symbol preamble, 2816-symbol payload, correlator bank + gain anchor, uncoded BER, seed 0x5cc8",
+  "points": [
+    {
+      "ebn0_db": 3.0,
+      "errors": 2160,
+      "trials": 90112
+    },
+    {
+      "ebn0_db": 4.0,
+      "errors": 2190,
+      "trials": 270336
+    },
+    {
+      "ebn0_db": 5.0,
+      "errors": 2016,
+      "trials": 878592
+    },
+    {
+      "ebn0_db": 6.0,
+      "errors": 1330,
+      "trials": 3018752
+    },
+    {
+      "ebn0_db": 7.0,
+      "errors": 176,
+      "trials": 3018752
+    },
+    {
+      "ebn0_db": 8.0,
+      "errors": 6,
+      "trials": 3018752
+    }
+  ]
+}

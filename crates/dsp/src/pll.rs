@@ -117,6 +117,18 @@ impl Pll {
         self.center / TAU + self.filter.freq_norm()
     }
 
+    /// The loop's instantaneous frequency estimate in cycles/sample: the whole filter output —
+    /// integrator *and* proportional path — for the sample just processed.
+    ///
+    /// This is the control voltage a PLL frequency demodulator reads. [`Self::freq_norm`]
+    /// returns only the integrator, which follows modulation slower than the loop bandwidth
+    /// and rolls the rest off; a demodulator reading it would low-pass the very message it is
+    /// recovering.
+    #[must_use]
+    pub fn increment_norm(&self) -> f64 {
+        self.inc / TAU
+    }
+
     /// Smoothed |error| based lock estimate in 0..=1; > 0.5 means locked.
     #[must_use]
     pub fn lock(&self) -> f32 {

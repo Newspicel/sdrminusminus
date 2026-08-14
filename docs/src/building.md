@@ -5,11 +5,11 @@
 - The pinned nightly Rust toolchain. `rust-toolchain.toml` names it and `rustup` installs it on
   the first build — do not substitute a stable toolchain, the workspace builds with
   `-Zpolonius=next`.
-- Node 24 and pnpm 11.
-- SoapySDR, **only** for the default build: `libsoapysdr-dev` on Debian/Ubuntu,
-  `brew install soapysdr` on macOS. Building with
-  `--no-default-features --features rtl-native,hackrf-native` skips it entirely, which is the
-  shape release artifacts ship in — those need no C library at all.
+- Node 26 and pnpm 11.
+- SoapySDR 0.8 development files for normal builds: `libsoapysdr-dev` on Debian/Ubuntu or
+  `brew install soapysdr` on macOS. Soapy is the default and release hardware backend. A
+  specialized virtual/network-only build is available with
+  `--no-default-features --features net-client`.
 
 ## From a clone
 
@@ -49,13 +49,32 @@ so every gate that can fail in CI can be run locally first.
 
 `cargo xtask dist [--target <triple>]` produces exactly what the release pipeline uploads:
 `dist/sdrmm-<version>-<triple>.tar.gz` (`.zip` on Windows), holding the binary plus `README.md`
-and `LICENSE`. It builds the web UI first and then asserts it is present, because
+and license/notices files. These portable headless archives compile the Soapy backend but do not
+copy a runtime: the target machine must provide SoapySDR 0.8.1 (module ABI 0.8) and its hardware
+module. Release baselines are SoapyRTLSDR 0.3.3 and SoapyHackRF 0.3.4; the other curated versions
+are declared in `packaging/soapy/environment.yml`. SDRplay uses the separately installed
+SoapySDRPlay3 0.5.2 module and SDRplay API 3.15 or newer described in the
+[hardware guide](hardware.md#sdrplay). Release and Docker builds install the
+matching immutable `packaging/soapy/conda-<platform>.lock`, which pins every transitive package
+URL and checksum. Confirm the installation with `sdrmm --doctor`;
+its report includes the compiled backend, core version, module search paths, and discovered
+modules.
+
+The command builds the web UI first and then asserts it is present, because
 `crates/server/build.rs` creates an empty `web/dist` when one is missing — so a release built
 without the UI would otherwise succeed and silently ship a "not built" placeholder page.
 
 `cargo xtask desktop --bundles dmg` (or `deb,appimage`, `msi,nsis`) builds the desktop
 installers through the Tauri CLI, which you need installed:
-`cargo install --locked tauri-cli`. Without `--bundles` the command is a compile gate only,
+`cargo install --locked tauri-cli`. Before bundling, stage the pinned private runtime from
+the matching `packaging/soapy/conda-<platform>.lock` into a Conda prefix, then stage it in
+`apps/desktop/resources/soapy` with
+`packaging/soapy/stage-unix.sh <conda-prefix> apps/desktop/resources/soapy` (or
+`powershell -NoProfile -File packaging/soapy/stage-windows.ps1 -Prefix "<conda-prefix>" -Destination apps/desktop/resources/soapy`
+on Windows). `cargo xtask soapy-bundle-check`
+checks the staged payload. Release CI
+performs these steps automatically and verifies the resulting installers. Without `--bundles`
+the command is a compile gate only,
 which is what CI runs on every pull request — `apps/desktop` is outside the workspace's
 `default-members`, so nothing else builds it.
 

@@ -37,7 +37,8 @@ pub use decode::{
     RdsUpdate, RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor,
 };
 pub use device::{
-    Capabilities, DeviceInfo, DeviceSettings, Direction, Duplex, ExtraSetting, ExtraValue,
+    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
+    DeviceSettings, Direction, DirectionalCapabilities, Duplex, ExtraSetting, ExtraValue,
     GainStage, GainValue, Range, StreamScope, StreamSettings,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
@@ -393,6 +394,7 @@ mod contract_tests {
                 rx_streams: 1,
                 tx_streams: 0,
                 per_stream: StreamScope::default(),
+                directional: None,
             },
             settings: DeviceSettings::default(),
             status: DeviceSetStatus::Running,

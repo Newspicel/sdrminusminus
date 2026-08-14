@@ -12,9 +12,9 @@ use std::{f64::consts::FRAC_1_SQRT_2, sync::LazyLock};
 
 use num_complex::Complex;
 use sdrmm_dsp::{
-    ComplexOnePole, Decimator, Deemphasis, FmDemod, Nco, Pll, RealDecimator, design_lowpass,
-    one_pole_coeff,
+    ComplexOnePole, Decimator, Deemphasis, Nco, Pll, RealDecimator, design_lowpass, one_pole_coeff,
 };
+use sdrmm_modem::analog::{AngleDemod, AngleDetector, AngleKind, AngleParams, AngleRx};
 use sdrmm_wire::{ChannelDescriptor, ChannelParams, ChannelSettings, WfmParams};
 
 use crate::{
@@ -56,6 +56,23 @@ const LOCK_OFF: f32 = 0.4;
 /// misapplied for audibly long.
 const BLEND_TAU_S: f64 = 0.05;
 
+/// The library detector this channel is an attachment to: `sdrmm_modem::analog`'s quadrature
+/// discriminator alone, at broadcast FM's ±75 kHz. The engine's own predetection and audio
+/// filters are off — the host runtime supplies the first, and what follows the discriminator is
+/// the composite, which this channel demultiplexes itself.
+fn discriminator(rate: f64) -> AngleDemod {
+    let params = AngleParams::new(
+        AngleKind::Fm {
+            deviation: DEVIATION_HZ / rate,
+        },
+        AUDIO_CUTOFF_HZ / rate,
+    );
+    AngleDemod::new(
+        &params,
+        &AngleRx::detector_only(AngleDetector::Discriminator),
+    )
+}
+
 static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescriptor {
     type_id: "wfm".to_owned(),
     name: "WFM (broadcast)".to_owned(),
@@ -68,7 +85,7 @@ static DESCRIPTOR: LazyLock<ChannelDescriptor> = LazyLock::new(|| ChannelDescrip
 });
 
 pub struct WfmChannel {
-    demod: FmDemod,
+    demod: AngleDemod,
     deemphasis: Deemphasis,
     decim: RealDecimator,
     demod_buf: Vec<f32>,
@@ -219,7 +236,7 @@ impl ChannelRx for WfmChannel {
         let p = params(&settings)?;
         let deemphasis = deemphasis(p)?;
         Ok(Self {
-            demod: FmDemod::new(ctx.input_rate, DEVIATION_HZ),
+            demod: discriminator(ctx.input_rate),
             decim: audio_decimator(ctx.input_rate),
             demod_buf: Vec::new(),
             sum: Vec::new(),

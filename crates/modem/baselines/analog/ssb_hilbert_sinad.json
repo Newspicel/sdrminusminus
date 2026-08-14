@@ -1,0 +1,60 @@
+{
+  "label": "SSB USB, phasing exciter, filtering detector, 48000 Hz, SINAD vs channel SNR, seed 0x55b1",
+  "points": [
+    {
+      "snr_db": 0.0,
+      "sinad_db": 3.0237370322917823,
+      "thd_percent": 3.8687084237581604
+    },
+    {
+      "snr_db": 3.0,
+      "sinad_db": 4.950886441310029,
+      "thd_percent": 2.4304607551929736
+    },
+    {
+      "snr_db": 6.0,
+      "sinad_db": 7.038105627638579,
+      "thd_percent": 2.3350722004315925
+    },
+    {
+      "snr_db": 9.0,
+      "sinad_db": 9.518577593215541,
+      "thd_percent": 2.032059950397064
+    },
+    {
+      "snr_db": 12.0,
+      "sinad_db": 12.595859531117874,
+      "thd_percent": 0.9677399782918699
+    },
+    {
+      "snr_db": 15.0,
+      "sinad_db": 15.152414347494478,
+      "thd_percent": 0.6599222504772118
+    },
+    {
+      "snr_db": 18.0,
+      "sinad_db": 18.332139814870843,
+      "thd_percent": 0.5108029217049362
+    },
+    {
+      "snr_db": 21.0,
+      "sinad_db": 21.224199831667544,
+      "thd_percent": 0.3785174614800837
+    },
+    {
+      "snr_db": 24.0,
+      "sinad_db": 24.12299379327113,
+      "thd_percent": 0.3010595363562978
+    },
+    {
+      "snr_db": 27.0,
+      "sinad_db": 27.354191921433046,
+      "thd_percent": 0.12862376756536611
+    },
+    {
+      "snr_db": 30.0,
+      "sinad_db": 30.10669586851158,
+      "thd_percent": 0.12656795560578576
+    }
+  ]
+}

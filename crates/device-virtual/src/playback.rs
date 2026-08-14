@@ -90,6 +90,7 @@ impl FilePlayback {
             rx_streams: 1,
             tx_streams: 0,
             per_stream: StreamScope::default(),
+            directional: None,
         };
         let settings = DeviceSettings {
             center_hz: Some(center_hz),

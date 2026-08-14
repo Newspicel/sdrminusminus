@@ -1,6 +1,6 @@
 # Build context for the Dockerfile. Everything the image needs is copied explicitly there:
-# Cargo.toml, Cargo.lock, rust-toolchain.toml, .cargo/, crates/, apps/, xtask/, web/ — none of
-# which may be excluded here.
+# Cargo.toml, Cargo.lock, rust-toolchain.toml, .cargo/, crates/, apps/, xtask/, web/, and the
+# pinned packaging environment — none of which may be excluded here.
 
 .git
 .github

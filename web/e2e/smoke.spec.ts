@@ -7,7 +7,15 @@
 // workspace it leaves, which the single worker and the throwaway database below make sound.
 import { expect, type Locator, type Page, test } from "@playwright/test";
 // The state shape is generated from the server's OpenAPI, like everywhere else (CLAUDE.md #1).
-import type { StateSnapshot } from "../src/lib/types";
+import type { StateSnapshot, WorkspaceDetail } from "../src/lib/types";
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 /** Draw a wire between two ports the way a pointer does. */
 async function dragWire(page: Page, from: Locator, to: Locator): Promise<void> {
@@ -89,6 +97,10 @@ async function dragBy(page: Page, grip: Locator, cells: number): Promise<void> {
 }
 
 test.describe("the workspace", () => {
+  // These legs deliberately share the throwaway server state built by the first one. If that
+  // setup fails, later assertions describe consequences rather than independent failures.
+  test.describe.configure({ mode: "serial" });
+
   test("binds a radio, adds a channel and pins a face", async ({ page }) => {
     // The tile CDN is cut off, not awaited: CI must not lean on a third party, and the offline
     // fallback the map leg below lands in is itself behaviour the map owes a field workspace.
@@ -185,13 +197,50 @@ test.describe("the workspace", () => {
     // something to preserve.
     await expect(node("scope").getByText(/waiting for the first frame/i)).toHaveCount(0);
 
+    // Hold the one-pin refetch after the server has answered it. The second optimistic pin lands
+    // while that stale response is in flight, deterministically reproducing the ordering that used
+    // to erase the second edit before its queued write began.
+    const staleGet = deferred();
+    const releaseStaleGet = deferred();
+    const staleGetFulfilled = deferred();
+    let heldStaleGet = false;
+    await page.route(/\/api\/workspaces\/\d+$/, async (route) => {
+      const request = route.request();
+      if (heldStaleGet || request.method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      const response = await route.fetch();
+      const detail = (await response.json()) as WorkspaceDetail;
+      const rackNodes = detail.snapshot.rack?.slots?.map((slot) => slot.node) ?? [];
+      if (rackNodes.length !== 1 || rackNodes[0] !== "scope") {
+        await route.fulfill({ response });
+        return;
+      }
+      heldStaleGet = true;
+      staleGet.resolve();
+      await releaseStaleGet.promise;
+      await route.fulfill({ response });
+      staleGetFulfilled.resolve();
+    });
+
     // Pinning adds the face to the rack and leaves the canvas node where it was (CANVAS §5).
-    for (const id of ["scope", "speaker"]) {
-      await node(id)
-        .getByRole("button", { name: /pin to the rack/i })
-        .click();
-      await expect(node(id).getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
-    }
+    await node("scope")
+      .getByRole("button", { name: /pin to the rack/i })
+      .click();
+    await expect(node("scope").getByRole("button", { name: /unpin from the rack/i })).toBeVisible();
+    await staleGet.promise;
+    await node("speaker")
+      .getByRole("button", { name: /pin to the rack/i })
+      .click();
+    await expect(
+      node("speaker").getByRole("button", { name: /unpin from the rack/i }),
+    ).toBeVisible();
+    releaseStaleGet.resolve();
+    await staleGetFulfilled.promise;
+    await expect
+      .poll(async () => (await slots(page)).map((slot) => slot.node))
+      .toEqual(["scope", "speaker"]);
     await expect(node("scope").getByText(/pinned to the rack/i)).toHaveCount(0);
 
     const rack = page.getByRole("group", { name: "View" }).getByRole("button", { name: "Rack" });

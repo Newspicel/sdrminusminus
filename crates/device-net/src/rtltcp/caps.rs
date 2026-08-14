@@ -146,6 +146,7 @@ pub(crate) fn capabilities(tuner: Tuner, gains: &[i32]) -> Capabilities {
         rx_streams: 1,
         tx_streams: 0,
         per_stream: StreamScope::default(),
+        directional: None,
     }
 }
 
@@ -386,7 +387,7 @@ pub(crate) fn validate(
         let setting = caps
             .extra
             .iter()
-            .find(|s| extra_name(s) == value.name)
+            .find(|setting| setting.name() == value.name)
             .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {}", value.name)))?;
         let on = extra_bool(setting, value)?;
         match value.name.as_str() {
@@ -421,14 +422,6 @@ pub(crate) fn validate(
     }
 
     Ok((next, ordered(batch)))
-}
-
-fn extra_name(setting: &ExtraSetting) -> &str {
-    match setting {
-        ExtraSetting::Bool { name, .. }
-        | ExtraSetting::Range { name, .. }
-        | ExtraSetting::Enum { name, .. } => name,
-    }
 }
 
 /// Every advertised extra is a boolean; anything else in the delta is a client bug, not a value to

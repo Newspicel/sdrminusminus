@@ -1,6 +1,8 @@
 //! Device capability model and settings. `Capabilities` is the backbone of the
 //! backend-driven UI (PLAN §6): the client auto-renders controls from it.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -175,8 +177,8 @@ impl std::fmt::Display for Direction {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Duplex {
-    /// Receive only: RTL-SDR, and every backend with no transmitter (virtual, playback, the
-    /// Soapy path as this project drives it). The default, so a backend that says nothing
+    /// Receive only: RTL-SDR and every backend with no transmitter (virtual and playback).
+    /// The default, so a backend that says nothing
     /// cannot accidentally advertise a transmitter.
     #[default]
     RxOnly,
@@ -243,6 +245,122 @@ pub enum ExtraSetting {
         options: Vec<String>,
         default: String,
     },
+    String {
+        name: String,
+        default: String,
+    },
+}
+
+impl ExtraSetting {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Bool { name, .. }
+            | Self::Range { name, .. }
+            | Self::Enum { name, .. }
+            | Self::String { name, .. } => name,
+        }
+    }
+}
+
+/// The exact type SoapySDR declares for an argument. This stays separate from
+/// [`ExtraSetting`], which is the compact control shape used by the existing receiver UI.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ArgumentType {
+    Bool,
+    Float,
+    Int,
+    String,
+}
+
+/// One labelled value in a driver's discrete option list.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ArgumentOption {
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Lossless wire representation of SoapySDR's `ArgInfo`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ArgumentInfo {
+    pub key: String,
+    pub default: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub units: Option<String>,
+    pub value_type: ArgumentType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<Range>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<ArgumentOption>,
+}
+
+/// Capabilities of one hardware channel in one signal direction.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ChannelCapabilities {
+    pub channel: u32,
+    pub freq_ranges: Vec<Range>,
+    pub sample_rates: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sample_rate_ranges: Vec<Range>,
+    pub bandwidth_ranges: Vec<Range>,
+    pub gains: Vec<GainStage>,
+    pub antennas: Vec<String>,
+    #[serde(default)]
+    pub gain_mode: bool,
+    #[serde(default)]
+    pub dc_offset_mode: bool,
+    #[serde(default)]
+    pub iq_balance: bool,
+    #[serde(default)]
+    pub full_duplex: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stream_formats: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_stream_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stream_args: Vec<ArgumentInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub frequency_args: Vec<ArgumentInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub frequency_components: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub settings: Vec<ArgumentInfo>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub info: BTreeMap<String, String>,
+}
+
+/// Directional and runtime capabilities that cannot be represented by the legacy channel-0
+/// receiver fields on [`Capabilities`].
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DirectionalCapabilities {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rx: Vec<ChannelCapabilities>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tx: Vec<ChannelCapabilities>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub device_settings: Vec<ArgumentInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clock_sources: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub time_sources: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clock_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_source: Option<String>,
+    #[serde(default)]
+    pub hardware_time: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hardware_time_ns: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_clock_rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub hardware_info: BTreeMap<String, String>,
 }
 
 /// Which device settings each receive stream holds on its own, rather than sharing with the rest
@@ -315,6 +433,10 @@ pub struct Capabilities {
     /// declares gains and antennas.
     #[serde(default)]
     pub per_stream: StreamScope,
+    /// Full per-direction, per-channel capability data. Older backends and stored payloads omit
+    /// it; Soapy-backed devices always populate it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub directional: Option<DirectionalCapabilities>,
 }
 
 /// A radio with no declared stream count still has one receiver: the field was added when
@@ -502,6 +624,7 @@ mod tests {
             rx_streams: 1,
             tx_streams: 0,
             per_stream: StreamScope::default(),
+            directional: None,
         }
     }
 

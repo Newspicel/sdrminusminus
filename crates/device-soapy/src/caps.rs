@@ -1,95 +1,68 @@
-//! Pure translation from SoapySDR channel queries to the wire capability model (PLAN §6),
-//! plus the pre-flight validation `apply` runs before touching the device. No I/O here, so
-//! every mapping is unit-testable with fabricated `soapysdr::Range`s (public fields).
-
 use sdrmm_device::{DeviceError, check_stream_settings};
-use sdrmm_wire::{Capabilities, DeviceSettings, ExtraSetting, Range};
+use sdrmm_wire::{
+    ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceSettings,
+    DirectionalCapabilities, Duplex, ExtraSetting, Range,
+};
+use soapysdr::ArgType;
 
-pub(crate) fn freq_ranges(ranges: &[soapysdr::Range]) -> Vec<Range> {
+pub(crate) fn ranges(ranges: &[soapysdr::Range]) -> Vec<Range> {
     ranges
         .iter()
-        .map(|r| Range {
-            min: r.minimum,
-            max: r.maximum,
-            // Soapy reports "no step constraint" as 0; the wire model uses None.
-            step: (r.step > 0.0).then_some(r.step),
+        .map(|range| Range {
+            min: range.minimum,
+            max: range.maximum,
+            step: (range.step > 0.0).then_some(range.step),
         })
         .collect()
 }
 
-/// Soapy expresses a discrete rate as a zero-width range (min == max) — there is no separate
-/// discrete-list query — while a genuinely continuous range spans. Devices may mix both, so
-/// the capability model keeps both fields: the list, and the span over the continuous parts.
-pub(crate) fn rate_capabilities(ranges: &[soapysdr::Range]) -> (Vec<f64>, Option<Range>) {
+pub(crate) fn rate_capabilities(ranges: &[soapysdr::Range]) -> (Vec<f64>, Vec<Range>) {
     let mut discrete = Vec::new();
-    let mut span: Option<Range> = None;
-    for r in ranges {
-        if r.minimum == r.maximum {
-            discrete.push(r.minimum);
+    let mut continuous = Vec::new();
+    for range in ranges {
+        if range.minimum == range.maximum {
+            discrete.push(range.minimum);
         } else {
-            span = Some(match span {
-                Some(s) => Range {
-                    min: s.min.min(r.minimum),
-                    max: s.max.max(r.maximum),
-                    step: None,
-                },
-                None => Range {
-                    min: r.minimum,
-                    max: r.maximum,
-                    step: None,
-                },
+            continuous.push(Range {
+                min: range.minimum,
+                max: range.maximum,
+                step: (range.step > 0.0).then_some(range.step),
             });
         }
     }
-    (discrete, span)
+    (discrete, continuous)
 }
 
-/// Discrete (zero-width) points only — `Capabilities::bandwidths` is a select list, and a
-/// continuous filter range has no representation there yet.
-pub(crate) fn discrete_points(ranges: &[soapysdr::Range]) -> Vec<f64> {
-    ranges
-        .iter()
-        .filter(|r| r.minimum == r.maximum)
-        .map(|r| r.minimum)
-        .collect()
-}
-
-/// The binding exposes no getSettingInfo, so per-driver extras come from this table keyed on
-/// the enumerate args' "driver" value. Names/values are the Soapy modules' wire strings.
-pub(crate) fn extra_settings(driver: &str) -> Vec<ExtraSetting> {
-    match driver {
-        "rtlsdr" => vec![
-            bool_setting("biastee"),
-            ExtraSetting::Enum {
-                name: "direct_samp".to_string(),
-                options: vec!["0".to_string(), "1".to_string(), "2".to_string()],
-                default: "0".to_string(),
-            },
-            bool_setting("offset_tune"),
-            bool_setting("digital_agc"),
-        ],
-        "hackrf" => vec![bool_setting("bias_tx")],
-        _ => Vec::new(),
+pub(crate) fn argument_info(info: &soapysdr::ArgInfo) -> ArgumentInfo {
+    ArgumentInfo {
+        key: info.key.clone(),
+        default: info.value.clone(),
+        name: info.name.clone(),
+        description: info.description.clone(),
+        units: info.units.clone(),
+        value_type: match info.data_type {
+            ArgType::Bool => ArgumentType::Bool,
+            ArgType::Float => ArgumentType::Float,
+            ArgType::Int => ArgumentType::Int,
+            ArgType::String => ArgumentType::String,
+            _ => ArgumentType::String,
+        },
+        range: info.range.map(|range| ranges(&[range])[0]),
+        options: info
+            .options
+            .iter()
+            .map(|(value, label)| ArgumentOption {
+                value: value.clone(),
+                label: label.clone(),
+            })
+            .collect(),
     }
 }
 
-fn bool_setting(name: &str) -> ExtraSetting {
-    ExtraSetting::Bool {
-        name: name.to_string(),
-        default: false,
-    }
+pub(crate) fn argument_infos(infos: &[soapysdr::ArgInfo]) -> Vec<ArgumentInfo> {
+    infos.iter().map(argument_info).collect()
 }
 
-fn extra_name(setting: &ExtraSetting) -> &str {
-    match setting {
-        ExtraSetting::Bool { name, .. }
-        | ExtraSetting::Range { name, .. }
-        | ExtraSetting::Enum { name, .. } => name,
-    }
-}
-
-/// The string `write_setting` wants: bools as "true"/"false", enums as the raw option,
-/// numbers via `Display`. Unknown names and mistyped or out-of-set values are `Unsupported`.
 pub(crate) fn extra_write_value(
     extra: &[ExtraSetting],
     name: &str,
@@ -97,63 +70,173 @@ pub(crate) fn extra_write_value(
 ) -> Result<String, DeviceError> {
     let setting = extra
         .iter()
-        .find(|s| extra_name(s) == name)
+        .find(|setting| setting.name() == name)
         .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {name}")))?;
     let written = match setting {
-        ExtraSetting::Bool { .. } => value.as_bool().map(|b| b.to_string()),
+        ExtraSetting::Bool { .. } => value.as_bool().map(|value| value.to_string()),
         ExtraSetting::Enum { options, .. } => value
             .as_str()
-            .filter(|v| options.iter().any(|o| o == v))
+            .filter(|value| options.iter().any(|option| option == value))
             .map(str::to_string),
-        ExtraSetting::Range { .. } => value.as_f64().map(|v| v.to_string()),
+        ExtraSetting::Range { range, .. } => value
+            .as_f64()
+            .filter(|value| range.min <= *value && *value <= range.max)
+            .map(|value| value.to_string()),
+        ExtraSetting::String { .. } => value.as_str().map(str::to_string),
     };
     written
         .ok_or_else(|| DeviceError::Unsupported(format!("extra setting {name}: bad value {value}")))
 }
 
-/// Pre-flight for `apply`: reject values the hardware cannot take before any setter runs —
-/// otherwise a bad field mid-batch leaves the device half-retuned — and pre-compute the
-/// `write_setting` strings so extras cannot fail halfway through either. `ppm_supported` is
-/// whether the tuner exposes a "CORR" frequency component — without it ppm must error, never
-/// be dropped silently.
-pub(crate) fn validate(
-    delta: &DeviceSettings,
-    caps: &Capabilities,
-    ppm_supported: bool,
-) -> Result<Vec<(String, String)>, DeviceError> {
-    check_stream_settings(delta, caps)?;
-    if let Some(f) = delta.center_hz
-        && !caps.freq_ranges.is_empty()
-        && !caps.freq_ranges.iter().any(|r| r.min <= f && f <= r.max)
-    {
-        return Err(DeviceError::Unsupported(format!(
-            "center_hz {f} outside tuner range"
-        )));
-    }
-    // A device may expose a discrete list, a continuous span, or both; satisfying either is
-    // enough, and a device constraining neither accepts any value.
-    if let Some(rate) = delta.sample_rate {
-        let constrained = !caps.sample_rates.is_empty() || caps.sample_rate_range.is_some();
-        let in_list = caps.sample_rates.contains(&rate);
-        let in_span = caps
-            .sample_rate_range
-            .is_some_and(|r| r.min <= rate && rate <= r.max);
-        if constrained && !in_list && !in_span {
-            return Err(DeviceError::Unsupported(format!("sample_rate {rate}")));
+pub(crate) fn duplex(rx: &[ChannelCapabilities], tx: &[ChannelCapabilities]) -> Duplex {
+    match (rx.is_empty(), tx.is_empty()) {
+        (false, true) => Duplex::RxOnly,
+        (true, false) => Duplex::TxOnly,
+        (true, true) => Duplex::RxOnly,
+        (false, false) => {
+            if rx.iter().chain(tx).all(|channel| channel.full_duplex) {
+                Duplex::Full
+            } else {
+                Duplex::Half
+            }
         }
     }
-    // An empty bandwidth list means a continuous filter — any value is accepted there.
-    if let Some(bw) = delta.bandwidth
-        && !caps.bandwidths.is_empty()
-        && !caps.bandwidths.contains(&bw)
-    {
-        return Err(DeviceError::Unsupported(format!("bandwidth {bw}")));
+}
+
+pub(crate) fn capabilities(directional: DirectionalCapabilities) -> Capabilities {
+    let primary = directional.rx.first();
+    let (freq_ranges, sample_rates, sample_rate_range, gains, antennas, bandwidths, ppm) =
+        match primary {
+            Some(channel) => (
+                channel.freq_ranges.clone(),
+                channel.sample_rates.clone(),
+                (channel.sample_rate_ranges.len() == 1).then(|| channel.sample_rate_ranges[0]),
+                channel.gains.clone(),
+                channel.antennas.clone(),
+                channel
+                    .bandwidth_ranges
+                    .iter()
+                    .filter(|range| range.min == range.max)
+                    .map(|range| range.min)
+                    .collect(),
+                channel
+                    .frequency_components
+                    .iter()
+                    .any(|component| component == "CORR"),
+            ),
+            None => (
+                Vec::new(),
+                Vec::new(),
+                None,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                false,
+            ),
+        };
+    let rx_streams = u32::try_from(directional.rx.len()).unwrap_or(u32::MAX);
+    let tx_streams = u32::try_from(directional.tx.len()).unwrap_or(u32::MAX);
+    let duplex = duplex(&directional.rx, &directional.tx);
+    let extra = extra_settings_from_wire(&directional.device_settings);
+    Capabilities {
+        freq_ranges,
+        sample_rates,
+        sample_rate_range,
+        gains,
+        antennas,
+        bandwidths,
+        extra,
+        ppm,
+        duplex,
+        rx_streams,
+        tx_streams,
+        per_stream: sdrmm_wire::StreamScope::default(),
+        directional: Some(directional),
     }
-    for gain in &delta.gains {
-        let stage = caps
+}
+
+fn extra_settings_from_wire(infos: &[ArgumentInfo]) -> Vec<ExtraSetting> {
+    infos
+        .iter()
+        .map(|info| {
+            if !info.options.is_empty() {
+                return ExtraSetting::Enum {
+                    name: info.key.clone(),
+                    options: info
+                        .options
+                        .iter()
+                        .map(|option| option.value.clone())
+                        .collect(),
+                    default: info.default.clone(),
+                };
+            }
+            match (info.value_type, info.range) {
+                (ArgumentType::Bool, _) => ExtraSetting::Bool {
+                    name: info.key.clone(),
+                    default: matches!(info.default.to_ascii_lowercase().as_str(), "true" | "1"),
+                },
+                (ArgumentType::Float | ArgumentType::Int, Some(range)) => ExtraSetting::Range {
+                    name: info.key.clone(),
+                    range,
+                    unit: info.units.clone().unwrap_or_default(),
+                },
+                _ => ExtraSetting::String {
+                    name: info.key.clone(),
+                    default: info.default.clone(),
+                },
+            }
+        })
+        .collect()
+}
+
+fn validates_channel(
+    settings: &DeviceSettings,
+    channel: &ChannelCapabilities,
+) -> Result<(), DeviceError> {
+    if let Some(frequency) = settings.center_hz
+        && !channel.freq_ranges.is_empty()
+        && !channel
+            .freq_ranges
+            .iter()
+            .any(|range| range.min <= frequency && frequency <= range.max)
+    {
+        return Err(DeviceError::Unsupported(format!(
+            "center_hz {frequency} outside channel {} range",
+            channel.channel
+        )));
+    }
+    if let Some(rate) = settings.sample_rate {
+        let constrained =
+            !channel.sample_rates.is_empty() || !channel.sample_rate_ranges.is_empty();
+        let listed = channel.sample_rates.contains(&rate);
+        let ranged = channel
+            .sample_rate_ranges
+            .iter()
+            .any(|range| range.min <= rate && rate <= range.max);
+        if constrained && !listed && !ranged {
+            return Err(DeviceError::Unsupported(format!(
+                "sample_rate {rate} on channel {}",
+                channel.channel
+            )));
+        }
+    }
+    if let Some(bandwidth) = settings.bandwidth
+        && !channel.bandwidth_ranges.is_empty()
+        && !channel
+            .bandwidth_ranges
+            .iter()
+            .any(|range| range.min <= bandwidth && bandwidth <= range.max)
+    {
+        return Err(DeviceError::Unsupported(format!(
+            "bandwidth {bandwidth} on channel {}",
+            channel.channel
+        )));
+    }
+    for gain in &settings.gains {
+        let stage = channel
             .gains
             .iter()
-            .find(|s| s.name == gain.stage)
+            .find(|stage| stage.name == gain.stage)
             .ok_or_else(|| DeviceError::Unsupported(format!("gain stage {}", gain.stage)))?;
         if !(stage.range.min..=stage.range.max).contains(&gain.value_db) {
             return Err(DeviceError::Unsupported(format!(
@@ -162,13 +245,76 @@ pub(crate) fn validate(
             )));
         }
     }
-    if let Some(antenna) = &delta.antenna
-        && !caps.antennas.is_empty()
-        && !caps.antennas.contains(antenna)
+    if let Some(antenna) = &settings.antenna
+        && !channel.antennas.is_empty()
+        && !channel.antennas.contains(antenna)
     {
         return Err(DeviceError::Unsupported(format!("antenna {antenna}")));
     }
-    if delta.ppm.is_some() && !ppm_supported {
+    Ok(())
+}
+
+pub(crate) fn validate(
+    delta: &DeviceSettings,
+    capabilities: &Capabilities,
+) -> Result<Vec<(String, String)>, DeviceError> {
+    check_stream_settings(delta, capabilities)?;
+    if capabilities
+        .directional
+        .as_ref()
+        .is_some_and(|directional| directional.rx.is_empty())
+        && (delta.center_hz.is_some()
+            || delta.sample_rate.is_some()
+            || delta.ppm.is_some()
+            || delta.antenna.is_some()
+            || delta.bandwidth.is_some()
+            || !delta.gains.is_empty()
+            || !delta.streams.is_empty())
+    {
+        return Err(DeviceError::Unsupported(
+            "receive settings on a TX-only device".to_string(),
+        ));
+    }
+    let channels = capabilities
+        .directional
+        .as_ref()
+        .map(|directional| directional.rx.as_slice())
+        .unwrap_or(&[]);
+    if channels.is_empty() {
+        let fallback = ChannelCapabilities {
+            channel: 0,
+            freq_ranges: capabilities.freq_ranges.clone(),
+            sample_rates: capabilities.sample_rates.clone(),
+            sample_rate_ranges: capabilities.sample_rate_range.into_iter().collect(),
+            gains: capabilities.gains.clone(),
+            antennas: capabilities.antennas.clone(),
+            bandwidth_ranges: capabilities
+                .bandwidths
+                .iter()
+                .map(|value| Range {
+                    min: *value,
+                    max: *value,
+                    step: None,
+                })
+                .collect(),
+            ..ChannelCapabilities::default()
+        };
+        validates_channel(delta, &fallback)?;
+    } else {
+        for channel in channels {
+            validates_channel(delta, channel)?;
+        }
+        for stream in &delta.streams {
+            let channel = channels
+                .get(stream.stream as usize)
+                .ok_or_else(|| DeviceError::Unsupported(format!("streams[{}]", stream.stream)))?;
+            validates_channel(
+                &delta.for_stream(stream.stream, &capabilities.per_stream),
+                channel,
+            )?;
+        }
+    }
+    if delta.ppm.is_some() && !capabilities.ppm {
         return Err(DeviceError::Unsupported(
             "ppm: tuner has no CORR frequency component".to_string(),
         ));
@@ -176,20 +322,15 @@ pub(crate) fn validate(
     delta
         .extra
         .iter()
-        .map(|e| {
+        .map(|extra| {
             Ok((
-                e.name.clone(),
-                extra_write_value(&caps.extra, &e.name, &e.value)?,
+                extra.name.clone(),
+                extra_write_value(&capabilities.extra, &extra.name, &extra.value)?,
             ))
         })
         .collect()
 }
 
-/// Whether a `read_setting` echo confirms a value `write_setting` claimed to accept.
-/// SoapyRTLSDR's writeSetting silently ignores unknown keys (and its biastee branch is
-/// compiled out under an old librtlsdr) while readSetting returns "" for them, so an empty
-/// echo means the write never took effect. Modules disagree on bool casing, hence the
-/// case-insensitive bool compare; enum options must echo exactly.
 pub(crate) fn read_back_confirms(written: &str, echoed: &str) -> bool {
     if echoed.is_empty() {
         return false;
@@ -202,374 +343,162 @@ pub(crate) fn read_back_confirms(written: &str, echoed: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use sdrmm_wire::{Duplex, ExtraValue, GainStage, GainValue};
-
     use super::*;
 
-    fn soapy_range(minimum: f64, maximum: f64, step: f64) -> soapysdr::Range {
-        soapysdr::Range {
-            minimum,
-            maximum,
-            step,
+    fn soapy_arg(key: &str, data_type: ArgType) -> soapysdr::ArgInfo {
+        soapysdr::ArgInfo {
+            key: key.to_string(),
+            value: "false".to_string(),
+            name: Some("I/Q swap".to_string()),
+            description: Some("Exchange I and Q".to_string()),
+            units: None,
+            data_type,
+            range: None,
+            options: Vec::new(),
         }
     }
 
-    #[test]
-    fn freq_ranges_map_zero_step_to_none() {
-        let mapped = freq_ranges(&[soapy_range(24e6, 1.766e9, 0.0), soapy_range(2e9, 6e9, 1.0)]);
-        assert_eq!(
-            mapped,
-            vec![
-                Range {
-                    min: 24e6,
-                    max: 1.766e9,
-                    step: None
-                },
-                Range {
-                    min: 2e9,
-                    max: 6e9,
-                    step: Some(1.0)
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn discrete_rates_become_the_list() {
-        let (discrete, span) = rate_capabilities(&[
-            soapy_range(250_000.0, 250_000.0, 0.0),
-            soapy_range(2_048_000.0, 2_048_000.0, 0.0),
-        ]);
-        assert_eq!(discrete, vec![250_000.0, 2_048_000.0]);
-        assert_eq!(span, None);
-    }
-
-    #[test]
-    fn continuous_rates_become_the_spanning_range() {
-        let (discrete, span) =
-            rate_capabilities(&[soapy_range(1e6, 10e6, 0.0), soapy_range(15e6, 20e6, 0.0)]);
-        assert!(discrete.is_empty());
-        assert_eq!(
-            span,
-            Some(Range {
-                min: 1e6,
-                max: 20e6,
-                step: None
-            })
-        );
-    }
-
-    #[test]
-    fn mixed_rates_keep_both_fields() {
-        let (discrete, span) = rate_capabilities(&[
-            soapy_range(250_000.0, 250_000.0, 0.0),
-            soapy_range(1e6, 10e6, 0.0),
-        ]);
-        assert_eq!(discrete, vec![250_000.0]);
-        assert_eq!(
-            span,
-            Some(Range {
-                min: 1e6,
-                max: 10e6,
-                step: None
-            })
-        );
-    }
-
-    #[test]
-    fn bandwidths_keep_only_discrete_points() {
-        let points = discrete_points(&[
-            soapy_range(290_000.0, 290_000.0, 0.0),
-            soapy_range(1e6, 8e6, 0.0),
-            soapy_range(3_570_000.0, 3_570_000.0, 0.0),
-        ]);
-        assert_eq!(points, vec![290_000.0, 3_570_000.0]);
-    }
-
-    #[test]
-    fn extra_table_matches_known_drivers() {
-        let rtl = extra_settings("rtlsdr");
-        assert_eq!(rtl.len(), 4);
-        assert!(matches!(
-            &rtl[1],
-            ExtraSetting::Enum { name, default, .. } if name == "direct_samp" && default == "0"
-        ));
-        assert_eq!(extra_settings("hackrf").len(), 1);
-        assert!(extra_settings("airspy").is_empty());
-    }
-
-    #[test]
-    fn extra_values_serialize_to_soapy_strings() {
-        let extra = extra_settings("rtlsdr");
-        assert_eq!(
-            extra_write_value(&extra, "biastee", &serde_json::json!(true)).unwrap(),
-            "true"
-        );
-        assert_eq!(
-            extra_write_value(&extra, "digital_agc", &serde_json::json!(false)).unwrap(),
-            "false"
-        );
-        assert_eq!(
-            extra_write_value(&extra, "direct_samp", &serde_json::json!("2")).unwrap(),
-            "2"
-        );
-    }
-
-    #[test]
-    fn extra_rejects_unknown_names_and_bad_values() {
-        let extra = extra_settings("rtlsdr");
-        assert!(matches!(
-            extra_write_value(&extra, "nonexistent", &serde_json::json!(true)),
-            Err(DeviceError::Unsupported(_))
-        ));
-        assert!(matches!(
-            extra_write_value(&extra, "biastee", &serde_json::json!("yes")),
-            Err(DeviceError::Unsupported(_))
-        ));
-        assert!(matches!(
-            extra_write_value(&extra, "direct_samp", &serde_json::json!("3")),
-            Err(DeviceError::Unsupported(_))
-        ));
-    }
-
-    fn caps() -> Capabilities {
-        Capabilities {
+    fn channel(min: f64, full_duplex: bool) -> ChannelCapabilities {
+        ChannelCapabilities {
+            channel: 0,
             freq_ranges: vec![Range {
-                min: 24e6,
-                max: 1.766e9,
+                min,
+                max: 1.8e9,
                 step: None,
             }],
-            sample_rates: vec![2_048_000.0],
-            sample_rate_range: None,
-            gains: vec![GainStage {
-                name: "TUNER".to_string(),
-                range: Range {
-                    min: 0.0,
-                    max: 49.6,
-                    step: None,
-                },
-            }],
-            antennas: vec!["RX".to_string()],
-            bandwidths: Vec::new(),
-            extra: extra_settings("rtlsdr"),
-            ppm: true,
-            duplex: Duplex::RxOnly,
-            rx_streams: 1,
-            tx_streams: 0,
-            per_stream: sdrmm_wire::StreamScope::default(),
+            sample_rates: vec![2.048e6],
+            full_duplex,
+            ..ChannelCapabilities::default()
         }
     }
 
     #[test]
-    fn validate_rejects_center_outside_every_range() {
-        let delta = DeviceSettings {
-            center_hz: Some(10e9),
-            ..DeviceSettings::default()
-        };
-        assert!(matches!(
-            validate(&delta, &caps(), true),
-            Err(DeviceError::Unsupported(_))
-        ));
-    }
-
-    #[test]
-    fn validate_rejects_sample_rate_outside_list_and_span() {
-        let delta = DeviceSettings {
-            sample_rate: Some(1_000_000.0),
-            ..DeviceSettings::default()
-        };
-        assert!(matches!(
-            validate(&delta, &caps(), true),
-            Err(DeviceError::Unsupported(_))
-        ));
-    }
-
-    #[test]
-    fn validate_accepts_sample_rate_from_list_or_span() {
-        let listed = DeviceSettings {
-            sample_rate: Some(2_048_000.0),
-            ..DeviceSettings::default()
-        };
-        assert!(validate(&listed, &caps(), true).is_ok());
-
-        let mut spanned = caps();
-        spanned.sample_rate_range = Some(Range {
-            min: 1e6,
-            max: 10e6,
-            step: None,
+    fn arg_info_conversion_preserves_all_metadata() {
+        let mut info = soapy_arg("direct_samp", ArgType::Int);
+        info.value = "0".to_string();
+        info.units = Some("mode".to_string());
+        info.range = Some(soapysdr::Range {
+            minimum: 0.0,
+            maximum: 2.0,
+            step: 1.0,
         });
-        let in_span = DeviceSettings {
-            sample_rate: Some(5e6),
-            ..DeviceSettings::default()
-        };
-        assert!(validate(&in_span, &spanned, true).is_ok());
-        // With both fields present, satisfying either one passes.
-        assert!(validate(&listed, &spanned, true).is_ok());
+        info.options = vec![("0".to_string(), Some("Off".to_string()))];
+        let mapped = argument_info(&info);
+        assert_eq!(mapped.key, "direct_samp");
+        assert_eq!(mapped.name.as_deref(), Some("I/Q swap"));
+        assert_eq!(mapped.description.as_deref(), Some("Exchange I and Q"));
+        assert_eq!(mapped.units.as_deref(), Some("mode"));
+        assert_eq!(mapped.value_type, ArgumentType::Int);
+        assert_eq!(mapped.range.expect("range").step, Some(1.0));
+        assert_eq!(mapped.options[0].label.as_deref(), Some("Off"));
     }
 
     #[test]
-    fn validate_accepts_sample_rate_when_caps_do_not_constrain_it() {
-        let mut unconstrained = caps();
-        unconstrained.sample_rates = Vec::new();
-        unconstrained.sample_rate_range = None;
-        let delta = DeviceSettings {
-            sample_rate: Some(123.0),
-            ..DeviceSettings::default()
-        };
-        assert!(validate(&delta, &unconstrained, true).is_ok());
+    fn disjoint_sample_rate_ranges_keep_their_gap() {
+        let (_, ranges) = rate_capabilities(&[
+            soapysdr::Range {
+                minimum: 225_001.0,
+                maximum: 300_000.0,
+                step: 1.0,
+            },
+            soapysdr::Range {
+                minimum: 900_001.0,
+                maximum: 3_200_000.0,
+                step: 1.0,
+            },
+        ]);
+        assert_eq!(ranges.len(), 2);
+        assert!(
+            !ranges
+                .iter()
+                .any(|range| range.min <= 500_000.0 && 500_000.0 <= range.max)
+        );
     }
 
     #[test]
-    fn validate_checks_bandwidth_only_against_a_non_empty_list() {
-        let delta = DeviceSettings {
-            bandwidth: Some(1e6),
-            ..DeviceSettings::default()
-        };
-        // caps() has no bandwidth list: continuous filter, anything goes.
-        assert!(validate(&delta, &caps(), true).is_ok());
-
-        let mut discrete = caps();
-        discrete.bandwidths = vec![290_000.0, 3_570_000.0];
+    fn iq_swap_is_an_independent_boolean_control() {
+        let extras =
+            extra_settings_from_wire(&argument_infos(&[soapy_arg("iq_swap", ArgType::Bool)]));
         assert!(matches!(
-            validate(&delta, &discrete, true),
-            Err(DeviceError::Unsupported(_))
+            &extras[0],
+            ExtraSetting::Bool { name, default } if name == "iq_swap" && !default
         ));
-        let listed = DeviceSettings {
-            bandwidth: Some(290_000.0),
-            ..DeviceSettings::default()
-        };
-        assert!(validate(&listed, &discrete, true).is_ok());
+        assert_eq!(
+            extra_write_value(&extras, "iq_swap", &serde_json::json!(true)).unwrap(),
+            "true"
+        );
     }
 
     #[test]
-    fn validate_rejects_gain_value_outside_stage_range() {
-        let over = DeviceSettings {
-            gains: vec![GainValue {
-                stage: "TUNER".to_string(),
-                value_db: 55.0,
-            }],
-            ..DeviceSettings::default()
-        };
-        assert!(matches!(
-            validate(&over, &caps(), true),
-            Err(DeviceError::Unsupported(_))
-        ));
-        let at_max = DeviceSettings {
-            gains: vec![GainValue {
-                stage: "TUNER".to_string(),
-                value_db: 49.6,
-            }],
-            ..DeviceSettings::default()
-        };
-        assert!(validate(&at_max, &caps(), true).is_ok());
+    fn duplex_and_channel_counts_follow_both_directions() {
+        let rx = vec![
+            channel(24e6, true),
+            ChannelCapabilities {
+                channel: 1,
+                ..channel(24e6, true)
+            },
+        ];
+        let tx = vec![channel(1e6, true)];
+        let caps = capabilities(DirectionalCapabilities {
+            rx,
+            tx,
+            ..DirectionalCapabilities::default()
+        });
+        assert_eq!(caps.rx_streams, 2);
+        assert_eq!(caps.tx_streams, 1);
+        assert_eq!(caps.duplex, Duplex::Full);
+        assert_eq!(caps.per_stream, sdrmm_wire::StreamScope::default());
     }
 
     #[test]
-    fn read_back_confirms_bools_case_insensitively() {
-        assert!(read_back_confirms("true", "true"));
-        assert!(read_back_confirms("true", "True"));
-        assert!(read_back_confirms("false", "FALSE"));
-        assert!(!read_back_confirms("true", "false"));
+    fn any_half_duplex_channel_makes_the_device_half_duplex() {
+        assert_eq!(
+            duplex(&[channel(24e6, false)], &[channel(1e6, false)]),
+            Duplex::Half
+        );
     }
 
     #[test]
-    fn read_back_rejects_empty_echo_and_inexact_enums() {
-        assert!(!read_back_confirms("true", ""));
-        assert!(!read_back_confirms("2", ""));
-        assert!(read_back_confirms("2", "2"));
-        assert!(!read_back_confirms("2", "0"));
-        assert!(!read_back_confirms("Auto", "auto"));
-    }
-
-    #[test]
-    fn validate_rejects_unknown_gain_stage() {
-        let delta = DeviceSettings {
-            gains: vec![GainValue {
-                stage: "LNA".to_string(),
-                value_db: 10.0,
-            }],
-            ..DeviceSettings::default()
-        };
-        assert!(matches!(
-            validate(&delta, &caps(), true),
-            Err(DeviceError::Unsupported(_))
-        ));
-    }
-
-    #[test]
-    fn validate_rejects_ppm_without_corr_component() {
-        let delta = DeviceSettings {
-            ppm: Some(1.5),
-            ..DeviceSettings::default()
-        };
-        assert!(matches!(
-            validate(&delta, &caps(), false),
-            Err(DeviceError::Unsupported(_))
-        ));
-        assert!(validate(&delta, &caps(), true).is_ok());
-    }
-
-    #[test]
-    fn validate_rejects_unknown_antenna() {
-        let delta = DeviceSettings {
-            antenna: Some("TX/RX".to_string()),
-            ..DeviceSettings::default()
-        };
-        assert!(matches!(
-            validate(&delta, &caps(), true),
-            Err(DeviceError::Unsupported(_))
-        ));
-    }
-
-    /// The Soapy path drives one stream and declares nothing per-stream, so any `streams`
-    /// entry is a refusal naming the entry — never a silent drop into reported settings.
-    #[test]
-    fn validate_refuses_per_stream_overrides() {
-        let delta = DeviceSettings {
-            streams: vec![sdrmm_wire::StreamSettings {
-                stream: 0,
-                antenna: Some("RX".to_string()),
-                ..sdrmm_wire::StreamSettings::default()
-            }],
-            ..DeviceSettings::default()
-        };
-        match validate(&delta, &caps(), true) {
-            Err(DeviceError::Unsupported(message)) => {
-                assert!(message.contains("streams[0]"), "{message}");
-            }
-            other => panic!("a streams entry must be Unsupported, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn validate_passes_a_full_delta_and_prepares_extra_writes() {
+    fn tx_only_devices_do_not_accept_receiver_settings() {
+        let caps = capabilities(DirectionalCapabilities {
+            tx: vec![channel(1e6, false)],
+            ..DirectionalCapabilities::default()
+        });
         let delta = DeviceSettings {
             center_hz: Some(100e6),
-            sample_rate: Some(2_048_000.0),
-            antenna: Some("RX".to_string()),
-            gains: vec![GainValue {
-                stage: "TUNER".to_string(),
-                value_db: 33.8,
-            }],
-            extra: vec![
-                ExtraValue {
-                    name: "biastee".to_string(),
-                    value: serde_json::json!(true),
-                },
-                ExtraValue {
-                    name: "direct_samp".to_string(),
-                    value: serde_json::json!("2"),
-                },
-            ],
             ..DeviceSettings::default()
         };
-        let writes = validate(&delta, &caps(), true).unwrap();
-        assert_eq!(
-            writes,
-            vec![
-                ("biastee".to_string(), "true".to_string()),
-                ("direct_samp".to_string(), "2".to_string()),
-            ]
+        assert!(
+            matches!(validate(&delta, &caps), Err(DeviceError::Unsupported(message)) if message.contains("TX-only"))
         );
+        assert!(caps.freq_ranges.is_empty());
+        assert!(caps.sample_rates.is_empty());
+        assert!(caps.gains.is_empty());
+        assert!(caps.antennas.is_empty());
+    }
+
+    #[test]
+    fn direct_sampling_refresh_allows_the_hf_range() {
+        let before = capabilities(DirectionalCapabilities {
+            rx: vec![channel(24e6, false)],
+            ..DirectionalCapabilities::default()
+        });
+        let after = capabilities(DirectionalCapabilities {
+            rx: vec![channel(0.0, false)],
+            ..DirectionalCapabilities::default()
+        });
+        let hf = DeviceSettings {
+            center_hz: Some(7.1e6),
+            ..DeviceSettings::default()
+        };
+        assert!(validate(&hf, &before).is_err());
+        assert!(validate(&hf, &after).is_ok());
+    }
+
+    #[test]
+    fn readback_rejects_ignored_settings() {
+        assert!(!read_back_confirms("true", ""));
+        assert!(read_back_confirms("true", "True"));
+        assert!(!read_back_confirms("2", "0"));
     }
 }

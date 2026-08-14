@@ -15,17 +15,20 @@
 //! own gates apply, restated in one place instead of two.
 
 pub mod afsk;
+pub mod analog;
 pub mod ask;
 pub mod framing;
 pub mod gmsk;
 pub mod linear;
 pub mod mfsk;
 pub mod msk;
+pub mod multicarrier;
 pub mod ofdm;
 pub mod orthogonal;
 pub mod ppm;
 pub mod psk;
 pub mod qam;
+pub mod spread;
 
 use crate::ber::{
     Curve,
@@ -318,6 +321,38 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         name: "dmt",
         measurements: ofdm::DMT,
+    },
+    Entry {
+        name: "gfdm",
+        measurements: multicarrier::GFDM,
+    },
+    Entry {
+        name: "ufmc",
+        measurements: multicarrier::UFMC,
+    },
+    Entry {
+        name: "fbmc",
+        measurements: multicarrier::FBMC,
+    },
+    Entry {
+        name: "otfs",
+        measurements: multicarrier::OTFS,
+    },
+    Entry {
+        name: "dsss",
+        measurements: spread::DSSS,
+    },
+    Entry {
+        name: "cck",
+        measurements: spread::CCK,
+    },
+    Entry {
+        name: "css",
+        measurements: spread::CSS,
+    },
+    Entry {
+        name: "fhss",
+        measurements: spread::FHSS,
     },
 ];
 

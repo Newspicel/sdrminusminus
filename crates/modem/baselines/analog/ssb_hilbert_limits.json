@@ -1,0 +1,52 @@
+{
+  "entry": "ssb-hilbert",
+  "seed": 21937,
+  "sensitivity_db_1e2": null,
+  "sensitivity_db_1e3": null,
+  "sensitivity_db_1e4": null,
+  "sinad_sensitivity_db": 11.419104706872538,
+  "rows": [
+    {
+      "axis": "static CFO",
+      "unit": "cycles/sample",
+      "threshold": 6.7138671875e-6,
+      "criterion": "<= 1 dB SINAD penalty at sensitivity(12 dB SINAD) + 3 dB"
+    },
+    {
+      "axis": "frequency drift",
+      "unit": "cycles/sample^2",
+      "threshold": 9.269714355468749e-10,
+      "criterion": "<= 1 dB SINAD penalty at sensitivity(12 dB SINAD) + 3 dB"
+    },
+    {
+      "axis": "sample clock",
+      "unit": "ppm",
+      "threshold": 311.279296875,
+      "criterion": "<= 1 dB SINAD penalty at sensitivity(12 dB SINAD) + 3 dB"
+    },
+    {
+      "axis": "static timing offset",
+      "unit": "samples",
+      "threshold": 64.0,
+      "criterion": "<= 1 dB SINAD penalty at sensitivity(12 dB SINAD) + 3 dB"
+    },
+    {
+      "axis": "IQ gain imbalance",
+      "unit": "dB",
+      "threshold": 6.0,
+      "criterion": "<= 1 dB SINAD penalty at sensitivity(12 dB SINAD) + 3 dB"
+    },
+    {
+      "axis": "IQ phase imbalance",
+      "unit": "degrees",
+      "threshold": 30.0,
+      "criterion": "<= 1 dB SINAD penalty at sensitivity(12 dB SINAD) + 3 dB"
+    },
+    {
+      "axis": "phase noise",
+      "unit": "degrees RMS",
+      "threshold": 14.765625,
+      "criterion": "SINAD >= 12 dB at sensitivity(12 dB SINAD) + 3 dB"
+    }
+  ]
+}

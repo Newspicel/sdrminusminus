@@ -21,11 +21,19 @@ The same artifacts are built nightly from `main` and published to the rolling
 (`ghcr.io/newspicel/sdrminusminus:nightly`), on the nights `main` actually moved. Unstable by
 definition — its version is the build date, `YY.M.D`.
 
-To build it yourself you need the pinned nightly Rust toolchain (`rust-toolchain.toml` —
-`rustup` installs it on the first build), Node 24 and pnpm 11. SoapySDR is only needed for the
-default build: `libsoapysdr-dev` on Debian/Ubuntu, `brew install soapysdr` on macOS; build
-with `--no-default-features --features rtl-native,hackrf-native` to skip it entirely — that is
-the shape release artifacts ship in, and it needs no C library at all.
+SoapySDR is the canonical local-hardware layer. Desktop installers and containers include a
+private SoapySDR 0.8.1 runtime, SoapyRTLSDR, SoapyHackRF, and the curated modules listed in
+[`packaging/soapy/environment.yml`](packaging/soapy/environment.yml); do not install SoapySDR
+separately for those artifacts. Portable `sdrmm` headless archives compile the same backend but
+use the host runtime: install SoapySDR 0.8.1 (module ABI 0.8) plus the matching module first;
+the release baseline is SoapyRTLSDR 0.3.3 and SoapyHackRF 0.3.4. SDRplay RSP receivers are
+supported through SoapySDRPlay3 0.5.2 after installing SDRplay API 3.15 or newer; the proprietary
+API and its module are not bundled. See the [hardware guide](docs/src/hardware.md#sdrplay).
+
+To build from source you need the pinned nightly Rust toolchain (`rust-toolchain.toml` —
+`rustup` installs it on the first build), Node 26, pnpm 11, and SoapySDR 0.8 development files:
+`libsoapysdr-dev` on Debian/Ubuntu or `brew install soapysdr` on macOS. A deliberate
+virtual/network-only build remains available with `--no-default-features --features net-client`.
 
 ```sh
 git clone https://github.com/Newspicel/sdrminusminus
@@ -49,7 +57,7 @@ on <http://localhost:5173>, proxying `/api` and the WebSocket to the server.
 |---|---|
 | `cargo xtask dev` | Server + Vite dev server with HMR |
 | `cargo xtask codegen` | Regenerate `openapi.json` + `web/src/generated` (run after changing `crates/wire`) |
-| `cargo xtask check` | The full gate, ordered cheapest-first: fmt, `biome ci`, type-aware `oxlint`, `tsgo`, clippy `-D warnings`, Soapy-free build, the release-shaped native build, web build, codegen-drift |
+| `cargo xtask check` | The full gate: formatting, frontend lint/typecheck, clippy, minimal and Soapy release-shaped builds, web build, codegen drift |
 | `cargo xtask test` | Rust + web test suites (uses `device-virtual`, no hardware) |
 | `cargo xtask smoke` | The Playwright browser flow against the real binary (needs `pnpm --dir web exec playwright install chromium`) |
 | `cargo xtask audit` | Check the dependency graph against RustSec (`deny.toml`; needs `cargo install --locked cargo-deny`) |
@@ -57,6 +65,7 @@ on <http://localhost:5173>, proxying `/api` and the WebSocket to the server.
 | `cargo xtask icons` | Re-render every icon (favicons, desktop `.ico`/`.icns`) from `assets/icon.svg` |
 | `cargo xtask dist [--target <triple>]` | The release archive for that target into `dist/` — exactly what the release pipeline uploads |
 | `cargo xtask desktop [--bundles <list>]` | The Tauri shell: compile gate by default, installers with `--bundles` (needs `cargo install --locked tauri-cli`) |
+| `cargo xtask soapy-bundle-check` | Assert a staged desktop runtime contains the core, RTL-SDR/HackRF modules, and notices |
 | `cargo xtask set-version <semver>` | Stamp a release version across the workspace; the release pipeline runs this from the tag |
 
 ## Documentation

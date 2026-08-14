@@ -1,6 +1,6 @@
 # `sdrmm-modem` — Modulation Library Plan
 
-**Status:** in progress (phases 0–6 landed).
+**Status:** complete (phases 0–9 landed).
 
 Phase 4 landed the linear engine and every linear row of §6 with its §5 bundle: OOK on both
 tiers, M-PAM and unipolar M-ASK, BPSK/QPSK/8-PSK, the DPSK family, OQPSK and π/2-BPSK,
@@ -98,7 +98,137 @@ that by the ratio of prefix to occupied bins with no distortion for any channel 
 carry. It is a third estimator tier with its own §5 bundle, not a fix, and it is not in phase 6's
 scope.
 
-Next: phase 7.
+Phase 7 landed the spread-spectrum framework: direct sequence, CCK, chirp and hopping. What it
+turned out to be about is that **three of the four entries have closed forms**, which is the
+opposite of what "spread spectrum" suggests. Under AWGN a spreader is transparent — a chip carries
+1/N of the symbol's energy and the correlator collects N of them — so the direct-sequence rows *are*
+their own constellation's rows, measured at +0.08 / +0.13 / +0.09 dB from the BPSK and QPSK oracles
+at Barker-11 and at a length-31 code, and the hopping row is that row again at −0.05 dB because a
+coherent hopper's de-hop is its hop's inverse. And chirp spreading turned out to be the third member
+of the identity phase 5 measured twice: dechirping turns the 2^SF cyclic shifts into the columns of
+a DFT, so M shifts of one sweep are the same signalling set as M tones or M slots, and the entry
+answers to the *exact* noncoherent orthogonal closed form at M = 128, 1024 and 4096 (−0.06 / +0.05 /
++0.10 dB). Those orders are past anything the alternating binomial sum can evaluate, so the harness
+grew a second, independent evaluation of that oracle — a quadrature over the correct branch's own
+density, computed as P_s directly so nothing cancels at any error rate — cross-validated against the
+exact sum to 1e-6 wherever both apply. Only CCK is commit-and-guard, and what stands in for its
+closed form is the rate trade: eight bits over eight chips against Barker-11's one over eleven,
+eleven times the rate, and **1.44 dB ahead in Eb/N0** — because eight complex chips are sixteen real
+dimensions and a 256-word set in them is better packed than 256 independent binary decisions
+(d²_min 1 against an antipodal pair's 4, with 24 nearest neighbours giving the rest back).
+
+Four measured findings came with it, three of them corrections to a first draft that looked right.
+**A chirp cannot tell a delay from a carrier offset**, so the energy-maximising timing estimator the
+M-FSK and PPM engines use is nearly *flat* here — a 32-sample error at SF7 costs the peak 2.5 dB and
+moves it 32 bins — and the entry's first draft picked its origin essentially at random and decoded
+whole payloads at BER 0.3 behind a perfect signal; the estimate is the modal `known − decoded` across
+the preamble instead. The same ambiguity's other half is the entry's best row: a carrier offset is
+absorbed into the origin and the payload read through the combined correction, which is why its CFO
+row is 31.4 kHz — a quarter of its whole bandwidth, five orders above the chip-domain entries'.
+**The known-symbol anchor is fitted for gain only**, measured: the slope `PhaseAnchor::fit` reads out
+of a 64-symbol preamble's own noise, extrapolated across a payload 32 times longer, loses a third of
+the payload where a constant gain loses only the AWGN floor — the phase-6 pilot-extrapolation finding
+in this entry's geometry. **A hop plan has to fit in the band**: sixteen channels one chip rate apart
+need 3.75× the sample rate, and the first draft's did, aliasing every channel onto its neighbours and
+leaving the hopping row's parked-jammer threshold *below* the unhopped entry's.
+
+And the fourth, which is the phase's honest headline. **Processing gain and a jammer-tolerance
+threshold are not the same quantity.** §7's `10·log₁₀(chips/symbol)` is measured and it holds — against
+an unspread system of the same data rate each code collects `10·log₁₀(N)` less narrowband
+interference, and between the two committed codes the length-31 one collects 4.5 dB less at a stated
+C/I, which is `10·log₁₀(31/11)`. But the committed *limits rows* move by only 0.94 dB, because a
+tone's despread contribution is a coherent vector across a whole burst rather than an independent
+draw per symbol, so a BER threshold reads its tail and not its mean power. Both numbers are
+committed, separately, and neither is quoted as the other. The same shape of result bounds the
+hopping entry: a jammer parked on one channel reaches exactly 1/C of the dwells, but with a third of
+them destroyed the average BER is already 0.17, so an *uncoded* hopped link fails at very nearly the
+level that destroys those dwells at all — what recovers the rest is coding and interleaving across
+hops, which is §1.1's channel coding and not this crate's. Phase 6 reached the same conclusion about
+a nulled subcarrier.
+
+Open from phase 7, scoped rather than dropped: **the direct-sequence receiver does not run in real
+time.** `dsss_barker11_44m` measures 26.6 Msamples/s against 802.11b's 44 MHz — 0.6× — and the cost is
+the burst search, 192 origins × 704 chips paid once per burst, not the despread paid per symbol. A
+coarse energy gate in front of the correlation, or an FFT-based search, would remove it; both are a
+second acquisition tier with their own §5 bundle rather than a fix, and neither is in phase 7's
+scope. The chirp entry's own second tier is named where it belongs too: LoRa's down-chirp sync
+symbols resolve the delay/frequency ambiguity this one absorbs, since a down-chirp's peak moves the
+opposite way.
+
+Phase 8 landed the analog consolidation. What it turned out to be about is the opposite of what
+"analog" suggests: **every analog row has a closed form.** Above its detector's threshold each
+family's output SINAD is its input channel SNR plus a constant that depends only on the
+modulation's geometry — the figure of merit — so the analog rows are oracle-matched like the
+linear ones rather than commit-and-guard, and what is committed instead is the *knee*, the SNR at
+which the nonlinearity ends the straight line. Ten curves at −0.60 to +0.27 dB from their own
+closed forms, four limits tables under the plan's documented analog override (12 dB SINAD in place
+of a BER floor), a perf baseline, and all five analog channels migrated onto the engines.
+
+Read the figures of merit down the table and the family tree is one sentence: **amplitude
+modulation cannot beat unity because it spends bandwidth on a mirror image; angle modulation is
+unbounded because it spends bandwidth on deviation, which enters squared** — at a threshold that
+arrives sooner the more of it is bought. At 30 dB of channel SNR the committed curves read SSB
+30.11 dB, DSB-SC 30.09, narrowband FM 30.37, PM 27.11, full-carrier AM 23.97 and broadcast FM
+45.71; at 15 dB, below its own threshold, that same broadcast FM reads 11.36 against single
+sideband's 15.15.
+
+Four measured findings came with it. **A soft receive filter reads above its own oracle**, because
+a figure of merit is stated for a brick-wall receiver at the message bandwidth and a real filter's
+transition throws away noise inside that band the ideal one keeps — measured directly (sharpen the
+filters, the gap shrinks) and paid for with 1023-tap filters in the acceptance configuration,
+quoted separately from the 129-tap deployed one at an order more throughput. **A modulator's own
+transient is an accounting error**: the AWGN axis sets its level from the waveform's measured
+power, and a filter ramping up over its first few hundred samples lowers that mean, so every curve
+read ~0.2 dB better than it should until the modulator was primed and its transient discarded.
+**Single sideband's carrier axes are its defining property, not a defect** — it carries no
+frequency reference at all, so its CFO row lands at 0.32 Hz and is an audio-pitch bound rather than
+a lock bound, while every double-sideband envelope and discriminator row is *bracket-bound* on
+CFO, drift, timing and IQ imbalance alike, because those receivers read no phase for a front end to
+spoil. And **the FM PLL tier buys sensitivity rather than threshold at this geometry**: a loop that
+extends an FM threshold must be narrow against the message, a 3 kHz message at 48 kHz forbids one,
+and the tier is committed with that measurement attached instead of the claim it was expected to
+support.
+
+Open from phase 8, scoped rather than dropped: **the analog transmit paths in `channels` still
+build their own waveforms.** `AmTx`, `SsbTx` and `NfmTx` band-limit at submit time and key a
+queue at generate time, and the library's modulators band-limit inside `process` — so adopting
+them would either filter twice or need a "message already limited" flag on every one. The
+receivers, where the engines and the measurements are, have all migrated; the transmitters are a
+second, smaller merge with its own round-trip gates, and they are not in phase 8's scope.
+
+Phase 9 landed the multicarrier completion, and with it §6's last pending row. What it turned out
+to be about: **three of the four waveforms are transparent under AWGN, and the fourth cannot be.**
+UFMC, FBMC and OTFS are orthogonal maps from points to samples — in the *real* field for FBMC,
+which is the same statement once the OQAM stagger is accounted for — so thermal noise alone can see
+none of them, and each is held to Gray QPSK's exact closed form shifted by its own overhead. Every
+one of those overheads is arithmetic rather than a fitted constant (the block prefix, the filter
+tail, the guard symbols, the carrier frame), and the three land at **−0.11, −0.11 and −0.05 dB**.
+GFDM's pulses overlap by construction, so its distance from the same oracle is *attributed* rather
+than tolerated: 1.40 dB from bare QPSK, of which 0.41 is the block's one prefix and 0.94 the
+inverse's own mean row energy — predicted 1.36, measured 1.40.
+
+Four measured findings came with it. **The OTFS headline is not the one the literature's summary
+suggests.** Spreading every symbol over every subcarrier turns a localised failure into a shared
+one, and whether that is an improvement belongs to the *equaliser*: through the same null, zero
+forcing makes OTFS more than twice as bad as plain OFDM — the null's `1/|H|²` noise is shared out
+over the whole frame instead of costing one subcarrier its bits — while MMSE makes it more than
+twice as good. Both are asserted, neither is quoted alone. **GFDM's roll-off runs with the
+frequency axis, not the time axis**: a reader expects a time-localised pulse to help a waveform
+whose subsymbols overlap in time, and the measurement says the subcarrier overlap dominates —
+roll-off 0.9 amplifies the inverse's noise by 1.86 against 0.1's 1.01, so the pulse that costs the
+receiver least is the one whose spectrum is tightest. **The PHYDYAS prototype's centre is `KM/2`
+and not `(KM−1)/2`**, and referencing the carrier half a sample away leaves a residual the real
+projection cannot discard — the difference between a bank that round-trips and one that does not.
+And **two of the five receive paths do not keep up with their own rate**, committed rather than
+hidden: FBMC's at 0.37× because the analysis bank is written in direct form (the definition, not
+the implementation — the polyphase form is `O(M log M)` per slot against this `O(M·KM)`), and
+GFDM's at 1.6× because a dense inverse is what a non-orthogonal waveform *is*.
+
+Open from phase 9, scoped rather than dropped: **the polyphase FBMC bank** above, and **the
+delay–Doppler channel view** where OTFS's other claims live — a sparse, slowly-varying channel
+matrix and message passing over it — which needs a doubly-selective channel model the harness does
+not have and which is §1.1's channel modelling rather than this crate's modulation.
+
 **Audience:** implementer working in the `sdrmm` workspace
 
 ---
@@ -638,11 +768,27 @@ attachments (scope decision in §6) — Barker-11 DSSS, the CCK codebooks and Lo
 CSS parameterisations are exercised as modulation entries on synthetic vectors only.
 *Accept:* processing-gain and CSS detection curves committed; hop-framework level-1
 E2E (payload survives a hopping channel with the sequencer known).
+*Landed:* nine committed curves — three direct-sequence rows, two CCK rates, three spreading
+factors and the hopped row — seven of them oracle-matched (worst 0.13 dB), five limits tables, a
+perf baseline with zero-allocation gates on all four receive paths, and level-1 E2E throughout.
+Processing gain is measured against 10·log₁₀(N) two ways and separated from the jammer-tolerance
+rows it is not the same quantity as; the chirp entry is held to the exact noncoherent orthogonal
+oracle at M up to 4096, which the harness grew a second evaluation to provide. No 802.11b or LoRa
+attachment, per §6. Findings and the one open follow-on are in the status above.
 
 **Phase 8 — Analog consolidation.** The five analog channels migrate onto `analog/`
 engines; VSB as configuration; SINAD-based correctness and limits (co-channel,
 adjacent-channel, clipping rows especially).
 *Accept:* all analog rows bundled; channel behaviour unchanged on existing fixtures.
+*Landed:* ten committed SINAD curves — AM on both tiers, DSB-SC, VSB, single sideband by both
+methods, narrowband FM on both tiers, broadcast FM and PM — eight of them held to a *figure of
+merit* rather than to a committed reference (worst 0.60 dB), the two knees committed as the
+quantity no closed form describes (12 dB narrowband, 21 dB broadcast), four limits tables under the
+plan's documented analog override, a perf baseline with zero-allocation gates on every receive path
+and every modulator, and level-1 loopbacks throughout. All five analog channels run the engines'
+detectors — am and ssb through the full receiver, nfm/wfm/atv through the detector alone, since
+what follows a discriminator there is the channel's own — with every existing fixture unchanged.
+Findings and the one open follow-on are in the status above.
 
 **Phase 9 — Multicarrier completion.** OTFS, FBMC, GFDM, UFMC through the framework
 slot, each with commit-and-guard references (cross-checked against published curves
@@ -650,6 +796,12 @@ where available) and the full §5 bundle.
 *Accept:* every row of §6 shows a complete bundle in `CATALOG.md`; CI enforces the
 docs-row rule; the nightly full run (all sweeps, all limits, all perf, all E2E levels)
 is green.
+*Landed:* five committed curves — GFDM on both receivers, UFMC, FBMC/OQAM and OTFS — three of them
+held to their constellation's *own* closed form rather than to a committed reference (worst
+0.11 dB), which is a stronger acceptance than the phase asked for; the GFDM pair committed with its
+distance from that oracle attributed to the prefix and the inverse rather than tolerated; two limits
+tables, a perf baseline with zero-allocation gates on every transmit and receive path, and level-1
+E2E throughout. Findings and the two open follow-ons are in the status above.
 
 ---
 

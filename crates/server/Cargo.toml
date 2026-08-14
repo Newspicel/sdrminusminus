@@ -10,12 +10,10 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-# Passthrough to the engine's backend gate (PLAN §3 Soapy-free build).
+# Passthrough to the engine's deliberate minimal-build gates.
 [features]
-default = ["soapy", "rtl-native", "hackrf-native", "net-client"]
-soapy = ["sdrmm-engine/soapy"]
-rtl-native = ["sdrmm-engine/rtl-native"]
-hackrf-native = ["sdrmm-engine/hackrf-native"]
+default = ["soapy", "net-client"]
+soapy = ["sdrmm-engine/soapy", "dep:sdrmm-device-soapy"]
 net-client = ["sdrmm-engine/net-client"]
 
 [dependencies]
@@ -24,6 +22,7 @@ sdrmm-engine.workspace = true
 sdrmm-dsp.workspace = true
 # `--doctor` reports the driver registry the engine would open devices through (PLAN §15).
 sdrmm-device.workspace = true
+sdrmm-device-soapy = { workspace = true, optional = true }
 # SigMF scan/parse for the recordings-index reconcile (PLAN §11).
 sdrmm-recorder.workspace = true
 

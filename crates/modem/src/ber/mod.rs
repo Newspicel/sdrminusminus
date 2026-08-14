@@ -11,6 +11,7 @@
 //! Every run is seeded ([`rng`]) and reproducible; a curve or table that cannot be regenerated
 //! bit-for-bit from its stated seed is a bug in the harness, not a tolerance to widen.
 
+pub mod analog;
 pub mod catalog;
 pub mod e2e;
 pub mod genie;

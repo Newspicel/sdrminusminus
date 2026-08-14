@@ -42,6 +42,9 @@ describe("refLabel", () => {
   it("names the radio by whichever identity the reference carries", () => {
     expect(refLabel({ backend: "rtlsdr", serial: "00000001" })).toBe("rtlsdr · 00000001");
     expect(refLabel({ backend: "virtual", key: "siggen" })).toBe("virtual · siggen");
+    expect(refLabel({ backend: "soapy", serial: "123456", key: "123456@DT" })).toBe(
+      "soapy · 123456@DT",
+    );
   });
 
   // A serial-less singleton is a legal reference (CANVAS §3), and it must still read as a radio

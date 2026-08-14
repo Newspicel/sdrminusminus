@@ -15,12 +15,10 @@ path = "src/main.rs"
 [lints]
 workspace = true
 
-# Passthrough so the desktop app mirrors the server binary's backend gate (PLAN §3).
+# Desktop releases always use Soapy; no-default-features remains a compile-only specialist gate.
 [features]
-default = ["soapy", "rtl-native", "hackrf-native", "net-client"]
-soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy"]
-rtl-native = ["sdrmm-server/rtl-native", "sdrmm-engine/rtl-native"]
-hackrf-native = ["sdrmm-server/hackrf-native", "sdrmm-engine/hackrf-native"]
+default = ["soapy", "net-client"]
+soapy = ["sdrmm-server/soapy", "sdrmm-engine/soapy", "dep:sdrmm-device-soapy"]
 net-client = ["sdrmm-server/net-client", "sdrmm-engine/net-client"]
 
 [build-dependencies]
@@ -29,6 +27,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 sdrmm-server.workspace = true
 sdrmm-engine.workspace = true
+sdrmm-device-soapy = { workspace = true, optional = true }
 anyhow.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-updater = "2"

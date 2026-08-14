@@ -77,10 +77,10 @@ export function tuneDelta(capabilities: Capabilities, stream: number, hz: number
     : { center_hz: hz };
 }
 
-/** The radio a reference names, in the terms the operator would use to go and find it. A ref
- * carries a serial or a key, never both (CANVAS §3). */
+/** The radio a reference names, in the terms the operator would use to go and find it. A variant
+ * key is shown when it narrows a serial to one operating mode. */
 export function refLabel(reference: DeviceRef): string {
-  const identity = reference.serial ?? reference.key;
+  const identity = reference.key ?? reference.serial;
   return identity == null ? reference.backend : `${reference.backend} · ${identity}`;
 }
 

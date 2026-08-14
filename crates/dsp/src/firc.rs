@@ -14,6 +14,16 @@ pub struct FirC {
 }
 
 impl FirC {
+    /// Run arbitrary complex taps, for a response no real prototype can be modulated into — an
+    /// asymmetric band whose two edges roll off differently (the vestigial-sideband slope) is
+    /// the case.
+    #[must_use]
+    pub fn new(taps: &[Complex<f32>]) -> Self {
+        Self {
+            core: StreamFir::new(taps, 1),
+        }
+    }
+
     /// Modulate real lowpass `taps` to `center_norm` (normalized to the sample rate, may be
     /// negative): `c[k] = taps[k]·e^(j·2π·center·k)`.
     #[must_use]
