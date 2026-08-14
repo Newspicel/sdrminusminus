@@ -4,6 +4,7 @@ import { STATE_KEY, startScan, stopScan } from "../lib/api";
 import { useScannerStore } from "../lib/scanner";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet } from "../lib/types";
+import { Button, Input } from "./BaseControls";
 import { BTN, FIELD, LABEL } from "./controls";
 import { Select } from "./Select";
 import {
@@ -98,7 +99,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
         <>
           {ranges.map((range, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2">
-              <input
+              <Input
                 className={`${FIELD} w-24`}
                 inputMode="decimal"
                 aria-label={`Range ${i + 1} start (MHz)`}
@@ -106,7 +107,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
                 onChange={(e) => updateRange(setRanges, i, { startMhz: e.target.value })}
               />
               <span className="text-ink-faint">–</span>
-              <input
+              <Input
                 className={`${FIELD} w-24`}
                 inputMode="decimal"
                 aria-label={`Range ${i + 1} stop (MHz)`}
@@ -114,7 +115,7 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
                 onChange={(e) => updateRange(setRanges, i, { stopMhz: e.target.value })}
               />
               <span className="legend">MHz · step</span>
-              <input
+              <Input
                 className={`${FIELD} w-20`}
                 inputMode="decimal"
                 aria-label={`Range ${i + 1} step (kHz)`}
@@ -123,29 +124,29 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
               />
               <span className="legend">kHz</span>
               {ranges.length > 1 && (
-                <button
+                <Button
                   type="button"
                   className={`${BTN} hover:border-danger hover:text-danger`}
                   aria-label={`Remove range ${i + 1}`}
                   onClick={() => setRanges(ranges.filter((_, j) => j !== i))}
                 >
                   ×
-                </button>
+                </Button>
               )}
             </div>
           ))}
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <Button
               type="button"
               className={BTN}
               onClick={() => setRanges([...ranges, DEFAULT_RANGE])}
             >
               Add range
-            </button>
+            </Button>
             <label className={LABEL}>
               Threshold
-              <input
+              <Input
                 className={`${FIELD} w-20`}
                 inputMode="decimal"
                 aria-label="Scan threshold (dB)"
@@ -178,23 +179,23 @@ export function ScannerPanel({ active }: { active: DeviceSet | null }) {
 
       <div className="flex gap-2">
         {running ? (
-          <button
+          <Button
             type="button"
             className={BTN}
             disabled={!active || busy}
             onClick={() => active && stopMut.mutate(active.id)}
           >
             Stop scan
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button
             type="button"
             className={BTN}
             disabled={!active || busy || typeof parsed === "string" || refusal !== null}
             onClick={() => active && startMut.mutate(active.id)}
           >
             Start scan
-          </button>
+          </Button>
         )}
       </div>
       {!active && <span className="text-sm text-ink-dim">Open a device to scan.</span>}

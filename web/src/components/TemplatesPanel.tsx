@@ -3,6 +3,7 @@ import { useState } from "react";
 import { applyTemplate, STATE_KEY, templatesQuery } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet, TemplateInfo } from "../lib/types";
+import { Button } from "./BaseControls";
 import { BTN } from "./controls";
 import { deviceId } from "./OpenRadio";
 
@@ -69,7 +70,7 @@ export function TemplatesPanel({
               {/* Applying a template retunes one radio and replaces its channels, and that is
                   not undoable — so the button names the radio it is about to do it to, rather
                   than the drawer stating a target for sections that never had one. */}
-              <button
+              <Button
                 type="button"
                 className={`${BTN} mt-1 max-w-full self-start`}
                 disabled={!active || !ok || applyMut.isPending}
@@ -87,7 +88,7 @@ export function TemplatesPanel({
                       ? `Apply to ${active.device.label}`
                       : `${active.device.label} cannot run this`}
                 </span>
-              </button>
+              </Button>
             </div>
           );
         })}

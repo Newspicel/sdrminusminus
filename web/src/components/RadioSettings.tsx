@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { rxStreamCount, streamLabel } from "../canvas/graph";
 import type { DeviceSet, ExtraSetting, GainStage } from "../lib/types";
 import { forStream, useDevicePatch } from "../lib/useDevicePatch";
+import { Input } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import { formatHz } from "./format";
 import { NumberField } from "./NumberField";
@@ -315,7 +316,7 @@ function ExtraControl({
       return (
         <div className={ROW}>
           <SettingName name={setting.name} />
-          <input
+          <Input
             aria-label={setting.name}
             className={`${PICKER} min-w-0 rounded border border-line bg-surface px-2 py-1 font-mono text-xs text-ink`}
             value={draft}

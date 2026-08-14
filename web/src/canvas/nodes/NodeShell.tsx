@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { Handle, NodeResizer, Position } from "@xyflow/react";
 import { createContext, type ReactNode, useContext } from "react";
+import { Button } from "../../components/BaseControls";
 import { ICON_BTN } from "../../components/controls";
 import { pushToast } from "../../lib/toasts";
 import type { NodeCategory, PatchNode, PortSpec, PortType } from "../../lib/types";
@@ -138,7 +139,7 @@ export function NodeShell({
               looking at — so it is carried by three things at once: a filled glyph against an
               empty one, the accent, and the pressed fill every other toggle in the kit uses.
               Colour alone would not survive a monochrome eye (). */}
-          <button
+          <Button
             type="button"
             aria-label={pinned ? "Unpin from the rack" : "Pin to the rack"}
             aria-pressed={pinned}
@@ -156,8 +157,8 @@ export function NodeShell({
             }
           >
             {pinned ? "▣" : "□"}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             aria-label={`Remove ${node.label ?? title}`}
             title="Remove from the patch"
@@ -165,7 +166,7 @@ export function NodeShell({
             onClick={remove}
           >
             ✕
-          </button>
+          </Button>
         </span>
       </header>
 

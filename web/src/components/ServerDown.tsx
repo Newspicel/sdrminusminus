@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import { serverReachable } from "../lib/api";
+import { Button } from "./BaseControls";
 import { BTN_PRIMARY } from "./controls";
 
 /** Failures that say nothing the headline has not already said. A browser reports a refused
@@ -93,9 +94,9 @@ export function ServerDown({ reason, onReachable }: { reason: string; onReachabl
           </p>
         )}
         <div className="flex items-center gap-3">
-          <button type="button" className={BTN_PRIMARY} onClick={reconnect}>
+          <Button type="button" className={BTN_PRIMARY} onClick={reconnect}>
             Try again
-          </button>
+          </Button>
           <span className="text-xs text-ink-faint">Retrying every few seconds…</span>
         </div>
       </div>

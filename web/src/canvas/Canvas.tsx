@@ -15,6 +15,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "../components/BaseControls";
 import { BTN_QUIET, SURFACE } from "../components/controls";
 import { pushToast } from "../lib/toasts";
 import type { PatchEdge, PatchGraph, PatchNode, PortRef } from "../lib/types";
@@ -314,7 +315,7 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
   }, [onClose]);
 
   const item = (label: string, act: () => void, danger = false) => (
-    <button
+    <Button
       key={label}
       type="button"
       className={`${BTN_QUIET} w-full justify-start ${danger ? "hover:text-danger" : ""}`}
@@ -324,7 +325,7 @@ function ContextMenu({ menu, onClose }: { menu: Menu; onClose: () => void }) {
       }}
     >
       {label}
-    </button>
+    </Button>
   );
 
   const items: ReactNode[] = [];

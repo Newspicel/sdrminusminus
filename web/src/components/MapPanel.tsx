@@ -1,3 +1,4 @@
+import { Button } from "./BaseControls";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   AttributionControl,
@@ -382,7 +383,7 @@ export function MapPanel({
             >
               {detail.label}
             </span>
-            <button
+            <Button
               type="button"
               className="shrink-0 px-1 font-mono text-xs text-ink-dim hover:text-ink"
               onClick={() => {
@@ -393,7 +394,7 @@ export function MapPanel({
               aria-label="Clear target selection"
             >
               ×
-            </button>
+            </Button>
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 px-2 py-1.5">
             {detail.rows.map(([label, value]) => (

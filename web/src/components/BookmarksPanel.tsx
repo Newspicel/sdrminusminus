@@ -4,6 +4,7 @@ import { BOOKMARKS_KEY, bookmarksQuery, createBookmark, deleteBookmark } from ".
 import { pushToast } from "../lib/toasts";
 import type { CreateBookmarkRequest, DeviceSet } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
+import { Button, Form, Input } from "./BaseControls";
 import { BTN, FIELD } from "./controls";
 import { formatMhz } from "./format";
 
@@ -45,7 +46,7 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
           Nothing to tune or save from: select a device node on the canvas first.
         </span>
       )}
-      <form
+      <Form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
           e.preventDefault();
@@ -58,32 +59,32 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
           }
         }}
       >
-        <input
+        <Input
           className={`${FIELD} min-w-0 flex-1`}
           placeholder="Label current frequency"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           aria-label="Bookmark label"
         />
-        <input
+        <Input
           className={`${FIELD} w-16`}
           placeholder="mode"
           value={mode}
           onChange={(e) => setMode(e.target.value)}
           aria-label="Bookmark mode"
         />
-        <button
+        <Button
           type="submit"
           className={BTN}
           disabled={centerHz == null || label.trim() === "" || addMut.isPending}
         >
           Save
-        </button>
-      </form>
+        </Button>
+      </Form>
 
       {sorted.map((b) => (
         <div key={b.id} className="flex items-center gap-2">
-          <button
+          <Button
             type="button"
             className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-panel-2 disabled:opacity-40 max-md:min-h-10"
             disabled={!active}
@@ -96,15 +97,15 @@ export function BookmarksPanel({ active }: { active: DeviceSet | null }) {
                 {b.mode}
               </span>
             )}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className={`${BTN} hover:border-danger hover:text-danger`}
             disabled={deleteMut.isPending}
             onClick={() => deleteMut.mutate(b.id)}
           >
             Delete
-          </button>
+          </Button>
         </div>
       ))}
       {bookmarks.data?.length === 0 && (

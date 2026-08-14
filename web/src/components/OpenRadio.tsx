@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { devicesQuery, doctorQuery } from "../lib/api";
 import type { DeviceInfo } from "../lib/types";
+import { Button, Form, Input } from "./BaseControls";
 import { BTN, BTN_PRIMARY, BTN_QUIET, FIELD, LABEL } from "./controls";
 import { Select } from "./Select";
 
@@ -65,7 +66,7 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
   const id = networkDeviceId(driver, address);
 
   return (
-    <form
+    <Form
       className="flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault();
@@ -85,7 +86,7 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
         />
       </div>
       <div className="flex items-center gap-2">
-        <input
+        <Input
           className={`${FIELD} w-full`}
           type="text"
           aria-label="Radio address"
@@ -93,15 +94,15 @@ function AddNetworkRadio({ onAdd, busy }: { onAdd: (id: string) => void; busy: b
           value={address}
           onChange={(event) => setAddress(event.target.value)}
         />
-        <button type="submit" className={BTN} disabled={busy || id === null}>
+        <Button type="submit" className={BTN} disabled={busy || id === null}>
           Add
-        </button>
+        </Button>
       </div>
       <p className="text-xs text-ink-dim">
         The port may be left off — {backend.label} defaults to{" "}
         {backend.placeholder.split(":").pop()}.
       </p>
-    </form>
+    </Form>
   );
 }
 
@@ -128,7 +129,7 @@ export function DeviceChoices({
     <div className="flex w-full flex-col gap-2">
       <div className="flex flex-col gap-1">
         {found.map((device, index) => (
-          <button
+          <Button
             key={deviceId(device)}
             type="button"
             className={`${index === 0 ? BTN_PRIMARY : BTN} justify-center`}
@@ -136,7 +137,7 @@ export function DeviceChoices({
             onClick={() => onChoose(device)}
           >
             <span className="truncate">{device.label}</span>
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -153,22 +154,22 @@ export function DeviceChoices({
         </p>
       )}
 
-      <button
+      <Button
         type="button"
         className={`${BTN_QUIET} self-center`}
         onClick={() => setShowNetwork(!showNetwork)}
       >
         {showNetwork ? "Hide network radio" : "Radio on the network?"}
-      </button>
+      </Button>
       {showNetwork && <AddNetworkRadio onAdd={onAddNetwork} busy={busy} />}
 
-      <button
+      <Button
         type="button"
         className={`${BTN_QUIET} self-center`}
         onClick={() => setShowDoctor(!showDoctor)}
       >
         {showDoctor ? "Hide diagnostics" : "Hardware not showing up?"}
-      </button>
+      </Button>
       {showDoctor && <Doctor />}
     </div>
   );

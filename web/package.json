@@ -10,7 +10,7 @@
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
-    "lint": "oxlint --type-aware",
+    "lint": "node scripts/check-base-ui.mjs && oxlint --type-aware",
     "format": "biome check --write ."
   },
   "dependencies": {

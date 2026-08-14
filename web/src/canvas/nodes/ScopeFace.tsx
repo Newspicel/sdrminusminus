@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Button } from "../../components/BaseControls";
 import { plotButton, segment } from "../../components/controls";
 import { formatSignedKhz } from "../../components/format";
 import { Popover } from "../../components/Popover";
@@ -460,7 +461,7 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
             {(close) => (
               <div className="flex flex-col gap-0.5">
                 {COLORMAPS.map((name) => (
-                  <button
+                  <Button
                     key={name}
                     type="button"
                     className={`${segment(name === colormap)} justify-start`}
@@ -470,12 +471,12 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
                     }}
                   >
                     {name}
-                  </button>
+                  </Button>
                 ))}
               </div>
             )}
           </Popover>
-          <button
+          <Button
             type="button"
             className={plotButton(hold)}
             aria-pressed={hold}
@@ -485,19 +486,19 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
             }}
           >
             max hold
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className={plotButton(bandRuler)}
             aria-pressed={bandRuler}
             onClick={() => setRuler(!bandRuler)}
           >
             bands
-          </button>
+          </Button>
           {!isFullView(view) && (
-            <button type="button" className={plotButton(false)} onClick={() => setView(FULL_VIEW)}>
+            <Button type="button" className={plotButton(false)} onClick={() => setView(FULL_VIEW)}>
               {(1 / viewWidth(view)).toFixed(1)}× · reset
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -608,7 +609,7 @@ function Markers({
               }`}
               style={{ left: `${at * 100}%` }}
             />
-            <button
+            <Button
               type="button"
               // The hit strip is invisible and wide; the drawn line stays 1px, because ink and
               // target size are different budgets.

@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { clearDecoderLog, DECODER_LOG_KEY, decoderLogExportUrl, decoderLogQuery } from "../lib/api";
 import { useDecodedStore } from "../lib/decoded";
+import { Button, Input } from "./BaseControls";
 import { BTN, FIELD } from "./controls";
 import { eventDetail } from "./decoderDetail";
 import {
@@ -139,7 +140,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
           onChange={(deviceSet) => patch({ deviceSet })}
         />
 
-        <input
+        <Input
           className={`${FIELD} min-w-0 flex-1 text-sm`}
           placeholder="Search station or summary"
           value={search}
@@ -161,7 +162,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
           JSON
         </a>
 
-        <button
+        <Button
           type="button"
           className={`${BTN} hover:border-danger hover:text-danger ${
             armed ? "border-danger text-danger" : ""
@@ -170,7 +171,7 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
           onClick={() => (armed ? clearMut.mutate() : setArmed(true))}
         >
           {armed ? "Confirm clear" : "Clear"}
-        </button>
+        </Button>
       </div>
 
       {error !== null && (
@@ -179,9 +180,9 @@ export function DecoderLogPanel({ wires }: { wires: WireScope }) {
           className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
         >
           <span>Rejected: {error}</span>
-          <button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
+          <Button type="button" className="shrink-0 underline" onClick={() => setError(null)}>
             dismiss
-          </button>
+          </Button>
         </div>
       )}
 

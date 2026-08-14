@@ -1,3 +1,4 @@
+import { Button } from "../components/BaseControls";
 import { BTN_QUIET, ICON_BTN, type Options, segment } from "../components/controls";
 import { Popover } from "../components/Popover";
 import { ThemeControl } from "../components/ThemeControl";
@@ -102,7 +103,7 @@ export function WorkspaceBar({
           segmented control was tried here and read as a foreign object in a row of flat text. */}
       <span className="flex items-center" role="group" aria-label="View">
         {VIEWS.map((option) => (
-          <button
+          <Button
             key={option.value}
             type="button"
             className={`${segment(view === option.value)} font-mono`}
@@ -118,7 +119,7 @@ export function WorkspaceBar({
                 {pinned}
               </span>
             )}
-          </button>
+          </Button>
         ))}
       </span>
 
@@ -147,22 +148,22 @@ export function WorkspaceBar({
         </Popover>
         <Rule />
         <ThemeControl />
-        <button
+        <Button
           type="button"
           className={ICON_BTN}
           aria-label="Keyboard shortcuts"
           onClick={onShowShortcuts}
         >
           ?
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className={ICON_BTN}
           aria-label="About sdr-- and its licenses"
           onClick={onShowAbout}
         >
           i
-        </button>
+        </Button>
       </span>
     </header>
   );

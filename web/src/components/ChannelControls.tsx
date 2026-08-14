@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ChannelDescriptor, ChannelInfo, ChannelParams } from "../lib/types";
 import { type ChannelEdit, useChannelPatch } from "../lib/useChannelPatch";
+import { Button } from "./BaseControls";
 import { Checkbox } from "./Checkbox";
 import { type ChannelParamsOf, clampOffsetHz, offsetLimitHz } from "./channelSettings";
 import { BTN, CHECK_LABEL, LABEL, type Options } from "./controls";
@@ -141,7 +142,7 @@ export function ChannelControls({
     <div className="flex flex-col gap-2 p-2">
       <div className="flex flex-wrap items-center gap-1">
         {OFFSET_STEPS_HZ.map((step) => (
-          <button
+          <Button
             key={step}
             type="button"
             className={`${BTN} font-mono tabular-nums`}
@@ -153,7 +154,7 @@ export function ChannelControls({
           >
             {step > 0 ? "+" : "−"}
             {Math.abs(step) / 1000}k
-          </button>
+          </Button>
         ))}
         <NumberField
           label="Offset (kHz)"

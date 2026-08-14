@@ -9,6 +9,7 @@ import {
   STATE_KEY,
 } from "../lib/api";
 import { pushToast } from "../lib/toasts";
+import { Button, Form, Input } from "./BaseControls";
 import { BTN, FIELD } from "./controls";
 
 export function PresetsPanel() {
@@ -40,7 +41,7 @@ export function PresetsPanel() {
 
   return (
     <div className="flex flex-col gap-2 p-3">
-      <form
+      <Form
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
@@ -49,17 +50,17 @@ export function PresetsPanel() {
           }
         }}
       >
-        <input
+        <Input
           className={`${FIELD} min-w-0 flex-1`}
           placeholder="Name this bench"
           value={name}
           onChange={(e) => setName(e.target.value)}
           aria-label="Preset name"
         />
-        <button type="submit" className={BTN} disabled={name.trim() === "" || saveMut.isPending}>
+        <Button type="submit" className={BTN} disabled={name.trim() === "" || saveMut.isPending}>
           Save
-        </button>
-      </form>
+        </Button>
+      </Form>
 
       {(presets.data ?? []).map((p) => (
         <div key={p.id} className="flex items-center gap-2">
@@ -69,22 +70,22 @@ export function PresetsPanel() {
               {p.devices} radio{p.devices === 1 ? "" : "s"}
             </div>
           </div>
-          <button
+          <Button
             type="button"
             className={BTN}
             disabled={applyMut.isPending}
             onClick={() => applyMut.mutate(p.id)}
           >
             Apply
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             className={`${BTN} hover:border-danger hover:text-danger`}
             disabled={deleteMut.isPending}
             onClick={() => deleteMut.mutate(p.id)}
           >
             Delete
-          </button>
+          </Button>
         </div>
       ))}
       {presets.data?.length === 0 && (

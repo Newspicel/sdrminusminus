@@ -4,6 +4,7 @@ import { controlPlayback, STATE_KEY } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { DeviceSet, PlaybackAction, PlaybackStatus } from "../lib/types";
 import { useDevicePatch } from "../lib/useDevicePatch";
+import { Button } from "./BaseControls";
 import { ICON_BTN } from "./controls";
 import {
   formatClock,
@@ -39,7 +40,7 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
 
   return (
     <div className="flex items-center gap-2 border-b border-line p-2">
-      <button
+      <Button
         type="button"
         className={ICON_BTN}
         aria-label={status.paused ? "Play" : "Pause"}
@@ -48,8 +49,8 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
         onClick={() => drive.mutate({ action: status.paused ? "play" : "pause" })}
       >
         {status.paused ? "▶" : "❚❚"}
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         className={ICON_BTN}
         aria-label="Stop"
@@ -57,8 +58,8 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
         onClick={() => drive.mutate({ action: "stop" })}
       >
         ■
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         className={`${ICON_BTN} ${looping ? "text-accent" : ""}`}
         aria-label="Loop"
@@ -73,7 +74,7 @@ export function PlaybackTransport({ set, status }: { set: DeviceSet; status: Pla
         onClick={() => applyPatch(set.id, { extra: [{ name: LOOP_SETTING, value: !looping }] })}
       >
         ↻
-      </button>
+      </Button>
       <Slider
         label="Playback position"
         className="min-w-0 flex-1"

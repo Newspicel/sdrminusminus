@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button, Input } from "../components/BaseControls";
 import { FIELD, LABEL } from "../components/controls";
 import { formatHz } from "../components/format";
 import type { NodeKind, PositionSource } from "../lib/types";
@@ -23,7 +24,7 @@ export function NodePalette({
 
   return (
     <div className="flex flex-col gap-2">
-      <input
+      <Input
         className={FIELD}
         placeholder="Search nodes — scope, nfm, adsb…"
         aria-label="Search the node palette"
@@ -53,7 +54,7 @@ export function NodePalette({
 
 function Entry({ item, onAdd }: { item: PaletteItem; onAdd: () => void }) {
   return (
-    <button
+    <Button
       type="button"
       className="flex min-w-0 flex-col items-start rounded-[3px] border border-transparent px-2 py-1 text-left transition-colors duration-100 hover:border-accent-dim hover:bg-panel-2"
       onClick={onAdd}
@@ -69,6 +70,6 @@ function Entry({ item, onAdd }: { item: PaletteItem; onAdd: () => void }) {
           {formatHz(item.type.bandwidth_hz)}
         </span>
       )}
-    </button>
+    </Button>
   );
 }

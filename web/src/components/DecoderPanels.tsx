@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind } from "../lib/types";
+import { Button } from "./BaseControls";
 import { BTN } from "./controls";
 import {
   ageClass,
@@ -248,9 +249,9 @@ function TargetTable({
 
 function SortButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button type="button" className="uppercase tracking-wider hover:text-accent" onClick={onClick}>
+    <Button type="button" className="uppercase tracking-wider hover:text-accent" onClick={onClick}>
       {label}
-    </button>
+    </Button>
   );
 }
 
@@ -291,9 +292,9 @@ export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?:
             {wpm.toFixed(0)} <span className="text-ink-dim">WPM</span>
           </span>
         )}
-        <button type="button" className={`${BTN} ml-auto`} disabled={text === ""} onClick={copy}>
+        <Button type="button" className={`${BTN} ml-auto`} disabled={text === ""} onClick={copy}>
           Copy all
-        </button>
+        </Button>
       </div>
 
       {copyError !== null && (
@@ -302,9 +303,9 @@ export function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?:
           className="flex items-center justify-between gap-3 rounded border border-danger bg-danger/10 px-3 py-1.5 font-mono text-sm text-danger"
         >
           <span>Copy failed: {copyError}</span>
-          <button type="button" className="shrink-0 underline" onClick={() => setCopyError(null)}>
+          <Button type="button" className="shrink-0 underline" onClick={() => setCopyError(null)}>
             dismiss
-          </button>
+          </Button>
         </div>
       )}
 

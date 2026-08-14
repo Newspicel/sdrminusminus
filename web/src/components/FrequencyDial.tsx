@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Button, Input } from "./BaseControls";
 import {
   type DialDigit,
   dialDigits,
@@ -158,7 +159,7 @@ function Digit({
   const separator = digit.place === 6 ? "." : digit.place === 3 ? " " : "";
   return (
     <>
-      <button
+      <Button
         type="button"
         tabIndex={-1}
         disabled={disabled}
@@ -203,7 +204,7 @@ function Digit({
           />
         )}
         <span className="relative">{digit.digit}</span>
-      </button>
+      </Button>
       {separator !== "" && (
         <span aria-hidden className={`text-ink-dim ${DIGIT_SIZE}`}>
           {separator}
@@ -231,7 +232,7 @@ function DirectEntry({
   const parsed = parseFrequency(draft);
   const empty = draft.trim() === "";
   return (
-    <input
+    <Input
       autoFocus
       aria-label="Tune to frequency"
       placeholder="145.5 · 433800k · 2.4g"

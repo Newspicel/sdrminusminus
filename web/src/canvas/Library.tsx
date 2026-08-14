@@ -6,7 +6,7 @@
 // radio wholesale, so its cards name the radio on the button that does it; presets cover the
 // whole workspace (`PresetSnapshot`); bookmarks and the band search tune whatever the operator
 // has selected, and only say so when there is nothing to tune.
-import { useState } from "react";
+import { Tabs } from "@base-ui/react/tabs";
 import { BandsPanel } from "../components/BandsPanel";
 import { BookmarksPanel } from "../components/BookmarksPanel";
 import { segment } from "../components/controls";
@@ -28,12 +28,9 @@ const TABS = [
   { id: "recordings", label: "Recordings" },
 ] as const;
 
-type Tab = (typeof TABS)[number]["id"];
-
 export function Library() {
   const workspace = useWorkspaceContext();
   const placeNode = useNodePlacement();
-  const [tab, setTab] = useState<Tab>("templates");
   const selected =
     workspace.selected === null ? null : (workspace.devices.get(workspace.selected) ?? null);
   const drawn = [...workspace.devices.values()];
@@ -64,36 +61,35 @@ export function Library() {
   };
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-md">
+    <Tabs.Root defaultValue="templates" className="flex flex-col overflow-hidden rounded-md">
       {/* A header band, like a node's: the sections stay put while their content scrolls under
           them, and the drawer reads as one instrument rather than a list that starts with five
           loose buttons. */}
-      <div
+      <Tabs.List
         className="flex shrink-0 items-center gap-0.5 border-b border-line bg-panel-2 px-2 py-1.5"
-        role="group"
         aria-label="Library section"
       >
         {TABS.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            className={segment(tab === entry.id)}
-            aria-pressed={tab === entry.id}
-            onClick={() => setTab(entry.id)}
-          >
+          <Tabs.Tab key={entry.id} value={entry.id} className={(state) => segment(state.active)}>
             {entry.label}
-          </button>
+          </Tabs.Tab>
         ))}
-      </div>
-      <div className="max-h-[28rem] overflow-y-auto">
-        {tab === "templates" && (
-          <TemplatesPanel active={active} onApplied={() => workspace.apply()} />
-        )}
-        {tab === "presets" && <PresetsPanel />}
-        {tab === "bookmarks" && <BookmarksPanel active={active} />}
-        {tab === "bands" && <BandsPanel active={active} />}
-        {tab === "recordings" && <RecordingsPanel onOpen={openRecording} />}
-      </div>
-    </div>
+      </Tabs.List>
+      <Tabs.Panel value="templates" className="max-h-[28rem] overflow-y-auto">
+        <TemplatesPanel active={active} onApplied={() => workspace.apply()} />
+      </Tabs.Panel>
+      <Tabs.Panel value="presets" className="max-h-[28rem] overflow-y-auto">
+        <PresetsPanel />
+      </Tabs.Panel>
+      <Tabs.Panel value="bookmarks" className="max-h-[28rem] overflow-y-auto">
+        <BookmarksPanel active={active} />
+      </Tabs.Panel>
+      <Tabs.Panel value="bands" className="max-h-[28rem] overflow-y-auto">
+        <BandsPanel active={active} />
+      </Tabs.Panel>
+      <Tabs.Panel value="recordings" className="max-h-[28rem] overflow-y-auto">
+        <RecordingsPanel onOpen={openRecording} />
+      </Tabs.Panel>
+    </Tabs.Root>
   );
 }

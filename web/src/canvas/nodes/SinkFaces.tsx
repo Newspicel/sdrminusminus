@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Button } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, CHIP, LABEL } from "../../components/controls";
 import { DecoderLogPanel } from "../../components/DecoderLogPanel";
 import { DecoderView, hasDecoderView } from "../../components/DecoderPanels";
@@ -92,7 +93,7 @@ function AudioInput({ input }: { input: Input }) {
   return (
     <div className="flex flex-col gap-1 border-b border-line p-2 last:border-b-0">
       <div className="flex items-center gap-2">
-        <button
+        <Button
           type="button"
           className={audio.playing ? BTN_DANGER : BTN}
           onClick={() => {
@@ -106,7 +107,7 @@ function AudioInput({ input }: { input: Input }) {
           }}
         >
           {audio.playing ? "Stop" : audio.pending ? "…" : "Play"}
-        </button>
+        </Button>
         <span className="legend truncate">
           {label ?? input.channel.settings.params.type.toUpperCase()}
         </span>
@@ -120,9 +121,9 @@ function AudioInput({ input }: { input: Input }) {
         onChange={audio.setVolume}
       />
       {audio.suspended && (
-        <button type="button" className={BTN} onClick={audio.resumeOutput}>
+        <Button type="button" className={BTN} onClick={audio.resumeOutput}>
           Audio is suspended — click to resume
-        </button>
+        </Button>
       )}
       <AudioHealth lostFrames={audio.lostFrames} underruns={audio.underruns} />
       {audio.error !== null && (
@@ -434,7 +435,7 @@ function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
   if (control.kind === "idle") {
     return (
       <div className="flex flex-col gap-2 p-2">
-        <button
+        <Button
           type="button"
           className={BTN}
           disabled={!control.canStart || record.isPending}
@@ -445,21 +446,21 @@ function RecordControl({ set, stream }: { set: DeviceSet; stream: number }) {
             ●
           </span>
           Record
-        </button>
+        </Button>
       </div>
     );
   }
   const status = control.status;
   return (
     <div className="flex flex-col gap-2 p-2">
-      <button
+      <Button
         type="button"
         className={BTN_DANGER}
         disabled={record.isPending}
         onClick={() => record.mutate("stop")}
       >
         Stop
-      </button>
+      </Button>
       <RecordingReadout status={status} sampleRate={set.settings.sample_rate ?? 0} />
       <span className={CHIP}>{status.file}</span>
       {status.error != null && (

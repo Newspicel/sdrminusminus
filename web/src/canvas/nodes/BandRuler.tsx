@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Button } from "../../components/BaseControls";
 import type { BandIdentity } from "../../components/bandPlan";
 import {
   identify,
@@ -65,7 +66,7 @@ export function BandRuler({
       {plan.lanes.map((lane) => {
         const spans = spansIn(plan, lane, lowHz, visibleHz);
         return (
-          <button
+          <Button
             key={lane.id}
             type="button"
             className="relative block w-full cursor-help border-b border-line/60 last:border-b-0"
@@ -96,7 +97,7 @@ export function BandRuler({
                 )}
               </span>
             ))}
-          </button>
+          </Button>
         );
       })}
 
@@ -143,14 +144,14 @@ function IdentifyCard({
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-mono text-sm text-ink tabular-nums">{formatHz(hz)}</span>
-        <button
+        <Button
           type="button"
           className="text-ink-faint hover:text-ink"
           aria-label="Close"
           onClick={onClose}
         >
           ✕
-        </button>
+        </Button>
       </div>
 
       {found.length === 0 && (
@@ -170,7 +171,7 @@ function IdentifyCard({
       ))}
 
       {found.length > 0 && (
-        <button
+        <Button
           type="button"
           className="mt-0.5 h-7 rounded-[3px] border border-accent bg-accent/12 px-2 font-mono text-xs text-accent hover:bg-accent/20"
           onClick={() => {
@@ -180,7 +181,7 @@ function IdentifyCard({
         >
           Tune {formatHz(hz)}
           {suggested !== null && ` · ${suggested.type.toUpperCase()}`}
-        </button>
+        </Button>
       )}
     </div>
   );

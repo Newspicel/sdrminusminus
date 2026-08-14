@@ -3,6 +3,7 @@ import { pushToast } from "../lib/toasts";
 import type { ChannelParams, DeviceSet } from "../lib/types";
 import { useBandPlan } from "../lib/useBandPlan";
 import { useDevicePatch } from "../lib/useDevicePatch";
+import { Button, Input } from "./BaseControls";
 import { searchPlan, serviceEdge, serviceLabel } from "./bandPlan";
 import { CHIP, FIELD, LABEL } from "./controls";
 import { formatHz } from "./format";
@@ -38,7 +39,7 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
         </span>
       )}
 
-      <input
+      <Input
         className={FIELD}
         placeholder="marine VHF, 70 cm ham, 145.500…"
         value={query}
@@ -60,7 +61,7 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
         const { allocation } = hit;
         return (
           <div key={`${hit.laneId}:${allocation.id}`} className="flex items-start gap-2">
-            <button
+            <Button
               type="button"
               className="min-w-0 flex-1 rounded px-1 py-1 text-left transition-colors hover:bg-panel-2 disabled:opacity-40"
               disabled={active === null}
@@ -86,7 +87,7 @@ export function BandsPanel({ active }: { active: DeviceSet | null }) {
               {allocation.notes != null && (
                 <p className="mt-0.5 text-xs leading-snug text-ink-dim">{allocation.notes}</p>
               )}
-            </button>
+            </Button>
           </div>
         );
       })}

@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { deleteRecording, RECORDINGS_KEY, recordingDownloadUrl, recordingsQuery } from "../lib/api";
 import { pushToast } from "../lib/toasts";
 import type { RecordingInfo } from "../lib/types";
+import { Button } from "./BaseControls";
 import { BTN } from "./controls";
 import { formatMhz } from "./format";
 import { downloadFormats, formatBytes, formatDuration } from "./recordings";
@@ -34,9 +35,9 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
               {formatDuration(r.duration_s)} · {formatBytes(r.bytes)}
             </div>
           </div>
-          <button type="button" className={BTN} onClick={() => onOpen(r)}>
+          <Button type="button" className={BTN} onClick={() => onOpen(r)}>
             Open as source
-          </button>
+          </Button>
           {downloadFormats.map(({ format, label, hint }) => (
             <a
               key={format}
@@ -48,14 +49,14 @@ export function RecordingsPanel({ onOpen }: { onOpen: (recording: RecordingInfo)
               {label}
             </a>
           ))}
-          <button
+          <Button
             type="button"
             className={`${BTN} hover:border-danger hover:text-danger`}
             disabled={deleteMut.isPending}
             onClick={() => deleteMut.mutate(r.id)}
           >
             Delete
-          </button>
+          </Button>
         </div>
       ))}
       {recordings.data?.recordings.length === 0 && (

@@ -3,12 +3,14 @@
 // Every license here is delivered, not linked to — the texts are compiled into the server, so
 // the panel works on a machine that has never had a network. That is the whole point of putting
 // the notices in the product rather than in a file in the repository.
+import { Collapsible } from "@base-ui/react/collapsible";
 import { Dialog } from "@base-ui/react/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { aboutQuery, licenseTextQuery } from "../lib/api";
 import type { Attribution } from "../lib/types";
 import { groupComponents, licenseSummary, notedComponents } from "./about";
+import { Button, Input } from "./BaseControls";
 import { BTN, BTN_QUIET, FIELD, SURFACE } from "./controls";
 
 export function AboutPanel({
@@ -62,14 +64,16 @@ export function AboutPanel({
                 </a>
               </p>
 
-              <details className="mt-3">
-                <summary className="cursor-pointer text-xs text-ink-dim hover:text-ink">
+              <Collapsible.Root className="mt-3">
+                <Collapsible.Trigger className="cursor-pointer text-xs text-ink-dim hover:text-ink">
                   License
-                </summary>
-                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-[3px] bg-panel-2 p-2 font-mono text-[11px] text-ink-dim">
-                  {about.data.license_text}
-                </pre>
-              </details>
+                </Collapsible.Trigger>
+                <Collapsible.Panel>
+                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-[3px] bg-panel-2 p-2 font-mono text-[11px] text-ink-dim">
+                    {about.data.license_text}
+                  </pre>
+                </Collapsible.Panel>
+              </Collapsible.Root>
 
               <Noted components={about.data.components} onOpenText={setTextId} />
 
@@ -77,7 +81,7 @@ export function AboutPanel({
                 <h3 className="text-xs font-medium text-ink">
                   Third-party components ({about.data.components.length})
                 </h3>
-                <input
+                <Input
                   className={`${FIELD} w-48`}
                   type="search"
                   name="component-filter"
@@ -195,7 +199,7 @@ function Row({
       )}
       <span className="text-ink-dim">{component.license}</span>
       {component.texts.map((id, index) => (
-        <button
+        <Button
           key={id}
           type="button"
           className={BTN_QUIET}
@@ -203,7 +207,7 @@ function Row({
           aria-label={`Read license text ${index + 1} for ${component.name}`}
         >
           text{component.texts.length > 1 ? ` ${index + 1}` : ""}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -217,9 +221,9 @@ function LicenseText({ id, onClose }: { id: string; onClose: () => void }) {
     <div className="absolute inset-0 z-10 flex flex-col rounded-md bg-panel-3 p-4">
       <div className="flex items-baseline justify-between gap-4">
         <h3 className="text-sm font-medium text-ink">License text</h3>
-        <button type="button" className={BTN} onClick={onClose}>
+        <Button type="button" className={BTN} onClick={onClose}>
           Back
-        </button>
+        </Button>
       </div>
       <pre className="mt-3 min-h-0 flex-1 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-ink-dim">
         {text.isError ? "Could not load this license text." : (text.data?.text ?? "Loading…")}

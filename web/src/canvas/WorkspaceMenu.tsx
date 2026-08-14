@@ -1,4 +1,5 @@
 import { type ReactNode, useState } from "react";
+import { Button, Form, Input } from "../components/BaseControls";
 import { Checkbox } from "../components/Checkbox";
 import { BTN_QUIET, FIELD, ICON_BTN, LABEL, segment } from "../components/controls";
 import { Select } from "../components/Select";
@@ -25,7 +26,7 @@ export function WorkspaceMenu({
         <span className={LABEL}>Workspaces</span>
         {workspaces.map((workspace) => (
           <div key={workspace.id} className="flex items-center gap-1">
-            <button
+            <Button
               type="button"
               className={`${segment(workspace.id === activeWorkspace)} flex-1 justify-between`}
               onClick={() => onActivate(workspace.id)}
@@ -34,18 +35,18 @@ export function WorkspaceMenu({
               <span className="font-mono text-[10px] text-ink-faint tabular-nums">
                 {workspace.nodes}
               </span>
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={ICON_BTN}
               aria-label={`Delete ${workspace.name}`}
               onClick={() => onRemove(workspace.id)}
             >
               ✕
-            </button>
+            </Button>
           </div>
         ))}
-        <form
+        <Form
           className="flex gap-1"
           onSubmit={(event) => {
             event.preventDefault();
@@ -55,16 +56,16 @@ export function WorkspaceMenu({
             }
           }}
         >
-          <input
+          <Input
             className={`${FIELD} flex-1`}
             placeholder="New workspace"
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-          <button type="submit" className={BTN_QUIET}>
+          <Button type="submit" className={BTN_QUIET}>
             Add
-          </button>
-        </form>
+          </Button>
+        </Form>
       </div>
 
       {/* Settings of the workspace, not of the app or of the browser looking at it: they travel

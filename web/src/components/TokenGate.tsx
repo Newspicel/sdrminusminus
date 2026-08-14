@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
 import { authQuery } from "../lib/api";
 import { getToken, onTokenRejected, setToken } from "../lib/auth";
+import { Button, Form, Input } from "./BaseControls";
 import { BTN, FIELD } from "./controls";
 
 /** Renders `children` once the server is reachable without a prompt, or the prompt itself when
@@ -33,7 +34,7 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
 
   return (
     <div className="flex min-h-full items-center justify-center bg-bg px-4 py-10">
-      <form
+      <Form
         className="flex w-full max-w-sm flex-col gap-3 rounded border border-line bg-panel px-4 py-4"
         onSubmit={(e) => {
           e.preventDefault();
@@ -63,7 +64,7 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
             </p>
           )}
         </div>
-        <input
+        <Input
           className={`${FIELD} w-full`}
           type="password"
           autoComplete="current-password"
@@ -71,10 +72,10 @@ export function TokenGate({ onToken, children }: { onToken: () => void; children
           value={entry}
           onChange={(e) => setEntry(e.target.value)}
         />
-        <button type="submit" className={BTN} disabled={entry.trim() === ""}>
+        <Button type="submit" className={BTN} disabled={entry.trim() === ""}>
           Connect
-        </button>
-      </form>
+        </Button>
+      </Form>
     </div>
   );
 }

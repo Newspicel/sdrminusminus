@@ -377,7 +377,8 @@ test.describe("the workspace", () => {
     const baud = nmea.getByRole("spinbutton", { name: "Baud" });
     await baud.fill("38400");
     await baud.blur();
-    await nmea.getByRole("combobox", { name: "Update rate" }).selectOption("200");
+    await nmea.getByRole("combobox", { name: "Update rate" }).click();
+    await page.getByRole("option", { name: "5 Hz" }).click();
     await device.fill(" ");
     await device.blur();
     await expect(device).toHaveValue("/dev/ttyACM7");

@@ -1,4 +1,5 @@
 import { nextTheme, setTheme, type ThemeChoice, useTheme } from "../lib/theme";
+import { Button } from "./BaseControls";
 import { ICON_BTN } from "./controls";
 
 const NAMES: Record<ThemeChoice, string> = {
@@ -11,7 +12,7 @@ export function ThemeControl() {
   const { choice } = useTheme();
   const next = nextTheme(choice);
   return (
-    <button
+    <Button
       type="button"
       className={ICON_BTN}
       // The current state first: a control that only named its next state would be a mode you
@@ -21,7 +22,7 @@ export function ThemeControl() {
       onClick={() => setTheme(next)}
     >
       <ThemeIcon choice={choice} />
-    </button>
+    </Button>
   );
 }
 

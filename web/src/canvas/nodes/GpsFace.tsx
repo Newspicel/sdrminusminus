@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
+import { Input } from "../../components/BaseControls";
 import { FIELD, LABEL } from "../../components/controls";
+import { Select } from "../../components/Select";
 import { nmeaDevicesQuery } from "../../lib/api";
 import { gridLocator, usePositionStore } from "../../lib/position";
 import type { NmeaDeviceInfo, PatchNode, PositionSource } from "../../lib/types";
@@ -86,7 +88,7 @@ function SourceSettings({
       return (
         <label className={LABEL}>
           GPSD address
-          <input
+          <Input
             key={source.address}
             className={FIELD}
             defaultValue={source.address}
@@ -123,7 +125,7 @@ function NmeaSettings({
     <div className="flex flex-col gap-2">
       <label className={LABEL}>
         Serial device
-        <input
+        <Input
           key={source.device}
           className={FIELD}
           list={listId}
@@ -152,7 +154,7 @@ function NmeaSettings({
       <div className="grid grid-cols-2 gap-2">
         <label className={LABEL}>
           Baud
-          <input
+          <Input
             key={source.baud}
             className={FIELD}
             type="number"
@@ -182,19 +184,18 @@ function NmeaSettings({
         </label>
         <label className={LABEL}>
           Update rate
-          <select
-            className={FIELD}
+          <Select
+            label="Update rate"
             value={updateInterval}
-            onChange={(event) =>
-              onChange({ ...source, update_interval_ms: Number(event.currentTarget.value) })
-            }
-          >
-            <option value={1_000}>1 Hz</option>
-            <option value={500}>2 Hz</option>
-            <option value={200}>5 Hz</option>
-            <option value={100}>10 Hz</option>
-            <option value={50}>20 Hz</option>
-          </select>
+            options={[
+              { value: 1_000, label: "1 Hz" },
+              { value: 500, label: "2 Hz" },
+              { value: 200, label: "5 Hz" },
+              { value: 100, label: "10 Hz" },
+              { value: 50, label: "20 Hz" },
+            ]}
+            onChange={(next) => onChange({ ...source, update_interval_ms: next })}
+          />
         </label>
       </div>
       <span className="text-[10px] text-ink-faint">

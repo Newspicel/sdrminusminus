@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { CHIP, FIELD, LABEL } from "../../components/controls";
+import { CHIP, LABEL } from "../../components/controls";
+import { Select } from "../../components/Select";
 import { callsQuery } from "../../lib/api";
 import type { DmrTrunkProtocol, DvTrunkProtocol, PatchNode } from "../../lib/types";
 import { useWorkspaceContext } from "../context";
@@ -12,6 +13,15 @@ const PROTOCOLS: readonly { value: DmrTrunkProtocol; label: string }[] = [
   { value: "capacity_plus", label: "Capacity Plus" },
   { value: "tier_three", label: "Tier III / Capacity Max" },
 ];
+
+const RETENTION_OPTIONS = [
+  { value: 0, label: "Off" },
+  { value: 60, label: "1 minute" },
+  { value: 300, label: "5 minutes" },
+  { value: 900, label: "15 minutes" },
+  { value: 3_600, label: "1 hour" },
+  { value: 21_600, label: "6 hours" },
+] as const;
 
 export function DmrTrunkFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
@@ -49,32 +59,23 @@ export function DmrTrunkFace({ node }: { node: PatchNode }) {
         <div className="flex flex-wrap items-end gap-3 border-b border-line p-2">
           <label className="flex flex-col gap-1">
             <span className={LABEL}>Protocol</span>
-            <select
-              className={`${FIELD} w-48`}
+            <Select
+              label="Protocol"
+              className="w-48"
               value={protocol}
-              onChange={(event) => edit({ protocol: event.target.value as DmrTrunkProtocol })}
-            >
-              {PROTOCOLS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              options={PROTOCOLS}
+              onChange={(next) => edit({ protocol: next })}
+            />
           </label>
           <label className="flex flex-col gap-1">
             <span className={LABEL}>Keep calls</span>
-            <select
-              className={`${FIELD} w-28`}
+            <Select
+              label="Keep calls"
+              className="w-28"
               value={node.data.retention_seconds ?? 300}
-              onChange={(event) => edit({ retention_seconds: Number(event.target.value) })}
-            >
-              <option value={0}>Off</option>
-              <option value={60}>1 minute</option>
-              <option value={300}>5 minutes</option>
-              <option value={900}>15 minutes</option>
-              <option value={3600}>1 hour</option>
-              <option value={21600}>6 hours</option>
-            </select>
+              options={RETENTION_OPTIONS}
+              onChange={(next) => edit({ retention_seconds: next })}
+            />
           </label>
         </div>
         {sources.length === 0 ? (

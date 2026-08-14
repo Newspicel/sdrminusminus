@@ -11,6 +11,7 @@ import { useHotkeys } from "./canvas/useHotkeys";
 import { useWorkspace } from "./canvas/useWorkspace";
 import { type View, WorkspaceBar } from "./canvas/WorkspaceBar";
 import { AboutPanel } from "./components/AboutPanel";
+import { Button } from "./components/BaseControls";
 import { BTN_PRIMARY } from "./components/controls";
 import { TUNE_STEPS_HZ, tuningRange } from "./components/dial";
 import { ServerDown } from "./components/ServerDown";
@@ -364,13 +365,13 @@ export function App() {
             so rather than inventing one); the only thing to offer is a new one. */}
         {workspace.unreachable === null && workspace.active === null && !workspace.pending && (
           <div className="flex min-h-0 flex-1 items-center justify-center">
-            <button
+            <Button
               type="button"
               className={BTN_PRIMARY}
               onClick={() => workspace.create("Workspace")}
             >
               Create a workspace
-            </button>
+            </Button>
           </div>
         )}
 

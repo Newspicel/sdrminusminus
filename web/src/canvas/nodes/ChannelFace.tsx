@@ -1,3 +1,4 @@
+import { Button } from "../../components/BaseControls";
 import { ChannelControls } from "../../components/ChannelControls";
 import { channelHasAudio, channelHasVideo, rateMismatch } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
@@ -132,13 +133,13 @@ function RateMismatch({
           This radio offers no rate in that range, so it cannot carry {name}. Another radio has to.
         </p>
       ) : (
-        <button
+        <Button
           type="button"
           className={BTN}
           onClick={() => applyPatch(set.id, { sample_rate: offered })}
         >
           Set {set.device.label} to {mhz(offered)} MHz
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -179,9 +180,9 @@ function Unbound({ wired, open, onApply }: { wired: boolean; open: boolean; onAp
             : "Its radio is not open. Applying opens an attached radio; while none is, the wire is kept and the settings wait."}
       </p>
       {wired && (
-        <button type="button" className={BTN_PRIMARY} onClick={onApply}>
+        <Button type="button" className={BTN_PRIMARY} onClick={onApply}>
           Apply patch
-        </button>
+        </Button>
       )}
     </div>
   );

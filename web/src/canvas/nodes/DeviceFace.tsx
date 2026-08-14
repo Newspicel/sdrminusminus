@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "../../components/BaseControls";
 import { BTN, BTN_QUIET, CHIP, LABEL } from "../../components/controls";
 import { isTunable, tuningRange } from "../../components/dial";
 import { DIAL_ID, FrequencyDial } from "../../components/FrequencyDial";
@@ -205,7 +206,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
               wires stay drawn and nothing else will be bound here — plug it back in and this node
               picks it up.
             </p>
-            <button
+            <Button
               type="button"
               className={`${BTN} self-start`}
               title="Unbind this node so it can name another radio"
@@ -213,7 +214,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
               disabled={forget.isPending}
             >
               Forget this radio
-            </button>
+            </Button>
           </div>
         </FaceBody>
       </NodeShell>
@@ -274,7 +275,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
           )}
 
           <div className="mt-auto flex justify-end border-t border-line p-2">
-            <button
+            <Button
               type="button"
               className={BTN_QUIET}
               title="Close this radio and unbind the node — the USB device is released and the wires stay drawn"
@@ -282,7 +283,7 @@ export function DeviceFace({ node }: { node: PatchNode }) {
               disabled={forget.isPending}
             >
               {forget.isPending ? "Closing…" : "Forget radio"}
-            </button>
+            </Button>
           </div>
         </div>
       </FaceBody>
