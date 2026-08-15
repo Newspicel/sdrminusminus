@@ -735,6 +735,81 @@ impl Default for IdentParams {
     }
 }
 
+fn default_wsjt_low_hz() -> f32 {
+    200.0
+}
+
+fn default_wsjt_high_hz() -> f32 {
+    3_000.0
+}
+
+fn default_wsjt_candidates() -> u16 {
+    50
+}
+
+/// Audio passband searched by an FT8 or FT4 decoder after a USB receiver is placed on the
+/// mode's dial frequency.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WsjtParams {
+    #[serde(default = "default_wsjt_low_hz")]
+    pub audio_low_hz: f32,
+    #[serde(default = "default_wsjt_high_hz")]
+    pub audio_high_hz: f32,
+    #[serde(default = "default_wsjt_candidates")]
+    pub max_candidates: u16,
+}
+
+impl Default for WsjtParams {
+    fn default() -> Self {
+        Self {
+            audio_low_hz: default_wsjt_low_hz(),
+            audio_high_hz: default_wsjt_high_hz(),
+            max_candidates: default_wsjt_candidates(),
+        }
+    }
+}
+
+fn default_wspr_low_hz() -> f32 {
+    1_400.0
+}
+
+fn default_wspr_high_hz() -> f32 {
+    1_600.0
+}
+
+fn default_wspr_candidates() -> u16 {
+    200
+}
+
+/// Audio passband searched by WSPR after a USB receiver is placed on the WSPR dial frequency.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WsprParams {
+    #[serde(default = "default_wspr_low_hz")]
+    pub audio_low_hz: f32,
+    #[serde(default = "default_wspr_high_hz")]
+    pub audio_high_hz: f32,
+    #[serde(default = "default_wspr_candidates")]
+    pub max_candidates: u16,
+}
+
+impl Default for WsprParams {
+    fn default() -> Self {
+        Self {
+            audio_low_hz: default_wspr_low_hz(),
+            audio_high_hz: default_wspr_high_hz(),
+            max_candidates: default_wspr_candidates(),
+        }
+    }
+}
+
+/// Receive options shared by the BPSK31 and BPSK63 Varicode channels.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PskParams {
+    /// Reverse differential bit polarity for an inverted receive chain.
+    #[serde(default)]
+    pub invert: bool,
+}
+
 /// Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
 /// discriminated union on `type`, and `{"type":"nfm","settings":{}}` deserializes with
 /// every field at its default.
@@ -762,6 +837,11 @@ pub enum ChannelParams {
     P25(P25Params),
     Dpmr(DpmrParams),
     M17(M17Params),
+    Ft8(WsjtParams),
+    Ft4(WsjtParams),
+    Psk31(PskParams),
+    Psk63(PskParams),
+    Wspr(WsprParams),
     Ident(IdentParams),
 }
 
@@ -791,6 +871,11 @@ impl ChannelParams {
             Self::P25(_) => "p25",
             Self::Dpmr(_) => "dpmr",
             Self::M17(_) => "m17",
+            Self::Ft8(_) => "ft8",
+            Self::Ft4(_) => "ft4",
+            Self::Psk31(_) => "psk31",
+            Self::Psk63(_) => "psk63",
+            Self::Wspr(_) => "wspr",
             Self::Ident(_) => "ident",
         }
     }

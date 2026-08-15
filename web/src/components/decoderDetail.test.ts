@@ -28,6 +28,41 @@ describe("eventDetail", () => {
       aprs: { kind: "aprs", data: { source: "A", destination: "B", info: "", tnc2: "A>B:" } },
       rtty: { kind: "rtty", data: { text: "" } },
       morse: { kind: "morse", data: { text: "", wpm: 0 } },
+      ft8: {
+        kind: "ft8",
+        data: {
+          text: "CQ W1AW FN42",
+          snr_db: -10,
+          audio_hz: 1_500,
+          time_offset_s: 0.5,
+          hard_errors: 0,
+        },
+      },
+      ft4: {
+        kind: "ft4",
+        data: {
+          text: "CQ JA1ABC PM95",
+          snr_db: -8,
+          audio_hz: 1_000,
+          time_offset_s: 0.5,
+          hard_errors: 0,
+        },
+      },
+      psk31: { kind: "psk31", data: { text: "CQ TEST" } },
+      psk63: { kind: "psk63", data: { text: "CQ TEST" } },
+      wspr: {
+        kind: "wspr",
+        data: {
+          text: "K1ABC FN42 37",
+          callsign: "K1ABC",
+          grid: "FN42",
+          power_dbm: 37,
+          snr_db: -20,
+          audio_hz: 1_500,
+          time_offset_s: 1,
+          drift_hz: 0,
+        },
+      },
       navtex: { kind: "navtex", data: { text: "", errors_corrected: 0, complete: true } },
       acars: {
         kind: "acars",
@@ -80,6 +115,32 @@ describe("eventDetail", () => {
     for (const kind of DECODER_KINDS) {
       expect(() => eventDetail(sample[kind]), kind).not.toThrow();
     }
+  });
+
+  it("shows weak-signal timing and link measurements", () => {
+    const detail = eventDetail({
+      kind: "wspr",
+      data: {
+        text: "K1ABC FN42 37",
+        callsign: "K1ABC",
+        grid: "FN42",
+        power_dbm: 37,
+        snr_db: -21,
+        audio_hz: 1_501.25,
+        time_offset_s: 0.75,
+        drift_hz: -0.2,
+      },
+    });
+    expect(Object.fromEntries(detail.fields)).toMatchObject({
+      Callsign: "K1ABC",
+      Grid: "FN42",
+      Power: "37 dBm",
+      SNR: "-21 dB",
+      Audio: "1501.3 Hz",
+      "Time offset": "+0.75 s",
+      Drift: "-0.2 Hz",
+    });
+    expect(detail.body).toBe("K1ABC FN42 37");
   });
 
   it("omits the fields a frame did not carry rather than dashing them", () => {

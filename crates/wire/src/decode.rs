@@ -186,6 +186,37 @@ pub struct MorseText {
     pub wpm: f32,
 }
 
+/// One CRC-verified FT8 or FT4 message from a synchronized receive slot.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WsjtMessage {
+    pub text: String,
+    pub snr_db: f32,
+    pub audio_hz: f32,
+    pub time_offset_s: f32,
+    pub hard_errors: u32,
+}
+
+/// A run of Varicode text decoded from a BPSK31 or BPSK63 carrier.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct PskText {
+    pub text: String,
+}
+
+/// One WSPR beacon spot recovered from a two-minute receive slot.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct WsprSpot {
+    /// Familiar WSPRnet tuple, including a hash marker for an unresolved type-3 callsign.
+    pub text: String,
+    pub callsign: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid: Option<String>,
+    pub power_dbm: i32,
+    pub snr_db: f32,
+    pub audio_hz: f32,
+    pub time_offset_s: f32,
+    pub drift_hz: f32,
+}
+
 /// One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
 /// parsed out because that is what a receiver filters on — station, subject and serial are how
 /// a ship decides whether it has already seen this message.
@@ -749,6 +780,11 @@ pub enum DecoderEvent {
     Subghz(SubghzFrame),
     Tone(ToneSquelchStatus),
     Dv(DvFrame),
+    Ft8(WsjtMessage),
+    Ft4(WsjtMessage),
+    Psk31(PskText),
+    Psk63(PskText),
+    Wspr(WsprSpot),
     Ident(IdentReport),
 }
 
@@ -769,6 +805,11 @@ impl DecoderEvent {
             Self::Subghz(_) => "subghz",
             Self::Tone(_) => "tone",
             Self::Dv(_) => "dv",
+            Self::Ft8(_) => "ft8",
+            Self::Ft4(_) => "ft4",
+            Self::Psk31(_) => "psk31",
+            Self::Psk63(_) => "psk63",
+            Self::Wspr(_) => "wspr",
             Self::Ident(_) => "ident",
         }
     }
@@ -928,6 +969,11 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::Ft8(m) | Self::Ft4(m) => {
+                format!("{} · {:+.0} dB · {:.0} Hz", m.text, m.snr_db, m.audio_hz)
+            }
+            Self::Psk31(t) | Self::Psk63(t) => t.text.clone(),
+            Self::Wspr(s) => format!("{} · {:+.0} dB · {:.0} Hz", s.text, s.snr_db, s.audio_hz),
             Self::Ident(r) => {
                 let mut parts = vec![r.modulation.label().to_owned()];
                 if r.modulation.is_signal() {
@@ -988,9 +1034,16 @@ impl DecoderEvent {
                 .source_call
                 .clone()
                 .or_else(|| f.source.map(|s| s.to_string())),
+            Self::Ft8(m) | Self::Ft4(m) => m.text.split_whitespace().nth(1).map(str::to_owned),
+            Self::Wspr(s) => Some(s.callsign.clone()),
             // A survey of what is on a frequency names no emitter: the whole point is that
             // whoever is transmitting has not been identified yet.
-            Self::Rtty(_) | Self::Morse(_) | Self::Tone(_) | Self::Ident(_) => None,
+            Self::Rtty(_)
+            | Self::Morse(_)
+            | Self::Psk31(_)
+            | Self::Psk63(_)
+            | Self::Tone(_)
+            | Self::Ident(_) => None,
         }
     }
 }
@@ -1058,6 +1111,36 @@ mod tests {
             DecoderEvent::Acars(AcarsMessage::default()),
             DecoderEvent::Subghz(SubghzFrame::default()),
             DecoderEvent::Tone(ToneSquelchStatus::default()),
+            DecoderEvent::Ft8(WsjtMessage {
+                text: String::new(),
+                snr_db: 0.0,
+                audio_hz: 0.0,
+                time_offset_s: 0.0,
+                hard_errors: 0,
+            }),
+            DecoderEvent::Ft4(WsjtMessage {
+                text: String::new(),
+                snr_db: 0.0,
+                audio_hz: 0.0,
+                time_offset_s: 0.0,
+                hard_errors: 0,
+            }),
+            DecoderEvent::Psk31(PskText {
+                text: String::new(),
+            }),
+            DecoderEvent::Psk63(PskText {
+                text: String::new(),
+            }),
+            DecoderEvent::Wspr(WsprSpot {
+                text: String::new(),
+                callsign: String::new(),
+                grid: None,
+                power_dbm: 0,
+                snr_db: 0.0,
+                audio_hz: 0.0,
+                time_offset_s: 0.0,
+                drift_hz: 0.0,
+            }),
         ] {
             let json = serde_json::to_value(&ev).unwrap();
             assert_eq!(json["kind"], ev.kind());

@@ -29,6 +29,11 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   tone: "Tone",
   dv: "Digital voice",
   ident: "Signal ID",
+  ft8: "FT8",
+  ft4: "FT4",
+  psk31: "PSK31",
+  psk63: "PSK63",
+  wspr: "WSPR",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -266,7 +271,26 @@ export function eventSummary(event: DecoderEvent): string {
     }
     case "rtty":
     case "morse":
+    case "psk31":
+    case "psk63":
       return event.data.text;
+    case "ft8":
+    case "ft4": {
+      const message = event.data;
+      return join([
+        message.text,
+        `${message.snr_db >= 0 ? "+" : ""}${message.snr_db.toFixed(0)} dB`,
+        `${message.audio_hz.toFixed(0)} Hz`,
+      ]);
+    }
+    case "wspr": {
+      const spot = event.data;
+      return join([
+        spot.text,
+        `${spot.snr_db >= 0 ? "+" : ""}${spot.snr_db.toFixed(0)} dB`,
+        `${spot.audio_hz.toFixed(0)} Hz`,
+      ]);
+    }
     case "navtex": {
       const n = event.data;
       const header =
@@ -351,8 +375,15 @@ export function eventStation(event: DecoderEvent): string | null {
       return (
         event.data.source_call ?? (event.data.source == null ? null : String(event.data.source))
       );
+    case "ft8":
+    case "ft4":
+      return event.data.text.split(/\s+/)[1] ?? null;
+    case "wspr":
+      return event.data.callsign;
     case "rtty":
     case "morse":
+    case "psk31":
+    case "psk63":
     // Subaudible signalling names the channel's state, not whoever is keying up.
     case "tone":
     // The whole point of an identification is that whoever is transmitting is not known yet.

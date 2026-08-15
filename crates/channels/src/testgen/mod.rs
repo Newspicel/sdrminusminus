@@ -30,9 +30,11 @@ pub mod morse;
 pub mod navtex;
 pub mod nfm;
 pub mod pocsag;
+pub mod psk;
 pub mod rds;
 pub mod rtty;
 pub mod subghz;
+pub mod weak_signal;
 pub mod wfm;
 
 use std::f64::consts::TAU;

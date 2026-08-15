@@ -119,6 +119,43 @@ const DETAIL: {
 
   morse: (m) => ({ fields: fields([["Speed", `${m.wpm.toFixed(0)} WPM`]]), body: m.text || null }),
 
+  ft8: (m) => ({
+    fields: fields([
+      ["SNR", `${signed(m.snr_db, 0)} dB`],
+      ["Audio", `${m.audio_hz.toFixed(1)} Hz`],
+      ["Time offset", `${signed(m.time_offset_s, 2)} s`],
+      ["Hard errors", String(m.hard_errors)],
+    ]),
+    body: m.text || null,
+  }),
+
+  ft4: (m) => ({
+    fields: fields([
+      ["SNR", `${signed(m.snr_db, 0)} dB`],
+      ["Audio", `${m.audio_hz.toFixed(1)} Hz`],
+      ["Time offset", `${signed(m.time_offset_s, 2)} s`],
+      ["Hard errors", String(m.hard_errors)],
+    ]),
+    body: m.text || null,
+  }),
+
+  psk31: (t) => ({ fields: [], body: t.text || null }),
+
+  psk63: (t) => ({ fields: [], body: t.text || null }),
+
+  wspr: (s) => ({
+    fields: fields([
+      ["Callsign", s.callsign],
+      ["Grid", s.grid],
+      ["Power", `${s.power_dbm} dBm`],
+      ["SNR", `${signed(s.snr_db, 0)} dB`],
+      ["Audio", `${s.audio_hz.toFixed(1)} Hz`],
+      ["Time offset", `${signed(s.time_offset_s, 2)} s`],
+      ["Drift", `${signed(s.drift_hz, 1)} Hz`],
+    ]),
+    body: s.text || null,
+  }),
+
   navtex: (n) => ({
     fields: fields([
       ["Header", header(n.station, n.subject, n.serial)],
@@ -293,6 +330,10 @@ function fields(rows: readonly (readonly [string, string | null | undefined])[])
   return rows.flatMap(([label, value]) =>
     value == null || value === "" ? [] : [[label, value] as DetailField],
   );
+}
+
+function signed(value: number, digits: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
 function flag(value: boolean | null | undefined): string | undefined {

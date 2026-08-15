@@ -25,14 +25,15 @@ pub use channel::{
     DmrParams, DmrSlots, DpmrParams, DstarParams, IdentParams, M17Params, MAX_IDENT_BANDWIDTH_HZ,
     MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
     MIN_IDENT_THRESHOLD_DB, MorseParams, NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth,
-    NxdnParams, P25Params, PocsagBaud, PocsagParams, RttyParams, RttyStopBits, Sideband, SsbParams,
-    SubghzModulation, SubghzParams, WfmParams, YsfParams,
+    NxdnParams, P25Params, PocsagBaud, PocsagParams, PskParams, RttyParams, RttyStopBits, Sideband,
+    SsbParams, SubghzModulation, SubghzParams, WfmParams, WsjtParams, WsprParams, YsfParams,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent,
     DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol,
     IdentFeatures, IdentReport, Modulation, MorseText, NavtexMessage, PocsagMessage, PocsagPayload,
-    ProtocolMatch, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor,
+    ProtocolMatch, PskText, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus,
+    Vendor, WsjtMessage, WsprSpot,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
@@ -267,7 +268,7 @@ mod contract_tests {
     fn decoder_params_default_from_empty_settings() {
         use channel::{
             AcarsParams, AdsbParams, AisParams, AprsParams, MorseParams, NavtexParams,
-            PocsagParams, RttyParams, SubghzParams,
+            PocsagParams, PskParams, RttyParams, SubghzParams, WsjtParams, WsprParams,
         };
         for (json, expected) in [
             (
@@ -305,6 +306,26 @@ mod contract_tests {
             (
                 r#"{"type":"subghz","settings":{}}"#,
                 ChannelParams::Subghz(SubghzParams::default()),
+            ),
+            (
+                r#"{"type":"ft8","settings":{}}"#,
+                ChannelParams::Ft8(WsjtParams::default()),
+            ),
+            (
+                r#"{"type":"ft4","settings":{}}"#,
+                ChannelParams::Ft4(WsjtParams::default()),
+            ),
+            (
+                r#"{"type":"psk31","settings":{}}"#,
+                ChannelParams::Psk31(PskParams::default()),
+            ),
+            (
+                r#"{"type":"psk63","settings":{}}"#,
+                ChannelParams::Psk63(PskParams::default()),
+            ),
+            (
+                r#"{"type":"wspr","settings":{}}"#,
+                ChannelParams::Wspr(WsprParams::default()),
             ),
         ] {
             let parsed: ChannelParams = serde_json::from_str(json).unwrap();

@@ -11,8 +11,8 @@ use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, ChannelParams,
     ChannelSettings, DecodedRecord, DecoderEvent, IdentParams, Modulation, MorseParams,
-    NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams, RdsUpdate, RttyParams,
-    SubghzEncoding, SubghzParams, WfmParams,
+    NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams, PskParams, RdsUpdate,
+    RttyParams, SubghzEncoding, SubghzParams, WfmParams, WsjtParams, WsprParams,
 };
 use tempfile::TempDir;
 
@@ -57,6 +57,18 @@ fn engine_for(dir: &Path) -> Arc<Engine> {
     registry.register(
         10,
         Box::new(VirtualDriver::with_recordings(dir.to_path_buf())),
+    );
+    Engine::with_registry(registry, Some(dir.to_path_buf()))
+}
+
+fn accelerated_engine_for(dir: &Path) -> Arc<Engine> {
+    let mut registry = DeviceRegistry::new();
+    registry.register(
+        10,
+        Box::new(VirtualDriver::with_accelerated_recordings(
+            dir.to_path_buf(),
+            20.0,
+        )),
     );
     Engine::with_registry(registry, Some(dir.to_path_buf()))
 }
@@ -474,6 +486,130 @@ async fn rtty_text_survives_the_ddc_and_reaches_the_decoded_stream() {
         unreachable!("filtered above")
     };
     assert!(text.text.contains("CQ"), "decoded {:?}", text.text);
+}
+
+#[tokio::test]
+async fn psk31_and_psk63_text_survive_the_ddc_and_reach_the_decoded_stream() {
+    for (stem, params, baud, want) in [
+        (
+            "psk31",
+            ChannelParams::Psk31(PskParams::default()),
+            31.25,
+            "PSK31 ENGINE",
+        ),
+        (
+            "psk63",
+            ChannelParams::Psk63(PskParams::default()),
+            62.5,
+            "PSK63 ENGINE",
+        ),
+    ] {
+        let dir = TempDir::new().unwrap();
+        let engine = accelerated_engine_for(dir.path());
+        let offset_hz = 5_000.0;
+        let iq = testgen::psk::transmission(&format!("{want}\n"), baud);
+        let mut iq = testgen::resample(&iq, 8_000.0, AUDIO_DEVICE_RATE);
+        testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+        let device = plant(dir.path(), stem, iq, AUDIO_DEVICE_RATE);
+        let record = decode_first(
+            &engine,
+            &device,
+            ChannelSettings {
+                offset_hz,
+                squelch_db: None,
+                params,
+            },
+            |event| match event {
+                DecoderEvent::Psk31(text) | DecoderEvent::Psk63(text) => text.text.contains(want),
+                _ => false,
+            },
+        )
+        .await;
+        let text = match record.event {
+            DecoderEvent::Psk31(text) | DecoderEvent::Psk63(text) => text.text,
+            _ => unreachable!("filtered above"),
+        };
+        assert!(text.contains(want), "decoded {text:?}");
+    }
+}
+
+#[tokio::test]
+async fn ft8_message_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = accelerated_engine_for(dir.path());
+    let offset_hz = -8_000.0;
+    let iq = testgen::weak_signal::ft8_slot("W1AW", "FN42", 1_500.0);
+    let mut iq = testgen::resample(&iq, 12_000.0, AUDIO_DEVICE_RATE);
+    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    let device = plant(dir.path(), "ft8", iq, AUDIO_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Ft8(WsjtParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Ft8(message) if message.text.contains("W1AW")),
+    )
+    .await;
+    let DecoderEvent::Ft8(message) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert!(message.text.contains("CQ W1AW FN42"), "{}", message.text);
+    assert!((message.audio_hz - 1_500.0).abs() < 10.0);
+}
+
+#[tokio::test]
+async fn ft4_message_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = accelerated_engine_for(dir.path());
+    let offset_hz = 8_000.0;
+    let iq = testgen::weak_signal::ft4_slot("JA1ABC", "PM95", 1_000.0);
+    let mut iq = testgen::resample(&iq, 12_000.0, AUDIO_DEVICE_RATE);
+    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    let device = plant(dir.path(), "ft4", iq, AUDIO_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Ft4(WsjtParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Ft4(message) if message.text.contains("JA1ABC")),
+    )
+    .await;
+    let DecoderEvent::Ft4(message) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert!(message.text.contains("CQ JA1ABC PM95"), "{}", message.text);
+    assert!((message.audio_hz - 1_000.0).abs() < 20.0);
+}
+
+#[tokio::test]
+async fn wspr_spot_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = accelerated_engine_for(dir.path());
+    let iq = testgen::weak_signal::wspr_slot("K1ABC", "FN42", 37, 1_500.0);
+    let iq = testgen::resample(&iq, 12_000.0, AUDIO_DEVICE_RATE);
+    let device = plant(dir.path(), "wspr", iq, AUDIO_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Wspr(WsprParams::default()),
+        },
+        |event| matches!(event, DecoderEvent::Wspr(spot) if spot.callsign == "K1ABC"),
+    )
+    .await;
+    let DecoderEvent::Wspr(spot) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(spot.grid.as_deref(), Some("FN42"));
+    assert_eq!(spot.power_dbm, 37);
 }
 
 #[tokio::test]

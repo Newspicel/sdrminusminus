@@ -3823,6 +3823,96 @@
             ],
             "properties": {
               "settings": {
+                "$ref": "#/components/schemas/WsjtParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ft8"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/WsjtParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ft4"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/PskParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "psk31"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/PskParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "psk63"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/WsprParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "wspr"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
                 "$ref": "#/components/schemas/IdentParams"
               },
               "type": {
@@ -4626,6 +4716,96 @@
                 "type": "string",
                 "enum": [
                   "dv"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/WsjtMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ft8"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/WsjtMessage"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ft4"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/PskText"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "psk31"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/PskText"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "psk63"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/WsprSpot"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "wspr"
                 ]
               }
             }
@@ -7221,6 +7401,28 @@
           }
         }
       },
+      "PskParams": {
+        "type": "object",
+        "description": "Receive options shared by the BPSK31 and BPSK63 Varicode channels.",
+        "properties": {
+          "invert": {
+            "type": "boolean",
+            "description": "Reverse differential bit polarity for an inverted receive chain."
+          }
+        }
+      },
+      "PskText": {
+        "type": "object",
+        "description": "A run of Varicode text decoded from a BPSK31 or BPSK63 carrier.",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
       "RackCell": {
         "type": "object",
         "description": "One pinned face on the rack grid.",
@@ -9261,6 +9463,125 @@
             "items": {
               "$ref": "#/components/schemas/WorkspaceInfo"
             }
+          }
+        }
+      },
+      "WsjtMessage": {
+        "type": "object",
+        "description": "One CRC-verified FT8 or FT4 message from a synchronized receive slot.",
+        "required": [
+          "text",
+          "snr_db",
+          "audio_hz",
+          "time_offset_s",
+          "hard_errors"
+        ],
+        "properties": {
+          "audio_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "hard_errors": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "text": {
+            "type": "string"
+          },
+          "time_offset_s": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      },
+      "WsjtParams": {
+        "type": "object",
+        "description": "Audio passband searched by an FT8 or FT4 decoder after a USB receiver is placed on the\nmode's dial frequency.",
+        "properties": {
+          "audio_high_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "audio_low_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "max_candidates": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "WsprParams": {
+        "type": "object",
+        "description": "Audio passband searched by WSPR after a USB receiver is placed on the WSPR dial frequency.",
+        "properties": {
+          "audio_high_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "audio_low_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "max_candidates": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "WsprSpot": {
+        "type": "object",
+        "description": "One WSPR beacon spot recovered from a two-minute receive slot.",
+        "required": [
+          "text",
+          "callsign",
+          "power_dbm",
+          "snr_db",
+          "audio_hz",
+          "time_offset_s",
+          "drift_hz"
+        ],
+        "properties": {
+          "audio_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "callsign": {
+            "type": "string"
+          },
+          "drift_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "grid": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "power_dbm": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "text": {
+            "type": "string",
+            "description": "Familiar WSPRnet tuple, including a hash marker for an unresolved type-3 callsign."
+          },
+          "time_offset_s": {
+            "type": "number",
+            "format": "float"
           }
         }
       },

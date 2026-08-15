@@ -260,7 +260,13 @@ function SortButton({ label, onClick }: { label: string; onClick: () => void }) 
   );
 }
 
-function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?: DecoderScope }) {
+function TextView({
+  kind,
+  scope = {},
+}: {
+  kind: "rtty" | "morse" | "psk31" | "psk63";
+  scope?: DecoderScope;
+}) {
   const records = recordsInScope(useDecodedKind(kind), scope);
   const text = buildTranscript(records);
   const wpm = kind === "morse" ? latestWpm(records as readonly DecodedRecordOf<"morse">[]) : null;
@@ -291,7 +297,7 @@ function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?: Decode
   return (
     <div className={PANE}>
       <div className="flex items-center gap-3">
-        <span className="legend">{kind === "morse" ? "Morse" : "RTTY"}</span>
+        <span className="legend">{kindLabel(kind)}</span>
         {wpm !== null && (
           <span className="font-mono text-xs tabular-nums text-ink">
             {wpm.toFixed(0)} <span className="text-ink-dim">WPM</span>
@@ -326,6 +332,10 @@ function TextView({ kind, scope = {} }: { kind: "rtty" | "morse"; scope?: Decode
       </pre>
     </div>
   );
+}
+
+function kindLabel(kind: "rtty" | "morse" | "psk31" | "psk63"): string {
+  return { rtty: "RTTY", morse: "Morse", psk31: "PSK31", psk63: "PSK63" }[kind];
 }
 
 /** Stable `ageOut` binding: the targets view drives the store's horizon so a target that stopped
@@ -450,6 +460,8 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   ais: (scope) => <TargetsView kind="ais" scope={scope} />,
   rtty: (scope) => <TextView kind="rtty" scope={scope} />,
   morse: (scope) => <TextView kind="morse" scope={scope} />,
+  psk31: (scope) => <TextView kind="psk31" scope={scope} />,
+  psk63: (scope) => <TextView kind="psk63" scope={scope} />,
   tone: (scope) => <ToneView scope={scope} />,
   ident: (scope) => <IdentView scope={scope} />,
   aprs: null,
@@ -458,6 +470,9 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   acars: null,
   subghz: null,
   dv: null,
+  ft8: null,
+  ft4: null,
+  wspr: null,
 };
 
 // `ChannelDescriptor.decoder_kind` is a bare string on the wire, so a server newer than this

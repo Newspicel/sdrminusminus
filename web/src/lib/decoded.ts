@@ -317,6 +317,11 @@ function stationId(event: DecoderEvent): string | null {
     case "subghz":
     case "rtty":
     case "morse":
+    case "psk31":
+    case "psk63":
+    case "ft8":
+    case "ft4":
+    case "wspr":
     // Subaudible signalling describes the channel, not a station on it — the transmitter it
     // belongs to is whoever is keying up right now, and nothing in the event names them.
     case "tone":

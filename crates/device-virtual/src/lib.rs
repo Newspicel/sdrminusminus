@@ -69,6 +69,7 @@ const NOISE_SEED: u64 = 0x5DEE_CE66_D00D_1234;
 pub struct VirtualDriver {
     recordings_dir: Option<PathBuf>,
     synthetic_devices: bool,
+    playback_speed: f64,
 }
 
 impl Default for VirtualDriver {
@@ -81,26 +82,42 @@ impl VirtualDriver {
     /// A synthetic-only driver for hermetic tests and developer tooling.
     #[must_use]
     pub fn new() -> Self {
-        Self::configured(None, true)
+        Self::configured(None, true, 1.0)
     }
 
     /// Synthetic devices plus playback for hermetic tests and developer tooling.
     #[must_use]
     pub fn with_recordings(dir: PathBuf) -> Self {
-        Self::configured(Some(dir), true)
+        Self::configured(Some(dir), true, 1.0)
+    }
+
+    /// File playback accelerated for long-protocol integration tests. The sample stream is
+    /// unchanged; only its wall-clock pacing differs.
+    #[must_use]
+    pub fn with_accelerated_recordings(dir: PathBuf, playback_speed: f64) -> Self {
+        assert!(
+            playback_speed.is_finite() && playback_speed >= 1.0,
+            "playback speed must be finite and at least real time"
+        );
+        Self::configured(Some(dir), true, playback_speed)
     }
 
     /// The driver policy used by application builds: debug builds expose the synthetic radios,
     /// while production builds retain only recording playback.
     #[must_use]
     pub fn for_build(recordings_dir: Option<PathBuf>) -> Self {
-        Self::configured(recordings_dir, cfg!(debug_assertions))
+        Self::configured(recordings_dir, cfg!(debug_assertions), 1.0)
     }
 
-    fn configured(recordings_dir: Option<PathBuf>, synthetic_devices: bool) -> Self {
+    fn configured(
+        recordings_dir: Option<PathBuf>,
+        synthetic_devices: bool,
+        playback_speed: f64,
+    ) -> Self {
         Self {
             recordings_dir,
             synthetic_devices,
+            playback_speed,
         }
     }
 
@@ -159,7 +176,10 @@ impl DeviceDriver for VirtualDriver {
 
     fn open(&self, info: &DeviceInfo) -> Result<Box<dyn SdrDevice>, DeviceError> {
         if let Some(stem) = info.key.strip_prefix(FILE_KEY_PREFIX) {
-            return Ok(Box::new(FilePlayback::open(Path::new(stem))?));
+            return Ok(Box::new(FilePlayback::open_at_speed(
+                Path::new(stem),
+                self.playback_speed,
+            )?));
         }
         if !self.synthetic_devices {
             return Err(DeviceError::NotFound(format!("{DRIVER_ID}:{}", info.key)));
@@ -947,8 +967,8 @@ mod tests {
     fn application_build_policy_matches_the_profile() {
         assert_synthetic_policy(&VirtualDriver::for_build(None), cfg!(debug_assertions));
         assert_synthetic_policy(&VirtualDriver::default(), cfg!(debug_assertions));
-        assert_synthetic_policy(&VirtualDriver::configured(None, true), true);
-        assert_synthetic_policy(&VirtualDriver::configured(None, false), false);
+        assert_synthetic_policy(&VirtualDriver::configured(None, true, 1.0), true);
+        assert_synthetic_policy(&VirtualDriver::configured(None, false, 1.0), false);
     }
 
     #[test]
@@ -982,7 +1002,7 @@ mod tests {
         d.open(recording).unwrap();
 
         // Production keeps the recording path but neither advertises nor opens a synthetic id.
-        let production = VirtualDriver::configured(Some(dir.path().to_path_buf()), false);
+        let production = VirtualDriver::configured(Some(dir.path().to_path_buf()), false, 1.0);
         let production_infos = production.probe();
         assert_eq!(production_infos.len(), 1);
         assert_eq!(production_infos[0].id(), recording.id());

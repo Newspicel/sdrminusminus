@@ -1371,6 +1371,26 @@ export interface components {
             /** @enum {string} */
             type: "m17";
         } | {
+            settings: components["schemas"]["WsjtParams"];
+            /** @enum {string} */
+            type: "ft8";
+        } | {
+            settings: components["schemas"]["WsjtParams"];
+            /** @enum {string} */
+            type: "ft4";
+        } | {
+            settings: components["schemas"]["PskParams"];
+            /** @enum {string} */
+            type: "psk31";
+        } | {
+            settings: components["schemas"]["PskParams"];
+            /** @enum {string} */
+            type: "psk63";
+        } | {
+            settings: components["schemas"]["WsprParams"];
+            /** @enum {string} */
+            type: "wspr";
+        } | {
             settings: components["schemas"]["IdentParams"];
             /** @enum {string} */
             type: "ident";
@@ -1646,6 +1666,26 @@ export interface components {
             data: components["schemas"]["DvFrame"];
             /** @enum {string} */
             kind: "dv";
+        } | {
+            data: components["schemas"]["WsjtMessage"];
+            /** @enum {string} */
+            kind: "ft8";
+        } | {
+            data: components["schemas"]["WsjtMessage"];
+            /** @enum {string} */
+            kind: "ft4";
+        } | {
+            data: components["schemas"]["PskText"];
+            /** @enum {string} */
+            kind: "psk31";
+        } | {
+            data: components["schemas"]["PskText"];
+            /** @enum {string} */
+            kind: "psk63";
+        } | {
+            data: components["schemas"]["WsprSpot"];
+            /** @enum {string} */
+            kind: "wspr";
         } | {
             data: components["schemas"]["IdentReport"];
             /** @enum {string} */
@@ -2735,6 +2775,15 @@ export interface components {
             /** @description The evidence, in a phrase: what matched, or what was recognised. */
             why: string;
         };
+        /** @description Receive options shared by the BPSK31 and BPSK63 Varicode channels. */
+        PskParams: {
+            /** @description Reverse differential bit polarity for an inverted receive chain. */
+            invert?: boolean;
+        };
+        /** @description A run of Varicode text decoded from a BPSK31 or BPSK63 carrier. */
+        PskText: {
+            text: string;
+        };
         /** @description One pinned face on the rack grid. */
         RackCell: {
             /** Format: int32 */
@@ -3614,6 +3663,56 @@ export interface components {
              */
             active?: number | null;
             workspaces: components["schemas"]["WorkspaceInfo"][];
+        };
+        /** @description One CRC-verified FT8 or FT4 message from a synchronized receive slot. */
+        WsjtMessage: {
+            /** Format: float */
+            audio_hz: number;
+            /** Format: int32 */
+            hard_errors: number;
+            /** Format: float */
+            snr_db: number;
+            text: string;
+            /** Format: float */
+            time_offset_s: number;
+        };
+        /**
+         * @description Audio passband searched by an FT8 or FT4 decoder after a USB receiver is placed on the
+         *     mode's dial frequency.
+         */
+        WsjtParams: {
+            /** Format: float */
+            audio_high_hz?: number;
+            /** Format: float */
+            audio_low_hz?: number;
+            /** Format: int32 */
+            max_candidates?: number;
+        };
+        /** @description Audio passband searched by WSPR after a USB receiver is placed on the WSPR dial frequency. */
+        WsprParams: {
+            /** Format: float */
+            audio_high_hz?: number;
+            /** Format: float */
+            audio_low_hz?: number;
+            /** Format: int32 */
+            max_candidates?: number;
+        };
+        /** @description One WSPR beacon spot recovered from a two-minute receive slot. */
+        WsprSpot: {
+            /** Format: float */
+            audio_hz: number;
+            callsign: string;
+            /** Format: float */
+            drift_hz: number;
+            grid?: string | null;
+            /** Format: int32 */
+            power_dbm: number;
+            /** Format: float */
+            snr_db: number;
+            /** @description Familiar WSPRnet tuple, including a hash marker for an unresolved type-3 callsign. */
+            text: string;
+            /** Format: float */
+            time_offset_s: number;
         };
         /** @description System Fusion (C4FM, 4800 symbols/s). */
         YsfParams: Record<string, never>;

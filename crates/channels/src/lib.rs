@@ -10,12 +10,14 @@ mod morse;
 mod navtex;
 mod nfm;
 mod pocsag;
+mod psk;
 mod rds;
 mod rtty;
 mod ssb;
 mod subghz;
 pub mod tone_squelch;
 mod tx;
+mod weak_signal;
 mod wfm;
 
 #[cfg(test)]
@@ -39,6 +41,7 @@ pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};
 use num_complex::Complex;
 pub use pocsag::PocsagChannel;
+pub use psk::{Psk31Channel, Psk63Channel};
 pub use rtty::RttyChannel;
 use sdrmm_dsp::{Agc, Decimator, FirC};
 use sdrmm_wire::{
@@ -46,6 +49,7 @@ use sdrmm_wire::{
 };
 pub use ssb::{SsbChannel, SsbTx};
 pub use subghz::SubghzChannel;
+pub use weak_signal::{Ft4Channel, Ft8Channel, WsprChannel};
 pub use wfm::WfmChannel;
 
 /// Every channel emits PCM at this rate; the engine's audio path is sized against it.
@@ -106,6 +110,10 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::P25(_) => dv::p25::occupied_band(),
         ChannelParams::Dpmr(_) => dv::dpmr::occupied_band(),
         ChannelParams::M17(_) => dv::m17::occupied_band(),
+        ChannelParams::Ft8(_) | ChannelParams::Ft4(_) | ChannelParams::Wspr(_) => {
+            weak_signal::occupied_band(params)
+        }
+        ChannelParams::Psk31(_) | ChannelParams::Psk63(_) => psk::occupied_band(params),
         ChannelParams::Ident(p) => ident::occupied_band(p),
     }
 }
@@ -161,6 +169,10 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::P25(_) => Ok(dv::p25::channel_filter()),
         ChannelParams::Dpmr(_) => Ok(dv::dpmr::channel_filter()),
         ChannelParams::M17(_) => Ok(dv::m17::channel_filter()),
+        ChannelParams::Ft8(_) | ChannelParams::Ft4(_) | ChannelParams::Wspr(_) => {
+            weak_signal::channel_filter(params)
+        }
+        ChannelParams::Psk31(_) | ChannelParams::Psk63(_) => psk::channel_filter(params),
         ChannelParams::Ident(p) => ident::channel_filter(p),
     }
 }
@@ -437,6 +449,31 @@ const REGISTRY: &[Registration] = &[
         create_tx: None,
     },
     Registration {
+        descriptor: Ft8Channel::descriptor,
+        create: boxed::<Ft8Channel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: Ft4Channel::descriptor,
+        create: boxed::<Ft4Channel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: Psk31Channel::descriptor,
+        create: boxed::<Psk31Channel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: Psk63Channel::descriptor,
+        create: boxed::<Psk63Channel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: WsprChannel::descriptor,
+        create: boxed::<WsprChannel>,
+        create_tx: None,
+    },
+    Registration {
         descriptor: IdentChannel::descriptor,
         create: boxed::<IdentChannel>,
         create_tx: None,
@@ -537,8 +574,8 @@ mod tests {
     use sdrmm_wire::{
         AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvParams, ChannelParams,
         DmrParams, DpmrParams, DstarParams, IdentParams, M17Params, MorseParams, NavtexParams,
-        NfmParams, NxdnParams, P25Params, PocsagParams, RttyParams, SsbParams, SubghzParams,
-        WfmParams, YsfParams,
+        NfmParams, NxdnParams, P25Params, PocsagParams, PskParams, RttyParams, SsbParams,
+        SubghzParams, WfmParams, WsjtParams, WsprParams, YsfParams,
     };
 
     use super::*;
@@ -567,6 +604,11 @@ mod tests {
             "p25" => ChannelParams::P25(P25Params::default()),
             "dpmr" => ChannelParams::Dpmr(DpmrParams::default()),
             "m17" => ChannelParams::M17(M17Params::default()),
+            "ft8" => ChannelParams::Ft8(WsjtParams::default()),
+            "ft4" => ChannelParams::Ft4(WsjtParams::default()),
+            "psk31" => ChannelParams::Psk31(PskParams::default()),
+            "psk63" => ChannelParams::Psk63(PskParams::default()),
+            "wspr" => ChannelParams::Wspr(WsprParams::default()),
             "ident" => ChannelParams::Ident(IdentParams::default()),
             other => panic!("unexpected type id {other}"),
         }
@@ -575,14 +617,14 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 22);
+        assert_eq!(all.len(), 27);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
             HashSet::from([
                 "nfm", "am", "ssb", "wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse",
                 "navtex", "acars", "subghz", "atv", "dmr", "dstar", "ysf", "nxdn", "p25", "dpmr",
-                "m17", "ident",
+                "m17", "ft8", "ft4", "psk31", "psk63", "wspr", "ident",
             ])
         );
         for d in &all {
@@ -604,6 +646,9 @@ mod tests {
                 "dmr" | "ysf" | "p25" => (12_500.0, 48_000.0),
                 "dstar" | "nxdn" | "dpmr" => (6_250.0, 48_000.0),
                 "m17" => (9_000.0, 48_000.0),
+                "ft8" | "ft4" | "wspr" => (3_200.0, 12_000.0),
+                "psk31" => (80.0, 8_000.0),
+                "psk63" => (160.0, 8_000.0),
                 "ident" => (192_000.0, 240_000.0),
                 other => panic!("unexpected type id {other}"),
             };
