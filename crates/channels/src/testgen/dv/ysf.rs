@@ -8,6 +8,10 @@ const BAUD: f64 = 4_800.0;
 const DEVIATION_HZ: f64 = 1_944.0;
 const RRC_ALPHA: f64 = 0.2;
 const SYNC: u64 = 0x00D4_71C9_634D;
+const WHITENING: [u8; 20] = [
+    0x93, 0xD7, 0x51, 0x21, 0x9C, 0x2F, 0x6C, 0xD0, 0xEF, 0x0F, 0xF8, 0x3D, 0xF1, 0x73, 0x20, 0x94,
+    0xED, 0x1E, 0x7C, 0xD8,
+];
 
 const VFR_INTERLEAVE: [usize; 144] = [
     0, 24, 48, 72, 96, 120, 25, 1, 73, 49, 121, 97, 2, 26, 50, 74, 98, 122, 27, 3, 75, 51, 123, 99,
@@ -21,6 +25,8 @@ const VFR_INTERLEAVE: [usize; 144] = [
 
 pub struct Fich {
     pub frame_type: u8,
+    pub frame_number: u8,
+    pub frame_total: u8,
     pub data_mode: u8,
     pub dg_id: u8,
 }
@@ -29,15 +35,45 @@ impl Default for Fich {
     fn default() -> Self {
         Self {
             frame_type: 0,
+            frame_number: 0,
+            frame_total: 5,
             data_mode: 2,
             dg_id: 7,
         }
     }
 }
 
+pub struct Call {
+    pub destination: String,
+    pub source: String,
+    pub downlink: String,
+    pub uplink: String,
+}
+
+impl Default for Call {
+    fn default() -> Self {
+        Self {
+            destination: "ALL".to_owned(),
+            source: "DL1ABC".to_owned(),
+            downlink: "DB0ABC".to_owned(),
+            uplink: "DB0XYZ".to_owned(),
+        }
+    }
+}
+
 #[must_use]
 pub fn transmission(fich: &Fich, rate: f64) -> Vec<Complex<f32>> {
-    transmission_inner(fich, None, rate)
+    transmission_inner(fich, None, None, false, rate)
+}
+
+#[must_use]
+pub fn transmission_with_callsigns(fich: &Fich, call: &Call, rate: f64) -> Vec<Complex<f32>> {
+    transmission_inner(fich, None, Some(call), true, rate)
+}
+
+#[must_use]
+pub fn late_entry_transmission(fich: &Fich, call: &Call, rate: f64) -> Vec<Complex<f32>> {
+    transmission_inner(fich, None, Some(call), false, rate)
 }
 
 #[derive(Clone, Copy)]
@@ -55,18 +91,25 @@ pub(crate) fn transmission_with_voice(
     voice: Voice<'_>,
     rate: f64,
 ) -> Vec<Complex<f32>> {
-    transmission_inner(fich, Some(voice), rate)
+    transmission_inner(fich, Some(voice), None, false, rate)
 }
 
-fn transmission_inner(fich: &Fich, voice: Option<Voice<'_>>, rate: f64) -> Vec<Complex<f32>> {
+fn transmission_inner(
+    fich: &Fich,
+    voice: Option<Voice<'_>>,
+    call: Option<&Call>,
+    calls_in_header: bool,
+    rate: f64,
+) -> Vec<Complex<f32>> {
     let mut symbols = dibits(&filler(400, 13));
     let mut voice_at = 0;
-    for frame_type in [fich.frame_type, 1, 1, 1, 2] {
+    for (index, frame_type) in [fich.frame_type, 1, 1, 1, 2].into_iter().enumerate() {
         let frame_fich = Fich {
             frame_type,
+            frame_number: if frame_type == 1 { index as u8 - 1 } else { 0 },
             ..*fich
         };
-        let (payload, consumed) = payload(&frame_fich, voice, voice_at);
+        let (payload, consumed) = payload(&frame_fich, voice, call, calls_in_header, voice_at);
         voice_at += consumed;
         symbols.extend(frame(&frame_fich, &payload));
     }
@@ -82,7 +125,25 @@ fn frame(fich: &Fich, payload: &[u8]) -> Vec<u8> {
     out
 }
 
-fn payload(fich: &Fich, voice: Option<Voice<'_>>, at: usize) -> (Vec<u8>, usize) {
+fn payload(
+    fich: &Fich,
+    voice: Option<Voice<'_>>,
+    call: Option<&Call>,
+    calls_in_header: bool,
+    at: usize,
+) -> (Vec<u8>, usize) {
+    if calls_in_header
+        && matches!(fich.frame_type, 0 | 2)
+        && let Some(call) = call
+    {
+        return (callsign_payload(call), 0);
+    }
+    if fich.frame_type == 1
+        && let Some(call) = call
+        && let Some(payload) = communication_callsign_payload(fich, call)
+    {
+        return (payload, 0);
+    }
     let needed = match (fich.data_mode, fich.frame_type) {
         (0 | 2, 1) => 5,
         (3, 0) => 2,
@@ -170,7 +231,8 @@ fn vfr_voice(annex_h: &[bool; 144]) -> [bool; 144] {
 
 fn fich_bits(fich: &Fich) -> Vec<bool> {
     let mut info = [0u8; 6];
-    info[0] = fich.frame_type << 6;
+    info[0] = fich.frame_type << 6 | 2 << 4;
+    info[1] = (fich.frame_number & 0x07) << 3 | fich.frame_total & 0x07;
     info[2] = fich.data_mode & 0x03;
     info[3] = fich.dg_id & 0x7F;
     let crc = !crc16_msb(0x1021, 0, &info[..4]);
@@ -189,6 +251,123 @@ fn fich_bits(fich: &Fich) -> Vec<bool> {
     let mut convolved = Vec::with_capacity(200);
     conv::encode(&coded, &mut convolved);
 
+    let mut interleaved = vec![false; 200];
+    for i in 0..100 {
+        let n = 2 * (i / 5) + 40 * (i % 5);
+        interleaved[n] = convolved[i * 2];
+        interleaved[n + 1] = convolved[i * 2 + 1];
+    }
+    interleaved
+}
+
+fn callsign_payload(call: &Call) -> Vec<u8> {
+    let (first, second) = call_data(call);
+    let first = dch_large(&first);
+    let second = dch_large(&second);
+    let mut payload = Vec::with_capacity(360);
+    for block in 0..5 {
+        payload.extend(dibits(&first[block * 72..block * 72 + 72]));
+        payload.extend(dibits(&second[block * 72..block * 72 + 72]));
+    }
+    payload
+}
+
+fn communication_callsign_payload(fich: &Fich, call: &Call) -> Option<Vec<u8>> {
+    let (first, second) = call_data(call);
+    match fich.data_mode {
+        0 if fich.frame_number == 0 => Some(vd1_payload(&dch_large(&first))),
+        1 if fich.frame_number == 0 => Some(callsign_payload(call)),
+        2 => {
+            let data = match fich.frame_number {
+                0 => &first[..10],
+                1 => &first[10..],
+                2 => &second[..10],
+                3 => &second[10..],
+                _ => return None,
+            };
+            Some(vd2_payload(&dch_small(data)))
+        }
+        _ => None,
+    }
+}
+
+fn call_data(call: &Call) -> ([u8; 20], [u8; 20]) {
+    let destination = call_field(&call.destination);
+    let source = call_field(&call.source);
+    let downlink = call_field(&call.downlink);
+    let uplink = call_field(&call.uplink);
+    (
+        std::array::from_fn(|i| {
+            if i < 10 {
+                destination[i]
+            } else {
+                source[i - 10]
+            }
+        }),
+        std::array::from_fn(|i| if i < 10 { downlink[i] } else { uplink[i - 10] }),
+    )
+}
+
+fn vd1_payload(dch: &[bool]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(360);
+    for block in 0..5 {
+        payload.extend(dibits(&dch[block * 72..block * 72 + 72]));
+        payload.extend(dibits(&filler(72, 61 + block as u32)));
+    }
+    payload
+}
+
+fn vd2_payload(dch: &[bool]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(360);
+    for block in 0..5 {
+        payload.extend(dibits(&dch[block * 40..block * 40 + 40]));
+        payload.extend(dibits(&filler(104, 71 + block as u32)));
+    }
+    payload
+}
+
+fn call_field(value: &str) -> [u8; 10] {
+    assert!(value.is_ascii() && value.len() <= 10);
+    std::array::from_fn(|i| value.as_bytes().get(i).copied().unwrap_or(b' '))
+}
+
+fn dch_large(data: &[u8; 20]) -> Vec<bool> {
+    let mut encoded = [0u8; 22];
+    for i in 0..20 {
+        encoded[i] = data[i] ^ WHITENING[i];
+    }
+    let crc = !crc16_msb(0x1021, 0, &encoded[..20]);
+    encoded[20..].copy_from_slice(&crc.to_be_bytes());
+    let mut input = encoded
+        .iter()
+        .flat_map(|&byte| bits(u64::from(byte), 8))
+        .collect::<Vec<_>>();
+    input.extend([false; 4]);
+    let mut convolved = Vec::with_capacity(360);
+    conv::encode(&input, &mut convolved);
+    let mut interleaved = vec![false; 360];
+    for i in 0..180 {
+        let n = 2 * (i / 9) + 40 * (i % 9);
+        interleaved[n] = convolved[i * 2];
+        interleaved[n + 1] = convolved[i * 2 + 1];
+    }
+    interleaved
+}
+
+fn dch_small(data: &[u8]) -> Vec<bool> {
+    let mut encoded = [0u8; 12];
+    for i in 0..10 {
+        encoded[i] = data[i] ^ WHITENING[i];
+    }
+    let crc = !crc16_msb(0x1021, 0, &encoded[..10]);
+    encoded[10..].copy_from_slice(&crc.to_be_bytes());
+    let mut input = encoded
+        .iter()
+        .flat_map(|&byte| bits(u64::from(byte), 8))
+        .collect::<Vec<_>>();
+    input.extend([false; 4]);
+    let mut convolved = Vec::with_capacity(200);
+    conv::encode(&input, &mut convolved);
     let mut interleaved = vec![false; 200];
     for i in 0..100 {
         let n = 2 * (i / 5) + 40 * (i % 5);

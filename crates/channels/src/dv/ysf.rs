@@ -24,11 +24,16 @@ pub(crate) const SYNC_BITS: u32 = 40;
 pub(crate) const SYNC_TOLERANCE: u32 = 6;
 
 const FICH_SYMBOLS: usize = 100;
-const FICH_CODED_BITS: usize = 200;
-const FICH_INFO_BITS: usize = 96;
 const FICH_BYTES: usize = 6;
 const PAYLOAD_SYMBOLS: usize = 360;
 const FRAME_AFTER_SYNC_SYMBOLS: usize = FICH_SYMBOLS + PAYLOAD_SYMBOLS;
+const CALLSIGN_LEN: usize = 10;
+const DCH_LARGE_DATA_BYTES: usize = 20;
+const DCH_SMALL_DATA_BYTES: usize = 10;
+const WHITENING: [u8; DCH_LARGE_DATA_BYTES] = [
+    0x93, 0xD7, 0x51, 0x21, 0x9C, 0x2F, 0x6C, 0xD0, 0xEF, 0x0F, 0xF8, 0x3D, 0xF1, 0x73, 0x20, 0x94,
+    0xED, 0x1E, 0x7C, 0xD8,
+];
 
 const VFR_INTERLEAVE: [usize; 144] = [
     0, 24, 48, 72, 96, 120, 25, 1, 73, 49, 121, 97, 2, 26, 50, 74, 98, 122, 27, 3, 75, 51, 123, 99,
@@ -117,6 +122,8 @@ struct Decoder {
     coded: Vec<i16>,
     info: Vec<bool>,
     last_kind: Option<DvFrameKind>,
+    callsigns: Callsigns,
+    reported_callsigns: Callsigns,
     bits: Vec<bool>,
     half_vocoder: MbeDecoder,
     full_vocoder: MbeDecoder,
@@ -129,10 +136,12 @@ impl Decoder {
             viterbi: Viterbi5::new(),
             countdown: 0,
             hunting: true,
-            soft: Vec::with_capacity(FICH_CODED_BITS),
-            coded: Vec::with_capacity(FICH_CODED_BITS),
-            info: Vec::with_capacity(FICH_INFO_BITS),
+            soft: Vec::with_capacity(PAYLOAD_SYMBOLS * 2),
+            coded: Vec::with_capacity(PAYLOAD_SYMBOLS),
+            info: Vec::with_capacity(PAYLOAD_SYMBOLS / 2),
             last_kind: None,
+            callsigns: Callsigns::default(),
+            reported_callsigns: Callsigns::default(),
             bits: Vec::with_capacity(PAYLOAD_SYMBOLS * 2),
             half_vocoder: MbeDecoder::half_rate(),
             full_vocoder: MbeDecoder::full_rate(),
@@ -144,6 +153,8 @@ impl Decoder {
         self.countdown = 0;
         self.hunting = true;
         self.last_kind = None;
+        self.callsigns = Callsigns::default();
+        self.reported_callsigns = Callsigns::default();
         self.half_vocoder.reset();
         self.full_vocoder.reset();
     }
@@ -154,14 +165,21 @@ impl Decoder {
             self.countdown -= 1;
             if self.countdown == 0 {
                 self.hunting = true;
-                if let Some((frame, data_mode)) = self.fich() {
-                    self.voice(data_mode, frame.kind, out);
-                    if frame.kind != DvFrameKind::Voice
-                        || self.last_kind != Some(DvFrameKind::Voice)
-                    {
-                        out.events.push(DecoderEvent::Dv(frame.clone()));
+                if let Some(mut info) = self.fich() {
+                    if info.frame.kind == DvFrameKind::Header {
+                        self.callsigns = Callsigns::default();
                     }
-                    self.last_kind = Some(frame.kind);
+                    self.signalling(&info);
+                    self.voice(info.data_mode, info.frame.kind, out);
+                    if info.frame.kind != DvFrameKind::Voice
+                        || self.last_kind != Some(DvFrameKind::Voice)
+                        || self.callsigns != self.reported_callsigns
+                    {
+                        self.callsigns.apply(&mut info.frame);
+                        out.events.push(DecoderEvent::Dv(info.frame.clone()));
+                        self.reported_callsigns = self.callsigns.clone();
+                    }
+                    self.last_kind = Some(info.frame.kind);
                 }
             }
             return;
@@ -173,7 +191,7 @@ impl Decoder {
         }
     }
 
-    fn fich(&mut self) -> Option<(DvFrame, u8)> {
+    fn fich(&mut self) -> Option<FrameInfo> {
         self.window
             .soft_bits(PAYLOAD_SYMBOLS, FICH_SYMBOLS, &mut self.soft);
         self.coded.clear();
@@ -219,7 +237,102 @@ impl Decoder {
         if dg_id != 0 {
             frame.destination = Some(u32::from(dg_id));
         }
-        Some((frame, data_mode))
+        Some(FrameInfo {
+            frame,
+            callsign_type: fich[0] >> 4 & 0x03,
+            frame_number: fich[1] >> 3 & 0x07,
+            data_mode,
+        })
+    }
+
+    fn signalling(&mut self, info: &FrameInfo) {
+        if info.callsign_type != 2 {
+            return;
+        }
+        match info.frame.kind {
+            DvFrameKind::Header | DvFrameKind::Terminator => {
+                if let Some(data) = self.large_data_unit(0) {
+                    self.callsigns.destination = callsign(&data[..CALLSIGN_LEN]);
+                    self.callsigns.source = callsign(&data[CALLSIGN_LEN..]);
+                }
+                if let Some(data) = self.large_data_unit(1) {
+                    self.callsigns.downlink = callsign(&data[..CALLSIGN_LEN]);
+                    self.callsigns.uplink = callsign(&data[CALLSIGN_LEN..]);
+                }
+            }
+            DvFrameKind::Voice => match (info.data_mode, info.frame_number) {
+                (0 | 1, 0) => {
+                    if let Some(data) = self.large_data_unit(0) {
+                        self.callsigns.destination = callsign(&data[..CALLSIGN_LEN]);
+                        self.callsigns.source = callsign(&data[CALLSIGN_LEN..]);
+                    }
+                }
+                (2, 0) => {
+                    if let Some(data) = self.small_data_unit() {
+                        self.callsigns.destination = callsign(&data);
+                    }
+                }
+                (2, 1) => {
+                    if let Some(data) = self.small_data_unit() {
+                        self.callsigns.source = callsign(&data);
+                    }
+                }
+                (2, 2) => {
+                    if let Some(data) = self.small_data_unit() {
+                        self.callsigns.downlink = callsign(&data);
+                    }
+                }
+                (2, 3) => {
+                    if let Some(data) = self.small_data_unit() {
+                        self.callsigns.uplink = callsign(&data);
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn large_data_unit(&mut self, lane: usize) -> Option<[u8; DCH_LARGE_DATA_BYTES]> {
+        self.window.soft_bits(0, PAYLOAD_SYMBOLS, &mut self.soft);
+        self.coded.clear();
+        for i in 0..180 {
+            let n = 2 * (i / 9) + 40 * (i % 9);
+            for bit in n..n + 2 {
+                let block = bit / 72;
+                let source = block * 144 + lane * 72 + bit % 72;
+                self.coded.push(self.soft[source]);
+            }
+        }
+        self.info.clear();
+        self.viterbi.decode(&self.coded, &mut self.info);
+        let encoded = pack::<22>(&self.info)?;
+        let expected = !crc16_msb(0x1021, 0, &encoded[..20]);
+        if expected != u16::from_be_bytes([encoded[20], encoded[21]]) {
+            return None;
+        }
+        Some(std::array::from_fn(|i| encoded[i] ^ WHITENING[i]))
+    }
+
+    fn small_data_unit(&mut self) -> Option<[u8; DCH_SMALL_DATA_BYTES]> {
+        self.window.soft_bits(0, PAYLOAD_SYMBOLS, &mut self.soft);
+        self.coded.clear();
+        for i in 0..100 {
+            let n = 2 * (i / 5) + 40 * (i % 5);
+            for bit in n..n + 2 {
+                let block = bit / 40;
+                let source = block * 144 + bit % 40;
+                self.coded.push(self.soft[source]);
+            }
+        }
+        self.info.clear();
+        self.viterbi.decode(&self.coded, &mut self.info);
+        let encoded = pack::<12>(&self.info)?;
+        let expected = !crc16_msb(0x1021, 0, &encoded[..10]);
+        if expected != u16::from_be_bytes([encoded[10], encoded[11]]) {
+            return None;
+        }
+        Some(std::array::from_fn(|i| encoded[i] ^ WHITENING[i]))
     }
 
     fn voice(&mut self, data_mode: u8, kind: DvFrameKind, out: &mut ChannelOutputs) {
@@ -313,6 +426,55 @@ impl Decoder {
     }
 }
 
+struct FrameInfo {
+    frame: DvFrame,
+    callsign_type: u8,
+    frame_number: u8,
+    data_mode: u8,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Callsigns {
+    destination: Option<String>,
+    source: Option<String>,
+    downlink: Option<String>,
+    uplink: Option<String>,
+}
+
+impl Callsigns {
+    fn apply(&self, frame: &mut DvFrame) {
+        frame.destination_call.clone_from(&self.destination);
+        frame.source_call.clone_from(&self.source);
+        frame.via = match (&self.uplink, &self.downlink) {
+            (Some(uplink), Some(downlink)) if uplink != downlink => {
+                Some(format!("{uplink} → {downlink}"))
+            }
+            (Some(uplink), _) => Some(uplink.clone()),
+            (_, Some(downlink)) => Some(downlink.clone()),
+            _ => None,
+        };
+    }
+}
+
+fn pack<const N: usize>(bits: &[bool]) -> Option<[u8; N]> {
+    if bits.len() < N * 8 {
+        return None;
+    }
+    Some(std::array::from_fn(|byte| {
+        bits[byte * 8..byte * 8 + 8]
+            .iter()
+            .fold(0u8, |value, &bit| value << 1 | u8::from(bit))
+    }))
+}
+
+fn callsign(bytes: &[u8]) -> Option<String> {
+    if bytes.len() != CALLSIGN_LEN || bytes.iter().any(|byte| !(0x20..=0x7E).contains(byte)) {
+        return None;
+    }
+    let value = std::str::from_utf8(bytes).ok()?.trim_end();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
 fn data_mode_name(dt: u8) -> &'static str {
     match dt {
         0 => "V/D mode 1",
@@ -374,6 +536,45 @@ mod tests {
             1,
             "{frames:?}"
         );
+    }
+
+    #[test]
+    fn decodes_callsigns_from_the_data_channel() {
+        let fich = tx::Fich::default();
+        let call = tx::Call::default();
+        let iq = tx::transmission_with_callsigns(&fich, &call, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(), &iq);
+
+        let header = frames.first().expect("a decoded frame");
+        assert_eq!(
+            header.destination_call.as_deref(),
+            Some(call.destination.as_str())
+        );
+        assert_eq!(header.source_call.as_deref(), Some(call.source.as_str()));
+        assert_eq!(header.via.as_deref(), Some("DB0XYZ → DB0ABC"));
+        assert!(frames.iter().all(|frame| {
+            frame.source_call.as_deref() == Some(call.source.as_str())
+                && frame.destination_call.as_deref() == Some(call.destination.as_str())
+        }));
+    }
+
+    #[test]
+    fn recovers_vd2_callsigns_after_a_missed_header() {
+        let fich = tx::Fich::default();
+        let call = tx::Call::default();
+        let iq = tx::late_entry_transmission(&fich, &call, INPUT_RATE_HZ);
+        let frames = decode(&mut channel(), &iq);
+
+        let addressed = frames
+            .iter()
+            .find(|frame| frame.source_call.is_some())
+            .expect("a late-entry source callsign");
+        assert_eq!(addressed.kind, DvFrameKind::Voice);
+        assert_eq!(
+            addressed.destination_call.as_deref(),
+            Some(call.destination.as_str())
+        );
+        assert_eq!(addressed.source_call.as_deref(), Some(call.source.as_str()));
     }
 
     #[test]
