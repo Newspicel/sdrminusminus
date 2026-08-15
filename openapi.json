@@ -7405,6 +7405,238 @@
           }
         }
       },
+      "NanoVnaComplex": {
+        "type": "object",
+        "required": [
+          "re",
+          "im"
+        ],
+        "properties": {
+          "im": {
+            "type": "number",
+            "format": "double"
+          },
+          "re": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "NanoVnaDevice": {
+        "type": "object",
+        "required": [
+          "port",
+          "label",
+          "likely_nanovna"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "likely_nanovna": {
+            "type": "boolean"
+          },
+          "port": {
+            "type": "string"
+          },
+          "serial_number": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usb_pid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "usb_vid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "NanoVnaPoint": {
+        "type": "object",
+        "required": [
+          "frequency_hz",
+          "s11",
+          "s21"
+        ],
+        "properties": {
+          "frequency_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "s11": {
+            "$ref": "#/components/schemas/NanoVnaComplex"
+          },
+          "s21": {
+            "$ref": "#/components/schemas/NanoVnaComplex"
+          }
+        }
+      },
+      "NanoVnaRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "list_devices"
+                ]
+              }
+            }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NanoVnaSweepRequest"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "sweep"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "NanoVnaResult": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "devices",
+              "kind"
+            ],
+            "properties": {
+              "devices": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/NanoVnaDevice"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "devices"
+                ]
+              }
+            }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NanoVnaSweep"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "sweep"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "NanoVnaSweep": {
+        "type": "object",
+        "required": [
+          "port",
+          "firmware",
+          "requested_points",
+          "averages",
+          "points"
+        ],
+        "properties": {
+          "averages": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "firmware": {
+            "type": "string"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NanoVnaPoint"
+            }
+          },
+          "port": {
+            "type": "string"
+          },
+          "requested_points": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "NanoVnaSweepRequest": {
+        "type": "object",
+        "required": [
+          "port",
+          "start_hz",
+          "stop_hz",
+          "points"
+        ],
+        "properties": {
+          "averages": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "points": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "port": {
+            "type": "string"
+          },
+          "start_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stop_hz": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "NavtexMessage": {
         "type": "object",
         "description": "One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is\nparsed out because that is what a receiver filters on — station, subject and serial are how\na ship decides whether it has already seen this message.",
@@ -10553,6 +10785,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "request",
+              "tool"
+            ],
+            "properties": {
+              "request": {
+                "$ref": "#/components/schemas/NanoVnaRequest"
+              },
+              "tool": {
+                "type": "string",
+                "enum": [
+                  "nanovna"
+                ]
+              }
+            }
           }
         ],
         "description": "`POST /api/tools/run` — one call to one tool. The tag is the tool id, so the body names its\nown destination and no path parameter can disagree with it."
@@ -10573,6 +10823,24 @@
                 "type": "string",
                 "enum": [
                   "antenna"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "result",
+              "tool"
+            ],
+            "properties": {
+              "result": {
+                "$ref": "#/components/schemas/NanoVnaResult"
+              },
+              "tool": {
+                "type": "string",
+                "enum": [
+                  "nanovna"
                 ]
               }
             }

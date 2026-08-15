@@ -12,4 +12,5 @@ workspace = true
 
 [dependencies]
 sdrmm-wire.workspace = true
+serialport.workspace = true
 thiserror.workspace = true

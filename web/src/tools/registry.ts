@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type { ToolCategory, ToolDescriptor } from "../lib/types";
 import { AntennaPanel } from "./antenna/AntennaPanel";
+import { NanoVnaPanel } from "./nanovna/NanoVnaPanel";
 
 /**
  * A tool's panel, registered against the id the server advertises it under.
@@ -15,7 +16,10 @@ export interface ToolPanel {
   descriptor?: ToolDescriptor;
 }
 
-export const TOOL_PANELS: readonly ToolPanel[] = [{ id: "antenna", panel: AntennaPanel }];
+export const TOOL_PANELS: readonly ToolPanel[] = [
+  { id: "antenna", panel: AntennaPanel },
+  { id: "nanovna", panel: NanoVnaPanel },
+];
 
 /** A tool the launcher can list. `panel` is null for a server tool this client has no UI for —
  * shown and explained rather than hidden, so a missing panel is a visible gap. */
