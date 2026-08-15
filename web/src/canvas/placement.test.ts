@@ -45,17 +45,24 @@ describe("dropPosition", () => {
     expect(occupied.every((rect) => !overlaps(position, rect))).toBe(true);
   });
 
-  it("keeps a node visible even when every candidate overlaps", () => {
-    const position = dropPosition(
-      viewport,
-      size,
-      [{ x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h }],
-      20,
-    );
+  it("places a node clear of the others when the visible area is full", () => {
+    const occupied = [{ x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h }];
+    const first = dropPosition(viewport, size, occupied, 20);
+    const second = dropPosition(viewport, size, occupied, 20);
 
-    expect(position.x).toBeGreaterThanOrEqual(viewport.x);
-    expect(position.y).toBeGreaterThanOrEqual(viewport.y);
-    expect(position.x + size.w).toBeLessThanOrEqual(viewport.x + viewport.w);
-    expect(position.y + size.h).toBeLessThanOrEqual(viewport.y + viewport.h);
+    expect(second).toEqual(first);
+    expect(occupied.every((rect) => !overlaps(first, rect))).toBe(true);
+  });
+
+  it("stays beside the view rather than across the patch when it has to widen", () => {
+    const occupied = [
+      { x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h },
+      { x: 20_000, y: 20_000, w: 400, h: 400 },
+    ];
+    const position = dropPosition(viewport, size, occupied, 20);
+
+    expect(position.x).toBeLessThan(viewport.x + viewport.w + size.w);
+    expect(position.y).toBeLessThan(viewport.y + viewport.h + size.h);
+    expect(occupied.every((rect) => !overlaps(position, rect))).toBe(true);
   });
 });

@@ -302,11 +302,14 @@ test.describe("the workspace", () => {
     };
     const tuning = await tunedTo();
 
-    const maxHold = scopePlot.getByRole("button", { name: /max hold/i });
-    await maxHold.click();
-    await expect(maxHold).toHaveAttribute("aria-pressed", "true");
-    await maxHold.click();
-    await expect(maxHold).toHaveAttribute("aria-pressed", "false");
+    // Max hold is one of the trace overlays, behind the toolbar's own trigger.
+    await scopePlot.getByRole("button", { name: "traces", exact: true }).click();
+    const peak = page.getByRole("dialog").getByRole("button", { name: "peak", exact: true });
+    await peak.click();
+    await expect(peak).toHaveAttribute("aria-pressed", "true");
+    await peak.click();
+    await expect(peak).toHaveAttribute("aria-pressed", "false");
+    await page.keyboard.press("Escape");
 
     // The trigger is labelled with the colormap in force, which on a fresh profile is the default.
     await scopePlot.getByRole("button", { name: /^classic$/i }).click();
