@@ -1,8 +1,3 @@
 [toolchain]
-# Pinned deliberately (). Bump only with CI green.
-channel = "nightly-2026-08-01"
+channel = "nightly"
 components = ["rustfmt", "clippy", "rust-src"]
-# No `targets` list on purpose. Every entry here is ~150 MB of rust-std that `rustup show`
-# fetches on *every* job, including the ones that only ever build for their own host. The
-# release targets are installed where they are used instead: `xtask dist`/`xtask desktop` add
-# the triple passed to `--target`, so a cross build works the same in CI and on a laptop.

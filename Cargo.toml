@@ -17,9 +17,7 @@ members = [
     "apps/desktop",
     "xtask",
 ]
-# The default gate (cargo build/clippy/test) skips the Tauri app: it pulls the platform
-# webview toolchain (webkit2gtk on Linux) and a built frontend, handled at M5 packaging.
-# Build it explicitly with `cargo build -p sdrmm-desktop` / `cargo tauri`.
+
 default-members = [
     "crates/wire",
     "crates/dsp",
@@ -68,11 +66,6 @@ axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["compression-gzip", "cors", "fs", "trace"] }
 futures = "0.3"
-# WS client for exercising the hub in server tests only. Pinned to whatever axum's `ws` feature
-# resolves to — *not* to the newest release — so the graph holds one tungstenite and not two.
-# Newer versions exist; moving to one before axum does compiles the whole stack twice for the
-# benefit of a dev-dependency. Bump this when axum bumps, and not before (deny/dependabot both
-# know: see the ignore in .github/dependabot.yml).
 tokio-tungstenite = "0.29"
 tokio-serial = "5.5.0"
 
@@ -105,25 +98,17 @@ wgpu = { version = "30", default-features = false, features = ["std", "parking_l
 
 # Audio (libopus via vendored build, )
 opus = "0.3"
-# DMR's standardized vocoder socket is codec-agnostic, but interoperable Tier II/III radios
-# conventionally carry three AMBE+2 3,600 x 2,450 frames in it.
 blip25-vocoder = { version = "1.0", default-features = false, features = ["decode"] }
-# M17's open 3,200 bit/s voice-only and 1,600 bit/s voice-plus-data modes. This is a
-# pure-Rust port of Codec2; the channel only needs the decoder, but the crate exposes
-# encode/decode together.
 codec2 = "0.3.1"
 
 # Persistence
 rusqlite = { version = "0.40", features = ["bundled"] }
 jiff = "0.2"
-# Platform data dir for the headless binary's default DB location ().
 dirs = "6"
 
 # Static asset embedding
 rust-embed = "8"
 
-# Content-addresses the license texts `cargo xtask licenses` harvests, so several hundred
-# byte-identical Apache-2.0 copies are stored once. xtask only.
 sha2 = "0.11"
 
 # Errors / logging / util
@@ -140,17 +125,12 @@ notify = "8.2.0"
 # Scoped temp dirs for filesystem tests (SigMF IO, recordings REST); dev-dependency only.
 tempfile = "3"
 
-# Performance baselines for the modem catalog ( §4.2); dev-dependency only.
 criterion = "0.8"
 cc = "1"
 
-# `cargo xtask icons` rasterises assets/icon.svg; xtask only, nothing shipped links it.
-# No default features: the mark is paths, and `text` would pull a whole font database into a
-# tool that never lays out a glyph. It re-exports the `tiny_skia` the pixmaps come from.
 resvg = { version = "0.48", default-features = false }
 
 [workspace.lints.clippy]
-# Hot-path discipline (, CLAUDE.md): no panics outside tests/startup.
 unwrap_used = "warn"
 expect_used = "warn"
 
@@ -162,14 +142,6 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 
-# `cargo xtask dev` runs the dev profile, and an unoptimized DSP plane is not merely slow — it
-# is wrong. Measured against a 2 MS/s RTL-SDR, the debug build saturated a core, overran the
-# capture ring by 1.4 M samples/s (~70% of the stream discarded) and dropped the spectrum tap
-# from 30 fps to ~10. Real-time code has to be built as real-time code even while developing.
-#
-# Only the signal path is optimized: `server`, `wire` and the app crates are edited many times
-# an hour and stay at opt-level 0 so their rebuilds stay in seconds. `debug-assertions` are
-# untouched, so every overflow and slice check still fires.
 [profile.dev.package."*"]
 opt-level = 3
 

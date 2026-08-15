@@ -1,16 +1,3 @@
-# syntax=docker/dockerfile:1
-
-# sdr-- multi-arch image for Pi/NAS deployment (`--device /dev/bus/usb`).
-#
-# Self-contained by construction: the Soapy backend, core, curated modules, and every module
-# runtime dependency are installed in the image. Nothing from the Docker host is visible here.
-#
-#   docker buildx build --platform linux/amd64,linux/arm64 -t sdrmm .
-#
-# There is no cross-compilation here: buildx builds each platform on a node of that platform
-# (native runners in CI, QEMU locally).
-
-
 # --- web UI ------------------------------------------------------------------------------
 FROM node:26-slim AS web
 WORKDIR /web
@@ -20,12 +7,8 @@ RUN npm install -g pnpm@11.15.1
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# .dockerignore keeps web/node_modules and web/dist out of the context; without those two
-# entries this copy would clobber the install above.
 COPY web/ ./
 RUN pnpm build
-# crates/server/build.rs creates web/dist when it is missing, so a Rust build with no UI
-# succeeds and silently ships the "not built" 503 page. Fail here, where the cause is local.
 RUN test -f dist/index.html
 
 
