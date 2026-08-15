@@ -64,19 +64,25 @@ fn run(params: IdentParams, iq: &[Complex<f32>]) -> Vec<sdrmm_wire::IdentReport>
     reports
 }
 
-/// Repeat `iq` until it is at least `seconds` long, then add a little noise — no real signal
-/// arrives without any, and a spectrum with a zero floor is not one the detector would ever see.
-fn on_air(iq: &[Complex<f32>], seconds: f64, seed: u32) -> Vec<Complex<f32>> {
+/// Repeat `iq` until it is at least `seconds` long, then add noise of amplitude `amp` — no real
+/// signal arrives without any, and a spectrum with a zero floor is not one the detector would
+/// ever see.
+fn in_noise(iq: &[Complex<f32>], seconds: f64, seed: u32, amp: f32) -> Vec<Complex<f32>> {
     let wanted = (seconds * INPUT_RATE_HZ) as usize;
     let mut out = Vec::with_capacity(wanted + iq.len());
     while out.len() < wanted {
         out.extend_from_slice(iq);
     }
-    let noise = complex_noise(seed, 0.004, out.len());
+    let noise = complex_noise(seed, amp, out.len());
     for (sample, noise) in out.iter_mut().zip(noise) {
         *sample += noise;
     }
     out
+}
+
+/// The same at a level nothing has to work for: forty-odd decibels out of the noise.
+fn on_air(iq: &[Complex<f32>], seconds: f64, seed: u32) -> Vec<Complex<f32>> {
+    in_noise(iq, seconds, seed, 0.004)
 }
 
 /// Band-limited pseudorandom audio, standing in for programme material.
@@ -219,6 +225,62 @@ fn a_pager_transmission_is_two_level_at_its_own_baud() {
         "deviation {:?}",
         named.deviation_hz
     );
+}
+
+/// A pager at a level an antenna actually hears it at.
+///
+/// Every constant-envelope signal carries the noise's own amplitude spread on its envelope, and
+/// at anything under about twenty decibels that spread alone clears the threshold amplitude
+/// modulation is recognised by. Read as modulation it makes a pager — and narrowband FM, and a
+/// broadcast station — into AM voice, which is the one verdict none of them can be.
+#[test]
+fn a_weak_pager_is_a_shift_and_not_amplitude_modulation() {
+    let pages = [testgen::pocsag::Page {
+        address: 1_234_567,
+        function: 3,
+        text: "IDENT TEST".to_owned(),
+        numeric: false,
+    }];
+    let iq = in_noise(
+        &testgen::pocsag::transmission(&pages, 1_200, 4_500.0, INPUT_RATE_HZ),
+        2.0,
+        0x5d90,
+        0.8,
+    );
+    let reports = run(params(), &iq);
+    let loudest = reports.iter().map(|r| r.snr_db).fold(0.0, f32::max);
+    assert!(
+        loudest < 20.0,
+        "meant to be a weak signal, got {loudest} dB"
+    );
+    assert_eq!(consensus(&reports), Modulation::Fsk2);
+    assert!(
+        reports.iter().any(|r| r
+            .best()
+            .is_some_and(|m| m.type_id.as_deref() == Some("pocsag"))),
+        "candidates: {:?}",
+        reports.iter().map(best).collect::<Vec<_>>()
+    );
+}
+
+/// The other side of the same threshold: weak FM voice has no symbol clock and no levels worth
+/// the name, and must not be promoted to a keyed mode by the loosened test.
+#[test]
+fn weak_fm_voice_stays_analog() {
+    let audio = programme((INPUT_RATE_HZ * 2.2) as usize, 0x4d21);
+    let iq = in_noise(
+        &testgen::fm_modulate(&audio, 3_000.0, INPUT_RATE_HZ),
+        2.0,
+        0x2ea7,
+        1.2,
+    );
+    let reports = run(params(), &iq);
+    let loudest = reports.iter().map(|r| r.snr_db).fold(0.0, f32::max);
+    assert!(
+        loudest < 20.0,
+        "meant to be a weak signal, got {loudest} dB"
+    );
+    assert_eq!(consensus(&reports), Modulation::Fm);
 }
 
 #[test]

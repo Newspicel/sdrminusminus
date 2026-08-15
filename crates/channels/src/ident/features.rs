@@ -83,6 +83,10 @@ const SUBHARMONIC_FRACTION: f32 = 0.5;
 /// decibels, which is far under any real modulation trough and far over a gap between bursts.
 const KEYED_FRACTION: f32 = 0.35;
 
+/// Envelope spread of noise on its own — the Rayleigh coefficient of variation, `sqrt(4/π − 1)`.
+/// No amount of noise moves the measurement past this, so no estimate of noise may claim more.
+const RAYLEIGH_VARIATION: f32 = 0.522_723;
+
 /// The detected band, mixed to DC and decimated to a rate matched to it.
 pub(crate) struct Zoom {
     pub(crate) rate: f64,
@@ -111,6 +115,10 @@ pub(crate) struct Waveform {
     /// Standard deviation over mean of the envelope, measured while the carrier is *on* — so a
     /// keyed carrier reads near zero here and says what it has to say through `duty` instead.
     pub(crate) envelope_variation: f32,
+    /// How much of `envelope_variation` the band's own noise accounts for. A constant-envelope
+    /// signal reads whatever the noise puts on it, which at ordinary receive levels is more than
+    /// any threshold a modulation could be recognised by — so this is what it has to clear.
+    pub(crate) noise_variation: f32,
     /// Fraction of the observation the carrier was up.
     pub(crate) duty: f32,
     /// Keyed-on level over keyed-off level, in dB.
@@ -121,6 +129,9 @@ pub(crate) struct Waveform {
     pub(crate) deviation_hz: f64,
     /// Dwell-weighted standard deviation of the instantaneous frequency, in Hz.
     pub(crate) frequency_spread_hz: f64,
+    /// How deep the histogram runs between the outermost levels, as a fraction of the shallower
+    /// of the two: 0 when they are separated by empty ground, 1 when nothing separates them.
+    pub(crate) level_valley: f32,
     pub(crate) symbol_rate_hz: Option<f64>,
     pub(crate) square_line_db: f32,
     pub(crate) quartic_line_db: f32,
@@ -170,22 +181,24 @@ impl Meter {
         }
     }
 
-    pub(crate) fn measure(&mut self, zoom: &Zoom) -> Waveform {
+    pub(crate) fn measure(&mut self, zoom: &Zoom, band: &Band) -> Waveform {
         let (duty, on_off_db, gate) = self.envelope(&zoom.iq);
         let envelope_variation = self.envelope_variation(gate);
         self.discriminate(&zoom.iq, zoom.rate, gate);
 
-        let (spread, levels, deviation) = self.levels(zoom.rate);
-        let symbol_rate_hz = self.symbol_rate(zoom.rate, levels);
+        let levels = self.levels(zoom.rate);
+        let symbol_rate_hz = self.symbol_rate(zoom.rate, levels.count);
         let (square_line_db, quartic_line_db) = self.nonlinearity_lines(&zoom.iq);
 
         Waveform {
             envelope_variation,
+            noise_variation: noise_variation(zoom.rate, band),
             duty,
             on_off_db,
-            frequency_levels: levels,
-            deviation_hz: deviation,
-            frequency_spread_hz: spread,
+            frequency_levels: levels.count,
+            deviation_hz: levels.deviation_hz,
+            frequency_spread_hz: levels.spread_hz,
+            level_valley: levels.valley,
             symbol_rate_hz,
             square_line_db,
             quartic_line_db,
@@ -278,11 +291,17 @@ impl Meter {
         }
     }
 
-    /// Weighted spread, the number of frequency levels, and the outer deviation.
-    fn levels(&mut self, rate: f64) -> (f64, u8, f64) {
+    /// What the instantaneous-frequency histogram came to.
+    fn levels(&mut self, rate: f64) -> Levels {
+        let bare = |spread: f64| Levels {
+            spread_hz: spread,
+            count: if spread > 0.0 { 1 } else { 0 },
+            deviation_hz: spread,
+            valley: 1.0,
+        };
         let total: f64 = self.weight.iter().map(|&w| f64::from(w)).sum();
         if total <= 0.0 {
-            return (0.0, 0, 0.0);
+            return bare(0.0);
         }
         let weighted = |power: i32, mean: f64| -> f64 {
             self.frequency
@@ -295,7 +314,7 @@ impl Meter {
         let mean = weighted(1, 0.0);
         let spread = weighted(2, mean).max(0.0).sqrt();
         if spread < rate * MIN_SHIFT_FRACTION {
-            return (spread, 1, spread);
+            return bare(spread);
         }
         let span = spread * 3.0;
 
@@ -317,12 +336,40 @@ impl Meter {
 
         let peaks = self.peaks();
         let to_hz = |bin: usize| (bin as f64 + 0.5) / scale - span + mean;
-        let deviation = match peaks.as_slice() {
-            [] => spread,
-            [only] => (to_hz(*only) - mean).abs().max(spread),
-            [first, .., last] => (to_hz(*last) - to_hz(*first)) / 2.0,
+        let (deviation, valley) = match peaks.as_slice() {
+            [] => (spread, 1.0),
+            [only] => ((to_hz(*only) - mean).abs().max(spread), 1.0),
+            [first, .., last] => (
+                (to_hz(*last) - to_hz(*first)) / 2.0,
+                self.valley(*first, *last),
+            ),
         };
-        (spread, peaks.len().min(u8::MAX as usize) as u8, deviation)
+        Levels {
+            spread_hz: spread,
+            count: peaks.len().min(u8::MAX as usize) as u8,
+            deviation_hz: deviation,
+            valley,
+        }
+    }
+
+    /// How deep the histogram runs between its outermost levels, as a fraction of the shallower
+    /// of the two.
+    ///
+    /// This is what says the levels are levels. A carrier that is being keyed between two
+    /// frequencies is *at* one of them at almost every instant, so the ground between them falls
+    /// away to nothing; a voice waveform sweeping its passband spends time everywhere in
+    /// between, and the bumps its histogram throws up stand on a floor nearly as high as they
+    /// are.
+    fn valley(&self, first: usize, last: usize) -> f32 {
+        let rim = self.smoothed[first].min(self.smoothed[last]);
+        if rim <= 0.0 {
+            return 1.0;
+        }
+        let floor = self.smoothed[first..=last]
+            .iter()
+            .copied()
+            .fold(f32::INFINITY, f32::min);
+        (floor / rim).clamp(0.0, 1.0)
     }
 
     fn peaks(&self) -> Vec<usize> {
@@ -663,6 +710,30 @@ impl Meter {
     }
 }
 
+/// The envelope spread the band's noise produces on its own, at the rate the envelope was
+/// measured at.
+///
+/// Noise of power `N` under a signal of power `S` puts a spread of `sqrt(N / 2S)` on the
+/// envelope. The band's ratio is quoted over the occupied width alone, while the envelope is
+/// measured across the whole zoomed slice — so every hertz by which the zoom is wider than the
+/// signal brings in noise the band's own figure never counted.
+fn noise_variation(zoom_rate: f64, band: &Band) -> f32 {
+    let signal_to_noise = 10.0_f64.powf(f64::from(band.snr_db) / 10.0);
+    if !signal_to_noise.is_finite() || signal_to_noise <= 0.0 {
+        return RAYLEIGH_VARIATION;
+    }
+    let widening = (zoom_rate / band.bandwidth_hz.max(1.0)).max(1.0);
+    ((widening / (2.0 * signal_to_noise)).sqrt() as f32).min(RAYLEIGH_VARIATION)
+}
+
+/// What the instantaneous-frequency histogram came to.
+struct Levels {
+    spread_hz: f64,
+    count: u8,
+    deviation_hz: f64,
+    valley: f32,
+}
+
 /// Which measured series a clock is looked for in.
 #[derive(Clone, Copy)]
 enum Series {
@@ -751,14 +822,29 @@ mod tests {
         out
     }
 
+    /// The band the generated signals stand in: clean, and filling the quarter of the zoom the
+    /// oversample factor gives it.
+    fn band() -> Band {
+        Band {
+            center_hz: 0.0,
+            bandwidth_hz: RATE / ZOOM_OVERSAMPLE,
+            snr_db: 40.0,
+            carrier_db: 3.0,
+            flatness: 0.3,
+            skew: 0.0,
+            peak_hz: 0.0,
+        }
+    }
+
     fn measure(iq: Vec<Complex<f32>>) -> Waveform {
-        Meter::new().measure(&Zoom { rate: RATE, iq })
+        Meter::new().measure(&Zoom { rate: RATE, iq }, &band())
     }
 
     #[test]
     fn two_level_keying_reads_two_levels_and_its_shift() {
         let w = measure(fsk(&[-1.0, 1.0], 2_400.0, 2_000.0, 4_000, 0x1234));
         assert_eq!(w.frequency_levels, 2, "levels");
+        assert!(w.level_valley < 0.2, "valley {}", w.level_valley);
         assert!(
             (w.deviation_hz - 2_000.0).abs() < 400.0,
             "deviation {} Hz",
@@ -799,6 +885,52 @@ mod tests {
             w.frequency_spread_hz
         );
         assert!(w.square_line_db > 20.0, "square line {}", w.square_line_db);
+    }
+
+    /// A carrier swept by band-limited noise — an analog voice waveform, in shape if not in
+    /// content. Whatever the histogram makes of it, the ground between its bumps stands nearly
+    /// as high as they do, which is what says they are not levels.
+    #[test]
+    fn a_swept_carrier_has_no_ground_between_its_levels() {
+        let mut state = 0x51f3u32;
+        let mut smoothed = 0.0f64;
+        let mut phase = 0.0f64;
+        let iq: Vec<Complex<f32>> = (0..48_000)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                let noise = f64::from(state) / f64::from(u32::MAX) - 0.5;
+                smoothed += 0.02 * (noise - smoothed);
+                phase += TAU * smoothed * 12.0 * 3_000.0 / RATE;
+                Complex::from_polar(1.0, phase as f32)
+            })
+            .collect();
+        let w = measure(iq);
+        assert!(w.level_valley > 0.5, "valley {}", w.level_valley);
+    }
+
+    /// What the envelope of a *constant*-envelope signal reads at a given level out of the
+    /// noise. Every keyed mode measures this and nothing more, so it is the bar amplitude
+    /// modulation has to clear rather than a correction to it.
+    #[test]
+    fn the_noise_alone_accounts_for_more_envelope_spread_as_the_signal_weakens() {
+        let quiet = Band {
+            snr_db: 40.0,
+            ..band()
+        };
+        let weak = Band {
+            snr_db: 12.0,
+            ..band()
+        };
+        assert!(noise_variation(RATE, &quiet) < 0.05);
+        assert!(noise_variation(RATE, &weak) > 0.2);
+        // No signal at all is noise, whose own envelope spread is the ceiling on the estimate.
+        let none = Band {
+            snr_db: -40.0,
+            ..band()
+        };
+        assert_eq!(noise_variation(RATE, &none), RAYLEIGH_VARIATION);
     }
 
     #[test]

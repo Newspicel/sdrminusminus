@@ -14,6 +14,9 @@ const KEYED_DUTY: f32 = 0.9;
 /// signal's own amplitude noise, and far less than a real remote control's off state.
 const KEYED_DEPTH_DB: f32 = 15.0;
 /// Envelope spread, over the keyed-on samples, above which amplitude is carrying information.
+/// Measured against the part of the spread the noise does not account for: a constant-envelope
+/// signal at an ordinary receive level clears this on noise alone, and everything below the AM
+/// branch would then be unreachable for anything but the strongest signals.
 const AMPLITUDE_MODULATED: f32 = 0.18;
 /// Strength of the central line above which there is a carrier under the modulation.
 const CARRIER_LINE_DB: f32 = 12.0;
@@ -33,6 +36,17 @@ const FM_SPREAD_HZ: f64 = 200.0;
 /// Frequency spread, as a fraction of the occupied bandwidth, below which the levels found in the
 /// histogram are jitter rather than a shift.
 const MIN_SHIFT_FRACTION: f64 = 0.02;
+/// How far out the outermost levels must sit, as a fraction of the spread, to be levels rather
+/// than two bumps inside a continuum. A two-level shift spends all its time *at* its levels, so
+/// they stand at the edges of their own distribution; the peaks a voice waveform throws up land
+/// well inside it.
+const LEVEL_SEPARATION: f64 = 0.7;
+/// How much of the shallower level may survive as ground between them and still leave two
+/// levels rather than one continuum with a dip in it.
+const LEVEL_VALLEY: f32 = 0.5;
+/// What a shift with no symbol clock behind it is worth against one that has both. The same
+/// verdict on less evidence, and reported that way.
+const NO_CLOCK_FIRMNESS: f32 = 0.5;
 /// SNR at which the waveform measurements are worth full confidence, and the floor below which
 /// they are worth almost none. Every ratio here is measured against noise that is also in the
 /// band, so how far the signal stands out of it bounds how much any verdict can be believed.
@@ -58,20 +72,38 @@ pub(crate) fn classify(band: &Band, waveform: &Waveform) -> Verdict {
         sideband: None,
     };
 
+    // The part of the envelope spread the noise does not explain. Everything the amplitude has to
+    // say is in here: measured against the raw spread instead, a pager at fifteen decibels is
+    // amplitude-modulated, and so is every other constant-envelope signal an antenna ever hears.
+    let modulated = (waveform.envelope_variation.powi(2) - waveform.noise_variation.powi(2))
+        .max(0.0)
+        .sqrt();
+
     // Frequency structure is read before anything about the envelope, because the envelope
     // cannot distinguish the two things that produce a keyed carrier: a remote control switching
     // its transmitter, and a TDMA radio that occupies one timeslot in two. Both key off between
     // bursts; only one of them shifts frequency while it is up.
     //
-    // The symbol clock has to have been found as well. Levels alone are a shape in a histogram,
-    // and a voice waveform wandering over its own passband produces those by accident; a keyed
-    // carrier that has levels *and* a clock is being keyed.
-    let shifted = waveform.symbol_rate_hz.is_some()
-        && waveform.frequency_spread_hz > band.bandwidth_hz * MIN_SHIFT_FRACTION;
+    // Levels alone are a shape in a histogram, and a voice waveform wandering over its own
+    // passband produces those by accident, so they need corroborating. A symbol clock is the
+    // best evidence there is — and the first thing a weak signal loses, which is why levels
+    // that stand at the edges of their own distribution with empty ground between them, on a
+    // carrier whose amplitude is doing nothing, count for the same thing.
+    let separated = waveform.deviation_hz >= waveform.frequency_spread_hz * LEVEL_SEPARATION
+        && waveform.level_valley <= LEVEL_VALLEY
+        && modulated <= AMPLITUDE_MODULATED;
+    let shifted = waveform.frequency_spread_hz > band.bandwidth_hz * MIN_SHIFT_FRACTION
+        && (waveform.symbol_rate_hz.is_some() || separated);
     if shifted {
+        let firm = firmness(band.snr_db, SNR_FLOOR_DB, 15.0)
+            * if waveform.symbol_rate_hz.is_some() {
+                1.0
+            } else {
+                NO_CLOCK_FIRMNESS
+            };
         match waveform.frequency_levels {
-            4 => return settle(Modulation::Fsk4, firmness(band.snr_db, SNR_FLOOR_DB, 15.0)),
-            2 => return settle(Modulation::Fsk2, firmness(band.snr_db, SNR_FLOOR_DB, 15.0)),
+            4 => return settle(Modulation::Fsk4, firm),
+            2 => return settle(Modulation::Fsk2, firm),
             _ => {}
         }
     }
@@ -83,7 +115,7 @@ pub(crate) fn classify(band: &Band, waveform: &Waveform) -> Verdict {
         );
     }
 
-    if waveform.envelope_variation > AMPLITUDE_MODULATED {
+    if modulated > AMPLITUDE_MODULATED {
         if band.carrier_db > CARRIER_LINE_DB {
             return settle(
                 Modulation::Am,
@@ -228,6 +260,73 @@ mod tests {
         let verdict = classify(&b, &w);
         assert_eq!(verdict.modulation, Modulation::Ssb);
         assert_eq!(verdict.sideband, Some(Sideband::Usb));
+    }
+
+    /// The envelope of a constant-envelope signal is the noise's envelope. Measured against the
+    /// raw spread, every keyed mode on the band turns into AM voice somewhere around twenty
+    /// decibels — which is where most of the signals an operator points this at live.
+    #[test]
+    fn a_shift_is_not_amplitude_modulated_by_the_noise_on_it() {
+        let w = Waveform {
+            envelope_variation: 0.22,
+            noise_variation: 0.24,
+            frequency_levels: 2,
+            frequency_spread_hz: 4_800.0,
+            deviation_hz: 4_500.0,
+            level_valley: 0.1,
+            ..steady()
+        };
+        let mut b = band(12_500.0);
+        b.snr_db = 16.0;
+        b.carrier_db = 25.0;
+        assert_eq!(classify(&b, &w).modulation, Modulation::Fsk2);
+    }
+
+    /// And the reverse: amplitude that stands over the noise is still amplitude.
+    #[test]
+    fn amplitude_over_the_noise_is_still_amplitude_modulation() {
+        let w = Waveform {
+            envelope_variation: 0.38,
+            noise_variation: 0.16,
+            ..steady()
+        };
+        let mut b = band(9_000.0);
+        b.snr_db = 20.0;
+        b.carrier_db = 25.0;
+        assert_eq!(classify(&b, &w).modulation, Modulation::Am);
+    }
+
+    /// Two bumps standing on a continuum are not two levels, and without a symbol clock behind
+    /// them there is nothing else to say they are.
+    #[test]
+    fn bumps_inside_a_continuum_are_not_a_shift() {
+        let w = Waveform {
+            frequency_levels: 2,
+            frequency_spread_hz: 2_000.0,
+            deviation_hz: 600.0,
+            level_valley: 0.9,
+            ..steady()
+        };
+        assert_eq!(classify(&band(12_500.0), &w).modulation, Modulation::Fm);
+    }
+
+    /// A shift with no clock behind it is the same verdict on less evidence.
+    #[test]
+    fn a_clockless_shift_is_reported_less_confidently_than_a_clocked_one() {
+        let w = Waveform {
+            frequency_levels: 2,
+            frequency_spread_hz: 4_800.0,
+            deviation_hz: 4_500.0,
+            level_valley: 0.1,
+            ..steady()
+        };
+        let clocked = Waveform {
+            symbol_rate_hz: Some(1_200.0),
+            ..w
+        };
+        let b = band(12_500.0);
+        assert_eq!(classify(&b, &w).modulation, Modulation::Fsk2);
+        assert!(classify(&b, &w).confidence < classify(&b, &clocked).confidence);
     }
 
     #[test]

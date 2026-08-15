@@ -173,7 +173,7 @@ impl IdentChannel {
             };
         };
 
-        let waveform = self.meter.measure(&zoom);
+        let waveform = self.meter.measure(&zoom, &band);
         let verdict = classify::classify(&band, &waveform);
         let mut candidates = catalog::candidates(verdict.modulation, &band, &waveform);
         framing::confirm(&mut candidates, &self.window, INPUT_RATE_HZ, &band);
