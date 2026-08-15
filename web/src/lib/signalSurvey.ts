@@ -9,6 +9,7 @@ const MAX_CELLS = 5_000;
 export interface SignalSurveySample {
   latitude: number;
   longitude: number;
+  frequencyHz: number;
   levelDbfs: number;
   measuredAt: number;
   observations: number;
@@ -94,6 +95,13 @@ export function measureSignalDbfs(
   return frame.dbMin + (peak / 255) * (frame.dbMax - frame.dbMin);
 }
 
+export function signalOffsetLimitHz(spanHz: number, bandwidthHz: number): number {
+  if (!Number.isFinite(spanHz) || !Number.isFinite(bandwidthHz)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((spanHz - bandwidthHz) / 2));
+}
+
 /** One point per roughly ten-metre cell: stopping at a traffic light must not make that location
  * look stronger merely because it produced more fixes than the road around it. Repeated readings
  * are averaged in linear power, then converted back to dB. */
@@ -101,8 +109,10 @@ export function mergeSurveySample(
   samples: readonly SignalSurveySample[],
   incoming: Omit<SignalSurveySample, "observations">,
 ): readonly SignalSurveySample[] {
-  const key = cellKey(incoming.latitude, incoming.longitude);
-  const index = samples.findIndex((sample) => cellKey(sample.latitude, sample.longitude) === key);
+  const key = cellKey(incoming.latitude, incoming.longitude, incoming.frequencyHz);
+  const index = samples.findIndex(
+    (sample) => cellKey(sample.latitude, sample.longitude, sample.frequencyHz) === key,
+  );
   if (index < 0) {
     const next = [...samples, { ...incoming, observations: 1 }];
     return next.length > MAX_CELLS ? next.slice(next.length - MAX_CELLS) : next;
@@ -119,6 +129,7 @@ export function mergeSurveySample(
   const merged: SignalSurveySample = {
     latitude: (previous.latitude * previous.observations + incoming.latitude) / observations,
     longitude: (previous.longitude * previous.observations + incoming.longitude) / observations,
+    frequencyHz: incoming.frequencyHz,
     levelDbfs: 10 * Math.log10(meanPower),
     measuredAt: incoming.measuredAt,
     observations,
@@ -129,13 +140,14 @@ export function mergeSurveySample(
 
 export function signalSurveyCsv(
   samples: readonly SignalSurveySample[],
-  frequencyHz: number,
+  offsetHz: number,
   bandwidthHz: number,
 ): string {
   const rows = samples.map((sample) =>
     [
       new Date(sample.measuredAt).toISOString(),
-      frequencyHz,
+      sample.frequencyHz,
+      offsetHz,
       bandwidthHz,
       sample.latitude.toFixed(7),
       sample.longitude.toFixed(7),
@@ -145,16 +157,16 @@ export function signalSurveyCsv(
     ].join(","),
   );
   return [
-    "time,frequency_hz,bandwidth_hz,latitude,longitude,accuracy_m,level_dbfs,observations",
+    "time,frequency_hz,offset_hz,bandwidth_hz,latitude,longitude,accuracy_m,level_dbfs,observations",
     ...rows,
   ].join("\n");
 }
 
-function cellKey(latitude: number, longitude: number): string {
+function cellKey(latitude: number, longitude: number, frequencyHz: number): string {
   const latitudeRad = (latitude * Math.PI) / 180;
   const x = longitude * 111_320 * Math.max(0.01, Math.cos(latitudeRad));
   const y = latitude * 110_540;
-  return `${Math.round(x / CELL_SIZE_M)}:${Math.round(y / CELL_SIZE_M)}`;
+  return `${Math.round(frequencyHz)}:${Math.round(x / CELL_SIZE_M)}:${Math.round(y / CELL_SIZE_M)}`;
 }
 
 function dbToPower(db: number): number {

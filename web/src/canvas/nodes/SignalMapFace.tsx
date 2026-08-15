@@ -1,22 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, Input } from "../../components/BaseControls";
 import { BTN, BTN_DANGER, BTN_PRIMARY, FIELD, LABEL } from "../../components/controls";
-import { parseFrequency } from "../../components/dial";
-import { formatHz } from "../../components/format";
+import { formatHz, formatSignedKhz } from "../../components/format";
 import { MapPanel } from "../../components/MapPanel";
+import { NumberField } from "../../components/NumberField";
 import type { SpectrumFrame } from "../../lib/frame";
 import { type PositionSample, positionSourcesOf, usePositionStore } from "../../lib/position";
-import { measureSignalDbfs, signalSurveyCsv, useSignalSurveyStore } from "../../lib/signalSurvey";
+import {
+  measureSignalDbfs,
+  signalOffsetLimitHz,
+  signalSurveyCsv,
+  useSignalSurveyStore,
+} from "../../lib/signalSurvey";
 import { spectrumHub } from "../../lib/spectrum";
 import type { PatchNode, PatchNodeOf } from "../../lib/types";
-import { useDevicePatch } from "../../lib/useDevicePatch";
 import { iqSourceOf } from "../binding";
 import { deviceSetOf, useWorkspaceContext } from "../context";
 import { patchNode } from "../graph";
-import { tuneDelta } from "./DeviceFace";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 
 const LEVEL_REFRESH_MS = 200;
+const OFFSET_STEPS_HZ = [-25_000, -5_000, 5_000, 25_000];
+const MAX_OFFSET_HZ = 1_000_000_000_000;
 
 export function SignalMapFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
@@ -36,7 +41,7 @@ export function SignalMapFace({ node }: { node: PatchNode }) {
       node={node}
       title="Signal survey"
       category="display"
-      subtitle={set === null ? undefined : formatHz(node.data.frequency_hz)}
+      subtitle={set === null ? undefined : formatSignedKhz(node.data.offset_hz)}
       live={set !== null && position !== undefined}
     >
       <FaceBody scroll={false}>
@@ -74,7 +79,6 @@ function SignalSurvey({
   position: PositionSample | undefined;
 }) {
   const workspace = useWorkspaceContext();
-  const { applyPatch } = useDevicePatch();
   const active = useFaceActive();
   const session = useSignalSurveyStore((store) => store.sessions[node.id]);
   const samples = session?.samples ?? [];
@@ -83,30 +87,45 @@ function SignalSurvey({
   const observe = useSignalSurveyStore((store) => store.observe);
   const clear = useSignalSurveyStore((store) => store.clear);
 
-  const [level, setLevel] = useState<number | null>(null);
+  const [live, setLive] = useState<{
+    level: number | null;
+    targetHz: number;
+    spanHz: number;
+  } | null>(null);
   const [clearArmed, setClearArmed] = useState(false);
   const positionRef = useRef(position);
   const recordingRef = useRef(recording);
-  const frequencyRef = useRef(node.data.frequency_hz);
+  const surveyFrequencyRef = useRef(samples[0]?.frequencyHz);
+  const offsetRef = useRef(node.data.offset_hz);
   const bandwidthRef = useRef(node.data.bandwidth_hz);
   const lastRecordedRef = useRef(0);
   const lastLevelRenderRef = useRef(0);
   positionRef.current = position;
   recordingRef.current = recording;
-  frequencyRef.current = node.data.frequency_hz;
+  surveyFrequencyRef.current = samples[0]?.frequencyHz;
+  offsetRef.current = node.data.offset_hz;
   bandwidthRef.current = node.data.bandwidth_hz;
 
   useEffect(
     () =>
       spectrumHub.subscribe(deviceSet, stream, (frame: SpectrumFrame) => {
-        const measured = measureSignalDbfs(frame, frequencyRef.current, bandwidthRef.current);
+        const targetHz = Math.round(frame.centerHz + offsetRef.current);
+        const measured = measureSignalDbfs(frame, targetHz, bandwidthRef.current);
         const now = performance.now();
         if (now - lastLevelRenderRef.current >= LEVEL_REFRESH_MS || measured === null) {
           lastLevelRenderRef.current = now;
-          setLevel(measured);
+          setLive({ level: measured, targetHz, spanHz: frame.spanHz });
         }
 
         const fix = positionRef.current;
+        const surveyFrequency = surveyFrequencyRef.current;
+        if (surveyFrequency !== undefined && targetHz !== surveyFrequency) {
+          if (recordingRef.current) {
+            recordingRef.current = false;
+            setRecording(node.id, false);
+          }
+          return;
+        }
         if (
           !recordingRef.current ||
           measured === null ||
@@ -119,65 +138,73 @@ function SignalSurvey({
         observe(node.id, {
           latitude: fix.latitude,
           longitude: fix.longitude,
+          frequencyHz: targetHz,
           levelDbfs: measured,
           measuredAt: Date.now(),
           ...(fix.accuracy_m == null ? {} : { accuracyM: fix.accuracy_m }),
         });
       }),
-    [deviceSet, node.id, observe, stream],
+    [deviceSet, node.id, observe, setRecording, stream],
   );
 
-  const updateSettings = (frequencyHz: number, bandwidthHz: number): void => {
+  const updateSettings = (offsetHz: number, bandwidthHz: number): void => {
     workspace.edit((snapshot) => ({
       ...snapshot,
       graph: patchNode(snapshot.graph, node.id, (current) =>
         current.kind === "signal_map"
           ? {
               ...current,
-              data: { frequency_hz: frequencyHz, bandwidth_hz: bandwidthHz },
+              data: { offset_hz: offsetHz, bandwidth_hz: bandwidthHz },
             }
           : current,
       ),
     }));
   };
 
-  const tune = (frequencyHz: number): void => {
-    updateSettings(frequencyHz, node.data.bandwidth_hz);
-    const set = deviceSetOf(workspace, node.id);
-    if (set !== null) {
-      applyPatch(set.id, tuneDelta(set.capabilities, stream, frequencyHz));
-    }
-  };
-
-  const status = surveyStatus(position, level, recording);
+  const level = live?.level ?? null;
+  const surveyFrequency = samples[0]?.frequencyHz;
+  const frequencyChanged =
+    surveyFrequency !== undefined && live !== null && live.targetHz !== surveyFrequency;
+  const offsetLimitHz =
+    live === null
+      ? MAX_OFFSET_HZ
+      : Math.min(MAX_OFFSET_HZ, signalOffsetLimitHz(live.spanHz, node.data.bandwidth_hz));
+  const status = surveyStatus(position, level, recording, frequencyChanged);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-end gap-2 border-b border-line bg-panel-2 p-2">
-        <label className={`${LABEL} flex min-w-40 flex-1 flex-col items-stretch gap-1`}>
-          Frequency
-          <Input
-            key={node.data.frequency_hz}
-            className={FIELD}
-            defaultValue={`${node.data.frequency_hz / 1e6}`}
-            inputMode="decimal"
-            aria-label="Survey frequency"
-            disabled={samples.length > 0}
-            title={
-              samples.length > 0 ? "Clear the current survey before changing frequency" : undefined
-            }
-            onBlur={(event) => {
-              const parsed = parseFrequency(event.currentTarget.value);
-              if (parsed === null || parsed < 0 || parsed > 1_000_000_000_000) {
-                event.currentTarget.value = `${node.data.frequency_hz / 1e6}`;
-                return;
-              }
-              if (parsed !== node.data.frequency_hz) {
-                tune(parsed);
-              }
-            }}
+        <fieldset
+          className="flex min-w-72 flex-1 flex-wrap items-center gap-1 disabled:opacity-60"
+          disabled={samples.length > 0}
+          title={samples.length > 0 ? "Clear the current survey before changing offset" : undefined}
+        >
+          {OFFSET_STEPS_HZ.map((step) => (
+            <Button
+              key={step}
+              type="button"
+              className={`${BTN} font-mono tabular-nums`}
+              onClick={() => {
+                const next = node.data.offset_hz + step;
+                const clamped = Math.max(-offsetLimitHz, Math.min(offsetLimitHz, next));
+                updateSettings(clamped, node.data.bandwidth_hz);
+              }}
+            >
+              {step > 0 ? "+" : "−"}
+              {Math.abs(step) / 1000}k
+            </Button>
+          ))}
+          <NumberField
+            label="Offset (kHz)"
+            value={node.data.offset_hz / 1000}
+            min={-offsetLimitHz / 1000}
+            max={offsetLimitHz / 1000}
+            step={0.5}
+            onCommit={(khz) => updateSettings(Math.round(khz * 1000), node.data.bandwidth_hz)}
+            className="w-24"
           />
-        </label>
+          <span className="legend">kHz</span>
+        </fieldset>
         <label className={`${LABEL} flex w-28 flex-col items-stretch gap-1`}>
           Width (kHz)
           <Input
@@ -199,7 +226,12 @@ function SignalSurvey({
                 return;
               }
               if (bandwidth !== node.data.bandwidth_hz) {
-                updateSettings(node.data.frequency_hz, bandwidth);
+                const limit =
+                  live === null
+                    ? MAX_OFFSET_HZ
+                    : Math.min(MAX_OFFSET_HZ, signalOffsetLimitHz(live.spanHz, bandwidth));
+                const offset = Math.max(-limit, Math.min(limit, node.data.offset_hz));
+                updateSettings(offset, bandwidth);
               }
             }}
           />
@@ -207,7 +239,7 @@ function SignalSurvey({
         <Button
           type="button"
           className={recording ? BTN_DANGER : BTN_PRIMARY}
-          disabled={!recording && (position === undefined || level === null)}
+          disabled={!recording && (position === undefined || level === null || frequencyChanged)}
           aria-pressed={recording}
           onClick={() => setRecording(node.id, !recording)}
         >
@@ -241,6 +273,7 @@ function SignalSurvey({
       <div className="flex shrink-0 items-center gap-3 border-b border-line px-2 py-1 font-mono text-[10px] tabular-nums">
         <span className={recording ? "text-accent" : "text-ink-dim"}>{status}</span>
         <span className="ml-auto text-ink-dim">{samples.length} cells</span>
+        <span className="text-ink-dim">{live === null ? "— Hz" : formatHz(live.targetHz)}</span>
         <span
           className="min-w-20 text-right text-ink"
           title="Relative receiver level. Keep gain and antenna settings fixed when comparing locations."
@@ -263,12 +296,16 @@ function surveyStatus(
   position: PositionSample | undefined,
   level: number | null,
   recording: boolean,
+  frequencyChanged: boolean,
 ): string {
   if (position === undefined) {
     return "Waiting for GPS";
   }
   if (level === null) {
-    return "Frequency is outside the radio span";
+    return "Offset is outside the IQ span";
+  }
+  if (frequencyChanged) {
+    return "IQ centre changed — clear to start a new survey";
   }
   return recording ? "Recording each new GPS fix" : "Ready";
 }
@@ -277,14 +314,14 @@ function downloadSurvey(
   node: PatchNodeOf<"signal_map">,
   samples: Parameters<typeof signalSurveyCsv>[0],
 ): void {
-  const blob = new Blob(
-    [signalSurveyCsv(samples, node.data.frequency_hz, node.data.bandwidth_hz)],
-    { type: "text/csv;charset=utf-8" },
-  );
+  const blob = new Blob([signalSurveyCsv(samples, node.data.offset_hz, node.data.bandwidth_hz)], {
+    type: "text/csv;charset=utf-8",
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `signal-survey-${node.data.frequency_hz}-hz-${node.data.bandwidth_hz}-hz-wide.csv`;
+  const frequency = samples[0]?.frequencyHz ?? 0;
+  link.download = `signal-survey-${frequency}-hz-${node.data.bandwidth_hz}-hz-wide.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
