@@ -10,9 +10,10 @@ use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, ChannelParams,
-    ChannelSettings, DecodedRecord, DecoderEvent, GnssParams, IdentParams, Modulation, MorseParams,
-    NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams, RdsUpdate, RttyParams,
-    SubghzEncoding, SubghzParams, WfmParams,
+    ChannelSettings, DecodedRecord, DecoderEvent, DvFrameKind, DvMode, FreeDvParams, GnssParams,
+    IdentParams, Modulation, MorseParams, NavtexParams, NfmParams, NfmToneMode, PocsagBaud,
+    PocsagParams, RdsUpdate, RttyParams, SelcallParams, SelcallSystem, SubghzEncoding,
+    SubghzParams, WfmParams,
 };
 use tempfile::TempDir;
 
@@ -355,6 +356,75 @@ async fn a_ctcss_tone_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert_eq!(status.ctcss_hz, Some(88.5));
     assert_eq!(status.dcs_code, None);
     assert!(status.open, "the tone the channel was set to must open it");
+}
+
+#[tokio::test]
+async fn selcall_survives_the_ddc_and_reaches_the_decoded_stream() {
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = 5_000.0;
+    let mut iq =
+        testgen::selcall::transmission(SelcallSystem::Ccir1, "12234", AUDIO_DEVICE_RATE).unwrap();
+    testgen::shift(&mut iq, offset_hz, AUDIO_DEVICE_RATE);
+    let device = plant(dir.path(), "selcall_ccir1", iq, AUDIO_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Selcall(SelcallParams {
+                system: SelcallSystem::Ccir1,
+            }),
+        },
+        |event| matches!(event, DecoderEvent::Selcall(_)),
+    )
+    .await;
+    let DecoderEvent::Selcall(call) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(call.code, "12234");
+    assert_eq!(call.system, SelcallSystem::Ccir1);
+}
+
+#[tokio::test]
+async fn freedv_recording_survives_the_virtual_device_and_acquires_sync() {
+    const FIXTURE: &[u8] = include_bytes!("../../../fixtures/freedv_1600_8k.sigmf-data");
+    let iq = FIXTURE
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|sample| {
+            Complex::new(
+                f32::from_le_bytes([sample[0], sample[1], sample[2], sample[3]]),
+                f32::from_le_bytes([sample[4], sample[5], sample[6], sample[7]]),
+            )
+        })
+        .collect();
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let device = plant(dir.path(), "freedv_1600", iq, 8_000.0);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz: 0.0,
+            squelch_db: None,
+            params: ChannelParams::Freedv(FreeDvParams::default()),
+        },
+        |event| {
+            matches!(
+                event,
+                DecoderEvent::Dv(frame)
+                    if frame.mode == DvMode::FreeDv && frame.kind == DvFrameKind::Header
+            )
+        },
+    )
+    .await;
+    let DecoderEvent::Dv(frame) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(frame.opcode.as_deref(), Some("1600"));
 }
 
 /// ADS-B end to end at 2 Msps, the lowest rate that carries it — one sample per half-chip.

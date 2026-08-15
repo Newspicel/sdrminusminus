@@ -34,6 +34,7 @@ pub mod pocsag;
 pub mod radio_clock;
 pub mod rds;
 pub mod rtty;
+pub mod selcall;
 pub mod subghz;
 pub mod wfm;
 

@@ -188,6 +188,17 @@ pub struct MorseText {
     pub wpm: f32,
 }
 
+/// One complete five-tone selective call after the repeat marker has been expanded.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SelcallSequence {
+    pub system: crate::channel::SelcallSystem,
+    /// Five decoded digits/group symbols. Consecutive equal digits are represented literally,
+    /// not by the on-air repeat marker.
+    pub code: String,
+    /// Median detected tone duration, rounded to milliseconds.
+    pub tone_ms: u32,
+}
+
 /// One NAVTEX broadcast (: SITOR-B over 100 baud FSK). The `ZCZC B1B2B3B4` header is
 /// parsed out because that is what a receiver filters on — station, subject and serial are how
 /// a ship decides whether it has already seen this message.
@@ -502,6 +513,8 @@ pub enum DvMode {
     P25,
     Dpmr,
     M17,
+    #[serde(rename = "freedv")]
+    FreeDv,
 }
 
 impl DvMode {
@@ -516,6 +529,7 @@ impl DvMode {
             Self::P25 => "P25",
             Self::Dpmr => "dPMR",
             Self::M17 => "M17",
+            Self::FreeDv => "FreeDV",
         }
     }
 }
@@ -782,6 +796,7 @@ pub enum DecoderEvent {
     Aprs(AprsPacket),
     Rtty(RttyText),
     Morse(MorseText),
+    Selcall(SelcallSequence),
     Navtex(NavtexMessage),
     Acars(AcarsMessage),
     Subghz(SubghzFrame),
@@ -804,6 +819,7 @@ impl DecoderEvent {
             Self::Aprs(_) => "aprs",
             Self::Rtty(_) => "rtty",
             Self::Morse(_) => "morse",
+            Self::Selcall(_) => "selcall",
             Self::Navtex(_) => "navtex",
             Self::Acars(_) => "acars",
             Self::Subghz(_) => "subghz",
@@ -874,6 +890,14 @@ impl DecoderEvent {
             },
             Self::Rtty(t) => t.text.clone(),
             Self::Morse(m) => m.text.clone(),
+            Self::Selcall(s) => format!(
+                "{} · {}",
+                match s.system {
+                    crate::channel::SelcallSystem::Ccir1 => "CCIR-1",
+                    crate::channel::SelcallSystem::Zvei1 => "ZVEI-1",
+                },
+                s.code
+            ),
             Self::Navtex(n) => {
                 let mut parts = Vec::new();
                 if let Some(id) = n.header() {
@@ -1056,11 +1080,11 @@ impl DecoderEvent {
                 .source_call
                 .clone()
                 .or_else(|| f.source.map(|s| s.to_string())),
-            // A survey of what is on a frequency names no emitter: the whole point is that
-            // whoever is transmitting has not been identified yet.
             Self::Gnss(g) => Some(format!("GPS-{}", g.prn)),
             Self::RadioClock(r) => Some(format!("{:?}", r.standard).to_uppercase()),
-            Self::Rtty(_) | Self::Morse(_) | Self::Tone(_) | Self::Ident(_) => None,
+            Self::Rtty(_) | Self::Morse(_) | Self::Selcall(_) | Self::Tone(_) | Self::Ident(_) => {
+                None
+            }
         }
     }
 }
@@ -1123,6 +1147,11 @@ mod tests {
             DecoderEvent::Morse(MorseText {
                 text: String::new(),
                 wpm: 0.0,
+            }),
+            DecoderEvent::Selcall(SelcallSequence {
+                system: crate::channel::SelcallSystem::Ccir1,
+                code: "12345".to_owned(),
+                tone_ms: 100,
             }),
             DecoderEvent::Navtex(NavtexMessage::default()),
             DecoderEvent::Acars(AcarsMessage::default()),

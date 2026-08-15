@@ -14,6 +14,7 @@ mod pocsag;
 mod radio_clock;
 mod rds;
 mod rtty;
+mod selcall;
 mod ssb;
 mod subghz;
 pub mod tone_squelch;
@@ -33,7 +34,8 @@ pub use am::{AmChannel, AmTx};
 pub use aprs::{AprsChannel, AprsTx, MicE, MicEBit};
 pub use atv::AtvChannel;
 pub use dv::{
-    DmrChannel, DpmrChannel, DstarChannel, M17Channel, NxdnChannel, P25Channel, YsfChannel,
+    DmrChannel, DpmrChannel, DstarChannel, FreeDvChannel, M17Channel, NxdnChannel, P25Channel,
+    YsfChannel,
 };
 pub use gnss::GnssChannel;
 pub use ident::IdentChannel;
@@ -48,6 +50,7 @@ use sdrmm_dsp::{Agc, Decimator, FirC};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PositionFix, Sideband,
 };
+pub use selcall::SelcallChannel;
 pub use ssb::{SsbChannel, SsbTx};
 pub use subghz::SubghzChannel;
 pub use wfm::WfmChannel;
@@ -84,6 +87,7 @@ pub(crate) fn clamp_full_scale(pcm: &mut [f32]) {
 pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
     match params {
         ChannelParams::Nfm(p) => (-p.bandwidth_hz / 2.0, p.bandwidth_hz / 2.0),
+        ChannelParams::Selcall(_) => selcall::occupied_band(),
         ChannelParams::Am(p) => (-p.bandwidth_hz / 2.0, p.bandwidth_hz / 2.0),
         ChannelParams::Ssb(p) => match p.sideband {
             Sideband::Usb => (ssb::PASSBAND_LOW_HZ, p.bandwidth_hz),
@@ -110,6 +114,7 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::P25(_) => dv::p25::occupied_band(),
         ChannelParams::Dpmr(_) => dv::dpmr::occupied_band(),
         ChannelParams::M17(_) => dv::m17::occupied_band(),
+        ChannelParams::Freedv(p) => dv::freedv::occupied_band(p),
         ChannelParams::Ident(p) => ident::occupied_band(p),
         ChannelParams::RadioClock(_) => radio_clock::occupied_band(),
         ChannelParams::Gnss(_) => gnss::occupied_band(),
@@ -147,6 +152,7 @@ impl ChannelFilter {
 pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelError> {
     match params {
         ChannelParams::Nfm(p) => nfm::channel_filter(p),
+        ChannelParams::Selcall(_) => Ok(selcall::channel_filter()),
         ChannelParams::Am(p) => am::channel_filter(p),
         ChannelParams::Ssb(p) => Ok(ChannelFilter::Sideband(ssb::sideband_filter(p)?)),
         ChannelParams::Wfm(_) => Ok(wfm::channel_filter()),
@@ -167,6 +173,7 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::P25(_) => Ok(dv::p25::channel_filter()),
         ChannelParams::Dpmr(_) => Ok(dv::dpmr::channel_filter()),
         ChannelParams::M17(_) => Ok(dv::m17::channel_filter()),
+        ChannelParams::Freedv(p) => dv::freedv::channel_filter(p),
         ChannelParams::Ident(p) => ident::channel_filter(p),
         ChannelParams::RadioClock(_) => Ok(radio_clock::channel_filter()),
         ChannelParams::Gnss(_) => Ok(gnss::channel_filter()),
@@ -345,6 +352,11 @@ const REGISTRY: &[Registration] = &[
         create_tx: Some(boxed_tx::<NfmTx>),
     },
     Registration {
+        descriptor: SelcallChannel::descriptor,
+        create: boxed::<SelcallChannel>,
+        create_tx: None,
+    },
+    Registration {
         descriptor: AmChannel::descriptor,
         create: boxed::<AmChannel>,
         create_tx: Some(boxed_tx::<AmTx>),
@@ -442,6 +454,11 @@ const REGISTRY: &[Registration] = &[
     Registration {
         descriptor: M17Channel::descriptor,
         create: boxed::<M17Channel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: FreeDvChannel::descriptor,
+        create: boxed::<FreeDvChannel>,
         create_tx: None,
     },
     Registration {
@@ -554,9 +571,9 @@ mod tests {
 
     use sdrmm_wire::{
         AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvParams, ChannelParams,
-        DmrParams, DpmrParams, DstarParams, GnssParams, IdentParams, M17Params, MorseParams,
-        NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams, RadioClockParams, RttyParams,
-        SsbParams, SubghzParams, WfmParams, YsfParams,
+        DmrParams, DpmrParams, DstarParams, FreeDvParams, GnssParams, IdentParams, M17Params,
+        MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams,
+        RadioClockParams, RttyParams, SelcallParams, SsbParams, SubghzParams, WfmParams, YsfParams,
     };
 
     use super::*;
@@ -565,6 +582,7 @@ mod tests {
     fn default_params(type_id: &str) -> ChannelParams {
         match type_id {
             "nfm" => ChannelParams::Nfm(NfmParams::default()),
+            "selcall" => ChannelParams::Selcall(SelcallParams::default()),
             "am" => ChannelParams::Am(AmParams::default()),
             "ssb" => ChannelParams::Ssb(SsbParams::default()),
             "wfm" => ChannelParams::Wfm(WfmParams::default()),
@@ -585,6 +603,7 @@ mod tests {
             "p25" => ChannelParams::P25(P25Params::default()),
             "dpmr" => ChannelParams::Dpmr(DpmrParams::default()),
             "m17" => ChannelParams::M17(M17Params::default()),
+            "freedv" => ChannelParams::Freedv(FreeDvParams::default()),
             "ident" => ChannelParams::Ident(IdentParams::default()),
             "radio_clock" => ChannelParams::RadioClock(RadioClockParams::default()),
             "gnss" => ChannelParams::Gnss(GnssParams::default()),
@@ -595,12 +614,13 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 24);
+        assert_eq!(all.len(), 26);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
             HashSet::from([
                 "nfm",
+                "selcall",
                 "am",
                 "ssb",
                 "wfm",
@@ -621,6 +641,7 @@ mod tests {
                 "p25",
                 "dpmr",
                 "m17",
+                "freedv",
                 "ident",
                 "radio_clock",
                 "gnss",
@@ -629,6 +650,7 @@ mod tests {
         for d in &all {
             let (bandwidth, rate) = match d.type_id.as_str() {
                 "nfm" => (12_500.0, 48_000.0),
+                "selcall" => (12_500.0, 48_000.0),
                 "am" => (10_000.0, 48_000.0),
                 "ssb" => (3_000.0, 48_000.0),
                 "wfm" => (200_000.0, 240_000.0),
@@ -645,6 +667,7 @@ mod tests {
                 "dmr" | "ysf" | "p25" => (12_500.0, 48_000.0),
                 "dstar" | "nxdn" | "dpmr" => (6_250.0, 48_000.0),
                 "m17" => (9_000.0, 48_000.0),
+                "freedv" => (1_400.0, 8_000.0),
                 "ident" => (192_000.0, 240_000.0),
                 "radio_clock" => (200.0, 2_000.0),
                 "gnss" => (2_046_000.0, 2_048_000.0),
@@ -676,6 +699,7 @@ mod tests {
                         | "p25"
                         | "dpmr"
                         | "m17"
+                        | "freedv"
                 ),
                 "{} audio flag does not match its mode class",
                 d.type_id

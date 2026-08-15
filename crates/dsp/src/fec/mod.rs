@@ -419,6 +419,38 @@ pub const fn golay23_ok(word: u32) -> bool {
     golay23_remainder(word) == 0
 }
 
+/// Correct up to three bit errors in a systematic Golay(23,12) word.
+///
+/// The code's minimum distance is seven, so a word within distance three has exactly one
+/// correction. The exhaustive syndrome search is bounded at 2,048 candidates and is used only
+/// once per received codeword, avoiding a permanent 8 KiB lookup table in every process.
+#[must_use]
+pub fn golay23_correct(word: u32) -> Option<(u32, u32)> {
+    let word = word & 0x7F_FFFF;
+    if golay23_ok(word) {
+        return Some((word, 0));
+    }
+    for first in 0..23 {
+        let one = word ^ 1 << first;
+        if golay23_ok(one) {
+            return Some((one, 1));
+        }
+        for second in first + 1..23 {
+            let two = one ^ 1 << second;
+            if golay23_ok(two) {
+                return Some((two, 2));
+            }
+            for third in second + 1..23 {
+                let three = two ^ 1 << third;
+                if golay23_ok(three) {
+                    return Some((three, 3));
+                }
+            }
+        }
+    }
+    None
+}
+
 /// POCSAG BCH(31,21) generator x^10+x^9+x^8+x^6+x^5+x^3+1.
 const POCSAG_GEN: u32 = 0x769;
 /// Codeword bits covered by the BCH code — everything but the trailing parity bit.
@@ -765,6 +797,27 @@ mod tests {
             assert!(golay23_ok(word), "data {data:#05x}");
             for bit in 0..GOLAY23_CODE_BITS {
                 assert!(!golay23_ok(word ^ 1 << bit), "data {data:#05x} bit {bit}");
+            }
+        }
+    }
+
+    #[test]
+    fn golay23_repairs_every_error_up_to_its_radius() {
+        let word = golay23_encode(0xA53);
+        assert_eq!(golay23_correct(word), Some((word, 0)));
+        for first in 0..GOLAY23_CODE_BITS {
+            assert_eq!(golay23_correct(word ^ 1 << first), Some((word, 1)));
+            for second in first + 1..GOLAY23_CODE_BITS {
+                assert_eq!(
+                    golay23_correct(word ^ 1 << first ^ 1 << second),
+                    Some((word, 2))
+                );
+                for third in second + 1..GOLAY23_CODE_BITS {
+                    assert_eq!(
+                        golay23_correct(word ^ 1 << first ^ 1 << second ^ 1 << third),
+                        Some((word, 3))
+                    );
+                }
             }
         }
     }

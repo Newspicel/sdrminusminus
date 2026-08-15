@@ -1,0 +1,22 @@
+{
+  "global": {
+    "core:datatype": "cf32_le",
+    "core:sample_rate": 8000,
+    "core:version": "1.2.6",
+    "core:description": "FreeDV 1600 receive recording supplied by the FreeDV GUI project, trimmed to the first three seconds and represented as real-valued complex IQ",
+    "core:hw": "FreeDV GUI test recording ve9qrp_1600.wav"
+  },
+  "captures": [
+    {
+      "core:sample_start": 0,
+      "core:frequency": 0
+    }
+  ],
+  "annotations": [
+    {
+      "core:sample_start": 0,
+      "core:sample_count": 24000,
+      "core:comment": "Source: https://github.com/drowe67/freedv-gui/blob/86199f747e77df5a486eb8b08845f6ee2392ba81/wav/ve9qrp_1600.wav (LGPL-2.1); original SHA-256 6431b7cea211c0c9c55360d158913d9fe26f7c57f8a7aea3e8b852b1071a87d3"
+    }
+  ]
+}

@@ -1350,6 +1350,31 @@ fn decoder_fixtures() -> Vec<Fixture> {
     }];
 
     out.push(Fixture {
+        stem: "selcall_ccir1_48k".to_string(),
+        iq: at(
+            testgen::selcall::transmission(sdrmm_wire::SelcallSystem::Ccir1, "12234", AUDIO)
+                .expect("CCIR-1 fixture code is valid"),
+            5_000.0,
+            AUDIO,
+        ),
+        rate: AUDIO,
+        note: "selcall CCIR-1 channel at +5 kHz -> 12234 (repeat marker expanded)".to_string(),
+    });
+
+    out.push(Fixture {
+        stem: "selcall_zvei1_48k".to_string(),
+        iq: at(
+            testgen::selcall::transmission(sdrmm_wire::SelcallSystem::Zvei1, "A11D0", AUDIO)
+                .expect("ZVEI-1 fixture code is valid"),
+            -5_000.0,
+            AUDIO,
+        ),
+        rate: AUDIO,
+        note: "selcall ZVEI-1 channel at -5 kHz -> A11D0 (group symbols and repeat marker)"
+            .to_string(),
+    });
+
+    out.push(Fixture {
         stem: "ais_position_240k".to_string(),
         iq: at(
             testgen::ais::burst(

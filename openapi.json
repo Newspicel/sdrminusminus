@@ -3969,6 +3969,24 @@
             ],
             "properties": {
               "settings": {
+                "$ref": "#/components/schemas/SelcallParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "selcall"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
                 "$ref": "#/components/schemas/AmParams"
               },
               "type": {
@@ -4317,6 +4335,24 @@
                 "type": "string",
                 "enum": [
                   "m17"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/FreeDvParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "freedv"
                 ]
               }
             }
@@ -5078,6 +5114,24 @@
                 "type": "string",
                 "enum": [
                   "morse"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/SelcallSequence"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "selcall"
                 ]
               }
             }
@@ -6169,7 +6223,8 @@
           "nxdn",
           "p25",
           "dpmr",
-          "m17"
+          "m17",
+          "freedv"
         ]
       },
       "DvSlotActivity": {
@@ -6347,6 +6402,24 @@
             "type": "string"
           },
           "value": {}
+        }
+      },
+      "FreeDvMode": {
+        "type": "string",
+        "description": "FreeDV air-interface generation. The initial implementation supports the interoperable\n1600 mode; making the generation explicit prevents a future default change from silently\nselecting an incompatible waveform on a saved channel.",
+        "enum": [
+          "mode1600"
+        ]
+      },
+      "FreeDvParams": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/FreeDvMode"
+          },
+          "sideband": {
+            "$ref": "#/components/schemas/Sideband"
+          }
         }
       },
       "GainStage": {
@@ -8696,6 +8769,46 @@
             "minimum": 0
           }
         }
+      },
+      "SelcallParams": {
+        "type": "object",
+        "properties": {
+          "system": {
+            "$ref": "#/components/schemas/SelcallSystem"
+          }
+        }
+      },
+      "SelcallSequence": {
+        "type": "object",
+        "description": "One complete five-tone selective call after the repeat marker has been expanded.",
+        "required": [
+          "system",
+          "code",
+          "tone_ms"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Five decoded digits/group symbols. Consecutive equal digits are represented literally,\nnot by the on-air repeat marker."
+          },
+          "system": {
+            "$ref": "#/components/schemas/SelcallSystem"
+          },
+          "tone_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Median detected tone duration, rounded to milliseconds.",
+            "minimum": 0
+          }
+        }
+      },
+      "SelcallSystem": {
+        "type": "string",
+        "description": "Five-tone sequential selective-calling plan.",
+        "enum": [
+          "ccir1",
+          "zvei1"
+        ]
       },
       "ServerEvent": {
         "oneOf": [

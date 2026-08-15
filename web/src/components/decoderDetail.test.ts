@@ -28,6 +28,7 @@ describe("eventDetail", () => {
       aprs: { kind: "aprs", data: { source: "A", destination: "B", info: "", tnc2: "A>B:" } },
       rtty: { kind: "rtty", data: { text: "" } },
       morse: { kind: "morse", data: { text: "", wpm: 0 } },
+      selcall: { kind: "selcall", data: { system: "ccir1", code: "12345", tone_ms: 100 } },
       navtex: { kind: "navtex", data: { text: "", errors_corrected: 0, complete: true } },
       acars: {
         kind: "acars",
@@ -99,6 +100,15 @@ describe("eventDetail", () => {
     for (const kind of DECODER_KINDS) {
       expect(() => eventDetail(sample[kind]), kind).not.toThrow();
     }
+  });
+
+  it("shows the Selcall plan, expanded code, and measured duration", () => {
+    expect(
+      fieldsOf({
+        kind: "selcall",
+        data: { system: "zvei1", code: "A11D0", tone_ms: 70 },
+      }),
+    ).toEqual({ "Tone plan": "ZVEI-1", Code: "A11D0", "Tone duration": "70 ms" });
   });
 
   it("omits the fields a frame did not carry rather than dashing them", () => {
