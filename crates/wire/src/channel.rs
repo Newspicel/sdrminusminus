@@ -32,9 +32,9 @@ pub struct ChannelDescriptor {
     /// resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
     /// highest, so a receiver is set anywhere in that range rather than to one exact number.
     ///
-    /// ADS-B is the one such type: a 0.5 µs pulse is a single sample at
-    /// 2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
-    /// meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
+    /// ADS-B and educational GNSS are such types: their chip timing is defined at the capture
+    /// rate, so the decoder meets the radio at its rate instead. Mutually exclusive with
+    /// `exact_rate_only`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_rate_max_hz: Option<f64>,
     #[serde(default)]
@@ -735,6 +735,63 @@ impl Default for IdentParams {
     }
 }
 
+/// Long-wave civil time service carried by the radio-clock channel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RadioClockStandard {
+    #[default]
+    Dcf77,
+    Wwvb,
+    Msf,
+    Jjy,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RadioClockParams {
+    #[serde(default)]
+    pub standard: RadioClockStandard,
+    /// Reverse the received AM envelope for an inverting receiver or recording.
+    #[serde(default)]
+    pub invert: bool,
+}
+
+fn default_gnss_prn() -> u8 {
+    1
+}
+
+fn default_gnss_doppler_hz() -> u32 {
+    10_000
+}
+
+fn default_gnss_threshold() -> f32 {
+    2.5
+}
+
+/// Educational GPS L1 C/A acquisition and NAV-message settings.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct GnssParams {
+    /// Space-vehicle PRN to acquire. A focused single-PRN view keeps every correlation result
+    /// inspectable and bounds the work done on the DSP thread.
+    #[serde(default = "default_gnss_prn")]
+    pub prn: u8,
+    /// Symmetric acquisition search span around the tuned L1 carrier.
+    #[serde(default = "default_gnss_doppler_hz")]
+    pub doppler_hz: u32,
+    /// Acquisition peak divided by the mean correlation floor.
+    #[serde(default = "default_gnss_threshold")]
+    pub threshold: f32,
+}
+
+impl Default for GnssParams {
+    fn default() -> Self {
+        Self {
+            prn: default_gnss_prn(),
+            doppler_hz: default_gnss_doppler_hz(),
+            threshold: default_gnss_threshold(),
+        }
+    }
+}
+
 /// Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
 /// discriminated union on `type`, and `{"type":"nfm","settings":{}}` deserializes with
 /// every field at its default.
@@ -763,6 +820,8 @@ pub enum ChannelParams {
     Dpmr(DpmrParams),
     M17(M17Params),
     Ident(IdentParams),
+    RadioClock(RadioClockParams),
+    Gnss(GnssParams),
 }
 
 impl ChannelParams {
@@ -792,6 +851,8 @@ impl ChannelParams {
             Self::Dpmr(_) => "dpmr",
             Self::M17(_) => "m17",
             Self::Ident(_) => "ident",
+            Self::RadioClock(_) => "radio_clock",
+            Self::Gnss(_) => "gnss",
         }
     }
 }
