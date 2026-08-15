@@ -30,7 +30,7 @@ export function WorkspaceBar({
   canUndo,
   canRedo,
   onShowShortcuts,
-  onShowTools,
+  onOpenTool,
 }: {
   view: View;
   onView: (view: View) => void;
@@ -44,7 +44,7 @@ export function WorkspaceBar({
   canUndo: boolean;
   canRedo: boolean;
   onShowShortcuts: () => void;
-  onShowTools: () => void;
+  onOpenTool: (id: string) => void;
 }) {
   const workspace = useWorkspaceContext();
   const placeNode = useNodePlacement();
@@ -155,12 +155,6 @@ export function WorkspaceBar({
       </Popover>
 
       <span className="ml-auto flex items-center gap-1">
-        {/* Tools stand beside the receiver, not in the patch: they open over whatever view is
-            up and leave the graph exactly as it was. */}
-        <Button type="button" className={BTN_QUIET} onClick={onShowTools}>
-          Tools
-        </Button>
-        <Rule />
         <Popover
           label="Library"
           triggerClass={BTN_QUIET}
@@ -168,7 +162,16 @@ export function WorkspaceBar({
           width="w-[46rem]"
           padded={false}
         >
-          {() => <Library />}
+          {/* A tool opens over whatever view is up and leaves the graph exactly as it was, so the
+              drawer that launched it gets out of the way first. */}
+          {(close) => (
+            <Library
+              onOpenTool={(id) => {
+                close();
+                onOpenTool(id);
+              }}
+            />
+          )}
         </Popover>
         <Rule />
         {/* Disabled from the server's own answer: the history is the workspace's, so a step

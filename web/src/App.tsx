@@ -66,7 +66,7 @@ export function App() {
   const [stepHz, setStepHz] = useState(100_000);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
-  const [showTools, setShowTools] = useState(false);
+  const [openTool, setOpenTool] = useState<string | null>(null);
 
   const state = useQuery(stateQuery());
   const channelTypes = useQuery(channelTypesQuery());
@@ -360,7 +360,7 @@ export function App() {
                 canUndo={workspace.canUndo}
                 canRedo={workspace.canRedo}
                 onShowShortcuts={() => setShowShortcuts(true)}
-                onShowTools={() => setShowTools(true)}
+                onOpenTool={setOpenTool}
               />
               {view === "patch" ? <Canvas /> : <Rack />}
             </ReactFlowProvider>
@@ -391,7 +391,7 @@ export function App() {
           onShowAbout={() => setShowAbout(true)}
         />
         <AboutPanel open={showAbout} onOpenChange={setShowAbout} />
-        <ToolsDialog open={showTools} onOpenChange={setShowTools} />
+        <ToolsDialog tool={openTool} onClose={() => setOpenTool(null)} />
         <Toasts />
       </div>
     </TokenGate>

@@ -65,12 +65,11 @@ export function groupTools(tools: readonly LaunchableTool[]): ToolGroup[] {
   })).filter((group) => group.tools.length > 0);
 }
 
-/** The tool a selection names, or the first one there is — a launcher with tools in it always
- * has something open. */
-export function selectTool(
-  groups: readonly ToolGroup[],
-  selected: string | null,
+/** The tool an id names. Null rather than a fallback to the first one: the launcher opens what
+ * was clicked, and a tool that has gone away must not quietly become a different one. */
+export function findTool(
+  tools: readonly LaunchableTool[],
+  id: string | null,
 ): LaunchableTool | null {
-  const tools = groups.flatMap((group) => group.tools);
-  return tools.find((tool) => tool.descriptor.id === selected) ?? tools[0] ?? null;
+  return tools.find((tool) => tool.descriptor.id === id) ?? null;
 }

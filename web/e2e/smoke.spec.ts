@@ -715,7 +715,10 @@ test.describe("the workspace", () => {
     await page.goto("/");
     await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
 
-    await page.getByRole("button", { name: "Tools", exact: true }).click();
+    // Tools are launched from the library drawer, beside the other things a bench is set up with.
+    await page.getByRole("button", { name: "Library" }).click();
+    await page.getByRole("tab", { name: "Tools" }).click();
+    await page.getByRole("button", { name: /^Antenna calculator/ }).click();
     const tools = page.getByRole("dialog", { name: "Antenna calculator" });
     await expect(tools).toBeVisible();
 

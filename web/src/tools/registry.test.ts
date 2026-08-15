@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCategory, ToolDescriptor } from "../lib/types";
-import { groupTools, launchableTools, selectTool, TOOL_PANELS } from "./registry";
+import { findTool, groupTools, launchableTools, TOOL_PANELS } from "./registry";
 
 function descriptor(
   id: string,
@@ -53,21 +53,17 @@ describe("groupTools", () => {
   });
 });
 
-describe("selectTool", () => {
-  const groups = groupTools(
-    launchableTools([descriptor("antenna", "Antenna"), descriptor("other", "Other")]),
-  );
+describe("findTool", () => {
+  const tools = launchableTools([descriptor("antenna", "Antenna"), descriptor("other", "Other")]);
 
   it("opens the named tool", () => {
-    expect(selectTool(groups, "other")?.descriptor.id).toBe("other");
+    expect(findTool(tools, "other")?.descriptor.id).toBe("other");
   });
 
-  it("falls back to the first tool rather than an empty pane", () => {
-    expect(selectTool(groups, null)?.descriptor.id).toBe("antenna");
-    expect(selectTool(groups, "gone")?.descriptor.id).toBe("antenna");
-  });
-
-  it("has nothing to open when there are no tools", () => {
-    expect(selectTool([], "antenna")).toBeNull();
+  /** Opening a tool that is no longer there must not quietly open a different one. */
+  it("finds nothing for a tool this build does not have", () => {
+    expect(findTool(tools, "gone")).toBeNull();
+    expect(findTool(tools, null)).toBeNull();
+    expect(findTool([], "antenna")).toBeNull();
   });
 });

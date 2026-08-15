@@ -2,6 +2,10 @@
 // configured *from*, which are not nodes with a stream to carry, in one drawer rather than as
 // node kinds that could never be wired to anything.
 //
+// The tools sit here too, for the same reason: an instrument or a calculator answers a question
+// beside the receiver and has no stream to carry, so it is launched from the drawer rather than
+// wired into the patch.
+//
 // Nothing here states a target radio at rest. Templates are the one section that reconfigures one
 // radio wholesale, so its cards name the radio on the button that does it; presets cover the
 // whole workspace (`PresetSnapshot`); bookmarks and the band search tune whatever the operator
@@ -16,6 +20,7 @@ import { RecordingsPanel } from "../components/RecordingsPanel";
 import { TemplatesPanel } from "../components/TemplatesPanel";
 import { pushToast } from "../lib/toasts";
 import type { RecordingInfo } from "../lib/types";
+import { ToolsPanel } from "../tools/ToolsPanel";
 import { refFromDeviceId } from "./binding";
 import { useWorkspaceContext } from "./context";
 import { addNode, MAX_NAME_LEN, newNodeId } from "./graph";
@@ -28,9 +33,10 @@ const TABS = [
   { id: "bands", label: "Bands" },
   { id: "occupancy", label: "Occupancy" },
   { id: "recordings", label: "Recordings" },
+  { id: "tools", label: "Tools" },
 ] as const;
 
-export function Library() {
+export function Library({ onOpenTool }: { onOpenTool: (id: string) => void }) {
   const workspace = useWorkspaceContext();
   const placeNode = useNodePlacement();
   const selected =
@@ -94,6 +100,9 @@ export function Library() {
       </Tabs.Panel>
       <Tabs.Panel value="recordings" className="max-h-[28rem] overflow-y-auto">
         <RecordingsPanel onOpen={openRecording} />
+      </Tabs.Panel>
+      <Tabs.Panel value="tools" className="max-h-[28rem] overflow-y-auto">
+        <ToolsPanel onOpen={onOpenTool} />
       </Tabs.Panel>
     </Tabs.Root>
   );
