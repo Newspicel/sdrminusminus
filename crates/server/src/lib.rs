@@ -353,7 +353,7 @@ pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<Serve
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, time::Instant};
+    use std::{net::UdpSocket, path::Path, time::Instant};
 
     use axum::{
         body::{Body, Bytes},
@@ -363,9 +363,9 @@ mod tests {
     use sdrmm_wire::{
         AdsbMessage, ApiError, AprsPacket, Bookmark, ChannelParams, ChannelSettings,
         ChannelTypesResponse, CreatedId, CreatedRowId, DecodedRecord, DecoderEvent,
-        DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NfmParams,
-        NmeaDevicesResponse, PresetInfo, PresetSnapshot, RecordingStatus, RecordingsResponse,
-        StateSnapshot, VoiceCallsResponse,
+        DecoderLogEntry, DecoderLogResponse, DeletedCount, DeviceSettings, NetworkExportStatus,
+        NfmParams, NmeaDevicesResponse, PresetInfo, PresetSnapshot, RecordingStatus,
+        RecordingsResponse, StateSnapshot, VoiceCallsResponse,
     };
     use tower::ServiceExt;
 
@@ -497,6 +497,7 @@ mod tests {
             "/api/bookmarks",
             "/api/bookmarks/{id}",
             "/api/devicesets/{ds}/record",
+            "/api/devicesets/{ds}/network-export",
             "/api/devicesets/{ds}/playback",
             "/api/recordings",
             "/api/recordings/{id}",
@@ -520,6 +521,7 @@ mod tests {
             "ChannelSettings",
             "PresetSnapshot",
             "RecordingStatus",
+            "NetworkExportStatus",
             "RecordingInfo",
             "DecoderLogEntry",
             "DecoderLogResponse",
@@ -1531,6 +1533,58 @@ mod tests {
         let (status, _) =
             request(app, "DELETE", &format!("/api/recordings/{}", rec.id), None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn network_export_start_stream_and_stop_roundtrip_over_http() {
+        let app = test_router();
+        let ds = create_virtual_set(&app).await;
+        let receiver = UdpSocket::bind("127.0.0.1:0").expect("bind receiver");
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("timeout");
+        let address = receiver.local_addr().expect("address");
+        let start = serde_json::json!({
+            "action": "start",
+            "node": "network:test",
+            "stream": 0,
+            "settings": {
+                "transport": "udp",
+                "format": "cu8",
+                "address": address.to_string(),
+            },
+        });
+        let (status, body) = request(
+            app.clone(),
+            "POST",
+            &format!("/api/devicesets/{ds}/network-export"),
+            Some(&start.to_string()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let live: NetworkExportStatus = serde_json::from_slice(&body).expect("status");
+        assert_eq!(live.node, "network:test");
+        assert_eq!(live.settings.address, address.to_string());
+
+        let mut datagram = [0u8; 1_500];
+        let received = receiver.recv(&mut datagram).expect("IQ datagram");
+        assert!(received > 0);
+        assert_eq!(received % 2, 0);
+
+        let stop = serde_json::json!({ "action": "stop", "node": "network:test" });
+        let (status, body) = request(
+            app,
+            "POST",
+            &format!("/api/devicesets/{ds}/network-export"),
+            Some(&stop.to_string()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let done: NetworkExportStatus = serde_json::from_slice(&body).expect("status");
+        assert!(done.samples > 0);
+        assert_eq!(done.bytes, done.samples * 2);
+        assert!(done.packets > 0);
+        assert_eq!(done.error, None);
     }
 
     #[tokio::test]

@@ -312,6 +312,7 @@ export const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
   dmr_trunk: { w: 480, h: 360 },
   video: { w: 380, h: 320 },
   recorder: { w: 340, h: 260 },
+  network_export: { w: 380, h: 310 },
   export: { w: 320, h: 180 },
   scanner: { w: 400, h: 400 },
 };
@@ -353,6 +354,7 @@ export const NODE_MIN_SIZE: Record<NodeKind, { w: number; h: number }> = {
   dmr_trunk: { w: 380, h: 240 },
   video: { w: 240, h: 200 },
   recorder: NODE_SIZE.recorder,
+  network_export: NODE_SIZE.network_export,
   export: NODE_SIZE.export,
   scanner: NODE_SIZE.scanner,
 };

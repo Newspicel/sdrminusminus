@@ -45,17 +45,37 @@ describe("dropPosition", () => {
     expect(occupied.every((rect) => !overlaps(position, rect))).toBe(true);
   });
 
-  it("keeps a node visible even when every candidate overlaps", () => {
-    const position = dropPosition(
-      viewport,
-      size,
-      [{ x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h }],
-      20,
-    );
+  it("places a node just beyond a crowded viewport instead of overlapping", () => {
+    const occupied = [{ x: viewport.x, y: viewport.y, w: viewport.w, h: viewport.h }];
+    const position = dropPosition(viewport, size, occupied, 20);
 
-    expect(position.x).toBeGreaterThanOrEqual(viewport.x);
-    expect(position.y).toBeGreaterThanOrEqual(viewport.y);
-    expect(position.x + size.w).toBeLessThanOrEqual(viewport.x + viewport.w);
-    expect(position.y + size.h).toBeLessThanOrEqual(viewport.y + viewport.h);
+    expect(occupied.every((rect) => !overlaps(position, rect))).toBe(true);
+    expect(
+      position.x < viewport.x ||
+        position.y < viewport.y ||
+        position.x + size.w > viewport.x + viewport.w ||
+        position.y + size.h > viewport.y + viewport.h,
+    ).toBe(true);
+  });
+
+  it("finds a clear position for the fixed-size starter patch", () => {
+    const starterViewport = { x: -170, y: -52, w: 1_280, h: 684 };
+    const channel = { w: 440, h: 300 };
+    const occupied = [
+      { x: 0, y: 0, w: 380, h: 420 },
+      { x: 420, y: 0, w: 520, h: 360 },
+      { x: 420, y: 380, w: 320, h: 200 },
+    ];
+    const position = dropPosition(starterViewport, channel, occupied, 24);
+
+    expect(
+      occupied.every(
+        (rect) =>
+          position.x + channel.w <= rect.x ||
+          position.x >= rect.x + rect.w ||
+          position.y + channel.h <= rect.y ||
+          position.y >= rect.y + rect.h,
+      ),
+    ).toBe(true);
   });
 });

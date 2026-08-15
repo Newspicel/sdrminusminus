@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 use crate::{
     audio::{PcmBlock, PcmPayload},
     iq::{IqBlock, IqTap},
+    network_export::NetworkExportTap,
     recording::RecorderTap,
     spectrum::{SpectrumAnalyzer, SpectrumFrame, SpectrumPlan},
     video::VideoPacket,
@@ -432,6 +433,10 @@ pub(crate) enum DspCommand {
         tap: RecorderTap,
     },
     StopRecording,
+    StartNetworkExport {
+        tap: NetworkExportTap,
+    },
+    StopNetworkExport,
 }
 
 /// The one-shot device-death report shared by every lane's capture sink.
@@ -673,6 +678,7 @@ fn dsp_loop(
     let mut db = vec![0.0f32; FFT_SIZE];
     let mut channels: Vec<(u32, Box<ChannelHost>)> = Vec::new();
     let mut tap: Option<RecorderTap> = None;
+    let mut network_tap: Option<NetworkExportTap> = None;
     let mut write_pos = 0usize;
     let mut since_last = 0usize;
     let mut total: u64 = 0;
@@ -680,7 +686,7 @@ fn dsp_loop(
     let mut seq: u32 = 0;
 
     while !stop.load(Ordering::Acquire) {
-        drain_commands(commands, &mut channels, &mut tap);
+        drain_commands(commands, &mut channels, &mut tap, &mut network_tap);
         let dropped = overruns.load(Ordering::Relaxed);
         total += dropped - dropped_seen;
         dropped_seen = dropped;
@@ -702,6 +708,12 @@ fn dsp_loop(
                 .is_some_and(|t| !t.push(slice, total, snapshot.center_hz))
             {
                 tap = None;
+            }
+            if network_tap
+                .as_mut()
+                .is_some_and(|network| !network.push(slice))
+            {
+                network_tap = None;
             }
             for (_, host) in &mut channels {
                 host.process(slice, snapshot.center_hz);
@@ -746,6 +758,7 @@ fn drain_commands(
     commands: &mpsc::Receiver<DspCommand>,
     channels: &mut Vec<(u32, Box<ChannelHost>)>,
     tap: &mut Option<RecorderTap>,
+    network_tap: &mut Option<NetworkExportTap>,
 ) {
     while let Ok(cmd) = commands.try_recv() {
         match cmd {
@@ -780,6 +793,8 @@ fn drain_commands(
             }
             DspCommand::StartRecording { tap: armed } => *tap = Some(armed),
             DspCommand::StopRecording => *tap = None,
+            DspCommand::StartNetworkExport { tap: armed } => *network_tap = Some(armed),
+            DspCommand::StopNetworkExport => *network_tap = None,
         }
     }
 }

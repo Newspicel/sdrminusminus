@@ -275,15 +275,23 @@ mod tests {
 
     #[test]
     fn dib_rows_are_bottom_up_bgra() {
-        let pixmap = raster(&tree(), 32, 1.0).expect("raster");
+        let mut pixmap = tiny_skia::Pixmap::new(2, 2).expect("pixmap");
+        let rgba = [
+            [1, 2, 3, 255],
+            [4, 5, 6, 255],
+            [7, 8, 9, 255],
+            [10, 11, 12, 255],
+        ];
+        for (pixel, [red, green, blue, alpha]) in pixmap.pixels_mut().iter_mut().zip(rgba) {
+            *pixel = tiny_skia::PremultipliedColorU8::from_rgba(red, green, blue, alpha)
+                .expect("opaque test color");
+        }
+
         let dib = dib(&pixmap);
-        let at = |row: usize, column: usize| 40 + ((31 - row) * 32 + column) * 4;
-
-        let corner = &dib[at(0, 0)..at(0, 0) + 4];
-        assert_eq!(corner[3], 0, "the top-left corner is outside the plate");
-
-        let middle = &dib[at(16, 3)..at(16, 3) + 4];
-        assert_eq!(middle, [0x13, 0x11, 0x10, 0xff], "plate pixel, BGRA");
+        assert_eq!(
+            &dib[40..56],
+            [9, 8, 7, 255, 12, 11, 10, 255, 3, 2, 1, 255, 6, 5, 4, 255],
+        );
     }
 
     #[test]
