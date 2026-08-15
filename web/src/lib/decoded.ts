@@ -326,6 +326,7 @@ function stationId(event: DecoderEvent): string | null {
     // An identification describes one observation window of whatever is on the frequency; the
     // transmitter it belongs to is what the report is trying to work out.
     case "ident":
+    case "broadcast":
       return null;
   }
 }

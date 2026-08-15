@@ -458,6 +458,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   acars: null,
   subghz: null,
   dv: null,
+  broadcast: null,
 };
 
 // `ChannelDescriptor.decoder_kind` is a bare string on the wire, so a server newer than this

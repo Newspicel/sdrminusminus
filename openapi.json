@@ -3100,6 +3100,73 @@
           }
         }
       },
+      "BroadcastStatus": {
+        "type": "object",
+        "description": "Periodic acquisition report from a wideband digital-broadcast channel. These values describe\nthe RF lock itself; absent service fields mean the multiplex has not been decoded.",
+        "required": [
+          "system",
+          "locked",
+          "snr_db",
+          "frequency_error_hz"
+        ],
+        "properties": {
+          "ensemble_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "frequency_error_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "service_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float"
+          },
+          "symbol_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "system": {
+            "$ref": "#/components/schemas/BroadcastSystem"
+          }
+        }
+      },
+      "BroadcastSystem": {
+        "type": "string",
+        "description": "Broadcast waveform identified by a standards-specific synchronizer.",
+        "enum": [
+          "dab",
+          "dab_plus",
+          "dvb_s",
+          "dvb_s2",
+          "drm30",
+          "drm_plus"
+        ]
+      },
       "Capabilities": {
         "type": "object",
         "required": [
@@ -3685,6 +3752,60 @@
                 "type": "string",
                 "enum": [
                   "atv"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/DabParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "dab"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/DatvParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "datv"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/DrmParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "drm"
                 ]
               }
             }
@@ -4378,6 +4499,43 @@
           }
         }
       },
+      "DabMode": {
+        "type": "string",
+        "description": "DAB generations share the same EN 300 401 Mode I RF waveform. `Auto` reports the ensemble\nwithout assuming which audio component type its FIC will eventually announce.",
+        "enum": [
+          "auto",
+          "dab",
+          "dab_plus"
+        ]
+      },
+      "DabParams": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/DabMode"
+          }
+        }
+      },
+      "DatvParams": {
+        "type": "object",
+        "properties": {
+          "standard": {
+            "$ref": "#/components/schemas/DatvStandard"
+          },
+          "symbol_rate": {
+            "type": "number",
+            "format": "double",
+            "description": "Symbol rate in baud. The channel rate supports narrow-band amateur television carriers\nthrough 1 MBd; wider transponders need a receiver stream wider than this channel type."
+          }
+        }
+      },
+      "DatvStandard": {
+        "type": "string",
+        "enum": [
+          "dvb_s",
+          "dvb_s2"
+        ]
+      },
       "DecodedRecord": {
         "type": "object",
         "required": [
@@ -4644,6 +4802,24 @@
                 "type": "string",
                 "enum": [
                   "ident"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/BroadcastStatus"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "broadcast"
                 ]
               }
             }
@@ -5240,6 +5416,27 @@
       "DpmrParams": {
         "type": "object",
         "description": "dPMR (C4FM, 2400 symbols/s, 6.25 kHz)."
+      },
+      "DrmMode": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "drm30",
+          "drm_plus"
+        ]
+      },
+      "DrmParams": {
+        "type": "object",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Occupied bandwidth in Hz. DRM30 accepts the standardized 4.5–20 kHz occupancies;\nDRM+ and `Auto` use a 100 kHz slice so automatic mode can search both waveform families."
+          },
+          "mode": {
+            "$ref": "#/components/schemas/DrmMode"
+          }
+        }
       },
       "DstarParams": {
         "type": "object",

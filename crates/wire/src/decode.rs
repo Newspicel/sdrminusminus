@@ -734,6 +734,51 @@ impl DvFrame {
     }
 }
 
+/// Broadcast waveform identified by a standards-specific synchronizer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum BroadcastSystem {
+    #[default]
+    Dab,
+    DabPlus,
+    DvbS,
+    DvbS2,
+    Drm30,
+    DrmPlus,
+}
+
+impl BroadcastSystem {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Dab => "DAB",
+            Self::DabPlus => "DAB+",
+            Self::DvbS => "DVB-S",
+            Self::DvbS2 => "DVB-S2",
+            Self::Drm30 => "DRM30",
+            Self::DrmPlus => "DRM+",
+        }
+    }
+}
+
+/// Periodic acquisition report from a wideband digital-broadcast channel. These values describe
+/// the RF lock itself; absent service fields mean the multiplex has not been decoded.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct BroadcastStatus {
+    pub system: BroadcastSystem,
+    pub locked: bool,
+    pub snr_db: f32,
+    pub frequency_error_hz: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol_rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ensemble_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum DecoderEvent {
@@ -750,6 +795,7 @@ pub enum DecoderEvent {
     Tone(ToneSquelchStatus),
     Dv(DvFrame),
     Ident(IdentReport),
+    Broadcast(BroadcastStatus),
 }
 
 impl DecoderEvent {
@@ -770,6 +816,7 @@ impl DecoderEvent {
             Self::Tone(_) => "tone",
             Self::Dv(_) => "dv",
             Self::Ident(_) => "ident",
+            Self::Broadcast(_) => "broadcast",
         }
     }
 
@@ -949,6 +996,18 @@ impl DecoderEvent {
                 }
                 parts.join(" · ")
             }
+            Self::Broadcast(status) => {
+                let mut parts = vec![status.system.label().to_owned()];
+                parts.push(if status.locked { "locked" } else { "searching" }.to_owned());
+                if status.locked {
+                    parts.push(format!("{:.1} dB SNR", status.snr_db));
+                    parts.push(format!("{:+.0} Hz", status.frequency_error_hz));
+                }
+                if let Some(label) = &status.label {
+                    parts.push(label.clone());
+                }
+                parts.join(" · ")
+            }
         }
     }
 
@@ -988,6 +1047,10 @@ impl DecoderEvent {
                 .source_call
                 .clone()
                 .or_else(|| f.source.map(|s| s.to_string())),
+            Self::Broadcast(status) => status
+                .service_id
+                .or(status.ensemble_id)
+                .map(|id| format!("{id:X}")),
             // A survey of what is on a frequency names no emitter: the whole point is that
             // whoever is transmitting has not been identified yet.
             Self::Rtty(_) | Self::Morse(_) | Self::Tone(_) | Self::Ident(_) => None,
@@ -1058,6 +1121,7 @@ mod tests {
             DecoderEvent::Acars(AcarsMessage::default()),
             DecoderEvent::Subghz(SubghzFrame::default()),
             DecoderEvent::Tone(ToneSquelchStatus::default()),
+            DecoderEvent::Broadcast(BroadcastStatus::default()),
         ] {
             let json = serde_json::to_value(&ev).unwrap();
             assert_eq!(json["kind"], ev.kind());

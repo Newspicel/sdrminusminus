@@ -33,11 +33,17 @@ The server reports the exact catalog for the running build. Current channel fami
 | Paging and telemetry | POCSAG, generic sub-GHz OOK/PWM frames |
 | Digital voice | DMR, D-STAR, System Fusion, NXDN, P25 Phase 1, dPMR, M17 |
 | Video | Analog television luma |
+| Digital broadcast acquisition | DAB/DAB+ Mode I, DVB-S/S2 DATV at 100 kBd–1 MBd, DRM30/DRM+ |
 
 Decoder coverage varies by protocol. A listed mode means the signal path and documented frame
 layers are implemented; it does not imply every optional signalling service, trunking system, or
 vendor extension is supported. Consult the repository's
 [feature roadmap](https://github.com/Newspicel/sdrminusminus/blob/main/FEATURES.md) for known gaps.
+
+The digital-broadcast channels currently report RF acquisition only: waveform lock, SNR,
+frequency error, and configured symbol rate where applicable. They do not yet decode DAB FIC/MSC,
+DVB transport streams, DRM FAC/SDC/MSC, programme audio, or DATV pictures. A missing service label
+therefore means the multiplex layer has not been decoded; it is not an empty station name.
 
 ## Passband and sample-rate rules
 

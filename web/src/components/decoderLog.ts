@@ -29,6 +29,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   tone: "Tone",
   dv: "Digital voice",
   ident: "Signal ID",
+  broadcast: "Digital broadcast",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -320,6 +321,18 @@ export function eventSummary(event: DecoderEvent): string {
         best == null ? null : `${best.name} (${candidateScore(best)})`,
       ]);
     }
+    case "broadcast": {
+      const status = event.data;
+      return join([
+        broadcastSystem(status.system),
+        status.locked ? "locked" : "searching",
+        status.locked ? `${status.snr_db.toFixed(1)} dB SNR` : null,
+        status.locked
+          ? `${status.frequency_error_hz >= 0 ? "+" : ""}${status.frequency_error_hz.toFixed(0)} Hz`
+          : null,
+        status.label ?? null,
+      ]);
+    }
   }
 }
 
@@ -358,7 +371,24 @@ export function eventStation(event: DecoderEvent): string | null {
     // The whole point of an identification is that whoever is transmitting is not known yet.
     case "ident":
       return null;
+    case "broadcast": {
+      const status = event.data;
+      const id = status.service_id ?? status.ensemble_id;
+      return id == null ? null : id.toString(16).toUpperCase();
+    }
   }
+}
+
+function broadcastSystem(system: string): string {
+  const labels: Record<string, string> = {
+    dab: "DAB",
+    dab_plus: "DAB+",
+    dvb_s: "DVB-S",
+    dvb_s2: "DVB-S2",
+    drm30: "DRM30",
+    drm_plus: "DRM+",
+  };
+  return labels[system] ?? system;
 }
 
 /** A 20-bit EV1527 address, the five hex digits every remote is quoted by. */

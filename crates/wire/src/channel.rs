@@ -614,6 +614,86 @@ impl Default for AtvParams {
     }
 }
 
+/// DAB generations share the same EN 300 401 Mode I RF waveform. `Auto` reports the ensemble
+/// without assuming which audio component type its FIC will eventually announce.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DabMode {
+    #[default]
+    Auto,
+    Dab,
+    DabPlus,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DabParams {
+    #[serde(default)]
+    pub mode: DabMode,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DatvStandard {
+    #[default]
+    DvbS,
+    DvbS2,
+}
+
+fn default_datv_symbol_rate() -> f64 {
+    333_000.0
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DatvParams {
+    #[serde(default)]
+    pub standard: DatvStandard,
+    /// Symbol rate in baud. The channel rate supports narrow-band amateur television carriers
+    /// through 1 MBd; wider transponders need a receiver stream wider than this channel type.
+    #[serde(default = "default_datv_symbol_rate")]
+    pub symbol_rate: f64,
+}
+
+impl Default for DatvParams {
+    fn default() -> Self {
+        Self {
+            standard: DatvStandard::default(),
+            symbol_rate: default_datv_symbol_rate(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DrmMode {
+    #[default]
+    Auto,
+    Drm30,
+    DrmPlus,
+}
+
+fn default_drm_bandwidth_hz() -> f64 {
+    100_000.0
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct DrmParams {
+    #[serde(default)]
+    pub mode: DrmMode,
+    /// Occupied bandwidth in Hz. DRM30 accepts the standardized 4.5–20 kHz occupancies;
+    /// DRM+ and `Auto` use a 100 kHz slice so automatic mode can search both waveform families.
+    #[serde(default = "default_drm_bandwidth_hz")]
+    pub bandwidth_hz: f64,
+}
+
+impl Default for DrmParams {
+    fn default() -> Self {
+        Self {
+            mode: DrmMode::default(),
+            bandwidth_hz: default_drm_bandwidth_hz(),
+        }
+    }
+}
+
 /// Which DMR timeslot a channel reports and plays. Both slots share one 12.5 kHz carrier in
 /// 30 ms alternation, so the receiver always hears both; this decides what reaches its outputs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -755,6 +835,9 @@ pub enum ChannelParams {
     Acars(AcarsParams),
     Subghz(SubghzParams),
     Atv(AtvParams),
+    Dab(DabParams),
+    Datv(DatvParams),
+    Drm(DrmParams),
     Dmr(DmrParams),
     Dstar(DstarParams),
     Ysf(YsfParams),
@@ -784,6 +867,9 @@ impl ChannelParams {
             Self::Acars(_) => "acars",
             Self::Subghz(_) => "subghz",
             Self::Atv(_) => "atv",
+            Self::Dab(_) => "dab",
+            Self::Datv(_) => "datv",
+            Self::Drm(_) => "drm",
             Self::Dmr(_) => "dmr",
             Self::Dstar(_) => "dstar",
             Self::Ysf(_) => "ysf",
