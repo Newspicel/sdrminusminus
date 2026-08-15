@@ -450,6 +450,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   ais: (scope) => <TargetsView kind="ais" scope={scope} />,
   rtty: (scope) => <TextView kind="rtty" scope={scope} />,
   morse: (scope) => <TextView kind="morse" scope={scope} />,
+  selcall: null,
   tone: (scope) => <ToneView scope={scope} />,
   ident: (scope) => <IdentView scope={scope} />,
   aprs: null,
@@ -459,6 +460,8 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   subghz: null,
   dv: null,
   broadcast: null,
+  radio_clock: null,
+  gnss: null,
 };
 
 // `ChannelDescriptor.decoder_kind` is a bare string on the wire, so a server newer than this

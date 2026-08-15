@@ -32,9 +32,8 @@ pub struct ChannelDescriptor {
     /// resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
     /// highest, so a receiver is set anywhere in that range rather than to one exact number.
     ///
-    /// ADS-B is the one such type: a 0.5 µs pulse is a single sample at
-    /// 2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
-    /// meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
+    /// ADS-B preserves pulse timing, ATV retains wide chroma and sound subcarriers, and GNSS
+    /// retains chip timing. Mutually exclusive with `exact_rate_only`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_rate_max_hz: Option<f64>,
     #[serde(default)]
@@ -138,6 +137,23 @@ pub struct NfmParams {
     /// here, and none on a radio either.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dcs_code: Option<u16>,
+}
+
+/// Five-tone sequential selective-calling plan.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SelcallSystem {
+    /// CCIR-1: 100 ms nominal tones in the 1.1–2.1 kHz voice band.
+    #[default]
+    Ccir1,
+    /// ZVEI-1: 70 ms nominal tones, including its A–D group symbols.
+    Zvei1,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SelcallParams {
+    #[serde(default)]
+    pub system: SelcallSystem,
 }
 
 impl Default for NfmParams {
@@ -547,6 +563,17 @@ pub enum AtvStandard {
     SystemA405,
 }
 
+/// Colour encoding carried on the composite-video subcarrier. Monochrome leaves the
+/// subcarrier untouched and works at the lower sample rates used by narrow-band ATV.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AtvColor {
+    #[default]
+    Monochrome,
+    Pal,
+    Ntsc,
+}
+
 impl AtvStandard {
     /// Lines per frame, both fields together.
     #[must_use]
@@ -600,6 +627,14 @@ pub struct AtvParams {
     /// camera sources send.
     #[serde(default = "default_true")]
     pub interlace: bool,
+    /// Composite colour system. PAL and NTSC need a device rate wide enough to contain their
+    /// 4.43 MHz or 3.58 MHz subcarrier respectively.
+    #[serde(default)]
+    pub color: AtvColor,
+    /// FM sound carrier above the picture carrier, in Hz. Common values are 4.5, 5.5, 6.0 and
+    /// 6.5 MHz. `None` keeps ATV usable on receivers that only cover the luma channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound_subcarrier_hz: Option<f64>,
 }
 
 impl Default for AtvParams {
@@ -610,6 +645,8 @@ impl Default for AtvParams {
             bandwidth_hz: default_atv_bandwidth_hz(),
             invert: false,
             interlace: true,
+            color: AtvColor::default(),
+            sound_subcarrier_hz: None,
         }
     }
 }
@@ -766,6 +803,24 @@ empty_params! {
     M17Params,
 }
 
+/// FreeDV air-interface generation. The initial implementation supports the interoperable
+/// 1600 mode; making the generation explicit prevents a future default change from silently
+/// selecting an incompatible waveform on a saved channel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FreeDvMode {
+    #[default]
+    Mode1600,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct FreeDvParams {
+    #[serde(default)]
+    pub mode: FreeDvMode,
+    #[serde(default)]
+    pub sideband: Sideband,
+}
+
 pub const MIN_IDENT_BANDWIDTH_HZ: f64 = 1_000.0;
 pub const MAX_IDENT_BANDWIDTH_HZ: f64 = 192_000.0;
 pub const MIN_IDENT_INTERVAL_MS: u32 = 250;
@@ -815,6 +870,63 @@ impl Default for IdentParams {
     }
 }
 
+/// Long-wave civil time service carried by the radio-clock channel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RadioClockStandard {
+    #[default]
+    Dcf77,
+    Wwvb,
+    Msf,
+    Jjy,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RadioClockParams {
+    #[serde(default)]
+    pub standard: RadioClockStandard,
+    /// Reverse the received AM envelope for an inverting receiver or recording.
+    #[serde(default)]
+    pub invert: bool,
+}
+
+fn default_gnss_prn() -> u8 {
+    1
+}
+
+fn default_gnss_doppler_hz() -> u32 {
+    10_000
+}
+
+fn default_gnss_threshold() -> f32 {
+    2.5
+}
+
+/// Educational GPS L1 C/A acquisition and NAV-message settings.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct GnssParams {
+    /// Space-vehicle PRN to acquire. A focused single-PRN view keeps every correlation result
+    /// inspectable and bounds the work done on the DSP thread.
+    #[serde(default = "default_gnss_prn")]
+    pub prn: u8,
+    /// Symmetric acquisition search span around the tuned L1 carrier.
+    #[serde(default = "default_gnss_doppler_hz")]
+    pub doppler_hz: u32,
+    /// Acquisition peak divided by the mean correlation floor.
+    #[serde(default = "default_gnss_threshold")]
+    pub threshold: f32,
+}
+
+impl Default for GnssParams {
+    fn default() -> Self {
+        Self {
+            prn: default_gnss_prn(),
+            doppler_hz: default_gnss_doppler_hz(),
+            threshold: default_gnss_threshold(),
+        }
+    }
+}
+
 /// Type-discriminated demod parameters. Adjacently tagged so the generated TS is a
 /// discriminated union on `type`, and `{"type":"nfm","settings":{}}` deserializes with
 /// every field at its default.
@@ -822,6 +934,7 @@ impl Default for IdentParams {
 #[serde(tag = "type", content = "settings", rename_all = "snake_case")]
 pub enum ChannelParams {
     Nfm(NfmParams),
+    Selcall(SelcallParams),
     Am(AmParams),
     Ssb(SsbParams),
     Wfm(WfmParams),
@@ -845,7 +958,10 @@ pub enum ChannelParams {
     P25(P25Params),
     Dpmr(DpmrParams),
     M17(M17Params),
+    Freedv(FreeDvParams),
     Ident(IdentParams),
+    RadioClock(RadioClockParams),
+    Gnss(GnssParams),
 }
 
 impl ChannelParams {
@@ -854,6 +970,7 @@ impl ChannelParams {
     pub fn type_id(&self) -> &'static str {
         match self {
             Self::Nfm(_) => "nfm",
+            Self::Selcall(_) => "selcall",
             Self::Am(_) => "am",
             Self::Ssb(_) => "ssb",
             Self::Wfm(_) => "wfm",
@@ -877,7 +994,10 @@ impl ChannelParams {
             Self::P25(_) => "p25",
             Self::Dpmr(_) => "dpmr",
             Self::M17(_) => "m17",
+            Self::Freedv(_) => "freedv",
             Self::Ident(_) => "ident",
+            Self::RadioClock(_) => "radio_clock",
+            Self::Gnss(_) => "gnss",
         }
     }
 }

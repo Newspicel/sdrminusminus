@@ -23,6 +23,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   rds: "RDS",
   rtty: "RTTY",
   morse: "Morse",
+  selcall: "Selcall",
   navtex: "NAVTEX",
   acars: "ACARS",
   subghz: "Sub-GHz",
@@ -30,6 +31,8 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   dv: "Digital voice",
   ident: "Signal ID",
   broadcast: "Digital broadcast",
+  radio_clock: "Radio clock",
+  gnss: "GNSS lab",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -268,6 +271,8 @@ export function eventSummary(event: DecoderEvent): string {
     case "rtty":
     case "morse":
       return event.data.text;
+    case "selcall":
+      return `${event.data.system === "ccir1" ? "CCIR-1" : "ZVEI-1"} · ${event.data.code}`;
     case "navtex": {
       const n = event.data;
       const header =
@@ -333,10 +338,24 @@ export function eventSummary(event: DecoderEvent): string {
         status.label ?? null,
       ]);
     }
+    case "radio_clock": {
+      const r = event.data;
+      return join([r.standard.toUpperCase(), r.datetime, r.leap_warning ? "leap warning" : null]);
+    }
+    case "gnss": {
+      const g = event.data;
+      return join([
+        `GPS PRN ${g.prn}`,
+        `${g.doppler_hz >= 0 ? "+" : ""}${g.doppler_hz.toFixed(0)} Hz`,
+        `${g.cn0_db_hz.toFixed(1)} dB-Hz`,
+        g.subframe == null ? "acquired" : `subframe ${g.subframe}`,
+        g.tow_seconds == null ? null : `TOW ${g.tow_seconds} s`,
+      ]);
+    }
   }
 }
 
-/** `null` for the decoders whose output is a character stream: RTTY and Morse name no emitter. */
+/** `null` when the event does not identify the transmitter that sent it. */
 export function eventStation(event: DecoderEvent): string | null {
   switch (event.kind) {
     case "adsb":
@@ -364,8 +383,14 @@ export function eventStation(event: DecoderEvent): string | null {
       return (
         event.data.source_call ?? (event.data.source == null ? null : String(event.data.source))
       );
+    case "radio_clock":
+      return event.data.standard.toUpperCase();
+    case "gnss":
+      return `GPS-${event.data.prn}`;
     case "rtty":
     case "morse":
+    // A Selcall sequence names the recipient, not necessarily the transmitter sending it.
+    case "selcall":
     // Subaudible signalling names the channel's state, not whoever is keying up.
     case "tone":
     // The whole point of an identification is that whoever is transmitting is not known yet.

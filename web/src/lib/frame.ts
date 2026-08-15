@@ -3,6 +3,7 @@ export const FRAME_KIND_SPECTRUM = 0;
 export const FRAME_KIND_AUDIO_OPUS = 1;
 export const FRAME_KIND_IQ_F32 = 2;
 export const FRAME_KIND_VIDEO_GRAY = 3;
+export const FRAME_KIND_VIDEO_RGB = 4;
 const HEADER_LEN = 16;
 
 /** The `kind` header byte, or null if the buffer can't be a frame we understand. */
@@ -85,17 +86,22 @@ export interface VideoFrame {
   timestamp: bigint;
   width: number;
   height: number;
-  /** 8-bit luma, row-major from the top line, exactly `width · height` bytes. */
-  luma: Uint8Array;
+  format: "gray" | "rgb";
+  /** Row-major pixels: one byte for gray, three bytes for RGB. */
+  pixels: Uint8Array;
 }
 
-/** Decode a VIDEO_GRAY frame, or return null if the buffer is not one we understand. */
+/** Decode a VIDEO_GRAY or VIDEO_RGB frame, or return null if it is malformed. */
 export function decodeVideo(buffer: ArrayBuffer): VideoFrame | null {
   if (buffer.byteLength < HEADER_LEN + 4) {
     return null;
   }
   const view = new DataView(buffer);
-  if (view.getUint8(0) !== PROTOCOL_VERSION || view.getUint8(1) !== FRAME_KIND_VIDEO_GRAY) {
+  const kind = view.getUint8(1);
+  if (
+    view.getUint8(0) !== PROTOCOL_VERSION ||
+    (kind !== FRAME_KIND_VIDEO_GRAY && kind !== FRAME_KIND_VIDEO_RGB)
+  ) {
     return null;
   }
   const streamId = view.getUint16(2, true);
@@ -105,12 +111,13 @@ export function decodeVideo(buffer: ArrayBuffer): VideoFrame | null {
   const height = view.getUint16(18, true);
   // Geometry and payload must agree: a canvas sized from the header and filled from a short
   // payload would draw the previous picture's tail as this one's bottom rows.
-  const pixels = width * height;
-  if (pixels === 0 || buffer.byteLength < HEADER_LEN + 4 + pixels) {
+  const format = kind === FRAME_KIND_VIDEO_RGB ? "rgb" : "gray";
+  const bytes = width * height * (format === "rgb" ? 3 : 1);
+  if (bytes === 0 || buffer.byteLength < HEADER_LEN + 4 + bytes) {
     return null;
   }
-  const luma = new Uint8Array(buffer, HEADER_LEN + 4, pixels);
-  return { streamId, seq, timestamp, width, height, luma };
+  const pixels = new Uint8Array(buffer, HEADER_LEN + 4, bytes);
+  return { streamId, seq, timestamp, width, height, format, pixels };
 }
 
 export interface IqFrame {

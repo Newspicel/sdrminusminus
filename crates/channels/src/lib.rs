@@ -8,13 +8,16 @@ mod dab;
 mod datv;
 mod drm;
 mod dv;
+mod gnss;
 mod ident;
 mod morse;
 mod navtex;
 mod nfm;
 mod pocsag;
+mod radio_clock;
 mod rds;
 mod rtty;
+mod selcall;
 mod ssb;
 mod subghz;
 pub mod tone_squelch;
@@ -37,19 +40,23 @@ pub use dab::DabChannel;
 pub use datv::DatvChannel;
 pub use drm::DrmChannel;
 pub use dv::{
-    DmrChannel, DpmrChannel, DstarChannel, M17Channel, NxdnChannel, P25Channel, YsfChannel,
+    DmrChannel, DpmrChannel, DstarChannel, FreeDvChannel, M17Channel, NxdnChannel, P25Channel,
+    YsfChannel,
 };
+pub use gnss::GnssChannel;
 pub use ident::IdentChannel;
 pub use morse::MorseChannel;
 pub use navtex::NavtexChannel;
 pub use nfm::{NfmChannel, NfmTx};
 use num_complex::Complex;
 pub use pocsag::PocsagChannel;
+pub use radio_clock::RadioClockChannel;
 pub use rtty::RttyChannel;
 use sdrmm_dsp::{Agc, Decimator, FirC};
 use sdrmm_wire::{
     ChannelDescriptor, ChannelParams, ChannelSettings, DecoderEvent, PositionFix, Sideband,
 };
+pub use selcall::SelcallChannel;
 pub use ssb::{SsbChannel, SsbTx};
 pub use subghz::SubghzChannel;
 pub use wfm::WfmChannel;
@@ -86,6 +93,7 @@ pub(crate) fn clamp_full_scale(pcm: &mut [f32]) {
 pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
     match params {
         ChannelParams::Nfm(p) => (-p.bandwidth_hz / 2.0, p.bandwidth_hz / 2.0),
+        ChannelParams::Selcall(_) => selcall::occupied_band(),
         ChannelParams::Am(p) => (-p.bandwidth_hz / 2.0, p.bandwidth_hz / 2.0),
         ChannelParams::Ssb(p) => match p.sideband {
             Sideband::Usb => (ssb::PASSBAND_LOW_HZ, p.bandwidth_hz),
@@ -115,7 +123,10 @@ pub fn occupied_band(params: &ChannelParams) -> (f64, f64) {
         ChannelParams::P25(_) => dv::p25::occupied_band(),
         ChannelParams::Dpmr(_) => dv::dpmr::occupied_band(),
         ChannelParams::M17(_) => dv::m17::occupied_band(),
+        ChannelParams::Freedv(p) => dv::freedv::occupied_band(p),
         ChannelParams::Ident(p) => ident::occupied_band(p),
+        ChannelParams::RadioClock(_) => radio_clock::occupied_band(),
+        ChannelParams::Gnss(_) => gnss::occupied_band(),
     }
 }
 
@@ -150,6 +161,7 @@ impl ChannelFilter {
 pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelError> {
     match params {
         ChannelParams::Nfm(p) => nfm::channel_filter(p),
+        ChannelParams::Selcall(_) => Ok(selcall::channel_filter()),
         ChannelParams::Am(p) => am::channel_filter(p),
         ChannelParams::Ssb(p) => Ok(ChannelFilter::Sideband(ssb::sideband_filter(p)?)),
         ChannelParams::Wfm(_) => Ok(wfm::channel_filter()),
@@ -173,7 +185,10 @@ pub fn channel_filter(params: &ChannelParams) -> Result<ChannelFilter, ChannelEr
         ChannelParams::P25(_) => Ok(dv::p25::channel_filter()),
         ChannelParams::Dpmr(_) => Ok(dv::dpmr::channel_filter()),
         ChannelParams::M17(_) => Ok(dv::m17::channel_filter()),
+        ChannelParams::Freedv(p) => dv::freedv::channel_filter(p),
         ChannelParams::Ident(p) => ident::channel_filter(p),
+        ChannelParams::RadioClock(_) => Ok(radio_clock::channel_filter()),
+        ChannelParams::Gnss(_) => Ok(gnss::channel_filter()),
     }
 }
 
@@ -196,14 +211,14 @@ pub struct ChannelCtx {
     pub input_rate: f64,
 }
 
-/// One picture a video channel scanned out: 8-bit luma, row-major from the top line, exactly
-/// `width · height` bytes. Grayscale because that is what an analog raster carries once the
-/// colour subcarrier is left alone (: ATV decodes luma).
+/// One picture a video channel scanned out. `luma` is always present; `rgb` is either empty or
+/// three bytes per pixel when the transmission carried a supported colour subcarrier.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VideoPicture {
     pub width: u16,
     pub height: u16,
     pub luma: Vec<u8>,
+    pub rgb: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -349,6 +364,11 @@ const REGISTRY: &[Registration] = &[
         create_tx: Some(boxed_tx::<NfmTx>),
     },
     Registration {
+        descriptor: SelcallChannel::descriptor,
+        create: boxed::<SelcallChannel>,
+        create_tx: None,
+    },
+    Registration {
         descriptor: AmChannel::descriptor,
         create: boxed::<AmChannel>,
         create_tx: Some(boxed_tx::<AmTx>),
@@ -464,8 +484,23 @@ const REGISTRY: &[Registration] = &[
         create_tx: None,
     },
     Registration {
+        descriptor: FreeDvChannel::descriptor,
+        create: boxed::<FreeDvChannel>,
+        create_tx: None,
+    },
+    Registration {
         descriptor: IdentChannel::descriptor,
         create: boxed::<IdentChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: RadioClockChannel::descriptor,
+        create: boxed::<RadioClockChannel>,
+        create_tx: None,
+    },
+    Registration {
+        descriptor: GnssChannel::descriptor,
+        create: boxed::<GnssChannel>,
         create_tx: None,
     },
 ];
@@ -562,10 +597,11 @@ mod tests {
     use std::collections::HashSet;
 
     use sdrmm_wire::{
-        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvParams, ChannelParams,
-        DabParams, DatvParams, DmrParams, DpmrParams, DrmParams, DstarParams, IdentParams,
-        M17Params, MorseParams, NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams,
-        RttyParams, SsbParams, SubghzParams, WfmParams, YsfParams,
+        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvColor, AtvParams,
+        ChannelParams, DabParams, DatvParams, DmrParams, DpmrParams, DrmParams, DstarParams,
+        FreeDvParams, GnssParams, IdentParams, M17Params, MorseParams, NavtexParams, NfmParams,
+        NxdnParams, P25Params, PocsagParams, RadioClockParams, RttyParams, SelcallParams,
+        SsbParams, SubghzParams, WfmParams, YsfParams,
     };
 
     use super::*;
@@ -574,6 +610,7 @@ mod tests {
     fn default_params(type_id: &str) -> ChannelParams {
         match type_id {
             "nfm" => ChannelParams::Nfm(NfmParams::default()),
+            "selcall" => ChannelParams::Selcall(SelcallParams::default()),
             "am" => ChannelParams::Am(AmParams::default()),
             "ssb" => ChannelParams::Ssb(SsbParams::default()),
             "wfm" => ChannelParams::Wfm(WfmParams::default()),
@@ -597,7 +634,10 @@ mod tests {
             "p25" => ChannelParams::P25(P25Params::default()),
             "dpmr" => ChannelParams::Dpmr(DpmrParams::default()),
             "m17" => ChannelParams::M17(M17Params::default()),
+            "freedv" => ChannelParams::Freedv(FreeDvParams::default()),
             "ident" => ChannelParams::Ident(IdentParams::default()),
+            "radio_clock" => ChannelParams::RadioClock(RadioClockParams::default()),
+            "gnss" => ChannelParams::Gnss(GnssParams::default()),
             other => panic!("unexpected type id {other}"),
         }
     }
@@ -605,19 +645,46 @@ mod tests {
     #[test]
     fn descriptors_are_unique_and_complete() {
         let all = descriptors();
-        assert_eq!(all.len(), 25);
+        assert_eq!(all.len(), 29);
         let ids: HashSet<&str> = all.iter().map(|d| d.type_id.as_str()).collect();
         assert_eq!(
             ids,
             HashSet::from([
-                "nfm", "am", "ssb", "wfm", "pocsag", "adsb", "ais", "aprs", "rtty", "morse",
-                "navtex", "acars", "subghz", "atv", "dab", "datv", "drm", "dmr", "dstar", "ysf",
-                "nxdn", "p25", "dpmr", "m17", "ident",
+                "nfm",
+                "selcall",
+                "am",
+                "ssb",
+                "wfm",
+                "pocsag",
+                "adsb",
+                "ais",
+                "aprs",
+                "rtty",
+                "morse",
+                "navtex",
+                "acars",
+                "subghz",
+                "atv",
+                "dab",
+                "datv",
+                "drm",
+                "dmr",
+                "dstar",
+                "ysf",
+                "nxdn",
+                "p25",
+                "dpmr",
+                "m17",
+                "freedv",
+                "ident",
+                "radio_clock",
+                "gnss",
             ])
         );
         for d in &all {
             let (bandwidth, rate) = match d.type_id.as_str() {
                 "nfm" => (12_500.0, 48_000.0),
+                "selcall" => (12_500.0, 48_000.0),
                 "am" => (10_000.0, 48_000.0),
                 "ssb" => (3_000.0, 48_000.0),
                 "wfm" => (200_000.0, 240_000.0),
@@ -637,7 +704,10 @@ mod tests {
                 "dmr" | "ysf" | "p25" => (12_500.0, 48_000.0),
                 "dstar" | "nxdn" | "dpmr" => (6_250.0, 48_000.0),
                 "m17" => (9_000.0, 48_000.0),
+                "freedv" => (1_400.0, 8_000.0),
                 "ident" => (192_000.0, 240_000.0),
+                "radio_clock" => (200.0, 2_000.0),
+                "gnss" => (2_046_000.0, 2_048_000.0),
                 other => panic!("unexpected type id {other}"),
             };
             assert_eq!(d.bandwidth_hz, bandwidth, "{}", d.type_id);
@@ -659,6 +729,7 @@ mod tests {
                         | "am"
                         | "ssb"
                         | "wfm"
+                        | "atv"
                         | "dmr"
                         | "dstar"
                         | "ysf"
@@ -666,6 +737,7 @@ mod tests {
                         | "p25"
                         | "dpmr"
                         | "m17"
+                        | "freedv"
                 ),
                 "{} audio flag does not match its mode class",
                 d.type_id
@@ -708,6 +780,9 @@ mod tests {
             if d.decoder_kind.as_deref() == Some("dv") {
                 continue;
             }
+            if d.type_id == "atv" && audio.is_empty() {
+                continue;
+            }
             let frames = audio.len() / channels;
             // Filter warm-up is the only shortfall allowed: no mode's group delay reaches
             // 200 output frames at these tap counts.
@@ -720,16 +795,18 @@ mod tests {
         }
     }
 
-    /// The two rate rules the canvas draws. ADS-B is the one type handed the
-    /// device's own samples, and *because* it is, no type is exact-rate any more: the flag and
-    /// the range are mutually exclusive, and a type claiming both would leave the canvas telling
-    /// the operator to set a rate the engine then refuses.
     #[test]
-    fn only_adsb_runs_at_the_device_rate_and_nothing_is_exact_rate() {
+    fn native_rate_modes_match_their_required_device_rates() {
         for d in descriptors() {
+            let expected = match d.type_id.as_str() {
+                "adsb" => Some((2_000_000.0, 4_000_000.0)),
+                "atv" => Some((2_000_000.0, 20_000_000.0)),
+                "gnss" => Some((2_048_000.0, 2_048_000.0)),
+                _ => None,
+            };
             assert_eq!(
                 d.native_rate_range(),
-                (d.type_id == "adsb").then_some((2_000_000.0, 4_000_000.0)),
+                expected,
                 "{} native rate range",
                 d.type_id
             );
@@ -837,6 +914,14 @@ mod tests {
         assert_eq!(
             occupied_band(&ChannelParams::Wfm(WfmParams::default())),
             (-100_000.0, 100_000.0)
+        );
+        assert_eq!(
+            occupied_band(&ChannelParams::Atv(AtvParams {
+                color: AtvColor::Pal,
+                sound_subcarrier_hz: Some(5_500_000.0),
+                ..AtvParams::default()
+            })),
+            (-5_033_618.75, 5_565_000.0)
         );
     }
 

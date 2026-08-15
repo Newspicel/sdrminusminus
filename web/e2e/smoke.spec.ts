@@ -302,11 +302,15 @@ test.describe("the workspace", () => {
     };
     const tuning = await tunedTo();
 
-    const maxHold = scopePlot.getByRole("button", { name: /max hold/i });
-    await maxHold.click();
-    await expect(maxHold).toHaveAttribute("aria-pressed", "true");
-    await maxHold.click();
-    await expect(maxHold).toHaveAttribute("aria-pressed", "false");
+    await scopePlot.getByRole("button", { name: /^traces$/i }).click();
+    const tracesDialog = page.getByRole("dialog");
+    const peak = tracesDialog.getByRole("button", { name: /^peak$/i });
+    await peak.click();
+    await expect(peak).toHaveAttribute("aria-pressed", "true");
+    await peak.click();
+    await expect(peak).toHaveAttribute("aria-pressed", "false");
+    await page.keyboard.press("Escape");
+    await expect(tracesDialog).toBeHidden();
 
     // The trigger is labelled with the colormap in force, which on a fresh profile is the default.
     await scopePlot.getByRole("button", { name: /^classic$/i }).click();
@@ -366,6 +370,19 @@ test.describe("the workspace", () => {
       .poll(async () => (await map.locator(".maplibregl-canvas").boundingBox())?.height ?? 0)
       .toBeGreaterThan(0);
     expect(styleErrors).toEqual([]);
+    const mapId = await map.getAttribute("data-id");
+    if (mapId === null) {
+      throw new Error("a map node id");
+    }
+    await expect
+      .poll(async () => {
+        const list = await page.request.get("/api/workspaces").then((r) => r.json());
+        const detail: WorkspaceDetail = await page.request
+          .get(`/api/workspaces/${list.active}`)
+          .then((r) => r.json());
+        return (detail.snapshot.graph.edges ?? []).some((edge) => edge.to.node === mapId);
+      })
+      .toBe(true);
   });
 
   test("opens the map's basemap credits collapsed", async ({ page }) => {
@@ -585,6 +602,53 @@ test.describe("the workspace", () => {
 
     await ruler.click();
     await expect(ruler).toBeChecked();
+  });
+
+  test("runs a tool beside the receiver without touching the patch", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
+
+    await page.getByRole("button", { name: "Tools", exact: true }).click();
+    const tools = page.getByRole("dialog", { name: "Antenna calculator" });
+    await expect(tools).toBeVisible();
+
+    const frequency = tools.getByRole("textbox", { name: "Frequency in MHz" });
+    await frequency.click();
+    await frequency.press("ControlOrMeta+a");
+    await frequency.pressSequentially("14.2");
+    await frequency.press("Tab");
+    await expect(frequency).toHaveValue("14.2");
+    // A half-wave dipole at 14.2 MHz, end-effect factor 0.95: the whole path — panel to server
+    // to table — in one number.
+    await expect(tools.getByRole("row", { name: /tip-to-tip span/i })).toContainText(/10\.0\d\d m/);
+    // The same answer as a drawing: a flat dipole is drawn face on.
+    await expect(tools.getByRole("img", { name: /dipole.*front view/i })).toBeVisible();
+
+    await tools.getByRole("combobox", { name: "Antenna design" }).click();
+    await page.getByRole("option", { name: "Yagi" }).click();
+    const directors = tools.getByRole("textbox", { name: "Director count" });
+    await directors.click();
+    await directors.press("ControlOrMeta+a");
+    await directors.pressSequentially("3");
+    // Enter commits without leaving the field: the panel answers while the operator is still in it.
+    await directors.press("Enter");
+    await expect(tools.getByRole("row", { name: /director 3/i })).toBeVisible();
+    // A boom is only visible from above, and every element on it gets drawn.
+    const drawing = tools.getByRole("img", { name: /yagi.*top view/i });
+    await expect(drawing).toBeVisible();
+    await expect(drawing.locator("title", { hasText: /^Director 3 —/ })).toHaveCount(1);
+
+    await tools.getByRole("group", { name: "Drawing view" }).getByText("3D").click();
+    await expect(tools.getByRole("img", { name: /yagi.*angle/i })).toBeVisible();
+    await expect(tools.getByRole("button", { name: "Reset angle" })).toBeVisible();
+
+    await tools.getByRole("group", { name: "Length units" }).getByText("ft").click();
+    await expect(tools.getByRole("row", { name: /^Reflector\b/ })).toContainText(/ft/);
+
+    await tools.getByRole("button", { name: "Close" }).click();
+    await expect(tools).toHaveCount(0);
+    // The patch is exactly where it was: a tool is not part of the signal path.
+    await expect(page.locator('.react-flow__node[data-id="device"]')).toBeVisible();
   });
 
   test("serves the mark to the tab and the top bar", async ({ page }) => {

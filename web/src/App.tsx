@@ -52,6 +52,7 @@ import { useChannelPatch } from "./lib/useChannelPatch";
 import { useDevicePatch } from "./lib/useDevicePatch";
 import { videoHub } from "./lib/video";
 import { SdrSocket } from "./lib/ws";
+import { ToolsDialog } from "./tools/ToolsDialog";
 
 /** Modes the `m` shortcut walks, in the order an operator sweeps them. Decoders are not in the
  * ring: swapping a channel to ADS-B mid-listen is a different intent, not the next mode. */
@@ -65,6 +66,7 @@ export function App() {
   const [stepHz, setStepHz] = useState(100_000);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showTools, setShowTools] = useState(false);
 
   const state = useQuery(stateQuery());
   const channelTypes = useQuery(channelTypesQuery());
@@ -364,6 +366,7 @@ export function App() {
                 onRemove={workspace.remove}
                 onShowShortcuts={() => setShowShortcuts(true)}
                 onShowAbout={() => setShowAbout(true)}
+                onShowTools={() => setShowTools(true)}
               />
               {view === "patch" ? <Canvas /> : <Rack />}
             </ReactFlowProvider>
@@ -390,6 +393,7 @@ export function App() {
 
         <Shortcuts open={showShortcuts} onOpenChange={setShowShortcuts} />
         <AboutPanel open={showAbout} onOpenChange={setShowAbout} />
+        <ToolsDialog open={showTools} onOpenChange={setShowTools} />
         <Toasts />
       </div>
     </TokenGate>

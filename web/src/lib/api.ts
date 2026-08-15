@@ -20,6 +20,9 @@ import type {
   DoctorReport,
   ExportFormat,
   LicenseTextResponse,
+  NetworkExportAction,
+  NetworkExportSettings,
+  NetworkExportStatus,
   NmeaDevicesResponse,
   OccupancyReport,
   PatchApplyReport,
@@ -35,6 +38,9 @@ import type {
   ScanSettings,
   StateSnapshot,
   TemplatesResponse,
+  ToolRequest,
+  ToolResponse,
+  ToolsResponse,
   VoiceCallsResponse,
   WorkspaceDetail,
   WorkspaceInfo,
@@ -79,6 +85,8 @@ export const ABOUT_KEY = ["get", "/api/about"] as const;
 export const WORKSPACES_KEY = ["get", "/api/workspaces"] as const;
 export const PATCH_CATALOG_KEY = ["get", "/api/patch/catalog"] as const;
 export const BAND_REGIONS_KEY = ["get", "/api/bandplan/regions"] as const;
+export const TOOLS_KEY = ["get", "/api/tools"] as const;
+export const TOOL_RUN_KEY = ["post", "/api/tools/run"] as const;
 
 export function stateQuery() {
   return queryOptions({
@@ -259,6 +267,21 @@ export async function recordDeviceSet(
   );
 }
 
+export async function networkExportDeviceSet(
+  ds: number,
+  action: NetworkExportAction,
+  node: string,
+  stream: number,
+  settings: NetworkExportSettings,
+): Promise<NetworkExportStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/network-export", {
+      params: { path: { ds } },
+      body: { action, node, stream, settings },
+    }),
+  );
+}
+
 /** Drive a replaying set's transport. `position_samples` is only read by `seek`. */
 export async function controlPlayback(
   ds: number,
@@ -420,6 +443,30 @@ export function bandPlanQuery(region: string | null) {
         }),
       ),
     enabled: region !== null,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/** What tools this build offers. Compiled in, so it only changes when the server does. */
+export function toolsQuery() {
+  return queryOptions({
+    queryKey: TOOLS_KEY,
+    queryFn: async (): Promise<ToolsResponse> => unwrap(await client.GET("/api/tools")),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/**
+ * One tool call, as a query rather than a mutation: a tool answers a question about its
+ * arguments and nothing else, so the same arguments may be served from the cache and going
+ * back to a design already worked out costs no round trip.
+ */
+export function toolRunQuery(request: ToolRequest | null) {
+  return queryOptions({
+    queryKey: [...TOOL_RUN_KEY, request] as const,
+    queryFn: async (): Promise<ToolResponse> =>
+      unwrap(await client.POST("/api/tools/run", { body: request as ToolRequest })),
+    enabled: request !== null,
     staleTime: Number.POSITIVE_INFINITY,
   });
 }

@@ -289,6 +289,15 @@ describe("eventStation", () => {
     expect(eventStation({ kind: "morse", data: { text: "x", wpm: 12 } })).toBeNull();
     expect(eventStation({ kind: "rds", data: { block_errors: 0, groups: 1 } })).toBeNull();
   });
+
+  it("does not mistake a Selcall recipient for the transmitter", () => {
+    const event: DecoderEvent = {
+      kind: "selcall",
+      data: { system: "ccir1", code: "12234", tone_ms: 100 },
+    };
+    expect(eventSummary(event)).toBe("CCIR-1 · 12234");
+    expect(eventStation(event)).toBeNull();
+  });
 });
 
 describe("droppedNotice", () => {
@@ -297,6 +306,37 @@ describe("droppedNotice", () => {
     expect(droppedNotice(1, 0)).toBe("1 live frame dropped");
     expect(droppedNotice(0, 12)).toBe("12 frames never reached the log");
     expect(droppedNotice(2, 12)).toBe("2 live frames dropped · 12 frames never reached the log");
+  });
+});
+
+describe("clock and GNSS summaries", () => {
+  it("keeps acquisition measurements visible in the live log", () => {
+    const event: DecoderEvent = {
+      kind: "gnss",
+      data: {
+        prn: 7,
+        doppler_hz: 1000,
+        code_phase_chips: 158.34,
+        cn0_db_hz: 44.5,
+      },
+    };
+    expect(eventSummary(event)).toBe("GPS PRN 7 · +1000 Hz · 44.5 dB-Hz · acquired");
+    expect(eventStation(event)).toBe("GPS-7");
+  });
+
+  it("names the clock service beside its decoded civil time", () => {
+    const event: DecoderEvent = {
+      kind: "radio_clock",
+      data: {
+        standard: "dcf77",
+        datetime: "2026-08-15T12:34:00+02:00",
+        dst: true,
+        leap_warning: false,
+        symbols: "M000",
+      },
+    };
+    expect(eventSummary(event)).toBe("DCF77 · 2026-08-15T12:34:00+02:00");
+    expect(eventStation(event)).toBe("DCF77");
   });
 });
 

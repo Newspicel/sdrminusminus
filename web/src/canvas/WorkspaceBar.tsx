@@ -27,6 +27,7 @@ export function WorkspaceBar({
   onRemove,
   onShowShortcuts,
   onShowAbout,
+  onShowTools,
 }: {
   view: View;
   onView: (view: View) => void;
@@ -37,6 +38,7 @@ export function WorkspaceBar({
   onRemove: (id: number) => void;
   onShowShortcuts: () => void;
   onShowAbout: () => void;
+  onShowTools: () => void;
 }) {
   const workspace = useWorkspaceContext();
   const placeNode = useNodePlacement();
@@ -65,7 +67,12 @@ export function WorkspaceBar({
                       kind: "dmr_trunk" as const,
                       data: { protocol: "auto", retention_seconds: 300 },
                     }
-                  : { kind }),
+                  : kind === "network_export"
+                    ? {
+                        kind: "network_export" as const,
+                        data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" },
+                      }
+                    : { kind }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });
@@ -142,6 +149,12 @@ export function WorkspaceBar({
       </Popover>
 
       <span className="ml-auto flex items-center gap-1">
+        {/* Tools stand beside the receiver, not in the patch: they open over whatever view is
+            up and leave the graph exactly as it was. */}
+        <Button type="button" className={BTN_QUIET} onClick={onShowTools}>
+          Tools
+        </Button>
+        <Rule />
         <Popover
           label="Library"
           triggerClass={BTN_QUIET}

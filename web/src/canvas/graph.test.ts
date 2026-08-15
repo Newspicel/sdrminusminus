@@ -331,7 +331,15 @@ describe("ports", () => {
   /** A face that is a column of controls is the size its kind is; only the instruments resize. */
   it("resizes the viewports and nothing else", () => {
     const viewports: NodeKind[] = ["scope", "map", "signal_map", "readout", "decoder_log", "video"];
-    const controls: NodeKind[] = ["device", "channel", "gps", "scanner", "recorder", "export"];
+    const controls: NodeKind[] = [
+      "device",
+      "channel",
+      "gps",
+      "scanner",
+      "recorder",
+      "network_export",
+      "export",
+    ];
     expect(viewports.filter((kind) => !isResizable(kind))).toEqual([]);
     expect(controls.filter(isResizable)).toEqual([]);
   });

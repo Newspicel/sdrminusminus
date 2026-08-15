@@ -60,15 +60,14 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 7. Voice & analog channels
 
-- **[planned]** ATV colour and the sound subcarrier — luma only today; chroma is left where it is in the video band
 - **[planned]** Notch and audio filters per channel
-- **[planned]** Selcall (CCIR/ZVEI)
+- **[shipped]** Five-tone Selcall receive and log output for CCIR-1 and ZVEI-1, including repeat-marker expansion and ZVEI group symbols
 
 ## 8. Digital voice
 
-- **[planned]** NXDN SACCH/FACCH addressing and YSF callsigns — the signalling layers below
-  each mode's voice framing
-- **[planned]** FreeDV
+- **[planned]** YSF callsigns — the signalling layer below its voice framing
+- **[shipped]** NXDN SACCH/FACCH addressing
+- **[shipped]** FreeDV 1600 USB/LSB receive, sync events, and Codec2 speech audio
 - **[planned]** Hardware AMBE dongle/server support
 
 ## 9. Aviation & marine
@@ -118,7 +117,8 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 - **[planned]** FT8 / FT4
 - **[planned]** PSK31 / PSK63; WSPR
-- **[planned]** Radio clock (DCF77 / WWVB / MSF / JJY)
+- **[shipped]** Radio clock (DCF77 / WWVB / MSF / JJY) — service-specific AM pulse slicing,
+  calendar/time fields, parity validation, leap/DST/DUT1 metadata and raw minute symbols
 
 ## 15. Analysis & measurement
 
@@ -127,7 +127,8 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 - **[planned]** Noise figure; PER tester; SID monitor
 - **[planned]** Radio astronomy; star tracker; sky map
 - **[planned]** Signal-ID assistant — match a spectrum/audio snapshot against a signal catalog, later an ML classifier
-- **[planned]** GNSS educational decode
+- **[shipped]** GNSS educational decode — focused GPS L1 C/A PRN acquisition, Doppler/code phase,
+  C/N₀ estimate, 50 bit/s NAV word parity, subframe/TOW and week inspection (not a position fix)
 - **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
 - **[planned]** Visualize signals such as 4FSK directly, without placing them behind a decoder.
 

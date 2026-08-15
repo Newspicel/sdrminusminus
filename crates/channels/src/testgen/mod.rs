@@ -26,12 +26,15 @@ pub mod adsb;
 pub mod ais;
 pub mod atv;
 pub mod dv;
+pub mod gnss;
 pub mod morse;
 pub mod navtex;
 pub mod nfm;
 pub mod pocsag;
+pub mod radio_clock;
 pub mod rds;
 pub mod rtty;
+pub mod selcall;
 pub mod subghz;
 pub mod wfm;
 

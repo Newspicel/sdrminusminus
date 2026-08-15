@@ -14,6 +14,7 @@
 - [Channels and decoding](user-guide/channels.md)
 - [Scanning](user-guide/scanning.md)
 - [Recording and playback](user-guide/recording.md)
+- [Network IQ export](user-guide/network-iq.md)
 - [Workspaces, templates, and presets](user-guide/workspaces.md)
 - [Keyboard controls](user-guide/keyboard.md)
 - [Troubleshooting](troubleshooting.md)
