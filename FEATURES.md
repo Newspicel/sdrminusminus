@@ -17,8 +17,7 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 ## 2. Many radios at once & coherent arrays
 
 - **[planned]** Cross-device features: a scanner spanning devices, multi-VOR fix, diversity
-- **[planned]** `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output
-- **[planned]** KrakenSDR support — via its Heimdall DAQ network stream first, direct hardware drive later
+- **[planned]** `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output (so support for e.g. KrakenSDR)
 - **[planned]** Generic synced bank — any N receivers on a shared reference clock
 - **[planned]** Network coherent source — aligned multi-lane IQ from another sdr-- node or a DAQ
 - **[planned]** Direction finding (MUSIC/ESPRIT) with bearings on the map; multi-station triangulation
@@ -46,8 +45,8 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 5. Recording, capture & replay
 
-- **[planned]** The rest of the per-channel sinks — a baseband file, and UDP out to external tools
-- **[planned]** RF replay-capture workflow — record a burst, annotate it, analyze it
+- **[planned]** The rest of the per-channel sinks — a baseband file, and a per-channel network tap;
+  the network export node carries a device's IQ only
 - **[planned]** **IQ time machine** — rolling ring buffer, retro-record the last N seconds after the fact
 - **[planned]** Inspectrum-style offline IQ viewer in the browser
 - **[planned]** Annotated recordings; recording scheduler + unattended satellite-pass automation
@@ -69,7 +68,6 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 10. Data, text & paging
 
-- **[planned]** APRS *feature* — station/position collection, distinct from the channel
 - **[planned]** FLEX and further pager formats, ERMES
 - **[planned]** CW skimmer — every CW signal in the passband at once
 - **[planned]** Tetrapol, STANAG modem ID, GSM downlink analysis, OsmocomBB-style monitoring
@@ -92,35 +90,34 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 - **[planned]** NOAA APT; Meteor M-2 LRPT
 - **[planned]** Radiosonde (RS41 …) + map/log feature; later DFM, M10/M20, iMet
-- **[planned]** HF WEFAX — the DSP is the easy half; the picture transport ATV shipped (§8) is now the half that exists, so what is left is the decoder plus a server-side page store for a mode whose picture takes minutes rather than milliseconds
+- **[planned]** HF WEFAX — the DSP is the easy half; the picture transport ATV shipped is now the half that exists, so what is left is the decoder plus a server-side page store for a mode whose picture takes minutes rather than milliseconds
 - **[planned]** SSTV RX; APRS weather aggregation
 
 ## 13. Broadcast & wideband digital
 
 - **[planned]** TETRA
-- **[planned]** Digital-broadcast multiplex and media layers — DAB FIC/MSC and DAB+ audio, DVB-S/S2 FEC + MPEG-TS and video, DRM FAC/SDC/MSC and audio
+- **[planned]** The multiplex and media layers above the shipped DAB, DATV and DRM acquisition —
+  DAB FIC/MSC and DAB+ audio, DVB-S/S2 FEC + MPEG-TS and video, DRM FAC/SDC/MSC and audio
 
 ## 15. Analysis & measurement
 
-- **[planned]** Channel analyzer (scope, constellation) — also the prerequisite for wiring a scope to a channel tap
-- **[planned]** Demod analyzer; channel power meter; heat map channel
+- **[planned]** Demod analyzer
 - **[planned]** Noise figure; PER tester; SID monitor
 - **[planned]** Radio astronomy; star tracker; sky map
 - **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
-- **[planned]** Visualize signals such as 4FSK directly, without placing them behind a decoder.
 
 ## 16. Audio processing
-17. 
+
 - **[planned]** A floor that jumps up in one step is read as a signal until the channel next falls quiet, which is the deliberate half of the auto-squelch trade; a smarter estimator would tell the two apart
 
 ## 17. Station services & hardware integration
 
 - **[planned]** Satellite tracker (TLE fetch, pass prediction, Doppler-corrected channels)
 - **[planned]** Rotator control (GS-232, rotctld); rigctld-compatible rig control server
-- **[planned]** NanoVNA over USB serial — sweeps, SWR and Smith-chart panels, saved antenna profiles
-- **[planned]** Antenna calculators
+- **[planned]** Saved antenna profiles — the NanoVNA tool sweeps, plots SWR and a Smith chart and
+  calibrates, but a sweep is never stored against a named antenna
 - **[planned]** Map layers — sondes, satellites, beacons, MUF
-- **[planned]** TinySA import, bias-T presets, Hamlib CAT control
+- **[planned]** TinySA import, Hamlib CAT control
 
 ## 18. API, automation & access
 
@@ -129,7 +126,6 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 - **[planned]** Plugin SDK via WASM
 - **[planned]** Multi-user roles; remote fleet management across several Pi nodes
 - **[planned]** Offline reference bundles — band plans, TLE snapshots, callsign prefixes, PMTiles maps
-- **[planned]** Output Nodes for like Discord and Matrix
 
 ## 19. Legitimate Security research
 
