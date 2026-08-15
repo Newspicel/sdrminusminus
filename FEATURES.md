@@ -1,136 +1,128 @@
 # Feature roadmap
 
-This file tracks work that has shipped and ideas that remain planned. It is a roadmap, not a
-promise or release schedule. For current installation and usage instructions, read the
-[documentation](https://newspicel.github.io/sdrminusminus/); for the exact channel catalog in a
-particular build, open **+ Node** or request `GET /api/channeltypes` from that server.
-
-- **shipped** means the behavior is available in the current codebase;
-- **planned** means it is not implemented yet, even when the note describes a possible design.
+If something is shipped, then remove it.
 
 ## 1. Platform and desktop shell
 
-- **[planned]** Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
-- **[planned]** A native Save-As dialog for downloads in the desktop shell. The shell installs no `on_download` handler, so wry's default applies: a recording lands silently in the OS download directory (`~/Downloads`, `$XDG_DOWNLOAD_DIR`, `%USERPROFILE%\Downloads`), deduplicated as `name (1)`, with no dialog and no progress — and on Windows wry's `SetHandled(true)` suppresses even WebView2's own flyout. The gap that matters is failure: an export aborts its body rather than truncate, and that abort is invisible here. A Rust-side `tauri-plugin-dialog` handler would keep the shell's no-IPC stance, but a blocking dialog on the main thread needs care
+- Desktop app connecting to a *remote* server, and saved remote connections — the shell only ever spawns its own local one
+- A native Save-As dialog for downloads in the desktop shell. The shell installs no `on_download` handler, so wry's default applies: a recording lands silently in the OS download directory (`~/Downloads`, `$XDG_DOWNLOAD_DIR`, `%USERPROFILE%\Downloads`), deduplicated as `name (1)`, with no dialog and no progress — and on Windows wry's `SetHandled(true)` suppresses even WebView2's own flyout. The gap that matters is failure: an export aborts its body rather than truncate, and that abort is invisible here. A Rust-side `tauri-plugin-dialog` handler would keep the shell's no-IPC stance, but a blocking dialog on the main thread needs care
 
 ## 2. Engine — many radios, arrays and cross-cutting DSP
 
-- **[planned]** `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output (so support for e.g. KrakenSDR)
-- **[planned]** Generic synced bank — any N receivers on a shared reference clock
-- **[planned]** Network coherent source — aligned multi-lane IQ from another sdr-- node or a DAQ
-- **[planned]** Direction finding (MUSIC/ESPRIT) with bearings on the map; multi-station triangulation
-- **[planned]** Passive radar (range-Doppler)
-- **[planned]** Beamforming, diversity combine, and noise cancelling against a reference antenna
-- **[planned]** Interferometer
-- **[planned]** A floor that jumps up in one step is read as a signal until the channel next falls quiet, which is the deliberate half of the auto-squelch trade; a smarter estimator would tell the two apart
+- `CoherentArray` — N clock-synced receivers as one hardware-agnostic array with per-channel gain/phase calibration, noise-source/pilot alignment, and time-aligned multi-lane output (so support for e.g. KrakenSDR)
+- Generic synced bank — any N receivers on a shared reference clock
+- Network coherent source — aligned multi-lane IQ from another sdr-- node or a DAQ
+- Direction finding (MUSIC/ESPRIT) with bearings on the map; multi-station triangulation
+- Passive radar (range-Doppler)
+- Beamforming, diversity combine, and noise cancelling against a reference antenna
+- Interferometer
+- A floor that jumps up in one step is read as a signal until the channel next falls quiet, which is the deliberate half of the auto-squelch trade; a smarter estimator would tell the two apart
 
 ## 3. Spectrum, tuning & navigation
 
-- **[planned]** Better frequency scanner, including one that spans several devices
-- **[planned]** Hardware-assisted wideband sweep — the scanner still sweeps by retuning; a
+- Better frequency scanner, including one that spans several devices
+- Hardware-assisted wideband sweep — the scanner still sweeps by retuning; a
   firmware sweep delivers blocks stamped with their own frequency rather than a stream at one
   tuning, so the scanner's device-set spectrum tap has nothing to read it with yet
-- **[planned]** Strongest-signal "close-call" finder
-- **[planned]** Signal-strength **hunt mode** — Geiger-style audio/visual feedback as you close on a transmitter
-- **[planned]** Server-side zoom of the *device* spectrum — zooming a device scope re-frames bins
+- Strongest-signal "close-call" finder
+- Signal-strength hunt mode — Geiger-style audio/visual feedback as you close on a transmitter
+- Server-side zoom of the *device* spectrum — zooming a device scope re-frames bins
   that already arrived rather than resolving finer; the readout is honest about it. A channel's
   baseband scope resolves properly, being a transform of that channel's own samples
-- **[planned]** Pinch-zoom on touch pointers
-- **[planned]** 3D spectrogram view — a height-mapped surface reads worse than the 2D waterfall for
+- Pinch-zoom on touch pointers
+- 3D spectrogram view — a height-mapped surface reads worse than the 2D waterfall for
   finding signals (the near ridge occludes the far one); the persistence display above shows the
   same third dimension honestly. A perspective tilt of the existing waterfall, and a range–Doppler
   surface for passive radar (§2), are the two cases that would earn it
 
 ## 4. Recording, replay & measurement
 
-- **[planned]** The rest of the per-channel sinks — a baseband file, and a per-channel network tap;
+- The rest of the per-channel sinks — a baseband file, and a per-channel network tap;
   the network export node carries a device's IQ only
-- **[planned]** **IQ time machine** — rolling ring buffer, retro-record the last N seconds after the fact
-- **[planned]** Inspectrum-style offline IQ viewer in the browser
-- **[planned]** Annotated recordings; recording scheduler + unattended satellite-pass automation
-- **[planned]** Wideband recording + offline re-channelization
-- **[planned]** Session/replay sharing as one openable bundle
-- **[planned]** Demod analyzer
-- **[planned]** Noise figure; PER tester; SID monitor
+- IQ time machine — rolling ring buffer, retro-record the last N seconds after the fact
+- Inspectrum-style offline IQ viewer in the browser
+- Annotated recordings; recording scheduler + unattended satellite-pass automation
+- Wideband recording + offline re-channelization
+- Session/replay sharing as one openable bundle
+- Demod analyzer
+- Noise figure; PER tester; SID monitor
 
 ## 5. Decoders & protocols
 
 ### Digital voice
 
-- **[planned]** YSF callsigns — the signalling layer below its voice framing
-- **[planned]** Hardware AMBE dongle/server support
+- YSF callsigns — the signalling layer below its voice framing
+- Hardware AMBE dongle/server support
 
 ### Aviation & marine
 
-- **[planned]** VOR, VOR localizer (multi-VOR fix), ILS, DSC
-- **[planned]** Inmarsat STD-C / AERO
-- **[planned]** VDL Mode 2; HFDL; Iridium bursts
-- **[planned]** ADS-B / AIS log enrichment against offline aircraft and ship databases
+- VOR, VOR localizer (multi-VOR fix), ILS, DSC
+- Inmarsat STD-C / AERO
+- VDL Mode 2; HFDL; Iridium bursts
+- ADS-B / AIS log enrichment against offline aircraft and ship databases
 
-### Data, text & paging
+### Data, text & paging®
 
-- **[planned]** FLEX and further pager formats, ERMES
-- **[planned]** CW skimmer — every CW signal in the passband at once
-- **[planned]** Tetrapol, STANAG modem ID, GSM downlink analysis, OsmocomBB-style monitoring
+- FLEX and further pager formats, ERMES
+- CW skimmer — every CW signal in the passband at once
+- Tetrapol, STANAG modem ID, GSM downlink analysis, OsmocomBB-style monitoring
 
 ### Sub-GHz, ISM & IoT
 
-- **[shipped]** No chip is named — a 24-bit frame carries both the EV1527 reading (address + button) and the PT2262 tri-state string where every bit pair is a legal symbol
-- **[shipped]** Repeats inside 500 ms collapse into one counted event, and a better-classified frame supersedes a held one only while that one is a single sighting — which is what stops a capture that started mid-burst from logging its fragment
-- **[planned]** Rolling-code *analysis* — a KeeLoq-style remote decodes today as a structureless 66-bit PWM frame; analysis is gated TX-phase work (§6)
-- **[planned]** Protocol library — the encoding is classified and the bits handed back; a table of known payload layouts (weather stations, TPMS, meters) is data work, not DSP
-- **[planned]** ISM sensor suite (rtl_433-style); escape hatch is a UDP sink into the rtl_433 binary
-- **[planned]** ChirpChat / LoRa, Meshtastic, MeshCore
-- **[planned]** End-of-Train (EOT) telemetry
-- **[planned]** LoRaWAN frame parsing
-- **[planned]** BLE advertisements, 2.4 GHz survey, Wi-Fi channel occupancy (energy only)
+- Rolling-code *analysis* — a KeeLoq-style remote decodes today as a structureless 66-bit PWM frame; analysis is gated TX-phase work (§6)
+- Protocol library — the encoding is classified and the bits handed back; a table of known payload layouts (weather stations, TPMS, meters) is data work, not DSP
+- ISM sensor suite (rtl_433-style); escape hatch is a UDP sink into the rtl_433 binary
+- ChirpChat / LoRa, Meshtastic, MeshCore
+- End-of-Train (EOT) telemetry
+- LoRaWAN frame parsing
+- BLE advertisements, 2.4 GHz survey, Wi-Fi channel occupancy (energy only)
 
 ### Weather, satellite & imaging
 
-- **[planned]** NOAA APT; Meteor M-2 LRPT
-- **[planned]** Radiosonde (RS41 …) + map/log feature; later DFM, M10/M20, iMet
-- **[planned]** HF WEFAX — the DSP is the easy half; the picture transport ATV shipped is now the half that exists, so what is left is the decoder plus a server-side page store for a mode whose picture takes minutes rather than milliseconds
-- **[planned]** SSTV RX; APRS weather aggregation
+- NOAA APT; Meteor M-2 LRPT
+- Radiosonde (RS41 …) + map/log feature; later DFM, M10/M20, iMet
+- HF WEFAX — the DSP is the easy half; the picture transport ATV shipped is now the half that exists, so what is left is the decoder plus a server-side page store for a mode whose picture takes minutes rather than milliseconds
+- SSTV RX; APRS weather aggregation
 
 ### Broadcast & wideband digital
 
-- **[planned]** TETRA
-- **[planned]** The multiplex and media layers above the shipped DAB, DATV and DRM acquisition —
+- TETRA
+- The multiplex and media layers above the shipped DAB, DATV and DRM acquisition —
   DAB FIC/MSC and DAB+ audio, DVB-S/S2 FEC + MPEG-TS and video, DRM FAC/SDC/MSC and audio
 
 ### Proof against the air
 
-- **[planned]** Off-air proof — Tetrapol, STANAG modem ID, GSM downlink and OsmocomBB-style
+- Off-air proof — Tetrapol, STANAG modem ID, GSM downlink and OsmocomBB-style
   monitoring are specification-proven only, and no sub-GHz remote decoder has yet been tested
   against a real transmitter
 
 ## 6. Transmit & legitimate security research
 
-- **[planned]** Signal generator / arbitrary waveform + IQ playback-to-air
-- **[planned]** Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use on licensed bands
-- **[planned]** Sub-GHz capture → decode → replay; fixed-code analysis and generation including de Bruijn sequences; rolling-code capture and implementation analysis against your own DUT
-- **[planned]** Interference / jam-susceptibility testing into a contained link
-- **[planned]** Flood / spam / malformed-broadcast testing at a DUT over a contained link
-- **[planned]** Targeted protocol fuzzing
-- **[planned]** Bench loopback — TX into your own RX to validate decoders (note: this is the point at which the graph's no-cycle proof stops being sufficient)
-- **[planned]** Offline frame workbench — dissect, mutate, re-analyze captured frames; encoding identification
-- **[planned]** Simple PTT
-- **[planned]** Beam-steering CW modulator (TX MIMO)
+- Signal generator / arbitrary waveform + IQ playback-to-air
+- Modulators for the remaining modes, over the shared frame/bit codec each protocol module owns in both directions — for two-way, beacon and test use on licensed bands
+- Sub-GHz capture → decode → replay; fixed-code analysis and generation including de Bruijn sequences; rolling-code capture and implementation analysis against your own DUT
+- Interference / jam-susceptibility testing into a contained link
+- Flood / spam / malformed-broadcast testing at a DUT over a contained link
+- Targeted protocol fuzzing
+- Bench loopback — TX into your own RX to validate decoders (note: this is the point at which the graph's no-cycle proof stops being sufficient)
+- Offline frame workbench — dissect, mutate, re-analyze captured frames; encoding identification
+- Simple PTT
+- Beam-steering CW modulator (TX MIMO)
 
 ## 7. Station services & hardware integration
 
-- **[planned]** Satellite tracker (TLE fetch, pass prediction, Doppler-corrected channels)
-- **[planned]** Rotator control (GS-232, rotctld); rigctld-compatible rig control server
-- **[planned]** Saved antenna profiles — the NanoVNA tool sweeps, plots SWR and a Smith chart and
+- Satellite tracker (TLE fetch, pass prediction, Doppler-corrected channels)
+- Rotator control (GS-232, rotctld); rigctld-compatible rig control server
+- Saved antenna profiles — the NanoVNA tool sweeps, plots SWR and a Smith chart and
   calibrates, but a sweep is never stored against a named antenna
-- **[planned]** Map layers — sondes, satellites, beacons, MUF
-- **[planned]** TinySA import, Hamlib CAT control
-- **[planned]** Radio astronomy; star tracker; sky map
+- Map layers — sondes, satellites, beacons, MUF
+- TinySA import, Hamlib CAT control
+- Radio astronomy; star tracker; sky map
 
 ## 8. API, automation & access
 
-- **[planned]** Scripting recipes on the existing REST + MCP surface (scanner bots, "ping me when this callsign appears")
-- **[planned]** Alerting/notifications — rule engine on decoder events → desktop, push, webhook
-- **[planned]** Plugin SDK via WASM
-- **[planned]** Multi-user roles; remote fleet management across several Pi nodes
-- **[planned]** Offline reference bundles — band plans, TLE snapshots, callsign prefixes, PMTiles maps
+- Scripting recipes on the existing REST + MCP surface (scanner bots, "ping me when this callsign appears")
+- Alerting/notifications — rule engine on decoder events → desktop, push, webhook
+- Plugin SDK via WASM
+- Multi-user roles; remote fleet management across several Pi nodes
+- Offline reference bundles — band plans, TLE snapshots, callsign prefixes, PMTiles maps
