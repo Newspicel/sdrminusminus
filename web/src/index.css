@@ -55,6 +55,10 @@
      reserved for transmit, which is drawn hollow because nothing can fill it yet.
      Chroma is held below the accent's so a lit wire never outshouts a tuned control. */
   --color-port-iq: oklch(0.72 0.11 228);
+  /* One channel's passband, not the radio's whole stream. Its own hue because it is its own
+     type — nothing that takes wideband IQ can take this — and adjacent to the IQ blue because
+     that adjacency is the truth about it. */
+  --color-port-baseband: oklch(0.74 0.1 196);
   --color-port-audio: oklch(0.74 0.12 158);
   --color-port-events: oklch(0.78 0.11 85);
   --color-port-video: oklch(0.76 0.12 35);

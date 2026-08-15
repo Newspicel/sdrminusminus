@@ -164,6 +164,36 @@ export function iqSourceOf(
   return null;
 }
 
+/**
+ * The channel whose baseband tap feeds `node`, and the device set that channel belongs to.
+ *
+ * `null` while nothing is wired, or while the channel that is wired has no engine channel behind
+ * it yet — a node drawn before the server has created it. The two are distinguished by the
+ * caller, which has a different thing to say about each.
+ */
+export function basebandSourceOf(
+  graph: PatchGraph,
+  node: string,
+  devices: ReadonlyMap<string, DeviceSet>,
+  channels: ReadonlyMap<string, ChannelInfo>,
+): { node: string; deviceSet: number; channel: ChannelInfo } | null {
+  for (const source of sourcesOf(graph, node, "baseband")) {
+    const channel = channels.get(source);
+    const owner = iqSourceOf(graph, source)?.source;
+    const set = owner === undefined ? undefined : devices.get(owner);
+    if (channel !== undefined && set !== undefined) {
+      return { node: source, deviceSet: set.id, channel };
+    }
+  }
+  return null;
+}
+
+/** Whether anything at all is wired into `node`'s baseband input, bound or not — what tells a
+ * face to explain a dead wire rather than to ask for one. */
+export function hasBasebandWire(graph: PatchGraph, node: string): boolean {
+  return sourcesOf(graph, node, "baseband").length > 0;
+}
+
 /** Channel nodes taking IQ from a device node, in stored order, with the stream each one's wire
  * names (mirrors `PatchGraph::channels_of`). */
 export function channelNodesOf(

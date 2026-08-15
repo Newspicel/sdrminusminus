@@ -1290,6 +1290,36 @@
         }
       }
     },
+    "/api/occupancy": {
+      "get": {
+        "operationId": "get_occupancy",
+        "parameters": [
+          {
+            "name": "min_samples",
+            "in": "query",
+            "description": "Drop buckets observed fewer times than this. A duty cycle from three sightings is not a measurement; the default keeps that out of the report",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "How much of the time each slice of spectrum has carried a signal, busiest first. Accumulated from the spectrum tap of every running receiver against absolute frequency, so a scan and a retune both add to the same picture",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccupancyReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/patch/catalog": {
       "get": {
         "operationId": "get_patch_catalog",
@@ -3366,6 +3396,32 @@
           }
         }
       },
+      "ChannelLevel": {
+        "type": "object",
+        "description": "One channel's live signal level.\n\nIts own message rather than a field of [`crate::ChannelInfo`]: a level changes continuously,\nand carrying it in the state snapshot would make every reading a state invalidation. Levels\nare dBFS of the channel's filtered passband, where unit-magnitude IQ is 0 dBFS — the same\nscale the squelch threshold is set on, so the two are directly comparable.",
+        "required": [
+          "channel",
+          "level_db",
+          "peak_db"
+        ],
+        "properties": {
+          "channel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "level_db": {
+            "type": "number",
+            "format": "float",
+            "description": "Smoothed level: fast to rise, slow to fall."
+          },
+          "peak_db": {
+            "type": "number",
+            "format": "float",
+            "description": "Loudest recent level, held then decayed."
+          }
+        }
+      },
       "ChannelNode": {
         "type": "object",
         "description": "A channel node's payload. The *type* is topology — it decides the node's ports — while the\nsettings behind it stay on the engine's channel (module docs).",
@@ -3758,6 +3814,24 @@
                 ]
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/IdentParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ident"
+                ]
+              }
+            }
           }
         ],
         "description": "Type-discriminated demod parameters. Adjacently tagged so the generated TS is a\ndiscriminated union on `type`, and `{\"type\":\"nfm\",\"settings\":{}}` deserializes with\nevery field at its default."
@@ -4037,6 +4111,78 @@
                 "type": "string",
                 "enum": [
                   "UnsubscribeVideo"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Start receiving a channel's baseband IQ — post down-conversion, post channel filter, at\nthe channel's own rate; answered with `IqStreamStarted`.\n\nThe burst size and cadence are the server's, not the client's: they are what bounds the\nbandwidth of a tap that would otherwise carry a native-rate channel's whole stream, and a\nper-subscriber choice would have several clients of one channel disagree about them.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Start receiving a channel's baseband IQ — post down-conversion, post channel filter, at\nthe channel's own rate; answered with `IqStreamStarted`.\n\nThe burst size and cadence are the server's, not the client's: they are what bounds the\nbandwidth of a tap that would otherwise carry a native-rate channel's whole stream, and a\nper-subscriber choice would have several clients of one channel disagree about them.",
+                "required": [
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "SubscribeIq"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Stop the baseband stream for a channel.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Stop the baseband stream for a channel.",
+                "required": [
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "UnsubscribeIq"
                 ]
               }
             }
@@ -4480,6 +4626,24 @@
                 "type": "string",
                 "enum": [
                   "dv"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/IdentReport"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ident"
                 ]
               }
             }
@@ -5637,6 +5801,171 @@
           }
         }
       },
+      "IdentFeatures": {
+        "type": "object",
+        "description": "The measurements a classification was made from, carried so the decision can be checked\nrather than taken on trust — an operator staring at an unfamiliar signal needs the numbers,\nnot just the verdict.",
+        "required": [
+          "envelope_variation",
+          "duty",
+          "keying_depth_db",
+          "spectral_asymmetry",
+          "carrier_db",
+          "spectral_flatness",
+          "frequency_levels",
+          "frequency_spread_hz",
+          "square_line_db",
+          "quartic_line_db"
+        ],
+        "properties": {
+          "carrier_db": {
+            "type": "number",
+            "format": "float",
+            "description": "The strongest spectral line over the median of the occupied band, in dB — how much of\na carrier there is."
+          },
+          "duty": {
+            "type": "number",
+            "format": "float",
+            "description": "Fraction of the observation the carrier was keyed on. 1.0 for a continuous transmission."
+          },
+          "envelope_variation": {
+            "type": "number",
+            "format": "float",
+            "description": "Standard deviation of the envelope over its own mean. Zero for a constant-envelope\nmode, large for anything that carries information in amplitude."
+          },
+          "frequency_levels": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Instantaneous-frequency levels the discriminator resolved: 2 or 4 for keyed modes, 1\nfor a carrier, 0 when the distribution is a continuum.",
+            "minimum": 0
+          },
+          "frequency_spread_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Spread of the instantaneous frequency, in Hz — the deviation of an analog FM signal,\nand roughly the outer deviation of a keyed one."
+          },
+          "keying_depth_db": {
+            "type": "number",
+            "format": "float",
+            "description": "Keyed-on level over keyed-off level, in dB — how deep the keying goes, which is what\nseparates a switched carrier from one that is merely fading."
+          },
+          "quartic_line_db": {
+            "type": "number",
+            "format": "float",
+            "description": "The same for the fourth power, which is what QPSK makes."
+          },
+          "spectral_asymmetry": {
+            "type": "number",
+            "format": "float",
+            "description": "Power imbalance about the strongest spectral line, `(upper − lower) / total`. Zero for\na symmetric spectrum (AM, FM, most digital modes), ±1 for a single sideband."
+          },
+          "spectral_flatness": {
+            "type": "number",
+            "format": "float",
+            "description": "Wiener entropy of the occupied band: 1.0 is white, 0.0 is a single tone."
+          },
+          "square_line_db": {
+            "type": "number",
+            "format": "float",
+            "description": "Strength of the spectral line the squared signal produces, over its own floor, in dB.\nA BPSK signal makes one; so does MSK, which is why the FSK tests run first."
+          }
+        }
+      },
+      "IdentParams": {
+        "type": "object",
+        "description": "The signal identifier: what to search, how often to answer, and how loud a thing has to be\nbefore it is one.",
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Slice searched for a signal, in Hz. Wide by default because the point of the mode is to\nbe pointed at something unknown — narrowing it is what an operator does once they can\nsee where the thing actually sits."
+          },
+          "interval_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Milliseconds between reports. Each one analyses the samples since the last, so this is\nboth the report cadence and the observation the answer stands on — up to a little over a\nsecond, past which the cadence keeps lengthening and each report describes the second\nbefore it rather than the whole gap.",
+            "minimum": 0
+          },
+          "threshold_db": {
+            "type": "number",
+            "format": "float",
+            "description": "How far above the measured noise floor a bin must sit to be part of a signal, in dB."
+          }
+        }
+      },
+      "IdentReport": {
+        "type": "object",
+        "description": "What the signal identifier made of the slice it was pointed at.\n\nEmitted on a cadence rather than per frame: there is no frame here. Each report describes one\nobservation window, so a stream of them is a record of what was on the air and when.",
+        "required": [
+          "modulation",
+          "confidence",
+          "bandwidth_hz",
+          "center_offset_hz",
+          "snr_db",
+          "features"
+        ],
+        "properties": {
+          "bandwidth_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Occupied bandwidth, in Hz."
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProtocolMatch"
+            },
+            "description": "Protocols that fit, best first."
+          },
+          "center_offset_hz": {
+            "type": "number",
+            "format": "double",
+            "description": "Where the signal's centre sits relative to the channel's own offset, in Hz — how far\nthe operator is off tune."
+          },
+          "confidence": {
+            "type": "number",
+            "format": "float",
+            "description": "How firmly the classifier held that answer, 0 to 1."
+          },
+          "deviation_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Peak frequency deviation of a keyed or analog FM signal, in Hz."
+          },
+          "features": {
+            "$ref": "#/components/schemas/IdentFeatures"
+          },
+          "modulation": {
+            "$ref": "#/components/schemas/Modulation"
+          },
+          "sideband": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Sideband",
+                "description": "Which sideband, when the modulation is [`Modulation::Ssb`] and the signal sits wholly to\none side of where the channel is tuned."
+              }
+            ]
+          },
+          "snr_db": {
+            "type": "number",
+            "format": "float",
+            "description": "Signal-to-noise ratio in the occupied band, in dB."
+          },
+          "symbol_rate_hz": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Symbols per second, when a symbol clock was found."
+          }
+        }
+      },
       "ItuRegion": {
         "type": "string",
         "enum": [
@@ -5664,6 +5993,24 @@
       "M17Params": {
         "type": "object",
         "description": "M17 (C4FM, 4800 symbols/s, RRC 0.5)."
+      },
+      "Modulation": {
+        "type": "string",
+        "description": "The modulation family a [`IdentReport`] settled on.\n\nCoarse on purpose. What a receiver can read off an unknown waveform is how its envelope, its\ninstantaneous frequency and its spectrum behave, and those separate *families* — they do not\nseparate the variants inside one, which is what the protocol candidates are for.",
+        "enum": [
+          "none",
+          "carrier",
+          "ook",
+          "am",
+          "ssb",
+          "fm",
+          "fsk2",
+          "fsk4",
+          "psk2",
+          "psk4",
+          "noise_like",
+          "unknown"
+        ]
       },
       "MorseParams": {
         "type": "object",
@@ -6151,6 +6498,76 @@
           }
         }
       },
+      "OccupancyBucket": {
+        "type": "object",
+        "description": "One frequency bucket's occupancy statistics ( band-occupancy analytics).",
+        "required": [
+          "freq_hz",
+          "duty",
+          "samples",
+          "by_hour",
+          "last_seen"
+        ],
+        "properties": {
+          "by_hour": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            },
+            "description": "Duty per hour of the day, UTC, 24 entries. An hour never observed reads `0.0` — which is\nwhy `samples` matters."
+          },
+          "duty": {
+            "type": "number",
+            "format": "float",
+            "description": "Fraction of observations in which this bucket carried a signal, `0.0..=1.0`."
+          },
+          "freq_hz": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Centre of the bucket.",
+            "minimum": 0
+          },
+          "last_seen": {
+            "type": "string",
+            "description": "RFC 3339 timestamp of the most recent observation."
+          },
+          "samples": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Observations behind that fraction. A duty cycle from three sightings is not a measurement,\nand this is what lets a reader tell the difference.",
+            "minimum": 0
+          }
+        }
+      },
+      "OccupancyReport": {
+        "type": "object",
+        "description": "`GET /api/occupancy` — how much of the time each slice of spectrum has been in use.",
+        "required": [
+          "bucket_hz",
+          "since",
+          "buckets"
+        ],
+        "properties": {
+          "bucket_hz": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Width of one bucket.",
+            "minimum": 0
+          },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OccupancyBucket"
+            },
+            "description": "Busiest first, then by frequency."
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC 3339 timestamp of the first observation, or empty before there is one."
+          }
+        }
+      },
       "P25Params": {
         "type": "object",
         "description": "P25 Phase 1 (C4FM, 4800 symbols/s)."
@@ -6546,6 +6963,7 @@
         "type": "string",
         "enum": [
           "iq",
+          "baseband",
           "audio",
           "events",
           "video",
@@ -6766,6 +7184,40 @@
             "format": "int32",
             "description": "[`PRESET_SNAPSHOT_VERSION`] at the time of writing.",
             "minimum": 0
+          }
+        }
+      },
+      "ProtocolMatch": {
+        "type": "object",
+        "description": "One protocol the waveform could be, and what says so.",
+        "required": [
+          "name",
+          "score",
+          "why"
+        ],
+        "properties": {
+          "confirmed": {
+            "type": "boolean",
+            "description": "Set when the protocol's own framing was found in the signal, not merely resembled. A\nconfirmed match is an answer; an unconfirmed one is a shortlist entry."
+          },
+          "name": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "format": "float",
+            "description": "How well the measurements fit the protocol's signature, 0 to 1."
+          },
+          "type_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The channel type that decodes it, when this build has one — what the client offers to\nswitch the channel to."
+          },
+          "why": {
+            "type": "string",
+            "description": "The evidence, in a phrase: what matched, or what was recognised."
           }
         }
       },
@@ -7509,6 +7961,48 @@
           },
           {
             "type": "object",
+            "description": "A subscribed channel-IQ stream is now active, carrying that channel's baseband as\n[`crate::IqFrame`]s. Ids come from the same per-connection media range audio and video\nuse, so the client demuxes on `(kind, stream_id)` exactly as it does there.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "A subscribed channel-IQ stream is now active, carrying that channel's baseband as\n[`crate::IqFrame`]s. Ids come from the same per-connection media range audio and video\nuse, so the client demuxes on `(kind, stream_id)` exactly as it does there.",
+                "required": [
+                  "stream_id",
+                  "device_set",
+                  "channel"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "stream_id": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "IqStreamStarted"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "description": "A subscribed stream stopped; `kind` says which one, since spectrum and audio ids\ncome from different spaces.",
             "required": [
               "data",
@@ -7634,6 +8128,43 @@
                 "type": "string",
                 "enum": [
                   "CallCompleted"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Live signal level of every channel on one device set.\n\nIts own event for the same reason [`ServerEvent::ScannerUpdate`] is one: levels move\ncontinuously, and a `StateChanged` per reading would have every client refetch the whole\nworld ten times a second. Nothing downstream is authoritative about these — they are a\nmeasurement, not state, and a client that misses one simply draws the next.",
+            "required": [
+              "data",
+              "type"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "description": "Live signal level of every channel on one device set.\n\nIts own event for the same reason [`ServerEvent::ScannerUpdate`] is one: levels move\ncontinuously, and a `StateChanged` per reading would have every client refetch the whole\nworld ten times a second. Nothing downstream is authoritative about these — they are a\nmeasurement, not state, and a client that misses one simply draws the next.",
+                "required": [
+                  "device_set",
+                  "levels"
+                ],
+                "properties": {
+                  "device_set": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "levels": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/ChannelLevel"
+                    }
+                  }
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ChannelLevels"
                 ]
               }
             }
@@ -7997,7 +8528,8 @@
         "enum": [
           "spectrum",
           "audio",
-          "video"
+          "video",
+          "iq"
         ]
       },
       "StreamScope": {

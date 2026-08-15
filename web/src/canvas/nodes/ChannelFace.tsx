@@ -3,6 +3,8 @@ import { ChannelControls } from "../../components/ChannelControls";
 import { channelHasVideo, rateMismatch } from "../../components/channelSettings";
 import { BTN, BTN_PRIMARY } from "../../components/controls";
 import { formatMhz, formatSignedKhz } from "../../components/format";
+import { LevelMeter } from "../../components/LevelMeter";
+import { useLevelStore } from "../../lib/levels";
 import type { ChannelDescriptor, DeviceSet, PatchGraph, PatchNode } from "../../lib/types";
 import { forStream, useDevicePatch } from "../../lib/useDevicePatch";
 import { iqSourceOf, targetsOf } from "../binding";
@@ -12,6 +14,8 @@ import { FaceBody, NodeShell } from "./NodeShell";
 
 export function ChannelFace({ node }: { node: PatchNode }) {
   const workspace = useWorkspaceContext();
+  const set = deviceSetOf(workspace, node.id);
+  const levels = useLevelStore((state) => (set === null ? undefined : state.byDeviceSet[set.id]));
   if (node.kind !== "channel") {
     return null;
   }
@@ -19,7 +23,6 @@ export function ChannelFace({ node }: { node: PatchNode }) {
   const typeId = node.data.channel_type;
   const descriptor = workspace.context.channelTypes.find((type) => type.type_id === typeId);
   const name = descriptor?.name ?? typeId.toUpperCase();
-  const set = deviceSetOf(workspace, node.id);
   const channel = workspace.channels.get(node.id) ?? null;
   const source = iqSourceOf(workspace.graph, node.id);
   const wired = source !== null;
@@ -61,6 +64,9 @@ export function ChannelFace({ node }: { node: PatchNode }) {
           <Unbound wired={wired} open={set !== null} onApply={workspace.apply} />
         ) : (
           <>
+            <div className="px-2 pt-2">
+              <LevelMeter level={levels?.[channel.id]} squelchDb={channel.settings.squelch_db} />
+            </div>
             <ChannelControls
               deviceSet={set.id}
               channel={channel}

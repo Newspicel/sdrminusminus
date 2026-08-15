@@ -737,3 +737,31 @@ mod tests {
         assert!(parsed.supported_devices.is_empty());
     }
 }
+
+/// One frequency bucket's occupancy statistics ( band-occupancy analytics).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct OccupancyBucket {
+    /// Centre of the bucket.
+    pub freq_hz: u64,
+    /// Fraction of observations in which this bucket carried a signal, `0.0..=1.0`.
+    pub duty: f32,
+    /// Observations behind that fraction. A duty cycle from three sightings is not a measurement,
+    /// and this is what lets a reader tell the difference.
+    pub samples: u64,
+    /// Duty per hour of the day, UTC, 24 entries. An hour never observed reads `0.0` — which is
+    /// why `samples` matters.
+    pub by_hour: Vec<f32>,
+    /// RFC 3339 timestamp of the most recent observation.
+    pub last_seen: String,
+}
+
+/// `GET /api/occupancy` — how much of the time each slice of spectrum has been in use.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct OccupancyReport {
+    /// Width of one bucket.
+    pub bucket_hz: u64,
+    /// RFC 3339 timestamp of the first observation, or empty before there is one.
+    pub since: String,
+    /// Busiest first, then by frequency.
+    pub buckets: Vec<OccupancyBucket>,
+}

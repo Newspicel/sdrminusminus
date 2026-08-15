@@ -11,7 +11,7 @@ import type {
   DecoderLogEntry,
   DecoderLogFilter,
 } from "../lib/types";
-import { dvMode, dvNetwork, dvParties } from "./decoderViews";
+import { candidateScore, dvMode, dvNetwork, dvParties, modulationLabel } from "./decoderViews";
 
 /** Exhaustive over `DecoderKind`: adding a decoder to `wire` fails the typecheck here until it
  * gets a label, and `DECODER_KINDS` follows for free. */
@@ -28,6 +28,7 @@ export const KIND_LABELS: Record<DecoderKind, string> = {
   subghz: "Sub-GHz",
   tone: "Tone",
   dv: "Digital voice",
+  ident: "Signal ID",
 };
 
 export const DECODER_KINDS = Object.keys(KIND_LABELS) as DecoderKind[];
@@ -308,6 +309,17 @@ export function eventSummary(event: DecoderEvent): string {
         f.text ?? null,
       ]);
     }
+    case "ident": {
+      const r = event.data;
+      const best = r.candidates?.[0];
+      return join([
+        modulationLabel(r),
+        r.modulation === "none" ? null : `${(r.bandwidth_hz / 1000).toFixed(1)} kHz`,
+        r.symbol_rate_hz == null ? null : `${Math.round(r.symbol_rate_hz)} Bd`,
+        r.deviation_hz == null ? null : `\u00b1${Math.round(r.deviation_hz)} Hz`,
+        best == null ? null : `${best.name} (${candidateScore(best)})`,
+      ]);
+    }
   }
 }
 
@@ -343,6 +355,8 @@ export function eventStation(event: DecoderEvent): string | null {
     case "morse":
     // Subaudible signalling names the channel's state, not whoever is keying up.
     case "tone":
+    // The whole point of an identification is that whoever is transmitting is not known yet.
+    case "ident":
       return null;
   }
 }

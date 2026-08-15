@@ -1,6 +1,7 @@
 import type { OpusPacketDecoder } from "./decoder";
 import { createOpusPacketDecoder } from "./decoder";
 import type { AudioSink, SinkFactory } from "./engine";
+import { isWatched, publishAudio } from "./monitor";
 import type { WorkletMessage, WorkletReport } from "./worklet";
 import {
   CHANNELS,
@@ -102,7 +103,7 @@ function toOutputLayout(pcm: Float32Array, channels: number): Float32Array {
   return out;
 }
 
-export const createWebAudioSink: SinkFactory = async (volume, onError, onReport) => {
+export const createWebAudioSink: SinkFactory = async (key, volume, onError, onReport) => {
   if (ctx === null) {
     ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
     ctx.addEventListener("statechange", handleStateChange);
@@ -140,9 +141,15 @@ export const createWebAudioSink: SinkFactory = async (volume, onError, onReport)
   // Bound into each decoder's callback, never read from here: a late frame from the decoder
   // being replaced must be spread with the layout it was decoded in, not the incoming one.
   const emit = (channels: number) => (pcm: Float32Array) => {
-    if (!closed) {
-      post(node, toOutputLayout(pcm, channels));
+    if (closed) {
+      return;
     }
+    // Published before the layout spread, so a monitor sees the channel's own audio rather than
+    // a mono stream duplicated across the output's two.
+    if (isWatched(key)) {
+      publishAudio(key, pcm, channels);
+    }
+    post(node, toOutputLayout(pcm, channels));
   };
 
   let decoder: OpusPacketDecoder;

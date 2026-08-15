@@ -44,6 +44,7 @@ const CATEGORY_STRIP: Record<NodeCategory, string> = {
 
 const PORT_COLOR: Record<PortType, string> = {
   iq: "text-port-iq",
+  baseband: "text-port-baseband",
   audio: "text-port-audio",
   events: "text-port-events",
   video: "text-port-video",
@@ -62,6 +63,9 @@ function PortGlyph({ type }: { type: PortType }) {
     <svg aria-hidden viewBox="0 0 12 12" className="pointer-events-none size-3 overflow-visible">
       {type === "iq" || type === "position" || type === "tx" ? (
         <circle cx="6" cy="6" r="4.5" {...common} />
+      ) : type === "baseband" ? (
+        // A half disc: derived from the IQ circle, because it is half of what that carries.
+        <path d="M6 1.5 A4.5 4.5 0 0 1 6 10.5 Z" {...common} />
       ) : type === "audio" ? (
         <path d="M6 1 11 6 6 11 1 6Z" {...common} />
       ) : type === "events" ? (

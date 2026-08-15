@@ -21,6 +21,7 @@ import type {
   ExportFormat,
   LicenseTextResponse,
   NmeaDevicesResponse,
+  OccupancyReport,
   PatchApplyReport,
   PatchCatalog,
   PlaybackAction,
@@ -73,6 +74,7 @@ export const DECODER_LOG_KEY = ["get", "/api/decoderlog"] as const;
 export const TEMPLATES_KEY = ["get", "/api/templates"] as const;
 export const AUTH_KEY = ["get", "/api/auth"] as const;
 export const DOCTOR_KEY = ["get", "/api/doctor"] as const;
+export const OCCUPANCY_KEY = ["get", "/api/occupancy"] as const;
 export const ABOUT_KEY = ["get", "/api/about"] as const;
 export const WORKSPACES_KEY = ["get", "/api/workspaces"] as const;
 export const PATCH_CATALOG_KEY = ["get", "/api/patch/catalog"] as const;
@@ -94,6 +96,22 @@ export function callsQuery() {
 
 export function callAudioUrl(url: string): string {
   return withToken(url);
+}
+
+/**
+ * Band occupancy. Polled rather than invalidated: it is a rolling statistic the server keeps
+ * whether or not anyone is watching, and nothing about it is an event — a `StateChanged` per
+ * observation would be one per spectrum frame.
+ */
+export function occupancyQuery(minSamples: number) {
+  return queryOptions({
+    queryKey: [...OCCUPANCY_KEY, minSamples] as const,
+    queryFn: async (): Promise<OccupancyReport> =>
+      unwrap(
+        await client.GET("/api/occupancy", { params: { query: { min_samples: minSamples } } }),
+      ),
+    refetchInterval: 15_000,
+  });
 }
 
 export function devicesQuery() {

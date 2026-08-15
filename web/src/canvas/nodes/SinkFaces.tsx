@@ -31,6 +31,7 @@ import type {
 import { type Input, inputsOf, iqSourceOf } from "../binding";
 import { useWorkspaceContext } from "../context";
 import { deviceSetOf } from "../workspaceDevice";
+import { AudioSpectrogramView } from "./AudioSpectrogramView";
 import { FaceBody, FaceEmpty, FaceFooter, NodeShell, useFaceActive } from "./NodeShell";
 
 /** One channel wired into a sink, resolved to the engine objects behind it. */
@@ -127,6 +128,13 @@ function AudioInput({ input }: { input: Input }) {
           Audio is suspended — click to resume
         </Button>
       )}
+      {/* Under the transport, because it is a monitor of what that transport is playing: it
+          carries nothing while the channel is stopped, and says so. */}
+      <AudioSpectrogramView
+        deviceSet={input.deviceSet}
+        channel={input.channel.id}
+        playing={audio.playing}
+      />
       <AudioHealth lostFrames={audio.lostFrames} underruns={audio.underruns} />
       {audio.error !== null && (
         <p role="alert" className="text-xs text-danger">

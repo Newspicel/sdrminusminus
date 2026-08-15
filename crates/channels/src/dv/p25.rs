@@ -12,15 +12,15 @@ use sdrmm_wire::{
 use super::{INPUT_RATE_HZ, SymbolWindow, c4fm_demod, c4fm_params, vocoder::MbeDecoder};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-const BAUD: f64 = 4_800.0;
-const DEVIATION_HZ: f64 = 1_944.0;
-const RRC_ALPHA: f64 = 0.2;
-const BANDWIDTH_HZ: f64 = 12_500.0;
+pub(crate) const BAUD: f64 = 4_800.0;
+pub(crate) const DEVIATION_HZ: f64 = 1_944.0;
+pub(crate) const RRC_ALPHA: f64 = 0.2;
+pub(crate) const BANDWIDTH_HZ: f64 = 12_500.0;
 
 /// Frame sync: 0x5575F5FF77FF, 48 bits.
-const SYNC: u64 = 0x5575_F5FF_77FF;
-const SYNC_BITS: u32 = 48;
-const SYNC_TOLERANCE: u32 = 4;
+pub(crate) const SYNC: u64 = 0x5575_F5FF_77FF;
+pub(crate) const SYNC_BITS: u32 = 48;
+pub(crate) const SYNC_TOLERANCE: u32 = 4;
 
 const STATUS_START: usize = 70;
 const STATUS_STRIDE: usize = 72;

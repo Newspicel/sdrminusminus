@@ -92,6 +92,7 @@ describe("createWebAudioSink", () => {
 
     await expect(
       createWebAudioSink(
+        "1:1",
         0.5,
         () => {},
         () => {},
@@ -112,6 +113,7 @@ describe("createWebAudioSink", () => {
     sinkModule.onOutputStateChange((running) => reported.push(running));
 
     await sinkModule.createWebAudioSink(
+      "1:1",
       1,
       () => {},
       () => {},
@@ -137,6 +139,7 @@ describe("createWebAudioSink", () => {
     sinkModule.onOutputStateChange((running) => reported.push(running));
 
     await sinkModule.createWebAudioSink(
+      "1:1",
       1,
       () => {},
       () => {},
@@ -155,6 +158,7 @@ describe("createWebAudioSink", () => {
     const { createWebAudioSink } = await importSink();
 
     const sink = await createWebAudioSink(
+      "1:1",
       1,
       () => {},
       () => {},
@@ -178,6 +182,7 @@ describe("createWebAudioSink", () => {
     const { createWebAudioSink } = await importSink();
 
     await createWebAudioSink(
+      "1:1",
       1,
       () => {},
       () => {},
@@ -208,6 +213,7 @@ describe("createWebAudioSink", () => {
     const { createWebAudioSink } = await importSink();
 
     const sink = await createWebAudioSink(
+      "1:1",
       1,
       () => {},
       () => {},

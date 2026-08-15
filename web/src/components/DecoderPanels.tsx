@@ -1,4 +1,12 @@
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useDecodedKind, useDecodedStore, useStations } from "../lib/decoded";
 import type { DecodedRecordOf, DecoderKind } from "../lib/types";
 import { Button } from "./BaseControls";
@@ -7,12 +15,15 @@ import {
   ageClass,
   aircraftRow,
   buildTranscript,
+  candidateScore,
   type DecoderScope,
   formatAge,
   formatAltFreqs,
   formatClock,
+  identMeasurements,
   isAtBottom,
   latestWpm,
+  modulationLabel,
   ptyLabel,
   rdsPicture,
   rdsQuality,
@@ -356,6 +367,75 @@ function ToneView({ scope = {} }: { scope?: DecoderScope }) {
 }
 
 /**
+ * What the identifier made of the frequency, as of its last look at it.
+ *
+ * A status readout rather than a list: each report describes one observation window, and the
+ * useful question is what is on the air *now*. The history is in the decoder log, which is where
+ * a report that has scrolled past belongs.
+ */
+function IdentView({ scope = {} }: { scope?: DecoderScope }) {
+  const records = recordsInScope(useDecodedKind("ident"), scope);
+  const latest = records[0];
+
+  if (latest === undefined) {
+    return (
+      <div className={PANE}>
+        <span className={EMPTY}>
+          Nothing analysed yet — point the channel at a signal and wait one report interval.
+        </span>
+      </div>
+    );
+  }
+
+  const report = latest.event.data;
+  const candidates = report.candidates ?? [];
+
+  return (
+    <div className={PANE}>
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="font-mono text-2xl tracking-wide text-ink">{modulationLabel(report)}</span>
+        {report.modulation !== "none" && (
+          <span className="legend">{Math.round(report.confidence * 100)}% confident</span>
+        )}
+        <span className="ml-auto font-mono text-xs tabular-nums text-ink-dim">
+          {formatClock(latest.at)}
+        </span>
+      </div>
+
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+        {identMeasurements(report).map(([label, value]) => (
+          <Fragment key={label}>
+            <dt className="legend self-center">{label}</dt>
+            <dd className="font-mono text-xs tabular-nums text-ink">{value}</dd>
+          </Fragment>
+        ))}
+      </dl>
+
+      <div>
+        <div className="legend">Protocol</div>
+        {candidates.length === 0 ? (
+          <span className={EMPTY}>Nothing in the catalog fits these measurements.</span>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {candidates.map((match) => (
+              <li key={match.name} className="flex flex-wrap items-baseline gap-2">
+                <span
+                  className={`font-mono text-sm ${match.confirmed === true ? "text-accent" : "text-ink"}`}
+                >
+                  {match.name}
+                </span>
+                <span className={CHIP}>{candidateScore(match)}</span>
+                <span className="text-xs text-ink-dim">{match.why}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * The readout each decoder kind is watched in, and `null` for the kinds that have none.
  *
  * Keyed on the generated `DecoderKind`, so a decoder added to `wire` fails to compile here until
@@ -371,6 +451,7 @@ const VIEWS: Record<DecoderKind, ((scope: DecoderScope) => ReactNode) | null> = 
   rtty: (scope) => <TextView kind="rtty" scope={scope} />,
   morse: (scope) => <TextView kind="morse" scope={scope} />,
   tone: (scope) => <ToneView scope={scope} />,
+  ident: (scope) => <IdentView scope={scope} />,
   aprs: null,
   pocsag: null,
   navtex: null,

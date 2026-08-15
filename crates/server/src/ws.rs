@@ -13,9 +13,10 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use sdrmm_dsp::{adaptive_db_window, decimate_max, quantize_db};
-use sdrmm_engine::{AudioPacket, Engine, SpectrumSnapshot, VideoPacket};
+use sdrmm_engine::{AudioPacket, Engine, IqBlock, SpectrumSnapshot, VideoPacket};
 use sdrmm_wire::{
-    AudioFrame, ClientCommand, ServerEvent, SpectrumFrame, StateScope, StreamKind, VideoFrame,
+    AudioFrame, ClientCommand, IqFrame, ServerEvent, SpectrumFrame, StateScope, StreamKind,
+    VideoFrame,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -137,6 +138,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let mut next_spectrum_id: u16 = SPECTRUM_ID_BASE;
     let mut audio: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
     let mut video: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
+    let mut iq: HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)> = HashMap::new();
     let mut last_position_publish: Option<Instant> = None;
     let mut next_media_id: u16 = MEDIA_ID_BASE;
 
@@ -253,7 +255,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     };
                                     let _ = out_tx.send(text_event(&stopped)).await;
                                 }
-                                let live = |id: u16| media_id_live(&audio, &video, id);
+                                let live = |id: u16| media_id_live(&audio, &video, &iq, id);
                                 match alloc_stream_id(
                                     &mut next_media_id,
                                     MEDIA_ID_BASE..=u16::MAX,
@@ -319,7 +321,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                     };
                                     let _ = out_tx.send(text_event(&stopped)).await;
                                 }
-                                let live = |id: u16| media_id_live(&audio, &video, id);
+                                let live = |id: u16| media_id_live(&audio, &video, &iq, id);
                                 match alloc_stream_id(
                                     &mut next_media_id,
                                     MEDIA_ID_BASE..=u16::MAX,
@@ -360,6 +362,72 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             let stopped = ServerEvent::StreamStopped {
                                 stream_id,
                                 kind: StreamKind::Video,
+                            };
+                            let _ = out_tx.send(text_event(&stopped)).await;
+                        }
+                    }
+                    Ok(ClientCommand::SubscribeIq {
+                        device_set,
+                        channel,
+                    }) => {
+                        let subscribe = {
+                            let engine = engine.clone();
+                            tokio::task::spawn_blocking(move || {
+                                engine.subscribe_iq(device_set, channel)
+                            })
+                            .await
+                        };
+                        match flatten_join(subscribe) {
+                            Ok(rx) => {
+                                if let Some((old_id, old)) = iq.remove(&(device_set, channel)) {
+                                    old.abort();
+                                    let stopped = ServerEvent::StreamStopped {
+                                        stream_id: old_id,
+                                        kind: StreamKind::Iq,
+                                    };
+                                    let _ = out_tx.send(text_event(&stopped)).await;
+                                }
+                                let live = |id: u16| media_id_live(&audio, &video, &iq, id);
+                                match alloc_stream_id(
+                                    &mut next_media_id,
+                                    MEDIA_ID_BASE..=u16::MAX,
+                                    live,
+                                ) {
+                                    Some(stream_id) => {
+                                        let started = ServerEvent::IqStreamStarted {
+                                            stream_id,
+                                            device_set,
+                                            channel,
+                                        };
+                                        let _ = out_tx.send(text_event(&started)).await;
+                                        let task = spawn_iq(stream_id, rx, out_tx.clone());
+                                        iq.insert((device_set, channel), (stream_id, task));
+                                    }
+                                    None => {
+                                        let err = ServerEvent::Error {
+                                            message: "no free media stream ids on this connection"
+                                                .to_string(),
+                                        };
+                                        let _ = out_tx.send(text_event(&err)).await;
+                                    }
+                                }
+                            }
+                            Err(message) => {
+                                let _ = out_tx
+                                    .send(text_event(&ServerEvent::Error { message }))
+                                    .await;
+                            }
+                        }
+                    }
+                    Ok(ClientCommand::UnsubscribeIq {
+                        device_set,
+                        channel,
+                    }) => {
+                        if let Some((stream_id, task)) = iq.remove(&(device_set, channel)) {
+                            task.abort();
+                            let stopped = ServerEvent::StreamStopped {
+                                stream_id,
+                                kind: StreamKind::Iq,
                             };
                             let _ = out_tx.send(text_event(&stopped)).await;
                         }
@@ -427,6 +495,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         task.abort();
     }
     for (_, (_, task)) in audio {
+        task.abort();
+    }
+    for (_, (_, task)) in iq {
         task.abort();
     }
     for (_, (_, task)) in video {
@@ -747,17 +818,68 @@ fn spawn_audio(
     })
 }
 
-/// Whether `id` is bound to a live media stream of either kind on this connection. One check
-/// across both maps, because both draw from [`MEDIA_ID_BASE`].
+/// Whether `id` is bound to a live media stream of any kind on this connection. One check across
+/// every map, because they all draw from [`MEDIA_ID_BASE`].
 fn media_id_live(
     audio: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     video: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
+    iq: &HashMap<(u32, u32), (u16, tokio::task::JoinHandle<()>)>,
     id: u16,
 ) -> bool {
     audio
         .values()
         .chain(video.values())
+        .chain(iq.values())
         .any(|(sid, _)| *sid == id)
+}
+
+/// Per-subscription task: forward the channel's baseband bursts as binary [`IqFrame`]s.
+///
+/// Drop-oldest like the others, and here it is the only sane policy: a display that has fallen
+/// behind wants the newest burst of a signal, never a backlog of stale ones. The samples are
+/// interleaved on the way out — the engine holds them as complex pairs, the wire carries f32s.
+fn spawn_iq(
+    stream_id: u16,
+    mut rx: broadcast::Receiver<IqBlock>,
+    out_tx: mpsc::Sender<Message>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interleaved: Vec<f32> = Vec::new();
+        loop {
+            match rx.recv().await {
+                Ok(block) => {
+                    interleaved.clear();
+                    interleaved.reserve(block.samples.len() * 2);
+                    for sample in block.samples.iter() {
+                        interleaved.push(sample.re);
+                        interleaved.push(sample.im);
+                    }
+                    let frame = IqFrame {
+                        stream_id,
+                        seq: block.seq,
+                        timestamp: block.timestamp,
+                        sample_rate: block.sample_rate,
+                        center_hz: block.center_hz,
+                        samples: &interleaved,
+                    }
+                    .encode();
+
+                    if out_tx.send(Message::Binary(frame.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => {
+                    let stopped = ServerEvent::StreamStopped {
+                        stream_id,
+                        kind: StreamKind::Iq,
+                    };
+                    let _ = out_tx.send(text_event(&stopped)).await;
+                    break;
+                }
+            }
+        }
+    })
 }
 
 /// Per-subscription task: forward the channel's pictures as binary [`VideoFrame`]s with the same
@@ -958,6 +1080,94 @@ mod tests {
             offset_hz: 0.0,
             squelch_db: None,
             params: ChannelParams::Atv(sdrmm_wire::AtvParams::default()),
+        }
+    }
+
+    /// The baseband tap's lifecycle. Unlike video there is nothing to refuse — every channel has
+    /// a passband — so what this pins is that its ids share the media range without colliding,
+    /// that frames really arrive, and that a stop is reported under its own kind.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn iq_lifecycle_shares_the_media_id_space_and_streams_baseband() {
+        let engine = test_engine();
+        let ds = engine
+            .create_device_set("virtual:siggen")
+            .expect("device set");
+        let voice = engine
+            .add_channel(ds, 0, nfm_channel(0.0))
+            .expect("nfm channel");
+        let mut ws = connect(engine).await;
+
+        assert!(matches!(
+            next_event(&mut ws).await,
+            ServerEvent::Hello { .. }
+        ));
+
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeAudio {
+                device_set: ds,
+                channel: voice,
+            },
+        )
+        .await;
+        let audio_id = match next_event(&mut ws).await {
+            ServerEvent::AudioStreamStarted { stream_id, .. } => stream_id,
+            other => panic!("expected AudioStreamStarted, got {other:?}"),
+        };
+
+        send(
+            &mut ws,
+            &ClientCommand::SubscribeIq {
+                device_set: ds,
+                channel: voice,
+            },
+        )
+        .await;
+        let iq_id = match next_event(&mut ws).await {
+            ServerEvent::IqStreamStarted {
+                stream_id,
+                device_set,
+                channel,
+            } => {
+                assert_eq!((device_set, channel), (ds, voice));
+                assert!(
+                    stream_id >= MEDIA_ID_BASE,
+                    "iq id {stream_id:#x} collides with the spectrum range"
+                );
+                stream_id
+            }
+            other => panic!("expected IqStreamStarted, got {other:?}"),
+        };
+        assert_ne!(
+            iq_id, audio_id,
+            "a live audio id must not be handed to a baseband stream"
+        );
+
+        // The tap sends nothing until something subscribes, so a frame arriving at all is proof
+        // that the subscription reached the DSP thread and not merely the server. The audio
+        // stream is still running, so its frames are stepped over.
+        loop {
+            let (kind, stream_id) = next_frame_header(&mut ws).await;
+            if kind == sdrmm_wire::FrameKind::IqF32 as u8 {
+                assert_eq!(stream_id, iq_id);
+                break;
+            }
+        }
+
+        send(
+            &mut ws,
+            &ClientCommand::UnsubscribeIq {
+                device_set: ds,
+                channel: voice,
+            },
+        )
+        .await;
+        match next_event(&mut ws).await {
+            ServerEvent::StreamStopped { stream_id, kind } => {
+                assert_eq!(stream_id, iq_id);
+                assert_eq!(kind, StreamKind::Iq);
+            }
+            other => panic!("expected StreamStopped, got {other:?}"),
         }
     }
 

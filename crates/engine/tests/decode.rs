@@ -10,9 +10,9 @@ use sdrmm_engine::Engine;
 use sdrmm_recorder::SigmfWriter;
 use sdrmm_wire::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AprsMode, AprsParams, ChannelParams,
-    ChannelSettings, DecodedRecord, DecoderEvent, MorseParams, NavtexParams, NfmParams,
-    NfmToneMode, PocsagBaud, PocsagParams, RdsUpdate, RttyParams, SubghzEncoding, SubghzParams,
-    WfmParams,
+    ChannelSettings, DecodedRecord, DecoderEvent, IdentParams, Modulation, MorseParams,
+    NavtexParams, NfmParams, NfmToneMode, PocsagBaud, PocsagParams, RdsUpdate, RttyParams,
+    SubghzEncoding, SubghzParams, WfmParams,
 };
 use tempfile::TempDir;
 
@@ -630,6 +630,59 @@ async fn subghz_remote_survives_the_ddc_and_reaches_the_decoded_stream() {
     assert_eq!(frame.address, Some(0x0_A1B2));
     assert_eq!(frame.button, Some(3));
     assert!(frame.repeats > 1, "repeats collapsed to {}", frame.repeats);
+}
+
+/// The identifier is handed a transmission nobody told it about, at an offset and a device rate
+/// it has to be resampled out of, and has to arrive at the mode by measurement alone.
+#[tokio::test]
+async fn ident_names_an_unknown_transmission_end_to_end() {
+    const IDENT_DEVICE_RATE: f64 = 480_000.0;
+    let dir = TempDir::new().unwrap();
+    let engine = engine_for(dir.path());
+    let offset_hz = 60_000.0;
+
+    let call = testgen::dv::dmr::Call::default();
+    let one = testgen::dv::dmr::transmission(&call, IDENT_DEVICE_RATE);
+    let mut iq: Vec<Complex<f32>> = Vec::new();
+    for _ in 0..3 {
+        iq.extend_from_slice(&one);
+    }
+    testgen::shift(&mut iq, offset_hz, IDENT_DEVICE_RATE);
+
+    let device = plant(dir.path(), "ident", iq, IDENT_DEVICE_RATE);
+    let record = decode_first(
+        &engine,
+        &device,
+        ChannelSettings {
+            offset_hz,
+            squelch_db: None,
+            params: ChannelParams::Ident(IdentParams {
+                interval_ms: 500,
+                ..IdentParams::default()
+            }),
+        },
+        |event| matches!(event, DecoderEvent::Ident(r) if r.best().is_some_and(|m| m.confirmed)),
+    )
+    .await;
+
+    let DecoderEvent::Ident(report) = record.event else {
+        unreachable!("filtered above")
+    };
+    assert_eq!(report.modulation, Modulation::Fsk4);
+    let best = report.best().expect("filtered above");
+    assert_eq!(best.name, "DMR");
+    assert_eq!(best.type_id.as_deref(), Some("dmr"));
+    assert!(
+        (report.symbol_rate_hz.unwrap_or_default() - 4_800.0).abs() < 250.0,
+        "symbol rate {:?}",
+        report.symbol_rate_hz
+    );
+    // The channel was tuned exactly onto it, so the identifier should not think otherwise.
+    assert!(
+        report.center_offset_hz.abs() < 1_000.0,
+        "off tune by {} Hz",
+        report.center_offset_hz
+    );
 }
 
 #[tokio::test]

@@ -22,15 +22,17 @@ pub use bandplan::{
 pub use channel::{
     AcarsParams, AdsbParams, AisChannel, AisParams, AmParams, AprsMode, AprsParams, AtvModulation,
     AtvParams, AtvStandard, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings,
-    DmrParams, DmrSlots, DpmrParams, DstarParams, M17Params, MorseParams, NavtexParams, NfmParams,
-    NfmToneMode, NxdnBandwidth, NxdnParams, P25Params, PocsagBaud, PocsagParams, RttyParams,
-    RttyStopBits, Sideband, SsbParams, SubghzModulation, SubghzParams, WfmParams, YsfParams,
+    DmrParams, DmrSlots, DpmrParams, DstarParams, IdentParams, M17Params, MAX_IDENT_BANDWIDTH_HZ,
+    MAX_IDENT_INTERVAL_MS, MAX_IDENT_THRESHOLD_DB, MIN_IDENT_BANDWIDTH_HZ, MIN_IDENT_INTERVAL_MS,
+    MIN_IDENT_THRESHOLD_DB, MorseParams, NavtexParams, NfmParams, NfmToneMode, NxdnBandwidth,
+    NxdnParams, P25Params, PocsagBaud, PocsagParams, RttyParams, RttyStopBits, Sideband, SsbParams,
+    SubghzModulation, SubghzParams, WfmParams, YsfParams,
 };
 pub use decode::{
     AcarsMessage, AdsbMessage, AisMessage, AprsPacket, DecodedRecord, DecoderEvent,
-    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol, MorseText,
-    NavtexMessage, PocsagMessage, PocsagPayload, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame,
-    ToneSquelchStatus, Vendor,
+    DvChannelDefinition, DvFrame, DvFrameKind, DvMode, DvSlotActivity, DvTrunkProtocol,
+    IdentFeatures, IdentReport, Modulation, MorseText, NavtexMessage, PocsagMessage, PocsagPayload,
+    ProtocolMatch, RdsUpdate, RttyText, SubghzEncoding, SubghzFrame, ToneSquelchStatus, Vendor,
 };
 pub use device::{
     ArgumentInfo, ArgumentOption, ArgumentType, Capabilities, ChannelCapabilities, DeviceInfo,
@@ -38,7 +40,9 @@ pub use device::{
     GainStage, GainValue, Range, StreamScope, StreamSettings,
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
-pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame, VideoFrame};
+pub use frame::{
+    AudioFrame, FrameKind, HEADER_LEN, IqFrame, PROTOCOL_VERSION, SpectrumFrame, VideoFrame,
+};
 pub use patch::{
     ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DeviceNode,
     DeviceRef, DmrTrunkNode, DmrTrunkProtocol, MAX_EDGES, MAX_NODES, MAX_SIGNAL_MAP_BANDWIDTH_HZ,
@@ -56,17 +60,18 @@ pub use rest::{
     ApiError, ApplyTemplateRequest, AuthInfo, Bookmark, ChannelTypesResponse, ClientsResponse,
     CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest, CreatePresetRequest,
     CreatedId, CreatedRowId, DecoderLogEntry, DecoderLogQuery, DecoderLogResponse, DeletedCount,
-    DevicesResponse, EventAudio, ExportFormat, LogScope, MAX_LOG_SOURCES, PRESET_SNAPSHOT_VERSION,
-    PlaybackAction, PlaybackRequest, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
-    RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingInfo, RecordingsResponse,
-    TemplateInfo, TemplatesResponse, VoiceCall, VoiceCallsResponse,
+    DevicesResponse, EventAudio, ExportFormat, LogScope, MAX_LOG_SOURCES, OccupancyBucket,
+    OccupancyReport, PRESET_SNAPSHOT_VERSION, PlaybackAction, PlaybackRequest, PresetDevice,
+    PresetInfo, PresetSnapshot, RecordAction, RecordRequest, RecordingDownloadQuery,
+    RecordingFormat, RecordingInfo, RecordingsResponse, TemplateInfo, TemplatesResponse, VoiceCall,
+    VoiceCallsResponse,
 };
 pub use scan::{
     MAX_SCAN_TARGETS, ScanAction, ScanRange, ScanRequest, ScanSettings, ScanState, ScannerStatus,
 };
 pub use state::{
-    DeviceSet, DeviceSetStatus, PlaybackStatus, RecordingStatus, StateSnapshot, TrunkFollower,
-    TrunkProblem, TrunkSystemStatus,
+    ChannelLevel, DeviceSet, DeviceSetStatus, PlaybackStatus, RecordingStatus, StateSnapshot,
+    TrunkFollower, TrunkProblem, TrunkSystemStatus,
 };
 pub use workspace::{
     CreateWorkspaceRequest, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport, PatchBinding,

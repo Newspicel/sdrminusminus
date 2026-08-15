@@ -53,13 +53,27 @@ export interface Lane {
   stream: number;
 }
 
+/** What one history row was measured under. The bytes alone are not readable: the server picks
+ * each frame's dB window adaptively, and a scrubbed row has to be drawn against its own. */
+export interface RowMeta {
+  centerHz: number;
+  spanHz: number;
+  dbMin: number;
+  dbMax: number;
+  /** Wall clock when the row arrived, the only clock a scrub readout can label rows with — the
+   * frame's own timestamp counts samples since the lane started and means nothing to a reader. */
+  at: number;
+}
+
 /** The waterfall a face that has just mounted opens on: `count` rows of `bins` bytes packed
- * oldest-first. Read separately from `latest` because reading it copies the ring, and the trace
- * and the readout want only the one frame. */
+ * oldest-first, and what each was measured under. Read separately from `latest` because reading
+ * it copies the ring, and the trace and the readout want only the one frame. */
 export interface SpectrumHistory {
   rows: Uint8Array;
   count: number;
   bins: number;
+  /** Oldest-first, `count` long and index-aligned with `rows`. */
+  meta: RowMeta[];
 }
 
 /** Map key for a lane. The pair is the identity; the id the server allocates is not, because it
@@ -71,6 +85,7 @@ function laneKey(deviceSet: number, stream: number): string {
 /** One lane's rows in a ring: retention costs one buffer per lane and no allocation per frame. */
 class History {
   private ring = new Uint8Array(0);
+  private meta: (RowMeta | undefined)[] = [];
   private bins = 0;
   private write = 0;
   private filled = 0;
@@ -86,12 +101,20 @@ class History {
     if (frame.bins.length !== this.bins) {
       this.bins = frame.bins.length;
       this.ring = new Uint8Array(this.bins * SPECTRUM_HISTORY_ROWS);
+      this.meta = [];
       this.write = 0;
       this.filled = 0;
     }
     // Copied, not referenced: `bins` is a view into the socket's message buffer, and holding a
     // thousand of those would pin a thousand messages.
     this.ring.set(frame.bins, this.write * this.bins);
+    this.meta[this.write] = {
+      centerHz: frame.centerHz,
+      spanHz: frame.spanHz,
+      dbMin: frame.dbMin,
+      dbMax: frame.dbMax,
+      at: Date.now(),
+    };
     this.write = (this.write + 1) % SPECTRUM_HISTORY_ROWS;
     this.filled = Math.min(this.filled + 1, SPECTRUM_HISTORY_ROWS);
   }
@@ -104,7 +127,14 @@ class History {
     const head = Math.min(this.filled, SPECTRUM_HISTORY_ROWS - first);
     rows.set(this.ring.subarray(first * this.bins, (first + head) * this.bins));
     rows.set(this.ring.subarray(0, (this.filled - head) * this.bins), head * this.bins);
-    return { rows, count: this.filled, bins: this.bins };
+    const meta: RowMeta[] = [];
+    for (let i = 0; i < this.filled; i++) {
+      const row = this.meta[(first + i) % SPECTRUM_HISTORY_ROWS];
+      if (row !== undefined) {
+        meta.push(row);
+      }
+    }
+    return { rows, count: this.filled, bins: this.bins, meta };
   }
 }
 
@@ -221,6 +251,7 @@ export class SpectrumHub {
         rows: new Uint8Array(0),
         count: 0,
         bins: 0,
+        meta: [],
       }
     );
   }

@@ -323,6 +323,9 @@ function stationId(event: DecoderEvent): string | null {
     // A digital-voice frame is an event in a call — a start, an end, a signalling block — and
     // merging them forward would blur two calls from the same radio into one row.
     case "dv":
+    // An identification describes one observation window of whatever is on the frequency; the
+    // transmitter it belongs to is what the report is trying to work out.
+    case "ident":
       return null;
   }
 }

@@ -19,6 +19,9 @@ export interface AudioSink {
 }
 
 export type SinkFactory = (
+  /** `deviceSet:channel` — the identity the decoded audio is published under, so a display can
+   * watch what a channel is actually playing (`audio/monitor.ts`). */
+  key: string,
   volume: number,
   onError: (err: unknown) => void,
   onReport: (report: WorkletReport) => void,
@@ -392,6 +395,7 @@ export class AudioEngine {
     entry.sinkPending = true;
     const generation = entry.generation;
     this.createSink(
+      entryKey(entry.deviceSet, entry.channel),
       entry.volume,
       (err) => this.fail(entry, err),
       (report) => this.observe(entry, report),

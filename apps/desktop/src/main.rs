@@ -54,6 +54,8 @@ fn main() -> anyhow::Result<()> {
             std::fs::create_dir_all(&data_dir)?;
             let engine = Engine::new(Some(data_dir.join("recordings")));
             engine.start_hotplug_prober(sdrmm_server::HOTPLUG_INTERVAL)?;
+            engine.start_level_meter(sdrmm_server::LEVEL_INTERVAL)?;
+            engine.start_occupancy_collector(sdrmm_server::HOTPLUG_INTERVAL)?;
             // Managed so the exit hook below can reach the engine for teardown.
             app.manage(engine.clone());
             let store = sdrmm_server::Store::open(Some(&data_dir.join("sdrmm.db")))?;

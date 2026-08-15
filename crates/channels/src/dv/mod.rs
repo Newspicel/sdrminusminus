@@ -9,7 +9,7 @@ pub(crate) mod p25;
 pub(crate) mod vocoder;
 pub(crate) mod ysf;
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::LazyLock};
 
 pub use dmr::DmrChannel;
 pub use dpmr::DpmrChannel;
@@ -23,6 +23,7 @@ use sdrmm_modem::{
     pulse::{self, Norm},
     soft::SoftBit,
 };
+use sdrmm_wire::NxdnBandwidth;
 pub use ysf::YsfChannel;
 
 use crate::ChannelFilter;
@@ -211,6 +212,216 @@ impl SymbolWindow {
         self.levels.reset();
     }
 }
+
+/// One mode's waveform and the framing that proves it, for the signal identifier's mode search.
+///
+/// The seven digital-voice modes are the one family a spectrum measurement cannot separate:
+/// DMR, P25, System Fusion and 12.5 kHz NXDN are all four-level, all 4800 symbols a second, all
+/// ±1944 Hz in 12.5 kHz. Nothing about the *signal* distinguishes them — only their frame
+/// syncs do, so the identifier demodulates against each candidate and looks for one.
+///
+/// Every field here is read from the mode's own decoder, so a sync pattern corrected in one
+/// place is corrected for both.
+pub(crate) struct ModeSignature {
+    pub(crate) name: &'static str,
+    /// The channel type that decodes it.
+    pub(crate) type_id: &'static str,
+    pub(crate) baud: f64,
+    pub(crate) deviation_hz: f64,
+    pub(crate) bandwidth_hz: f64,
+    pub(crate) params: CpmParams,
+    /// Matched filter the front end runs, in the mode's own construction.
+    pub(crate) receive_filter: Vec<f32>,
+    pub(crate) sync_bits: u32,
+    pub(crate) tolerance: u32,
+    pub(crate) patterns: Vec<u64>,
+    /// Matches a search must find before the mode counts as recognised. A short pattern is one
+    /// noise turns up on its own — M17's is sixteen bits, which a random dibit stream produces
+    /// several times a second — so it has to arrive more than once to mean anything.
+    pub(crate) min_hits: u32,
+}
+
+/// Bit errors the identifier allows in a *short* sync, against the wider allowance the decoders
+/// themselves run at.
+///
+/// The two are answering different questions. A decoder that misses a sync loses one burst and
+/// finds the next, so it buys sensitivity with tolerance; an identifier that matches a sync it
+/// should not have has told the operator the wrong protocol, and nothing downstream will catch
+/// it. Over a whole observation window a 16- or 20-bit pattern at the decoders' tolerance is
+/// something *noise* produces several times, which is why M17's allowance here is zero and why
+/// the short patterns must also arrive more than once.
+const IDENT_SHORT_SYNC_TOLERANCE: u32 = 1;
+
+/// A four-level mode's waveform, as its own decoder states it.
+struct C4fm {
+    name: &'static str,
+    type_id: &'static str,
+    baud: f64,
+    deviation_hz: f64,
+    alpha: f64,
+    bandwidth_hz: f64,
+}
+
+/// The framing to look for in it.
+struct Framing {
+    bits: u32,
+    tolerance: u32,
+    patterns: Vec<u64>,
+    min_hits: u32,
+}
+
+fn c4fm_signature(mode: &C4fm, framing: Framing) -> ModeSignature {
+    let params = c4fm_params(INPUT_RATE_HZ, mode.baud, mode.deviation_hz, mode.alpha);
+    let receive_filter = params.freq_pulse().to_vec();
+    ModeSignature {
+        name: mode.name,
+        type_id: mode.type_id,
+        baud: mode.baud,
+        deviation_hz: mode.deviation_hz,
+        bandwidth_hz: mode.bandwidth_hz,
+        params,
+        receive_filter,
+        sync_bits: framing.bits,
+        tolerance: framing.tolerance,
+        patterns: framing.patterns,
+        min_hits: framing.min_hits,
+    }
+}
+
+/// Every mode the identifier can recognise by its framing, at the shared 48 kHz front-end rate.
+pub(crate) static MODE_SIGNATURES: LazyLock<Vec<ModeSignature>> = LazyLock::new(|| {
+    let (nxdn_narrow_baud, nxdn_narrow_dev, nxdn_narrow_bw) = nxdn::shape(NxdnBandwidth::Narrow);
+    let (nxdn_wide_baud, nxdn_wide_dev, nxdn_wide_bw) = nxdn::shape(NxdnBandwidth::Wide);
+    let dstar_sps = INPUT_RATE_HZ / dstar::BAUD;
+    let dstar_params = dstar::cpm_params(dstar_sps);
+    vec![
+        c4fm_signature(
+            &C4fm {
+                name: "DMR",
+                type_id: "dmr",
+                baud: dmr::BAUD,
+                deviation_hz: dmr::DEVIATION_HZ,
+                alpha: dmr::RRC_ALPHA,
+                bandwidth_hz: dmr::BANDWIDTH_HZ,
+            },
+            Framing {
+                bits: dmr::SYNC_BITS,
+                tolerance: dmr::SYNC_TOLERANCE,
+                patterns: dmr::SYNC_PATTERNS.to_vec(),
+                min_hits: 1,
+            },
+        ),
+        c4fm_signature(
+            &C4fm {
+                name: "P25 Phase 1",
+                type_id: "p25",
+                baud: p25::BAUD,
+                deviation_hz: p25::DEVIATION_HZ,
+                alpha: p25::RRC_ALPHA,
+                bandwidth_hz: p25::BANDWIDTH_HZ,
+            },
+            Framing {
+                bits: p25::SYNC_BITS,
+                tolerance: p25::SYNC_TOLERANCE,
+                patterns: vec![p25::SYNC],
+                min_hits: 1,
+            },
+        ),
+        c4fm_signature(
+            &C4fm {
+                name: "System Fusion",
+                type_id: "ysf",
+                baud: ysf::BAUD,
+                deviation_hz: ysf::DEVIATION_HZ,
+                alpha: ysf::RRC_ALPHA,
+                bandwidth_hz: ysf::BANDWIDTH_HZ,
+            },
+            Framing {
+                bits: ysf::SYNC_BITS,
+                tolerance: ysf::SYNC_TOLERANCE,
+                patterns: vec![ysf::SYNC],
+                min_hits: 1,
+            },
+        ),
+        c4fm_signature(
+            &C4fm {
+                name: "NXDN (6.25 kHz)",
+                type_id: "nxdn",
+                baud: nxdn_narrow_baud,
+                deviation_hz: nxdn_narrow_dev,
+                alpha: nxdn::RRC_ALPHA,
+                bandwidth_hz: nxdn_narrow_bw,
+            },
+            Framing {
+                bits: nxdn::FSW_BITS,
+                tolerance: IDENT_SHORT_SYNC_TOLERANCE,
+                patterns: vec![nxdn::FSW],
+                min_hits: 2,
+            },
+        ),
+        c4fm_signature(
+            &C4fm {
+                name: "NXDN (12.5 kHz)",
+                type_id: "nxdn",
+                baud: nxdn_wide_baud,
+                deviation_hz: nxdn_wide_dev,
+                alpha: nxdn::RRC_ALPHA,
+                bandwidth_hz: nxdn_wide_bw,
+            },
+            Framing {
+                bits: nxdn::FSW_BITS,
+                tolerance: IDENT_SHORT_SYNC_TOLERANCE,
+                patterns: vec![nxdn::FSW],
+                min_hits: 2,
+            },
+        ),
+        c4fm_signature(
+            &C4fm {
+                name: "dPMR",
+                type_id: "dpmr",
+                baud: dpmr::BAUD,
+                deviation_hz: dpmr::DEVIATION_HZ,
+                alpha: dpmr::RRC_ALPHA,
+                bandwidth_hz: dpmr::BANDWIDTH_HZ,
+            },
+            Framing {
+                bits: dpmr::LONG_SYNC_BITS,
+                tolerance: dpmr::LONG_TOLERANCE,
+                patterns: vec![dpmr::FS1, dpmr::FS4],
+                min_hits: 1,
+            },
+        ),
+        c4fm_signature(
+            &C4fm {
+                name: "M17",
+                type_id: "m17",
+                baud: m17::BAUD,
+                deviation_hz: m17::DEVIATION_HZ,
+                alpha: m17::RRC_ALPHA,
+                bandwidth_hz: m17::BANDWIDTH_HZ,
+            },
+            Framing {
+                bits: m17::SYNC_BITS,
+                tolerance: 0,
+                patterns: vec![m17::SYNC_LSF, m17::SYNC_STREAM, m17::SYNC_PACKET],
+                min_hits: 3,
+            },
+        ),
+        ModeSignature {
+            name: "D-STAR",
+            type_id: "dstar",
+            baud: dstar::BAUD,
+            deviation_hz: dstar::DEVIATION_HZ,
+            bandwidth_hz: dstar::BANDWIDTH_HZ,
+            params: dstar_params,
+            receive_filter: pulse::gaussian(dstar_sps, dstar::BT, dstar::MATCHED_SPAN, Norm::Area),
+            sync_bits: dstar::SYNC_BITS,
+            tolerance: dstar::SYNC_TOLERANCE,
+            patterns: vec![u64::from(dstar::SYNC)],
+            min_hits: 2,
+        },
+    ]
+});
 
 /// Read `len` bits from `bits` starting at `offset`, MSB first, as an integer.
 pub(crate) fn bits_to_u32(bits: &[bool], offset: usize, len: usize) -> u32 {

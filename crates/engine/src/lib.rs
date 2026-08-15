@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -15,14 +15,16 @@ use sdrmm_device::{DeviceError, DeviceRegistry, PlaybackShared, check_stream_set
 use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
-    Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DecodedRecord,
-    DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, PlaybackRequest, PlaybackStatus,
-    PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
-    StateSnapshot, TrunkSystemStatus,
+    Capabilities, ChannelDescriptor, ChannelInfo, ChannelLevel, ChannelParams, ChannelSettings,
+    DecodedRecord, DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, PlaybackRequest,
+    PlaybackStatus, PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent,
+    StateScope, StateSnapshot, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
 pub mod audio;
+pub mod iq;
+pub mod occupancy;
 mod position;
 pub mod recording;
 pub mod runtime;
@@ -31,6 +33,7 @@ mod spectrum;
 pub mod trunking;
 pub mod video;
 pub use audio::{AudioPacket, PcmBlock, PcmPayload};
+pub use iq::{IQ_BLOCK_SAMPLES, IQ_BLOCKS_PER_SEC, IqBlock};
 pub use recording::FinalizedRecording;
 pub use runtime::SpectrumSnapshot;
 pub use trunking::TrunkSystem;
@@ -112,6 +115,8 @@ pub enum EngineError {
     RecordingIo(String),
     #[error("scan: {0}")]
     Scan(String),
+    #[error("occupancy: {0}")]
+    Occupancy(String),
 }
 
 impl EngineError {
@@ -291,6 +296,7 @@ impl ChannelMedia {
         let (pcm_tx, pcm_rx) = broadcast::channel(audio::PCM_CHANNEL_CAP);
         let (audio_tx, _) = broadcast::channel(audio::AUDIO_CHANNEL_CAP);
         let (video_tx, _) = broadcast::channel(video::VIDEO_CHANNEL_CAP);
+        let (iq_tx, _) = broadcast::channel(iq::IQ_CHANNEL_CAP);
         let encoder = audio::spawn_encoder(channels, pcm_rx, audio_tx.clone())?;
         Ok(Self {
             sinks: ChannelSinks {
@@ -298,6 +304,9 @@ impl ChannelMedia {
                 pcm_pos: Arc::new(AtomicU64::new(0)),
                 video_tx,
                 video_pos: Arc::new(AtomicU64::new(0)),
+                iq_tx,
+                level_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
+                peak_db: Arc::new(AtomicU32::new(sdrmm_dsp::LEVEL_FLOOR_DB.to_bits())),
             },
             audio_tx,
             encoder: Some(encoder),
@@ -524,6 +533,11 @@ pub struct Engine {
     trunk_tx: mpsc::Sender<trunking::TrunkInput>,
     trunk_active: AtomicBool,
     trunk_status: Arc<Mutex<Vec<TrunkSystemStatus>>>,
+    /// Band-occupancy statistics, shared across every set that is being collected from — the
+    /// question they answer is about a frequency, not about which radio happened to hear it.
+    occupancy: Mutex<occupancy::Occupancy>,
+    /// The `(device set, stream)` lanes a collector thread is already running for.
+    occupancy_sets: Mutex<HashSet<(u32, u32)>>,
     recordings_dir: Option<PathBuf>,
 }
 
@@ -559,6 +573,8 @@ impl Engine {
             trunk_tx,
             trunk_active: AtomicBool::new(false),
             trunk_status: trunk_status.clone(),
+            occupancy: Mutex::new(occupancy::Occupancy::new()),
+            occupancy_sets: Mutex::new(HashSet::new()),
             recordings_dir,
         });
         engine.spawn_fault_drainer(fault_rx);
@@ -739,6 +755,150 @@ impl Engine {
                 }
             })?;
         Ok(())
+    }
+
+    /// Band-occupancy statistics gathered from the spectrum tap, shared across every reader.
+    #[must_use]
+    pub fn occupancy(&self) -> &Mutex<occupancy::Occupancy> {
+        &self.occupancy
+    }
+
+    /// Start folding one device set's spectrum into the occupancy statistics.
+    ///
+    /// Runs off the same broadcast the waterfall is drawn from, so it costs no extra DSP; the
+    /// thread ends when the stream does, when the engine is dropped, or when the set goes away.
+    /// Subscribing twice to one lane is harmless — the second collector simply sees the same
+    /// frames — but the caller is expected not to, and [`Engine::collect_occupancy_for`] is
+    /// idempotent per set for exactly that reason.
+    pub fn collect_occupancy_for(
+        self: &Arc<Self>,
+        ds: u32,
+        stream: u32,
+    ) -> Result<(), EngineError> {
+        {
+            let mut collecting = self
+                .occupancy_sets
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !collecting.insert((ds, stream)) {
+                return Ok(());
+            }
+        }
+        let mut rx = match self.subscribe_spectrum(ds, stream) {
+            Ok(rx) => rx,
+            Err(error) => {
+                self.stop_collecting(ds, stream);
+                return Err(error);
+            }
+        };
+        let weak = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name(format!("sdrmm-occupancy-{ds}-{stream}"))
+            .spawn(move || {
+                loop {
+                    let snapshot = match rx.blocking_recv() {
+                        Ok(snapshot) => snapshot,
+                        // A lagged reader is expected and fine: occupancy is a statistic over
+                        // many frames, and missing some of them changes nothing it claims.
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    };
+                    let Some(engine) = weak.upgrade() else { return };
+                    let now_ms = jiff::Timestamp::now().as_millisecond();
+                    engine
+                        .occupancy
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .observe(&snapshot.db, snapshot.center_hz, snapshot.span_hz, now_ms);
+                }
+                if let Some(engine) = weak.upgrade() {
+                    engine.stop_collecting(ds, stream);
+                }
+            })
+            .map_err(|error| {
+                self.stop_collecting(ds, stream);
+                EngineError::Occupancy(error.to_string())
+            })?;
+        Ok(())
+    }
+
+    /// Keep an occupancy collector running on every lane of every running set, checking every
+    /// `interval`. Opt-in per binary, like the hotplug prober.
+    ///
+    /// A poll rather than a hook on set creation: sets come and go, a replug rebuilds a runtime
+    /// under a set that already existed, and a collector whose stream closed simply ends. One
+    /// idempotent sweep covers all three without a lifecycle to keep in step.
+    pub fn start_occupancy_collector(self: &Arc<Self>, interval: Duration) -> std::io::Result<()> {
+        let weak = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("sdrmm-occupancy".to_string())
+            .spawn(move || {
+                loop {
+                    let Some(engine) = weak.upgrade() else { return };
+                    for (ds, streams) in engine.running_lanes() {
+                        for stream in 0..streams {
+                            // A set that cannot be subscribed to right now is one the next sweep
+                            // will find again; there is nothing here worth failing over.
+                            let _ = engine.collect_occupancy_for(ds, stream);
+                        }
+                    }
+                    drop(engine);
+                    std::thread::sleep(interval);
+                }
+            })?;
+        Ok(())
+    }
+
+    /// Running device sets and how many receive streams each has.
+    fn running_lanes(&self) -> Vec<(u32, u32)> {
+        let inner = self.lock();
+        inner
+            .device_sets
+            .iter()
+            .filter(|(_, state)| state.status == DeviceSetStatus::Running)
+            .map(|(id, state)| (*id, state.rx_streams()))
+            .collect()
+    }
+
+    fn stop_collecting(&self, ds: u32, stream: u32) {
+        self.occupancy_sets
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&(ds, stream));
+    }
+
+    /// Push every set's channel levels every `interval` ( signal metering). Opt-in per
+    /// binary, like the hotplug prober, and holding a `Weak` for the same reason: the thread
+    /// exits at the first wake after the engine is dropped.
+    ///
+    /// Nothing accumulates here. A tick that finds no channels sends nothing, and a client that
+    /// misses a tick simply draws the next — these are measurements, not state.
+    pub fn start_level_meter(self: &Arc<Self>, interval: Duration) -> std::io::Result<()> {
+        let weak = Arc::downgrade(self);
+        std::thread::Builder::new()
+            .name("sdrmm-levels".to_string())
+            .spawn(move || {
+                loop {
+                    let Some(engine) = weak.upgrade() else { return };
+                    engine.level_tick();
+                    drop(engine);
+                    std::thread::sleep(interval);
+                }
+            })?;
+        Ok(())
+    }
+
+    /// One metering step, split from the thread so tests drive it without sleeping.
+    pub fn level_tick(&self) {
+        for ds in self.device_sets_with_channels() {
+            let levels = self.channel_levels(ds);
+            if !levels.is_empty() {
+                self.emit(ServerEvent::ChannelLevels {
+                    device_set: ds,
+                    levels,
+                });
+            }
+        }
     }
 
     /// One prober step, split from the thread so tests drive it without sleeping: probe, diff
@@ -1997,6 +2157,68 @@ impl Engine {
             .get(&ch)
             .ok_or(EngineError::ChannelNotFound(ch, ds))?;
         Ok(handle.sinks.video_tx.subscribe())
+    }
+
+    /// Every channel's current signal level on one device set, newest reading of each.
+    ///
+    /// Reads two atomics per channel behind the state lock and touches no DSP thread, so a poller
+    /// can call it as often as it likes. Levels are deliberately *not* part of
+    /// [`sdrmm_wire::StateSnapshot`]: they change continuously, and a `StateChanged` per reading
+    /// would have every client refetch the whole world ten times a second.
+    #[must_use]
+    pub fn channel_levels(&self, ds: u32) -> Vec<ChannelLevel> {
+        let inner = self.lock();
+        let Some(state) = inner.device_sets.get(&ds) else {
+            return Vec::new();
+        };
+        state
+            .channels
+            .iter()
+            .filter_map(|channel| {
+                let media = state.media.get(&channel.id)?;
+                Some(ChannelLevel {
+                    channel: channel.id,
+                    level_db: f32::from_bits(media.sinks.level_db.load(Ordering::Relaxed)),
+                    peak_db: f32::from_bits(media.sinks.peak_db.load(Ordering::Relaxed)),
+                })
+            })
+            .collect()
+    }
+
+    /// Device sets that currently host at least one channel — what a level poller iterates,
+    /// rather than reaching into the state map itself.
+    #[must_use]
+    pub fn device_sets_with_channels(&self) -> Vec<u32> {
+        let inner = self.lock();
+        inner
+            .device_sets
+            .iter()
+            .filter(|(_, state)| !state.channels.is_empty())
+            .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// Subscribe to a channel's baseband tap ( SubscribeIq).
+    ///
+    /// Unlike video there is nothing to refuse: every channel has a passband, whatever it
+    /// demodulates from it, and the tap runs above the squelch so a quiet channel still carries
+    /// one. The engine starts sending only once this receiver exists — the DSP-side tap checks
+    /// the subscriber count and does nothing at all until then.
+    pub fn subscribe_iq(
+        &self,
+        ds: u32,
+        ch: u32,
+    ) -> Result<broadcast::Receiver<IqBlock>, EngineError> {
+        let inner = self.lock();
+        let state = inner
+            .device_sets
+            .get(&ds)
+            .ok_or(EngineError::DeviceSetNotFound(ds))?;
+        let handle = state
+            .media
+            .get(&ch)
+            .ok_or(EngineError::ChannelNotFound(ch, ds))?;
+        Ok(handle.sinks.iq_tx.subscribe())
     }
 
     /// Every compiled-in channel type ( GET channel types). The registry lives in

@@ -20,6 +20,10 @@ use utoipa_swagger_ui::SwaggerUi;
 /// Hotplug probe cadence ( M1). Public so the desktop shell, which embeds the router
 /// without going through [`serve`], starts the same prober.
 pub const HOTPLUG_INTERVAL: Duration = Duration::from_secs(5);
+/// How often channel signal levels are pushed. Ten a second is what a meter needs to read as a
+/// meter rather than as a series of numbers; the payload is a few floats per channel, and it is
+/// only sent for sets that actually host one.
+pub const LEVEL_INTERVAL: Duration = Duration::from_millis(100);
 
 const DECODED_TEXT_CAP: usize = 1024;
 
@@ -314,6 +318,8 @@ impl ServerHandle {
 /// Bind and start serving on `config.bind`, returning once the socket is listening.
 pub async fn serve(config: Config, engine: Arc<Engine>) -> std::io::Result<ServerHandle> {
     engine.start_hotplug_prober(HOTPLUG_INTERVAL)?;
+    engine.start_level_meter(LEVEL_INTERVAL)?;
+    engine.start_occupancy_collector(HOTPLUG_INTERVAL)?;
     // Name the file being opened: a cwd-dependent or unexpected path otherwise shows up
     // only as presets/bookmarks silently "vanishing".
     match &config.db_path {
@@ -1907,6 +1913,57 @@ mod tests {
             tools.iter().any(|t| t["name"] == "get_state"),
             "get_state missing from the tool list"
         );
+    }
+
+    /// The occupancy endpoint's contract: it answers before anything has been observed, it
+    /// honours the sample floor that keeps a coincidence out of the report, and what it returns
+    /// is ordered busiest first.
+    #[tokio::test]
+    async fn occupancy_is_served_and_filtered_by_how_well_observed_it_is() {
+        let (app, state) = test_router_with_state();
+
+        // Nothing observed yet: an empty report, not an error and not a 404.
+        let (status, body) = request(app.clone(), "GET", "/api/occupancy", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let report: sdrmm_wire::OccupancyReport = serde_json::from_slice(&body).expect("json");
+        assert!(report.buckets.is_empty());
+        assert_eq!(report.bucket_hz, sdrmm_engine::occupancy::BUCKET_HZ);
+
+        // Plant a busy frequency and a quiet one, seen often enough to count.
+        {
+            let mut occupancy = state
+                .engine
+                .occupancy()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut db = vec![-100.0f32; 128];
+            for round in 0..40 {
+                db[64] = -40.0;
+                db[96] = if round < 4 { -40.0 } else { -100.0 };
+                occupancy.observe(&db, 100e6, 1.6e6, 0);
+            }
+        }
+
+        let (status, body) = request(app.clone(), "GET", "/api/occupancy", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let report: sdrmm_wire::OccupancyReport = serde_json::from_slice(&body).expect("json");
+        assert!(
+            report.buckets.len() >= 2,
+            "nothing survived the sample floor"
+        );
+        assert!(
+            report.buckets[0].duty >= report.buckets[1].duty,
+            "the report is not ordered busiest first"
+        );
+        assert_eq!(report.buckets[0].by_hour.len(), 24);
+        assert!(!report.since.is_empty());
+
+        // And a floor above what was observed empties it again, rather than reporting noise.
+        let (status, body) =
+            request(app.clone(), "GET", "/api/occupancy?min_samples=1000", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let report: sdrmm_wire::OccupancyReport = serde_json::from_slice(&body).expect("json");
+        assert!(report.buckets.is_empty());
     }
 
     #[tokio::test]

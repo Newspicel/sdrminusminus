@@ -2234,3 +2234,78 @@ async fn scan_rejects_targets_the_tuner_cannot_reach() {
     assert!(err.is_not_found(), "expected not found, got {err}");
     engine.remove_device_set(ds).unwrap();
 }
+
+/// The metering path end to end: a channel on a signal generator measures a level, and that level
+/// reaches clients as its own event rather than as a state invalidation.
+#[tokio::test]
+async fn channel_levels_are_measured_and_pushed_without_invalidating_state() {
+    let engine = virtual_engine();
+    let ds = engine
+        .create_device_set("virtual:siggen")
+        .expect("device set");
+    let mut events = engine.event_tx.subscribe();
+    let channel = engine
+        .add_channel(
+            ds,
+            0,
+            ChannelSettings {
+                offset_hz: 0.0,
+                squelch_db: None,
+                params: ChannelParams::Nfm(NfmParams::default()),
+            },
+        )
+        .expect("channel");
+
+    // The generator is always transmitting, so the meter has something to read within a block or
+    // two of the pipeline starting.
+    let mut measured = f32::NEG_INFINITY;
+    for _ in 0..200 {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let levels = engine.channel_levels(ds);
+        if let Some(level) = levels.iter().find(|entry| entry.channel == channel) {
+            measured = level.level_db;
+            if measured > sdrmm_dsp::LEVEL_FLOOR_DB {
+                break;
+            }
+        }
+    }
+    assert!(
+        measured > sdrmm_dsp::LEVEL_FLOOR_DB,
+        "the meter never rose off its floor (read {measured} dB)"
+    );
+    assert!(measured <= 0.0, "a level above full scale: {measured} dB");
+
+    let levels = engine.channel_levels(ds);
+    assert_eq!(levels.len(), 1);
+    assert!(
+        levels[0].peak_db >= levels[0].level_db,
+        "the peak sits below the level it is a peak of"
+    );
+
+    // And the tick pushes it as its own event. Drain what the set-up already queued first.
+    while events.try_recv().is_ok() {}
+    engine.level_tick();
+    let mut pushed = None;
+    while let Ok(event) = events.try_recv() {
+        assert!(
+            !matches!(event, ServerEvent::StateChanged { .. }),
+            "metering invalidated client state"
+        );
+        if let ServerEvent::ChannelLevels { device_set, levels } = event {
+            pushed = Some((device_set, levels));
+        }
+    }
+    let (device_set, levels) = pushed.expect("the tick pushed no levels");
+    assert_eq!(device_set, ds);
+    assert_eq!(levels.len(), 1);
+    assert_eq!(levels[0].channel, channel);
+
+    // A set that does not exist reads as no levels rather than as an error the poller would
+    // have to handle every tick.
+    assert!(engine.channel_levels(ds + 999).is_empty());
+
+    // And a set whose channels are gone drops out of the poller's list entirely.
+    engine.remove_channel(ds, channel).expect("remove channel");
+    assert!(!engine.device_sets_with_channels().contains(&ds));
+    assert!(engine.channel_levels(ds).is_empty());
+}

@@ -88,6 +88,21 @@ pub struct DeviceSet {
     pub playback: Option<PlaybackStatus>,
 }
 
+/// One channel's live signal level.
+///
+/// Its own message rather than a field of [`crate::ChannelInfo`]: a level changes continuously,
+/// and carrying it in the state snapshot would make every reading a state invalidation. Levels
+/// are dBFS of the channel's filtered passband, where unit-magnitude IQ is 0 dBFS — the same
+/// scale the squelch threshold is set on, so the two are directly comparable.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ChannelLevel {
+    pub channel: u32,
+    /// Smoothed level: fast to rise, slow to fall.
+    pub level_db: f32,
+    /// Loudest recent level, held then decayed.
+    pub peak_db: f32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct TrunkFollower {
     pub device_set: u32,

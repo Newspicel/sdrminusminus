@@ -388,6 +388,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/occupancy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_occupancy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/patch/catalog": {
         parameters: {
             query?: never;
@@ -1236,6 +1252,28 @@ export interface components {
             stream?: number;
         };
         /**
+         * @description One channel's live signal level.
+         *
+         *     Its own message rather than a field of [`crate::ChannelInfo`]: a level changes continuously,
+         *     and carrying it in the state snapshot would make every reading a state invalidation. Levels
+         *     are dBFS of the channel's filtered passband, where unit-magnitude IQ is 0 dBFS — the same
+         *     scale the squelch threshold is set on, so the two are directly comparable.
+         */
+        ChannelLevel: {
+            /** Format: int32 */
+            channel: number;
+            /**
+             * Format: float
+             * @description Smoothed level: fast to rise, slow to fall.
+             */
+            level_db: number;
+            /**
+             * Format: float
+             * @description Loudest recent level, held then decayed.
+             */
+            peak_db: number;
+        };
+        /**
          * @description A channel node's payload. The *type* is topology — it decides the node's ports — while the
          *     settings behind it stay on the engine's channel (module docs).
          */
@@ -1332,6 +1370,10 @@ export interface components {
             settings: components["schemas"]["M17Params"];
             /** @enum {string} */
             type: "m17";
+        } | {
+            settings: components["schemas"]["IdentParams"];
+            /** @enum {string} */
+            type: "ident";
         };
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
@@ -1440,6 +1482,33 @@ export interface components {
             };
             /** @enum {string} */
             type: "UnsubscribeVideo";
+        } | {
+            /**
+             * @description Start receiving a channel's baseband IQ — post down-conversion, post channel filter, at
+             *     the channel's own rate; answered with `IqStreamStarted`.
+             *
+             *     The burst size and cadence are the server's, not the client's: they are what bounds the
+             *     bandwidth of a tap that would otherwise carry a native-rate channel's whole stream, and a
+             *     per-subscriber choice would have several clients of one channel disagree about them.
+             */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+            };
+            /** @enum {string} */
+            type: "SubscribeIq";
+        } | {
+            /** @description Stop the baseband stream for a channel. */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+            };
+            /** @enum {string} */
+            type: "UnsubscribeIq";
         } | {
             /**
              * @description A fix from the desktop WebView's geolocation provider. The server accepts this only for
@@ -1577,6 +1646,10 @@ export interface components {
             data: components["schemas"]["DvFrame"];
             /** @enum {string} */
             kind: "dv";
+        } | {
+            data: components["schemas"]["IdentReport"];
+            /** @enum {string} */
+            kind: "ident";
         };
         /**
          * @description One stored decoder frame (: decoder logs are queryable and exportable, not
@@ -1993,6 +2066,140 @@ export interface components {
         GpsNode: {
             source?: components["schemas"]["PositionSource"];
         };
+        /**
+         * @description The measurements a classification was made from, carried so the decision can be checked
+         *     rather than taken on trust — an operator staring at an unfamiliar signal needs the numbers,
+         *     not just the verdict.
+         */
+        IdentFeatures: {
+            /**
+             * Format: float
+             * @description The strongest spectral line over the median of the occupied band, in dB — how much of
+             *     a carrier there is.
+             */
+            carrier_db: number;
+            /**
+             * Format: float
+             * @description Fraction of the observation the carrier was keyed on. 1.0 for a continuous transmission.
+             */
+            duty: number;
+            /**
+             * Format: float
+             * @description Standard deviation of the envelope over its own mean. Zero for a constant-envelope
+             *     mode, large for anything that carries information in amplitude.
+             */
+            envelope_variation: number;
+            /**
+             * Format: int32
+             * @description Instantaneous-frequency levels the discriminator resolved: 2 or 4 for keyed modes, 1
+             *     for a carrier, 0 when the distribution is a continuum.
+             */
+            frequency_levels: number;
+            /**
+             * Format: double
+             * @description Spread of the instantaneous frequency, in Hz — the deviation of an analog FM signal,
+             *     and roughly the outer deviation of a keyed one.
+             */
+            frequency_spread_hz: number;
+            /**
+             * Format: float
+             * @description Keyed-on level over keyed-off level, in dB — how deep the keying goes, which is what
+             *     separates a switched carrier from one that is merely fading.
+             */
+            keying_depth_db: number;
+            /**
+             * Format: float
+             * @description The same for the fourth power, which is what QPSK makes.
+             */
+            quartic_line_db: number;
+            /**
+             * Format: float
+             * @description Power imbalance about the strongest spectral line, `(upper − lower) / total`. Zero for
+             *     a symmetric spectrum (AM, FM, most digital modes), ±1 for a single sideband.
+             */
+            spectral_asymmetry: number;
+            /**
+             * Format: float
+             * @description Wiener entropy of the occupied band: 1.0 is white, 0.0 is a single tone.
+             */
+            spectral_flatness: number;
+            /**
+             * Format: float
+             * @description Strength of the spectral line the squared signal produces, over its own floor, in dB.
+             *     A BPSK signal makes one; so does MSK, which is why the FSK tests run first.
+             */
+            square_line_db: number;
+        };
+        /**
+         * @description The signal identifier: what to search, how often to answer, and how loud a thing has to be
+         *     before it is one.
+         */
+        IdentParams: {
+            /**
+             * Format: double
+             * @description Slice searched for a signal, in Hz. Wide by default because the point of the mode is to
+             *     be pointed at something unknown — narrowing it is what an operator does once they can
+             *     see where the thing actually sits.
+             */
+            bandwidth_hz?: number;
+            /**
+             * Format: int32
+             * @description Milliseconds between reports. Each one analyses the samples since the last, so this is
+             *     both the report cadence and the observation the answer stands on — up to a little over a
+             *     second, past which the cadence keeps lengthening and each report describes the second
+             *     before it rather than the whole gap.
+             */
+            interval_ms?: number;
+            /**
+             * Format: float
+             * @description How far above the measured noise floor a bin must sit to be part of a signal, in dB.
+             */
+            threshold_db?: number;
+        };
+        /**
+         * @description What the signal identifier made of the slice it was pointed at.
+         *
+         *     Emitted on a cadence rather than per frame: there is no frame here. Each report describes one
+         *     observation window, so a stream of them is a record of what was on the air and when.
+         */
+        IdentReport: {
+            /**
+             * Format: double
+             * @description Occupied bandwidth, in Hz.
+             */
+            bandwidth_hz: number;
+            /** @description Protocols that fit, best first. */
+            candidates?: components["schemas"]["ProtocolMatch"][];
+            /**
+             * Format: double
+             * @description Where the signal's centre sits relative to the channel's own offset, in Hz — how far
+             *     the operator is off tune.
+             */
+            center_offset_hz: number;
+            /**
+             * Format: float
+             * @description How firmly the classifier held that answer, 0 to 1.
+             */
+            confidence: number;
+            /**
+             * Format: double
+             * @description Peak frequency deviation of a keyed or analog FM signal, in Hz.
+             */
+            deviation_hz?: number | null;
+            features: components["schemas"]["IdentFeatures"];
+            modulation: components["schemas"]["Modulation"];
+            sideband?: null | components["schemas"]["Sideband"];
+            /**
+             * Format: float
+             * @description Signal-to-noise ratio in the occupied band, in dB.
+             */
+            snr_db: number;
+            /**
+             * Format: double
+             * @description Symbols per second, when a symbol clock was found.
+             */
+            symbol_rate_hz?: number | null;
+        };
         /** @enum {string} */
         ItuRegion: "r1" | "r2" | "r3";
         /**
@@ -2009,6 +2216,15 @@ export interface components {
         };
         /** @description M17 (C4FM, 4800 symbols/s, RRC 0.5). */
         M17Params: Record<string, never>;
+        /**
+         * @description The modulation family a [`IdentReport`] settled on.
+         *
+         *     Coarse on purpose. What a receiver can read off an unknown waveform is how its envelope, its
+         *     instantaneous frequency and its spectrum behave, and those separate *families* — they do not
+         *     separate the variants inside one, which is what the protocol candidates are for.
+         * @enum {string}
+         */
+        Modulation: "none" | "carrier" | "ook" | "am" | "ssb" | "fm" | "fsk2" | "fsk4" | "psk2" | "psk4" | "noise_like" | "unknown";
         MorseParams: {
             /**
              * Format: double
@@ -2181,6 +2397,44 @@ export interface components {
         NxdnBandwidth: "narrow" | "wide";
         NxdnParams: {
             bandwidth?: components["schemas"]["NxdnBandwidth"];
+        };
+        /** @description One frequency bucket's occupancy statistics ( band-occupancy analytics). */
+        OccupancyBucket: {
+            /**
+             * @description Duty per hour of the day, UTC, 24 entries. An hour never observed reads `0.0` — which is
+             *     why `samples` matters.
+             */
+            by_hour: number[];
+            /**
+             * Format: float
+             * @description Fraction of observations in which this bucket carried a signal, `0.0..=1.0`.
+             */
+            duty: number;
+            /**
+             * Format: int64
+             * @description Centre of the bucket.
+             */
+            freq_hz: number;
+            /** @description RFC 3339 timestamp of the most recent observation. */
+            last_seen: string;
+            /**
+             * Format: int64
+             * @description Observations behind that fraction. A duty cycle from three sightings is not a measurement,
+             *     and this is what lets a reader tell the difference.
+             */
+            samples: number;
+        };
+        /** @description `GET /api/occupancy` — how much of the time each slice of spectrum has been in use. */
+        OccupancyReport: {
+            /**
+             * Format: int64
+             * @description Width of one bucket.
+             */
+            bucket_hz: number;
+            /** @description Busiest first, then by frequency. */
+            buckets: components["schemas"]["OccupancyBucket"][];
+            /** @description RFC 3339 timestamp of the first observation, or empty before there is one. */
+            since: string;
         };
         /** @description P25 Phase 1 (C4FM, 4800 symbols/s). */
         P25Params: Record<string, never>;
@@ -2377,7 +2631,7 @@ export interface components {
             repeat?: components["schemas"]["PortRepeat"];
         };
         /** @enum {string} */
-        PortType: "iq" | "audio" | "events" | "video" | "control" | "position" | "tx";
+        PortType: "iq" | "baseband" | "audio" | "events" | "video" | "control" | "position" | "tx";
         /** @description Canvas position of a node, in React Flow's coordinate space. */
         Position: {
             /** Format: float */
@@ -2459,6 +2713,27 @@ export interface components {
              * @description [`PRESET_SNAPSHOT_VERSION`] at the time of writing.
              */
             version: number;
+        };
+        /** @description One protocol the waveform could be, and what says so. */
+        ProtocolMatch: {
+            /**
+             * @description Set when the protocol's own framing was found in the signal, not merely resembled. A
+             *     confirmed match is an answer; an unconfirmed one is a shortlist entry.
+             */
+            confirmed?: boolean;
+            name: string;
+            /**
+             * Format: float
+             * @description How well the measurements fit the protocol's signature, 0 to 1.
+             */
+            score: number;
+            /**
+             * @description The channel type that decodes it, when this build has one — what the client offers to
+             *     switch the channel to.
+             */
+            type_id?: string | null;
+            /** @description The evidence, in a phrase: what matched, or what was recognised. */
+            why: string;
         };
         /** @description One pinned face on the rack grid. */
         RackCell: {
@@ -2811,6 +3086,22 @@ export interface components {
             type: "VideoStreamStarted";
         } | {
             /**
+             * @description A subscribed channel-IQ stream is now active, carrying that channel's baseband as
+             *     [`crate::IqFrame`]s. Ids come from the same per-connection media range audio and video
+             *     use, so the client demuxes on `(kind, stream_id)` exactly as it does there.
+             */
+            data: {
+                /** Format: int32 */
+                channel: number;
+                /** Format: int32 */
+                device_set: number;
+                /** Format: int32 */
+                stream_id: number;
+            };
+            /** @enum {string} */
+            type: "IqStreamStarted";
+        } | {
+            /**
              * @description A subscribed stream stopped; `kind` says which one, since spectrum and audio ids
              *     come from different spaces.
              */
@@ -2861,6 +3152,22 @@ export interface components {
             data: components["schemas"]["VoiceCall"];
             /** @enum {string} */
             type: "CallCompleted";
+        } | {
+            /**
+             * @description Live signal level of every channel on one device set.
+             *
+             *     Its own event for the same reason [`ServerEvent::ScannerUpdate`] is one: levels move
+             *     continuously, and a `StateChanged` per reading would have every client refetch the whole
+             *     world ten times a second. Nothing downstream is authoritative about these — they are a
+             *     measurement, not state, and a client that misses one simply draws the next.
+             */
+            data: {
+                /** Format: int32 */
+                device_set: number;
+                levels: components["schemas"]["ChannelLevel"][];
+            };
+            /** @enum {string} */
+            type: "ChannelLevels";
         } | {
             /**
              * @description Live frequency-scanner progress. Its own event rather than a `StateChanged`:
@@ -2979,7 +3286,7 @@ export interface components {
          *     carry the kind or a spectrum stop is indistinguishable from an audio one.
          * @enum {string}
          */
-        StreamKind: "spectrum" | "audio" | "video";
+        StreamKind: "spectrum" | "audio" | "video" | "iq";
         /**
          * @description Which device settings each receive stream holds on its own, rather than sharing with the rest
          *     of the radio. All-false — the default, and what every capability set from before this field
@@ -4277,6 +4584,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DoctorReport"];
+                };
+            };
+        };
+    };
+    get_occupancy: {
+        parameters: {
+            query?: {
+                /** @description Drop buckets observed fewer times than this. A duty cycle from three sightings is not a measurement; the default keeps that out of the report */
+                min_samples?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How much of the time each slice of spectrum has carried a signal, busiest first. Accumulated from the spectrum tap of every running receiver against absolute frequency, so a scan and a retune both add to the same picture */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OccupancyReport"];
                 };
             };
         };

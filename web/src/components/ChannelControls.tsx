@@ -646,6 +646,48 @@ function ModeControls({
           />
         </SettingRow>
       );
+    case "ident":
+      return (
+        <>
+          <SettingRow label="Search width">
+            <BandwidthSelect
+              valueHz={params.settings.bandwidth_hz ?? 192_000}
+              optionsHz={[12_500, 50_000, 100_000, 192_000]}
+              onCommit={(bandwidth_hz) =>
+                onParams({ type: "ident", settings: { ...params.settings, bandwidth_hz } })
+              }
+            />
+          </SettingRow>
+          <SettingRow label="Report every">
+            <NumberField
+              label="Milliseconds of signal each report is measured from"
+              value={params.settings.interval_ms ?? 1_000}
+              min={250}
+              max={10_000}
+              step={250}
+              onCommit={(interval_ms) =>
+                onParams({ type: "ident", settings: { ...params.settings, interval_ms } })
+              }
+              className="w-20"
+            />
+            <span className="legend">ms</span>
+          </SettingRow>
+          <SettingRow label="Detect above">
+            <NumberField
+              label="Decibels above the noise floor a signal must reach"
+              value={params.settings.threshold_db ?? 8}
+              min={3}
+              max={40}
+              step={1}
+              onCommit={(threshold_db) =>
+                onParams({ type: "ident", settings: { ...params.settings, threshold_db } })
+              }
+              className="w-16"
+            />
+            <span className="legend">dB</span>
+          </SettingRow>
+        </>
+      );
     // Everything about these four — symbol rate, deviation, channel width, sync patterns — is
     // fixed by the mode, so there is nothing to offer beyond the frequency the operator tuned.
     case "dstar":

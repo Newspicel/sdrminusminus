@@ -16,25 +16,25 @@ use sdrmm_wire::{
 use super::{INPUT_RATE_HZ, vocoder::DstarVocoder};
 use crate::{ChannelCtx, ChannelError, ChannelFilter, ChannelOutputs, ChannelRx, check_input_rate};
 
-const BAUD: f64 = 4_800.0;
+pub(crate) const BAUD: f64 = 4_800.0;
 /// GMSK at ±1200 Hz — h = ½ from the deviation, minimum shift — with a 0.5 bandwidth-time
 /// product, which is what an ICOM radio transmits.
-const DEVIATION_HZ: f64 = 1_200.0;
-const BT: f64 = 0.5;
+pub(crate) const DEVIATION_HZ: f64 = 1_200.0;
+pub(crate) const BT: f64 = 0.5;
 /// Total span of the entry's GMSK frequency pulse in symbol periods: the NRZ rect's own symbol
 /// plus a two-symbol truncation of the BT 0.5 premod Gaussian — ample at this BT, where the
 /// pulse concentrates faster than AIS's 0.4.
-const PULSE_SPAN: usize = 3;
+pub(crate) const PULSE_SPAN: usize = 3;
 /// Matched-filter truncation, total span in symbol periods — the same `pulse::gaussian` taps
 /// the pre-cpm chain matched with, kept so the migration moves the glue and not the filter.
-const MATCHED_SPAN: usize = 3;
-const BANDWIDTH_HZ: f64 = 6_250.0;
+pub(crate) const MATCHED_SPAN: usize = 3;
+pub(crate) const BANDWIDTH_HZ: f64 = 6_250.0;
 
 /// The 24-bit frame sync a transmission repeats every 21 voice frames: 0x552D16, sent low bit
 /// first like every other byte in this mode.
-const SYNC: u32 = 0x0055_2D16;
-const SYNC_BITS: u32 = 24;
-const SYNC_TOLERANCE: u32 = 2;
+pub(crate) const SYNC: u32 = 0x0055_2D16;
+pub(crate) const SYNC_BITS: u32 = 24;
+pub(crate) const SYNC_TOLERANCE: u32 = 2;
 
 /// A voice frame: 72 bits of vocoder payload and 24 bits of data.
 const FRAME_BITS: usize = 96;
@@ -71,7 +71,7 @@ pub struct DstarChannel {
     soft: Vec<f32>,
 }
 
-fn cpm_params(sps: f64) -> CpmParams {
+pub(crate) fn cpm_params(sps: f64) -> CpmParams {
     CpmParams::from_deviation(
         Mapping::natural(2),
         DEVIATION_HZ,

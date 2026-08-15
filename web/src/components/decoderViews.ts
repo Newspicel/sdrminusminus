@@ -5,6 +5,8 @@ import type {
   DecodedRecord,
   DecodedRecordOf,
   DvFrame,
+  IdentReport,
+  Modulation,
   RdsUpdate,
 } from "../lib/types";
 import { formatHz } from "./format";
@@ -336,4 +338,58 @@ export function dvParties(
     return `${to} ← ${from}`;
   }
   return to ?? from ?? "";
+}
+
+/** Exhaustive over the wire enum: a modulation family added in `wire` fails the typecheck here
+ * until it has a name an operator would recognise. */
+const MODULATION_LABELS: Record<Modulation, string> = {
+  none: "no signal",
+  carrier: "unmodulated carrier",
+  ook: "OOK",
+  am: "AM",
+  ssb: "SSB",
+  fm: "FM",
+  fsk2: "2-FSK",
+  fsk4: "4-FSK",
+  psk2: "BPSK",
+  psk4: "QPSK",
+  noise_like: "noise-like",
+  unknown: "unknown",
+};
+
+export function modulationLabel(report: IdentReport): string {
+  const base = MODULATION_LABELS[report.modulation] ?? report.modulation;
+  return report.sideband == null ? base : `${base} (${report.sideband.toUpperCase()})`;
+}
+
+/** One `label: value` pair, structurally the `DetailField` the log's expanded row renders. Stated
+ * here rather than imported, because `decoderDetail` imports *this* module. */
+export type IdentField = readonly [label: string, value: string];
+
+/** The measurements, as an operator would quote them. Only what was actually measured: an absent
+ * symbol clock is a thing the signal did not show, and a dash in its place says it worse. */
+export function identMeasurements(report: IdentReport): IdentField[] {
+  if (report.modulation === "none") {
+    return [["Loudest bin", `${report.snr_db.toFixed(1)} dB over the noise floor`]];
+  }
+  const fields: IdentField[] = [
+    ["Bandwidth", `${(report.bandwidth_hz / 1000).toFixed(1)} kHz`],
+    ["Off tune", `${Math.round(report.center_offset_hz)} Hz`],
+    ["SNR", `${report.snr_db.toFixed(1)} dB`],
+  ];
+  if (report.symbol_rate_hz != null) {
+    fields.push(["Symbol rate", `${Math.round(report.symbol_rate_hz)} Bd`]);
+  }
+  if (report.deviation_hz != null) {
+    fields.push(["Deviation", `±${Math.round(report.deviation_hz)} Hz`]);
+  }
+  if (report.features.duty < 0.99) {
+    fields.push(["Duty", `${Math.round(report.features.duty * 100)}%`]);
+  }
+  return fields;
+}
+
+/** How a candidate reads on one line. */
+export function candidateScore(match: { score: number; confirmed?: boolean }): string {
+  return match.confirmed === true ? "confirmed" : `${Math.round(match.score * 100)}%`;
 }

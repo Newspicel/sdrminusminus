@@ -77,15 +77,17 @@ class FakeSink implements AudioSink {
   }
 }
 
-function makeFactory(): { factory: SinkFactory; sinks: FakeSink[] } {
+function makeFactory(): { factory: SinkFactory; sinks: FakeSink[]; keys: string[] } {
   const sinks: FakeSink[] = [];
-  const factory: SinkFactory = (volume, onError, onReport) => {
+  const keys: string[] = [];
+  const factory: SinkFactory = (key, volume, onError, onReport) => {
     const sink = new FakeSink(volume, onError);
     sink.report = onReport;
     sinks.push(sink);
+    keys.push(key);
     return Promise.resolve(sink);
   };
-  return { factory, sinks };
+  return { factory, sinks, keys };
 }
 
 function flush(): Promise<void> {
