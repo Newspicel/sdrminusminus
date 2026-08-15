@@ -20,6 +20,9 @@ import type {
   DoctorReport,
   ExportFormat,
   LicenseTextResponse,
+  NetworkExportAction,
+  NetworkExportSettings,
+  NetworkExportStatus,
   NmeaDevicesResponse,
   PatchApplyReport,
   PatchCatalog,
@@ -237,6 +240,21 @@ export async function recordDeviceSet(
     await client.POST("/api/devicesets/{ds}/record", {
       params: { path: { ds } },
       body: { action, stream },
+    }),
+  );
+}
+
+export async function networkExportDeviceSet(
+  ds: number,
+  action: NetworkExportAction,
+  node: string,
+  stream: number,
+  settings: NetworkExportSettings,
+): Promise<NetworkExportStatus> {
+  return unwrap(
+    await client.POST("/api/devicesets/{ds}/network-export", {
+      params: { path: { ds } },
+      body: { action, node, stream, settings },
     }),
   );
 }

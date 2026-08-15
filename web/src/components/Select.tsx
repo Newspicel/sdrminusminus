@@ -13,18 +13,21 @@ export function Select<T extends string | number>({
   options,
   onChange,
   className = TRIGGER,
+  disabled = false,
 }: {
   label: string;
   value: T;
   options: Options<T>;
   onChange: (value: T) => void;
   className?: string;
+  disabled?: boolean;
 }) {
   const portalContainer = usePortalContainer();
   return (
     <Primitive.Root
       items={options}
       value={value}
+      disabled={disabled}
       // Matching the option back by value keeps the call site's literal union; the change
       // callback is typed against the widened item value.
       onValueChange={(next) => {

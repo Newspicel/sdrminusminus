@@ -1073,6 +1073,76 @@
         }
       }
     },
+    "/api/devicesets/{ds}/network-export": {
+      "post": {
+        "operationId": "network_export_device_set",
+        "parameters": [
+          {
+            "name": "ds",
+            "in": "path",
+            "description": "Device set id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NetworkExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Live status after start or final counters after stop",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkExportStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid destination, inactive export, or conflicting owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device set not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devicesets/{ds}/playback": {
       "post": {
         "operationId": "control_playback",
@@ -4760,6 +4830,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "network_export": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NetworkExportStatus",
+                "description": "Active raw-IQ network export, if any."
+              }
+            ]
+          },
           "overruns": {
             "type": "integer",
             "format": "int64",
@@ -5765,6 +5846,149 @@
           }
         }
       },
+      "NetworkExportAction": {
+        "type": "string",
+        "enum": [
+          "start",
+          "stop"
+        ]
+      },
+      "NetworkExportNode": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NetworkExportSettings"
+          }
+        ]
+      },
+      "NetworkExportRequest": {
+        "type": "object",
+        "description": "`POST /api/devicesets/{ds}/network-export`.",
+        "required": [
+          "action",
+          "node"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/NetworkExportAction"
+          },
+          "node": {
+            "type": "string",
+            "description": "Patch-node identity. A set permits one active exporter and only its owner may stop it."
+          },
+          "settings": {
+            "$ref": "#/components/schemas/NetworkExportSettings"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "NetworkExportSettings": {
+        "type": "object",
+        "description": "An unframed, interleaved IQ stream sent to a network analysis tool.\n\nUDP preserves datagram boundaries but carries no sequence header. TCP is one continuous byte\nstream. In both cases the receiver must be configured with the radio's sample rate and center\nfrequency separately.",
+        "properties": {
+          "address": {
+            "type": "string",
+            "default": "127.0.0.1:7355"
+          },
+          "format": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NetworkSampleFormat"
+              }
+            ],
+            "default": "cf32_le"
+          },
+          "transport": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/NetworkTransport"
+              }
+            ],
+            "default": "udp"
+          }
+        }
+      },
+      "NetworkExportStatus": {
+        "type": "object",
+        "required": [
+          "node",
+          "stream",
+          "settings",
+          "sample_rate",
+          "center_hz",
+          "samples",
+          "bytes",
+          "packets",
+          "overruns"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "center_hz": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "node": {
+            "type": "string"
+          },
+          "overruns": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Capture-ring samples lost while this export was active.",
+            "minimum": 0
+          },
+          "packets": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sample_rate": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "samples": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "settings": {
+            "$ref": "#/components/schemas/NetworkExportSettings"
+          },
+          "stream": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "NetworkSampleFormat": {
+        "type": "string",
+        "enum": [
+          "cf32_le",
+          "ci16_le",
+          "cu8"
+        ]
+      },
+      "NetworkTransport": {
+        "type": "string",
+        "enum": [
+          "udp",
+          "tcp"
+        ]
+      },
       "NfmParams": {
         "type": "object",
         "properties": {
@@ -6058,6 +6282,26 @@
                 "type": "string",
                 "enum": [
                   "recorder"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Unframed raw IQ sent over UDP datagrams or a TCP byte stream.",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/NetworkExportNode",
+                "description": "Unframed raw IQ sent over UDP datagrams or a TCP byte stream."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "network_export"
                 ]
               }
             }

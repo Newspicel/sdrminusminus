@@ -8,6 +8,7 @@ use crate::{
     channel::ChannelInfo,
     decode::DvTrunkProtocol,
     device::{Capabilities, DeviceInfo, DeviceSettings},
+    network::NetworkExportStatus,
     scan::ScannerStatus,
 };
 
@@ -78,6 +79,9 @@ pub struct DeviceSet {
     /// Active IQ recording, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recording: Option<RecordingStatus>,
+    /// Active raw-IQ network export, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_export: Option<NetworkExportStatus>,
     /// Running frequency scan, if any. While a scan runs the set's
     /// `settings.center_hz` moves every dwell, so live progress arrives as
     /// [`crate::ServerEvent::ScannerUpdate`] rather than one `StateChanged` per step.

@@ -16,13 +16,14 @@ use sdrmm_device_virtual::VirtualDriver;
 use sdrmm_recorder::{data_path, meta_path};
 use sdrmm_wire::{
     Capabilities, ChannelDescriptor, ChannelInfo, ChannelParams, ChannelSettings, DecodedRecord,
-    DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, PlaybackRequest, PlaybackStatus,
-    PositionFix, RecordingStatus, ScanSettings, ScannerStatus, ServerEvent, StateScope,
-    StateSnapshot, TrunkSystemStatus,
+    DeviceInfo, DeviceSet, DeviceSetStatus, DeviceSettings, NetworkExportSettings,
+    NetworkExportStatus, PlaybackRequest, PlaybackStatus, PositionFix, RecordingStatus,
+    ScanSettings, ScannerStatus, ServerEvent, StateScope, StateSnapshot, TrunkSystemStatus,
 };
 use tokio::sync::broadcast;
 
 pub mod audio;
+mod network_export;
 mod position;
 pub mod recording;
 pub mod runtime;
@@ -37,6 +38,7 @@ pub use trunking::TrunkSystem;
 pub use video::VideoPacket;
 
 use crate::{
+    network_export::NetworkExportShared,
     recording::RecordingShared,
     runtime::{CaptureRuntime, ChannelHost, ChannelSinks, DecodedSink, DspCommand, RawDecoded},
     scanner::{ScanPlan, ScannerState},
@@ -110,6 +112,8 @@ pub enum EngineError {
     /// 500, unlike [`EngineError::Recording`]'s client mistakes.
     #[error("recording: {0}")]
     RecordingIo(String),
+    #[error("network export: {0}")]
+    NetworkExport(String),
     #[error("scan: {0}")]
     Scan(String),
 }
@@ -133,6 +137,7 @@ impl EngineError {
                     | DeviceError::DuplexConflict { .. },
             ) | Self::Channel(_)
                 | Self::Recording(_)
+                | Self::NetworkExport(_)
                 | Self::Scan(_)
                 | Self::StreamOutOfRange { .. }
                 | Self::DeviceAlreadyOpen(..)
@@ -336,6 +341,42 @@ struct RecordingState {
     error_seen: bool,
 }
 
+struct NetworkExportState {
+    node: String,
+    stream: u32,
+    settings: NetworkExportSettings,
+    sample_rate: u64,
+    center_hz: i64,
+    shared: Arc<NetworkExportShared>,
+    writer: Option<JoinHandle<()>>,
+    overruns_at_start: u64,
+    samples_seen: u64,
+    error_seen: bool,
+}
+
+impl NetworkExportState {
+    fn status(&self, overruns_now: u64) -> NetworkExportStatus {
+        NetworkExportStatus {
+            node: self.node.clone(),
+            stream: self.stream,
+            settings: self.settings.clone(),
+            sample_rate: self.sample_rate,
+            center_hz: self.center_hz,
+            samples: self.shared.samples(),
+            bytes: self.shared.bytes(),
+            packets: self.shared.packets(),
+            overruns: overruns_now - self.overruns_at_start,
+            error: self.shared.error(),
+        }
+    }
+
+    fn join(&mut self) {
+        if let Some(writer) = self.writer.take() {
+            join_network_writer(writer);
+        }
+    }
+}
+
 impl RecordingState {
     fn status(&self, overruns_now: u64) -> RecordingStatus {
         RecordingStatus {
@@ -369,14 +410,14 @@ struct DeviceSetState {
     next_channel_id: u32,
     error: Option<String>,
     recording: Option<RecordingState>,
+    network_export: Option<NetworkExportState>,
     /// Running frequency scan. The scan thread drives this set's centre frequency, so
     /// while it is present client retunes are refused rather than fought over.
     scanner: Option<ScannerState>,
     /// In-flight `patch_device` calls that will change the sample rate (pre-validated, device
-    /// I/O or merge still pending). `start_recording`'s commit refuses while non-zero: a
-    /// recording committed inside that window would pin a rate the patch is about to change —
-    /// the reverse ordering of the recording guard in the patch pre-validation. Cleared by
-    /// [`RatePatchGuard`] on every patch exit path.
+    /// I/O or merge still pending). Raw-sink commits refuse while non-zero: a sink committed
+    /// inside that window would pin a rate the patch is about to change — the reverse ordering
+    /// of the sink guard in patch pre-validation. Cleared by [`RatePatchGuard`] on every exit.
     rate_patches: u32,
     cmd_txs: Vec<mpsc::Sender<DspCommand>>,
     /// Per-lane capture-ring drop counters shared with the runtime, index = stream;
@@ -405,6 +446,10 @@ impl DeviceSetState {
             overruns,
             error: self.error.clone(),
             recording: self.recording.as_ref().map(|r| r.status(overruns)),
+            network_export: self
+                .network_export
+                .as_ref()
+                .map(|export| export.status(overruns)),
             scanner: self.scanner.as_ref().map(ScannerState::status),
             playback: self.playback.as_deref().map(PlaybackShared::status),
         }
@@ -682,6 +727,10 @@ impl Engine {
             if let Some(recording) = &recording {
                 state.send_dsp(recording.stream, DspCommand::StopRecording);
             }
+            let network_export = state.network_export.take();
+            if let Some(export) = &network_export {
+                state.send_dsp(export.stream, DspCommand::StopNetworkExport);
+            }
             // A dead device accepts no more retunes, so the scan is over; take it here and
             // join outside the lock — the scan thread takes `inner` on every step.
             let scanner = state.scanner.take();
@@ -704,6 +753,9 @@ impl Engine {
                 self.emit(ServerEvent::StateChanged {
                     scope: StateScope::Recordings,
                 });
+            }
+            if let Some(mut export) = network_export {
+                export.join();
             }
             self.emit(ServerEvent::StateChanged {
                 scope: StateScope::DeviceSet(ds),
@@ -771,10 +823,11 @@ impl Engine {
         known: &mut Option<Vec<String>>,
         missing_once: &mut HashSet<u32>,
     ) -> bool {
-        let (grown, rec_faults, changed) = {
+        let (grown, rec_faults, export_faults, changed) = {
             let mut inner = self.lock();
             let mut grown: Vec<(u32, u64)> = Vec::new();
             let mut rec_faults: Vec<(u32, String)> = Vec::new();
+            let mut export_faults: Vec<(u32, String)> = Vec::new();
             let mut changed: Vec<u32> = Vec::new();
             for (id, s) in inner.device_sets.iter_mut() {
                 let now = s.overruns_total();
@@ -798,6 +851,20 @@ impl Engine {
                         dirty = true;
                     }
                 }
+                if let Some(export) = &mut s.network_export {
+                    let samples = export.shared.samples();
+                    if samples != export.samples_seen {
+                        export.samples_seen = samples;
+                        dirty = true;
+                    }
+                    if let Some(error) = export.shared.error()
+                        && !export.error_seen
+                    {
+                        export.error_seen = true;
+                        export_faults.push((*id, error));
+                        dirty = true;
+                    }
+                }
                 if dirty {
                     changed.push(*id);
                 }
@@ -805,13 +872,16 @@ impl Engine {
             if !changed.is_empty() {
                 inner.revision += 1;
             }
-            (grown, rec_faults, changed)
+            (grown, rec_faults, export_faults, changed)
         };
         for (ds, dropped) in grown {
             tracing::warn!(ds, dropped, "capture ring overrun: device samples dropped");
         }
         for (ds, error) in rec_faults {
             tracing::warn!(ds, error = %error, "recording fault");
+        }
+        for (ds, error) in export_faults {
+            tracing::warn!(ds, error = %error, "network export fault");
         }
         for ds in changed {
             self.emit(ServerEvent::StateChanged {
@@ -873,8 +943,8 @@ impl Engine {
     /// never leave the set half-swapped.
     ///
     /// Not restored: a scan that was running when the device died (it was stopped with the
-    /// device and the operator chooses when to sweep again), and a recording (already
-    /// finalized into a playable pair by [`Engine::mark_device_fault`]).
+    /// device and the operator chooses when to sweep again), a recording (already finalized),
+    /// or a network export whose connection died with the capture.
     fn reconnect(&self, ds: u32) {
         let stored = {
             let inner = self.lock();
@@ -1175,6 +1245,7 @@ impl Engine {
                     next_channel_id: 1,
                     error: pending.as_ref().map(ToString::to_string),
                     recording: None,
+                    network_export: None,
                     scanner: None,
                     rate_patches: 0,
                     cmd_txs,
@@ -1305,9 +1376,9 @@ impl Engine {
                 // SigMF `core:sample_rate` is global-scope — one rate per file — so a live
                 // recording pins the device rate; center retunes stay allowed (they land as
                 // capture segments).
-                if state.recording.is_some() {
+                if state.recording.is_some() || state.network_export.is_some() {
                     return Err(EngineError::Recording(
-                        "sample rate is locked while recording; stop the recording first"
+                        "sample rate is locked while recording or exporting; stop it first"
                             .to_string(),
                     ));
                 }
@@ -1346,7 +1417,9 @@ impl Engine {
             // `apply` ran, this delta may now be a rate change under a recording that
             // committed in between. Merging would break the one-rate-per-file invariant;
             // revert the device instead and lose cleanly.
-            if state.recording.is_some() && delta.sample_rate.is_some_and(|r| r != old_rate) {
+            if (state.recording.is_some() || state.network_export.is_some())
+                && delta.sample_rate.is_some_and(|r| r != old_rate)
+            {
                 drop(inner);
                 let revert = DeviceSettings {
                     sample_rate: Some(old_rate),
@@ -1354,12 +1427,12 @@ impl Engine {
                 };
                 if let Err(e) = lock_runtime(&runtime).apply(&revert) {
                     return Err(EngineError::Recording(format!(
-                        "sample rate is locked while recording, and reverting the device to \
+                        "sample rate is locked while recording or exporting, and reverting the device to \
                          {old_rate} Hz failed: {e}"
                     )));
                 }
                 return Err(EngineError::Recording(
-                    "sample rate is locked while recording; stop the recording first".to_string(),
+                    "sample rate is locked while recording or exporting; stop it first".to_string(),
                 ));
             }
             // The request first, then the device's truth over the top. Both are needed: a
@@ -1370,6 +1443,18 @@ impl Engine {
             state.settings.merge_from(&delta);
             if let Some(actual) = &actual {
                 state.settings.merge_from(actual);
+            }
+            let export_center = state.network_export.as_ref().map(|export| {
+                state
+                    .settings
+                    .for_stream(export.stream, &state.capabilities.per_stream)
+                    .center_hz
+                    .unwrap_or(DEFAULT_CENTER_HZ)
+                    .round() as i64
+            });
+            if let (Some(export), Some(center_hz)) = (state.network_export.as_mut(), export_center)
+            {
+                export.center_hz = center_hz;
             }
             let rate = sample_rate_of(&state.settings);
             let rebuilds: Vec<RebuildEntry> = if rate == old_rate {
@@ -1931,6 +2016,145 @@ impl Engine {
         })
     }
 
+    /// Start one raw-IQ network writer. UDP is split into MTU-safe datagrams; TCP is one
+    /// unframed byte stream. The sample rate is pinned until stop because neither transport
+    /// carries an in-band rate change.
+    pub fn start_network_export(
+        &self,
+        ds: u32,
+        node: String,
+        stream: u32,
+        settings: NetworkExportSettings,
+    ) -> Result<(), EngineError> {
+        if node.is_empty() || node.len() > sdrmm_wire::patch::MAX_NODE_ID_LEN {
+            return Err(EngineError::NetworkExport(
+                "node id is empty or too long".to_owned(),
+            ));
+        }
+        if settings.address.is_empty()
+            || settings.address.len() > sdrmm_wire::MAX_NETWORK_ADDRESS_LEN
+        {
+            return Err(EngineError::NetworkExport(
+                "destination address is empty or too long".to_owned(),
+            ));
+        }
+        loop {
+            let rate = {
+                let inner = self.lock();
+                let state = inner
+                    .device_sets
+                    .get(&ds)
+                    .ok_or(EngineError::DeviceSetNotFound(ds))?;
+                state.check_stream(stream)?;
+                if state.network_export.is_some() {
+                    return Err(EngineError::NetworkExport(
+                        "another network export is already active".to_owned(),
+                    ));
+                }
+                if state.status != DeviceSetStatus::Running {
+                    return Err(EngineError::NetworkExport(
+                        "device set is not running".to_owned(),
+                    ));
+                }
+                sample_rate_of(&state.settings)
+            };
+            let (tap, shared, writer) = network_export::start(&settings)?;
+            let (aborted, patch_in_flight) = {
+                let mut inner = self.lock();
+                match inner.device_sets.get_mut(&ds) {
+                    Some(state)
+                        if state.status == DeviceSetStatus::Running
+                            && state.network_export.is_none()
+                            && state.rate_patches == 0
+                            && state.check_stream(stream).is_ok()
+                            && sample_rate_of(&state.settings) == rate =>
+                    {
+                        let center = state
+                            .settings
+                            .for_stream(stream, &state.capabilities.per_stream)
+                            .center_hz
+                            .unwrap_or(DEFAULT_CENTER_HZ);
+                        state.network_export = Some(NetworkExportState {
+                            node: node.clone(),
+                            stream,
+                            settings: settings.clone(),
+                            sample_rate: rate.round() as u64,
+                            center_hz: center.round() as i64,
+                            shared,
+                            writer: Some(writer),
+                            overruns_at_start: state.overruns_total(),
+                            samples_seen: 0,
+                            error_seen: false,
+                        });
+                        state.send_dsp(stream, DspCommand::StartNetworkExport { tap });
+                        inner.revision += 1;
+                        (None, false)
+                    }
+                    Some(state) if state.rate_patches > 0 => (Some((tap, writer)), true),
+                    _ => (Some((tap, writer)), false),
+                }
+            };
+            let Some((tap, writer)) = aborted else {
+                self.emit(ServerEvent::StateChanged {
+                    scope: StateScope::DeviceSet(ds),
+                });
+                return Ok(());
+            };
+            drop(tap);
+            join_network_writer(writer);
+            if patch_in_flight {
+                return Err(EngineError::NetworkExport(
+                    "a sample-rate change is in flight; retry once it completes".to_owned(),
+                ));
+            }
+        }
+    }
+
+    pub fn stop_network_export(
+        &self,
+        ds: u32,
+        node: &str,
+    ) -> Result<NetworkExportStatus, EngineError> {
+        let (export, overruns) = {
+            let mut inner = self.lock();
+            let state = inner
+                .device_sets
+                .get_mut(&ds)
+                .ok_or(EngineError::DeviceSetNotFound(ds))?;
+            let Some(active) = state.network_export.as_ref() else {
+                return Err(EngineError::NetworkExport(
+                    "network export is not active".to_owned(),
+                ));
+            };
+            if active.node != node {
+                return Err(EngineError::NetworkExport(format!(
+                    "network export belongs to node `{}`",
+                    active.node
+                )));
+            }
+            let Some(export) = state.network_export.take() else {
+                return Err(EngineError::NetworkExport(
+                    "network export vanished while stopping".to_owned(),
+                ));
+            };
+            state.send_dsp(export.stream, DspCommand::StopNetworkExport);
+            let overruns = state.overruns.clone();
+            inner.revision += 1;
+            (export, overruns)
+        };
+        let overruns_now: u64 = overruns
+            .iter()
+            .map(|counter| counter.load(Ordering::Relaxed))
+            .sum();
+        let mut export = export;
+        export.join();
+        let status = export.status(overruns_now);
+        self.emit(ServerEvent::StateChanged {
+            scope: StateScope::DeviceSet(ds),
+        });
+        Ok(status)
+    }
+
     /// Subscribe to a channel's Opus packet stream ( SubscribeAudio).
     pub fn subscribe_audio(
         &self,
@@ -2252,6 +2476,9 @@ fn teardown_set(mut removed: DeviceSetState) -> bool {
     }
     lock_runtime(&removed.runtime).stop();
     let finalized = removed.recording.take().map(RecordingState::join).is_some();
+    if let Some(mut export) = removed.network_export.take() {
+        export.join();
+    }
     for (_, handle) in removed.media.drain() {
         handle.shutdown();
     }
@@ -2267,6 +2494,12 @@ impl Drop for Engine {
 fn join_recording_writer(writer: JoinHandle<()>) {
     if writer.join().is_err() {
         tracing::error!("recording writer thread panicked");
+    }
+}
+
+fn join_network_writer(writer: JoinHandle<()>) {
+    if writer.join().is_err() {
+        tracing::error!("network export writer thread panicked");
     }
 }
 

@@ -5,6 +5,7 @@ pub mod decode;
 pub mod device;
 pub mod doctor;
 pub mod frame;
+pub mod network;
 pub mod patch;
 pub mod position;
 pub mod rest;
@@ -39,6 +40,10 @@ pub use device::{
 };
 pub use doctor::{CheckStatus, DoctorCheck, DoctorReport};
 pub use frame::{AudioFrame, FrameKind, HEADER_LEN, PROTOCOL_VERSION, SpectrumFrame, VideoFrame};
+pub use network::{
+    MAX_NETWORK_ADDRESS_LEN, NetworkExportAction, NetworkExportNode, NetworkExportRequest,
+    NetworkExportSettings, NetworkExportStatus, NetworkSampleFormat, NetworkTransport,
+};
 pub use patch::{
     ChannelNode, DEFAULT_SIGNAL_MAP_BANDWIDTH_HZ, DEFAULT_SIGNAL_MAP_OFFSET_HZ, DeviceNode,
     DeviceRef, DmrTrunkNode, DmrTrunkProtocol, MAX_EDGES, MAX_NODES, MAX_SIGNAL_MAP_BANDWIDTH_HZ,
@@ -407,6 +412,7 @@ mod contract_tests {
             overruns: 0,
             error: None,
             recording: None,
+            network_export: None,
             scanner: None,
             playback: None,
         }

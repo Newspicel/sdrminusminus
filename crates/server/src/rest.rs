@@ -17,7 +17,8 @@ use sdrmm_wire::{
     ClientsResponse, CreateBookmarkRequest, CreateChannelRequest, CreateDeviceSetRequest,
     CreatePresetRequest, CreateWorkspaceRequest, CreatedId, CreatedRowId, DecoderLogEntry,
     DecoderLogQuery, DecoderLogResponse, DeletedCount, DeviceInfo, DeviceSettings, DevicesResponse,
-    DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery, NmeaDevicesResponse, NodeBody,
+    DoctorReport, ExportFormat, LicenseTextResponse, LocateQuery, NetworkExportAction,
+    NetworkExportRequest, NetworkExportStatus, NmeaDevicesResponse, NodeBody,
     PRESET_SNAPSHOT_VERSION, PatchApplyReport, PatchBinding, PatchCatalog, PatchRefusal,
     PlaybackRequest, PlaybackStatus, PresetDevice, PresetInfo, PresetSnapshot, RecordAction,
     RecordRequest, RecordingDownloadQuery, RecordingFormat, RecordingStatus, RecordingsResponse,
@@ -793,6 +794,46 @@ async fn record_device_set(
     })
     .await??;
     gps_state.gps.route_current(&gps_state);
+    Ok(Json(status))
+}
+
+#[utoipa::path(
+    post, path = "/api/devicesets/{ds}/network-export",
+    params(("ds" = u32, Path, description = "Device set id")),
+    request_body = NetworkExportRequest,
+    responses(
+        (status = 200, description = "Live status after start or final counters after stop", body = NetworkExportStatus),
+        (status = 400, description = "Invalid destination, inactive export, or conflicting owner", body = ApiError),
+        (status = 404, description = "Device set not found", body = ApiError),
+        (status = 422, description = "Malformed request body", body = ApiError),
+    ),
+)]
+async fn network_export_device_set(
+    State(state): State<AppState>,
+    Path(ds): Path<u32>,
+    Json(req): Json<NetworkExportRequest>,
+) -> Result<Json<NetworkExportStatus>, AppError> {
+    let engine = state.engine.clone();
+    let status = tokio::task::spawn_blocking(move || -> Result<NetworkExportStatus, AppError> {
+        match req.action {
+            NetworkExportAction::Start => {
+                engine.start_network_export(ds, req.node, req.stream, req.settings)?;
+                engine
+                    .snapshot()
+                    .device_sets
+                    .into_iter()
+                    .find(|set| set.id == ds)
+                    .and_then(|set| set.network_export)
+                    .ok_or_else(|| {
+                        AppError::internal(
+                            "network export vanished before its first status snapshot".to_owned(),
+                        )
+                    })
+            }
+            NetworkExportAction::Stop => Ok(engine.stop_network_export(ds, &req.node)?),
+        }
+    })
+    .await??;
     Ok(Json(status))
 }
 
@@ -1976,6 +2017,7 @@ pub(crate) fn openapi_router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_bookmarks, create_bookmark))
         .routes(routes!(delete_bookmark))
         .routes(routes!(record_device_set))
+        .routes(routes!(network_export_device_set))
         .routes(routes!(control_playback))
         .routes(routes!(list_recordings))
         .routes(routes!(delete_recording))

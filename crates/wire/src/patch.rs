@@ -6,6 +6,7 @@ use crate::{
     MIN_NMEA_UPDATE_INTERVAL_MS, PositionSource,
     channel::{ChannelDescriptor, ChannelParams},
     device::{Capabilities, DeviceInfo, Direction},
+    network::{MAX_NETWORK_ADDRESS_LEN, NetworkExportNode},
     workspace::MAX_NAME_LEN,
 };
 
@@ -410,6 +411,8 @@ pub enum NodeBody {
     Video,
     /// SigMF recording of a device's IQ.
     Recorder,
+    /// Unframed raw IQ sent over UDP datagrams or a TCP byte stream.
+    NetworkExport(NetworkExportNode),
     /// CSV/JSON export of the stored decoder log.
     Export,
     Scanner,
@@ -432,6 +435,7 @@ impl NodeBody {
             Self::DmrTrunk(_) => "dmr_trunk",
             Self::Video => "video",
             Self::Recorder => "recorder",
+            Self::NetworkExport(_) => "network_export",
             Self::Export => "export",
             Self::Scanner => "scanner",
         }
@@ -449,7 +453,9 @@ impl NodeBody {
             | Self::DecoderLog
             | Self::Video => NodeCategory::Display,
             Self::Scanner | Self::DmrTrunk(_) => NodeCategory::Feature,
-            Self::Speaker | Self::Recorder | Self::Export => NodeCategory::Sink,
+            Self::Speaker | Self::Recorder | Self::NetworkExport(_) | Self::Export => {
+                NodeCategory::Sink
+            }
         }
     }
 
@@ -530,6 +536,7 @@ fn ports_for(kind: &str) -> Vec<PortSpec> {
             PortSpec::new(Iq, In, false, Always),
             PortSpec::new(Position, In, false, Always),
         ],
+        "network_export" => vec![PortSpec::new(Iq, In, false, Always)],
         "scanner" => vec![PortSpec::new(Control, Out, false, Always)],
         "speaker" => vec![PortSpec::new(Audio, In, true, Always)],
         "video" => vec![PortSpec::new(Video, In, true, Always)],
@@ -609,6 +616,10 @@ impl PatchCatalog {
                 ),
                 entry(&NodeBody::Video, "Video"),
                 entry(&NodeBody::Recorder, "Recorder"),
+                entry(
+                    &NodeBody::NetworkExport(NetworkExportNode::default()),
+                    "Network IQ",
+                ),
                 entry(&NodeBody::Export, "Export"),
                 entry(&NodeBody::Scanner, "Scanner"),
             ],
@@ -876,6 +887,14 @@ impl PatchGraph {
                 NodeBody::SignalMap(settings) => {
                     if settings.offset_hz.unsigned_abs() > MAX_SIGNAL_MAP_OFFSET_HZ as u64
                         || !(1..=MAX_SIGNAL_MAP_BANDWIDTH_HZ).contains(&settings.bandwidth_hz)
+                    {
+                        return Err(PatchError::NodeSettings(node.id.clone()));
+                    }
+                }
+                NodeBody::NetworkExport(export) => {
+                    if export.settings.address.is_empty()
+                        || export.settings.address.len() > MAX_NETWORK_ADDRESS_LEN
+                        || !valid_host_port(&export.settings.address)
                     {
                         return Err(PatchError::NodeSettings(node.id.clone()));
                     }
@@ -1302,6 +1321,33 @@ mod tests {
             invalid.validate(),
             Err(PatchError::NodeSettings("system".to_owned()))
         );
+    }
+
+    #[test]
+    fn network_export_requires_a_bounded_host_and_nonzero_port() {
+        let mut graph = PatchGraph {
+            nodes: vec![node(
+                "net",
+                NodeBody::NetworkExport(NetworkExportNode::default()),
+            )],
+            edges: Vec::new(),
+        };
+        graph.validate().expect("default destination");
+
+        let NodeBody::NetworkExport(export) = &mut graph.nodes[0].body else {
+            panic!("network export node");
+        };
+        export.settings.address = "localhost:0".to_owned();
+        assert_eq!(
+            graph.validate(),
+            Err(PatchError::NodeSettings("net".to_owned()))
+        );
+
+        let NodeBody::NetworkExport(export) = &mut graph.nodes[0].body else {
+            panic!("network export node");
+        };
+        export.settings.address = "[::1]:7355".to_owned();
+        graph.validate().expect("IPv6 destination");
     }
 
     #[test]
