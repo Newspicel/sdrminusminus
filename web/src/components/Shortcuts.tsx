@@ -21,9 +21,6 @@ export function Shortcuts({
         >
           <div className="flex items-baseline justify-between gap-4">
             <Dialog.Title className="text-base font-medium text-ink">Keyboard</Dialog.Title>
-            <Dialog.Description className="legend">
-              Ignored while a field has focus
-            </Dialog.Description>
           </div>
           <dl className="mt-3 grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5">
             {BINDINGS.map((binding) => (
