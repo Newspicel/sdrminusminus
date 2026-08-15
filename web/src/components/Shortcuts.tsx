@@ -1,13 +1,16 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { BINDINGS } from "../canvas/useHotkeys";
-import { BTN, SURFACE } from "./controls";
+import { Button } from "./BaseControls";
+import { BTN, BTN_QUIET, SURFACE } from "./controls";
 
 export function Shortcuts({
   open,
   onOpenChange,
+  onShowAbout,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onShowAbout: () => void;
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -30,7 +33,17 @@ export function Shortcuts({
               </div>
             ))}
           </dl>
-          <div className="mt-4 flex justify-end">
+          <div className="mt-4 flex items-center justify-between gap-4 border-t border-line pt-3">
+            <Button
+              type="button"
+              className={BTN_QUIET}
+              onClick={() => {
+                onOpenChange(false);
+                onShowAbout();
+              }}
+            >
+              Licenses
+            </Button>
             <Dialog.Close className={BTN}>Close</Dialog.Close>
           </div>
         </Dialog.Popup>

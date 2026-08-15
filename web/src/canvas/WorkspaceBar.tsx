@@ -26,7 +26,6 @@ export function WorkspaceBar({
   onCreate,
   onRemove,
   onShowShortcuts,
-  onShowAbout,
   onShowTools,
 }: {
   view: View;
@@ -37,7 +36,6 @@ export function WorkspaceBar({
   onCreate: (name: string) => void;
   onRemove: (id: number) => void;
   onShowShortcuts: () => void;
-  onShowAbout: () => void;
   onShowTools: () => void;
 }) {
   const workspace = useWorkspaceContext();
@@ -169,18 +167,10 @@ export function WorkspaceBar({
         <Button
           type="button"
           className={ICON_BTN}
-          aria-label="Keyboard shortcuts"
+          aria-label="Keyboard shortcuts and licenses"
           onClick={onShowShortcuts}
         >
           ?
-        </Button>
-        <Button
-          type="button"
-          className={ICON_BTN}
-          aria-label="About sdr-- and its licenses"
-          onClick={onShowAbout}
-        >
-          i
         </Button>
       </span>
     </header>

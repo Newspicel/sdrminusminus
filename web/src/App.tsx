@@ -354,7 +354,6 @@ export function App() {
                 onCreate={workspace.create}
                 onRemove={workspace.remove}
                 onShowShortcuts={() => setShowShortcuts(true)}
-                onShowAbout={() => setShowAbout(true)}
                 onShowTools={() => setShowTools(true)}
               />
               {view === "patch" ? <Canvas /> : <Rack />}
@@ -380,7 +379,11 @@ export function App() {
           </div>
         )}
 
-        <Shortcuts open={showShortcuts} onOpenChange={setShowShortcuts} />
+        <Shortcuts
+          open={showShortcuts}
+          onOpenChange={setShowShortcuts}
+          onShowAbout={() => setShowAbout(true)}
+        />
         <AboutPanel open={showAbout} onOpenChange={setShowAbout} />
         <ToolsDialog open={showTools} onOpenChange={setShowTools} />
         <Toasts />
