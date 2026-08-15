@@ -10,6 +10,7 @@ pub mod position;
 pub mod rest;
 pub mod scan;
 pub mod state;
+pub mod tools;
 pub mod workspace;
 pub mod workspace_state;
 pub mod ws;
@@ -72,6 +73,14 @@ pub use scan::{
 pub use state::{
     ChannelLevel, DeviceSet, DeviceSetStatus, PlaybackStatus, RecordingStatus, StateSnapshot,
     TrunkFollower, TrunkProblem, TrunkSystemStatus,
+};
+pub use tools::{
+    ANTENNA_TOOL_ID, AntennaDesign, AntennaGeometry, AntennaPart, AntennaPoint, AntennaReport,
+    AntennaRequest, AntennaSegment, AntennaSegmentRole, GroundPlaneParams, InvertedVParams,
+    MAX_ANTENNA_FREQ_HZ, MAX_APEX_ANGLE_DEG, MAX_FEEDLINE_VELOCITY_FACTOR, MAX_RADIAL_SLOPE_DEG,
+    MAX_RADIALS, MAX_VELOCITY_FACTOR, MAX_YAGI_DIRECTORS, MAX_YAGI_SPACING_WL, MIN_ANTENNA_FREQ_HZ,
+    MIN_APEX_ANGLE_DEG, MIN_FEEDLINE_VELOCITY_FACTOR, MIN_VELOCITY_FACTOR, MIN_YAGI_SPACING_WL,
+    ToolCategory, ToolDescriptor, ToolRequest, ToolResponse, ToolsResponse, YagiParams,
 };
 pub use workspace::{
     CreateWorkspaceRequest, MAX_NAME_LEN, MAX_REGION_ID_LEN, PatchApplyReport, PatchBinding,
@@ -697,6 +706,78 @@ mod contract_tests {
         assert_eq!(json["data"]["stream_id"], 4);
         assert_eq!(json["data"]["device_set"], 1);
         assert_eq!(json["data"]["channel"], 2);
+    }
+
+    /// A tool call names its tool in the body, and the reply names it back; the client
+    /// switches on both tags.
+    #[test]
+    fn tool_envelopes_are_adjacently_tagged() {
+        let request = ToolRequest::Antenna(AntennaRequest {
+            frequency_hz: 145_500_000.0,
+            design: AntennaDesign::Yagi(YagiParams {
+                directors: 3,
+                spacing_wavelengths: 0.2,
+            }),
+            ..AntennaRequest::default()
+        });
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["tool"], "antenna");
+        assert_eq!(json["request"]["design"]["type"], "yagi");
+        assert_eq!(json["request"]["design"]["settings"]["directors"], 3);
+        assert_eq!(request.tool_id(), "antenna");
+        assert_eq!(
+            serde_json::from_value::<ToolRequest>(json).unwrap(),
+            request
+        );
+
+        let response = ToolResponse::Antenna(AntennaReport {
+            design: AntennaDesign::Dipole,
+            frequency_hz: 145_500_000.0,
+            wavelength_m: 2.06,
+            velocity_factor: 0.95,
+            parts: Vec::new(),
+            geometry: AntennaGeometry {
+                segments: vec![AntennaSegment {
+                    label: "Leg".to_owned(),
+                    role: AntennaSegmentRole::Driven,
+                    from: AntennaPoint::ORIGIN,
+                    to: AntennaPoint::new(0.49, 0.0, 0.0),
+                }],
+                feed: AntennaPoint::ORIGIN,
+            },
+            feedpoint_ohms: Some(73.0),
+            balanced: true,
+            notes: Vec::new(),
+        });
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(json["tool"], "antenna");
+        assert_eq!(json["result"]["design"]["type"], "dipole");
+        assert_eq!(json["result"]["geometry"]["segments"][0]["role"], "driven");
+        assert_eq!(json["result"]["geometry"]["feed"]["x_m"], 0.0);
+        assert_eq!(response.tool_id(), "antenna");
+        assert_eq!(
+            serde_json::from_value::<ToolResponse>(json).unwrap(),
+            response
+        );
+    }
+
+    /// A design's settings must fill in from an empty object, and the request's factors from
+    /// an absent one — the panel sends exactly that when it switches design.
+    #[test]
+    fn antenna_request_defaults_from_a_minimal_body() {
+        let request: AntennaRequest = serde_json::from_str(
+            r#"{"frequency_hz":14200000.0,"design":{"type":"yagi","settings":{}}}"#,
+        )
+        .unwrap();
+        assert_eq!(request.velocity_factor, 0.95);
+        assert_eq!(request.feedline_velocity_factor, 0.66);
+        assert_eq!(request.design, AntennaDesign::Yagi(YagiParams::default()));
+        assert_eq!(request.design.type_id(), "yagi");
+
+        let bare: AntennaRequest =
+            serde_json::from_str(r#"{"frequency_hz":14200000.0,"design":{"type":"dipole"}}"#)
+                .unwrap();
+        assert_eq!(bare.design, AntennaDesign::Dipole);
     }
 
     /// Spectrum and audio stream ids come from different spaces, so a `StreamStopped`
