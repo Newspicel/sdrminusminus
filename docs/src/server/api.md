@@ -65,7 +65,10 @@ tools can:
 - start and stop scans;
 - start or stop recordings;
 - query decoded history;
-- capture a spectrum snapshot.
+- capture a spectrum snapshot;
+- list the bench tools this build carries;
+- cut an antenna for a frequency;
+- discover, interrogate, sweep, and calibrate a NanoVNA.
 
 Configure an MCP client for streamable HTTP at `http://<server>:8080/mcp` and attach the same
 bearer authorization header when the server uses a token. MCP actions affect the live shared
