@@ -663,7 +663,10 @@ test.describe("the workspace", () => {
     await expect(plot.getByText("smoke mark")).toBeVisible();
 
     await plot.click({ button: "right", position: at });
-    await menu.getByRole("button", { name: /channel here$/ }).click();
+    await menu.getByRole("button", { name: /^New channel here/ }).click();
+    // The mode is the operator's choice, typed at rather than hunted for.
+    await menu.getByRole("textbox", { name: "Search channel modes" }).fill("nfm");
+    await menu.getByRole("button", { name: "NFM", exact: true }).first().click();
     // The node is drawn and wired here; the frequency is a setting on the channel apply creates,
     // so what proves the gesture landed is the engine's own offset.
     await expect

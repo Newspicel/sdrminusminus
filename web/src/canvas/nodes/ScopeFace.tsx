@@ -974,14 +974,15 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
         <ScopeMenu
           pick={openMenu.pick}
           at={openMenu.at}
-          channelType={menuType}
+          channelTypes={workspace.context.channelTypes}
+          suggested={menuType}
           draft={bookmarkDraft(openMenu.pick.hz, plan)}
           onTune={() => {
             tuneTo(openMenu.pick);
             setMenu(null);
           }}
-          onChannel={() => {
-            addChannelAt(openMenu.pick, menuType);
+          onChannel={(channelType) => {
+            addChannelAt(openMenu.pick, channelType);
             setMenu(null);
           }}
           onClose={() => setMenu(null)}

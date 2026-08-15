@@ -46,6 +46,17 @@ export function pickAt(
   return { hz: centerHz + offsetHz, offsetHz };
 }
 
+/** What a copy from the plot puts on the clipboard: whole hertz with the unit written out, so
+ * what is pasted back into a tuning field is the frequency it was taken from rather than the
+ * same digits read as megahertz. */
+export function pickText(pick: ScopePick): { frequency: string; offset: string } {
+  const offsetHz = Math.round(pick.offsetHz);
+  return {
+    frequency: `${Math.round(pick.hz)} Hz`,
+    offset: `${offsetHz < 0 ? "-" : "+"}${Math.abs(offsetHz)} Hz`,
+  };
+}
+
 /** What a bookmark saved from the plot opens with: the band plan's name for the frequency and the
  * mode it suggests there, so the ordinary case is one keystroke. */
 export function bookmarkDraft(

@@ -76,13 +76,8 @@ export function paletteGroups(
       continue;
     }
     if (entry.needs_channel_type === true) {
-      for (const type of channelTypes) {
-        sections.get(type.has_audio ? "mode" : "decoder")?.push({
-          id: `channel:${type.type_id}`,
-          name: type.name,
-          kind: "channel",
-          type,
-        });
+      for (const group of channelGroups(channelTypes)) {
+        sections.get(group.id)?.push(...group.items);
       }
       continue;
     }
@@ -96,6 +91,46 @@ export function paletteGroups(
     ...section,
     items: sections.get(section.id) ?? [],
   })).filter((group) => group.items.length > 0);
+}
+
+function channelGroups(channelTypes: readonly ChannelDescriptor[]): PaletteGroup[] {
+  const items = new Map<string, PaletteItem[]>([
+    ["mode", []],
+    ["decoder", []],
+  ]);
+  for (const type of channelTypes) {
+    items.get(type.has_audio ? "mode" : "decoder")?.push({
+      id: `channel:${type.type_id}`,
+      name: type.name,
+      kind: "channel",
+      type,
+    });
+  }
+  return SECTIONS.map((section) => ({ ...section, items: items.get(section.id) ?? [] })).filter(
+    (group) => group.items.length > 0,
+  );
+}
+
+/** The channel half of the palette, as a menu offering one at a frequency wants it: what the
+ * spectrum suggests under the pointer pinned above the full list, so the ordinary answer is one
+ * click and every other mode is still there. */
+export function channelPicker(
+  channelTypes: readonly ChannelDescriptor[],
+  suggested: string,
+): PaletteGroup[] {
+  const groups = channelGroups(channelTypes);
+  const type = channelTypes.find((entry) => entry.type_id === suggested);
+  if (type === undefined) {
+    return groups;
+  }
+  return [
+    {
+      id: "suggested",
+      title: "Suggested",
+      items: [{ id: `suggested:${type.type_id}`, name: type.name, kind: "channel", type }],
+    },
+    ...groups,
+  ];
 }
 
 /** The palette narrowed to what matches `query`, sections with nothing left dropped.

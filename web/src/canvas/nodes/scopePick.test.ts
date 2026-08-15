@@ -5,6 +5,7 @@ import {
   bookmarkDraft,
   channelTypeAt,
   pickAt,
+  pickText,
   scopeSource,
   takeCreationTune,
   tuneOnCreate,
@@ -94,6 +95,26 @@ describe("pickAt", () => {
     expect(pickAt(100_000_000, 2_000_000, { start: 0.5, end: 0.75 }, 0.5)).toEqual({
       hz: 100_250_000,
       offsetHz: 250_000,
+    });
+  });
+});
+
+describe("pickText", () => {
+  it("carries the unit so a paste back into a dial means hertz", () => {
+    expect(pickText({ hz: 156_800_000, offsetHz: 12_500 })).toEqual({
+      frequency: "156800000 Hz",
+      offset: "+12500 Hz",
+    });
+  });
+
+  it("signs an offset below the centre with an ASCII minus", () => {
+    expect(pickText({ hz: 99_488_000, offsetHz: -512_000 }).offset).toBe("-512000 Hz");
+  });
+
+  it("rounds to whole hertz", () => {
+    expect(pickText({ hz: 100_000_000.4, offsetHz: -0.4 })).toEqual({
+      frequency: "100000000 Hz",
+      offset: "+0 Hz",
     });
   });
 });

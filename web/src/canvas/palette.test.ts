@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelDescriptor, PatchCatalog } from "../lib/types";
-import { filterPalette, paletteGroups } from "./palette";
+import { channelPicker, filterPalette, paletteGroups } from "./palette";
 
 const CATALOG: PatchCatalog = {
   nodes: [
@@ -59,6 +59,27 @@ describe("paletteGroups", () => {
   it("drops a section the server describes nothing for", () => {
     const groups = paletteGroups({ nodes: [CATALOG.nodes[0]!] }, []);
     expect(groups.map((group) => group.id)).toEqual(["source"]);
+  });
+});
+
+describe("channelPicker", () => {
+  it("pins the suggested mode above the full split list", () => {
+    const groups = channelPicker(TYPES, "adsb");
+    expect(groups.map((group) => group.title)).toEqual(["Suggested", "Modes", "Decoders"]);
+    expect(groups[0]?.items).toEqual([
+      { id: "suggested:adsb", name: "ADS-B (1090ES)", kind: "channel", type: TYPES[1] },
+    ]);
+  });
+
+  it("offers every type on a server that does not describe the suggested one", () => {
+    expect(channelPicker(TYPES, "atv").map((group) => group.id)).toEqual(["mode", "decoder"]);
+  });
+
+  it("drops the half of the list the server offers nothing for", () => {
+    expect(channelPicker([TYPES[0]!], "nfm").map((group) => group.id)).toEqual([
+      "suggested",
+      "mode",
+    ]);
   });
 });
 
