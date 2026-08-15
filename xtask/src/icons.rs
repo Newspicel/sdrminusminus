@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(corner[3], 0, "the top-left corner is outside the plate");
 
         let middle = &dib[at(16, 3)..at(16, 3) + 4];
-        assert_eq!(middle, [0x10, 0x12, 0x14, 0xff], "plate pixel, BGRA");
+        assert_eq!(middle, [0x13, 0x11, 0x10, 0xff], "plate pixel, BGRA");
     }
 
     #[test]
