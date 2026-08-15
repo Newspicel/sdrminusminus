@@ -725,9 +725,14 @@ test.describe("the workspace", () => {
 
     await plot.click({ button: "right", position: at });
     await menu.getByRole("button", { name: /^New channel here/ }).click();
-    // The mode is the operator's choice, typed at rather than hunted for.
-    await menu.getByRole("textbox", { name: "Search channel modes" }).fill("nfm");
-    await menu.getByRole("button", { name: "NFM", exact: true }).first().click();
+    // The mode is the operator's choice, typed at rather than hunted for — and picked in a dialog
+    // of its own, off the node the canvas pans and zooms with the same wheel.
+    const modes = page.getByRole("dialog", { name: "New channel" });
+    await expect(modes).toBeVisible();
+    await expect(menu).toHaveCount(0);
+    await modes.getByRole("searchbox", { name: "Search channel modes" }).fill("nfm");
+    await modes.getByRole("button", { name: "NFM", exact: true }).first().click();
+    await expect(modes).toHaveCount(0);
     // The node is drawn and wired here; the frequency is a setting on the channel apply creates,
     // so what proves the gesture landed is the engine's own offset.
     await expect

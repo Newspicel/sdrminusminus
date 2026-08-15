@@ -133,6 +133,12 @@ export function channelPicker(
   ];
 }
 
+/** What Enter takes when a search is submitted without a choice: the top item of the first
+ * section, which is the suggestion where one is offered. */
+export function firstPaletteItem(groups: readonly PaletteGroup[]): PaletteItem | undefined {
+  return groups[0]?.items[0];
+}
+
 /** The palette narrowed to what matches `query`, sections with nothing left dropped.
  *
  * The type id is matched as well as the name so the terms an operator already knows work —

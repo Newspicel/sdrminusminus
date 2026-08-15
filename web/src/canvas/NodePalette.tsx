@@ -39,7 +39,7 @@ export function NodePalette({
           <span className={`${LABEL} px-1`}>{group.title}</span>
           <div className="grid grid-cols-2 gap-1">
             {group.items.map((item) => (
-              <Entry
+              <PaletteEntry
                 key={item.id}
                 item={item}
                 onAdd={() => onAdd(item.kind, item.type?.type_id, item.source)}
@@ -52,7 +52,7 @@ export function NodePalette({
   );
 }
 
-function Entry({ item, onAdd }: { item: PaletteItem; onAdd: () => void }) {
+export function PaletteEntry({ item, onAdd }: { item: PaletteItem; onAdd: () => void }) {
   return (
     <Button
       type="button"

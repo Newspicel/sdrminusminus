@@ -64,6 +64,7 @@ import { useNodePlacement } from "../placement";
 import { deviceSetOf } from "../workspaceDevice";
 import { BandRuler } from "./BandRuler";
 import { BasebandView } from "./BasebandView";
+import { ChannelPicker } from "./ChannelPicker";
 import { tuneDelta } from "./deviceNode";
 import { FaceBody, FaceEmpty, NodeShell, useFaceActive } from "./NodeShell";
 import { ScopeMenu, type ScopeMenuAt } from "./ScopeMenu";
@@ -268,6 +269,9 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
     at: ScopeMenuAt;
     frame: string;
   } | null>(null);
+  /** The mode picker the menu hands the frequency to, stamped with the same frame for the same
+   * reason: the offset it would draw a channel at is measured against that one. */
+  const [picker, setPicker] = useState<{ pick: ScopePick; frame: string } | null>(null);
 
   // The animation-frame loop and the frame subscription both outlive the render that set these,
   // so they read the view and the display switches here. Written after commit, never during
@@ -734,13 +738,12 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
   // effect so the stale card never reaches the paint after the gesture.
   const frameStamp = `${meta?.centerHz}:${meta?.spanHz}:${view.start}:${view.end}`;
   const openMenu = menu?.frame === frameStamp ? menu : null;
-  const menuType =
-    openMenu === null
-      ? null
-      : channelTypeAt(
-          plan === null ? null : suggestedAt(identify(plan, openMenu.pick.hz)),
-          set.channels.find((channel) => channel.id === selectedChannel),
-        );
+  const openPicker = picker?.frame === frameStamp ? picker : null;
+  const suggestedType = (hz: number): string =>
+    channelTypeAt(
+      plan === null ? null : suggestedAt(identify(plan, hz)),
+      set.channels.find((channel) => channel.id === selectedChannel),
+    );
 
   const onContextMenu = (event: React.MouseEvent<HTMLDivElement>): void => {
     const plot = plotRef.current;
@@ -970,22 +973,33 @@ function Spectrum({ node, set, stream }: { node: PatchNode; set: DeviceSet; stre
         </div>
       )}
 
-      {openMenu !== null && menuType !== null && (
+      {openMenu !== null && (
         <ScopeMenu
           pick={openMenu.pick}
           at={openMenu.at}
-          channelTypes={workspace.context.channelTypes}
-          suggested={menuType}
           draft={bookmarkDraft(openMenu.pick.hz, plan)}
           onTune={() => {
             tuneTo(openMenu.pick);
             setMenu(null);
           }}
-          onChannel={(channelType) => {
-            addChannelAt(openMenu.pick, channelType);
+          onChannel={() => {
+            setPicker({ pick: openMenu.pick, frame: frameStamp });
             setMenu(null);
           }}
           onClose={() => setMenu(null)}
+        />
+      )}
+
+      {openPicker !== null && (
+        <ChannelPicker
+          pick={openPicker.pick}
+          channelTypes={workspace.context.channelTypes}
+          suggested={suggestedType(openPicker.pick.hz)}
+          onChannel={(channelType) => {
+            addChannelAt(openPicker.pick, channelType);
+            setPicker(null);
+          }}
+          onClose={() => setPicker(null)}
         />
       )}
 

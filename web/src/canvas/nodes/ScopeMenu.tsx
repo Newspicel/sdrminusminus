@@ -5,8 +5,6 @@ import { BTN_QUIET, FIELD, LABEL, SURFACE } from "../../components/controls";
 import { formatHz } from "../../components/format";
 import { BOOKMARKS_KEY, createBookmark } from "../../lib/api";
 import { pushToast } from "../../lib/toasts";
-import type { ChannelDescriptor } from "../../lib/types";
-import { channelPicker, filterPalette, type PaletteItem } from "../palette";
 import { pickText, type ScopePick } from "./scopePick";
 
 /** Where on the plot the menu is anchored, as screen fractions of it. */
@@ -26,8 +24,6 @@ export interface ScopeMenuAt {
 export function ScopeMenu({
   pick,
   at,
-  channelTypes,
-  suggested,
   draft,
   onTune,
   onChannel,
@@ -35,22 +31,17 @@ export function ScopeMenu({
 }: {
   pick: ScopePick;
   at: ScopeMenuAt;
-  /** Every mode and decoder a channel can be drawn as, as the server describes them. */
-  channelTypes: readonly ChannelDescriptor[];
-  /** The mode the picker pins first, already resolved (`channelTypeAt`). */
-  suggested: string;
   /** The label and mode a bookmark saved here opens with (`bookmarkDraft`). */
   draft: { label: string; mode: string | null };
   onTune: () => void;
-  onChannel: (channelType: string) => void;
+  /** Hand the frequency to the mode picker, which is a dialog of its own (`ChannelPicker`). */
+  onChannel: () => void;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const menuRef = useRef<HTMLDivElement>(null);
   const [label, setLabel] = useState<string | null>(null);
-  const [query, setQuery] = useState<string | null>(null);
   const text = pickText(pick);
-  const modes = query === null ? [] : filterPalette(channelPicker(channelTypes, suggested), query);
 
   // `navigator.clipboard` is absent outside a secure context, so a copy that never happened has
   // to surface rather than leave the operator pasting whatever they copied last.
@@ -64,12 +55,6 @@ export function ScopeMenu({
         pushToast(error instanceof Error ? error.message : String(error));
       }
     })();
-  };
-
-  const create = (item: PaletteItem | undefined): void => {
-    if (item?.type !== undefined) {
-      onChannel(item.type.type_id);
-    }
   };
 
   const save = useMutation({
@@ -136,53 +121,9 @@ export function ScopeMenu({
       <Button type="button" className={`${BTN_QUIET} w-full justify-start`} onClick={onTune}>
         Tune here
       </Button>
-      {query === null ? (
-        <Button
-          type="button"
-          className={`${BTN_QUIET} w-full justify-start`}
-          onClick={() => setQuery("")}
-        >
-          New channel here…
-        </Button>
-      ) : (
-        <Form
-          className="flex flex-col gap-1 p-1"
-          onSubmit={(event) => {
-            event.preventDefault();
-            create(modes[0]?.items[0]);
-          }}
-        >
-          <span className={LABEL}>New channel</span>
-          <Input
-            autoFocus
-            className={`${FIELD} w-full`}
-            aria-label="Search channel modes"
-            placeholder="nfm, adsb…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <div className="flex max-h-40 flex-col overflow-y-auto">
-            {modes.length === 0 && (
-              <span className="px-2 py-1 text-xs text-ink-dim">No mode matches that.</span>
-            )}
-            {modes.map((group) => (
-              <div key={group.id} className="flex flex-col">
-                <span className={`${LABEL} px-2 pt-1`}>{group.title}</span>
-                {group.items.map((item) => (
-                  <Button
-                    key={item.id}
-                    type="button"
-                    className={`${BTN_QUIET} w-full justify-start`}
-                    onClick={() => create(item)}
-                  >
-                    {item.name}
-                  </Button>
-                ))}
-              </div>
-            ))}
-          </div>
-        </Form>
-      )}
+      <Button type="button" className={`${BTN_QUIET} w-full justify-start`} onClick={onChannel}>
+        New channel here…
+      </Button>
 
       <Button
         type="button"

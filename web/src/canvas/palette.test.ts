@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChannelDescriptor, PatchCatalog } from "../lib/types";
-import { channelPicker, filterPalette, paletteGroups } from "./palette";
+import { channelPicker, filterPalette, firstPaletteItem, paletteGroups } from "./palette";
 
 const CATALOG: PatchCatalog = {
   nodes: [
@@ -80,6 +80,21 @@ describe("channelPicker", () => {
       "suggested",
       "mode",
     ]);
+  });
+});
+
+describe("firstPaletteItem", () => {
+  it("takes the suggestion when one is pinned", () => {
+    expect(firstPaletteItem(channelPicker(TYPES, "adsb"))?.id).toBe("suggested:adsb");
+  });
+
+  it("takes the top of the narrowed list when a search has moved past it", () => {
+    const groups = filterPalette(channelPicker(TYPES, "adsb"), "nfm");
+    expect(firstPaletteItem(groups)?.type?.type_id).toBe("nfm");
+  });
+
+  it("has nothing to take from a list that matches nothing", () => {
+    expect(firstPaletteItem(filterPalette(channelPicker(TYPES, "nfm"), "atv"))).toBeUndefined();
   });
 });
 
