@@ -4861,6 +4861,65 @@
           }
         }
       },
+      "ChatOutputNode": {
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/ChatOutputTarget"
+          }
+        }
+      },
+      "ChatOutputTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "webhook_url",
+              "service"
+            ],
+            "properties": {
+              "service": {
+                "type": "string",
+                "enum": [
+                  "discord"
+                ]
+              },
+              "webhook_url": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "homeserver_url",
+              "room_id",
+              "access_token",
+              "service"
+            ],
+            "properties": {
+              "access_token": {
+                "type": "string"
+              },
+              "homeserver_url": {
+                "type": "string"
+              },
+              "room_id": {
+                "type": "string"
+              },
+              "service": {
+                "type": "string",
+                "enum": [
+                  "matrix"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "CheckStatus": {
         "type": "string",
         "description": "How a check came out. `Warn` is \"works, but something is degraded or absent\"; `Fail` is\n\"this will not work as configured\".",
@@ -8107,6 +8166,24 @@
                 "type": "string",
                 "enum": [
                   "dmr_trunk"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/ChatOutputNode"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "chat_output"
                 ]
               }
             }

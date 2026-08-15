@@ -66,6 +66,8 @@ axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = ["compression-gzip", "cors", "fs", "trace"] }
 futures = "0.3"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "multipart", "rustls"] }
+url = "2.5.8"
 tokio-tungstenite = "0.29"
 tokio-serial = "5.5.0"
 serialport = { version = "4.9.0", default-features = false }

@@ -39,6 +39,7 @@ export type NetworkExportSettings = components["schemas"]["NetworkExportSettings
 export type NetworkExportStatus = components["schemas"]["NetworkExportStatus"];
 export type NetworkSampleFormat = components["schemas"]["NetworkSampleFormat"];
 export type NetworkTransport = components["schemas"]["NetworkTransport"];
+export type ChatOutputTarget = components["schemas"]["ChatOutputTarget"];
 export type PlaybackStatus = components["schemas"]["PlaybackStatus"];
 export type PlaybackAction = components["schemas"]["PlaybackAction"];
 export type RecordingInfo = components["schemas"]["RecordingInfo"];

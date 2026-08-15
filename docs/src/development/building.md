@@ -23,7 +23,7 @@ sudo apt-get install -y build-essential cmake libsoapysdr-dev
 On macOS:
 
 ```sh
-brew install soapysdr
+brew install cmake soapysdr
 ```
 
 The first Cargo command automatically installs the pinned Rust toolchain. Do not substitute stable

@@ -52,7 +52,7 @@ Shipped in installers and container images as a SoapySDR module, loaded at runti
 
 Not bundled. The SDRplay API it needs is commercial software licensed for use with genuine SDRplay hardware, so operators install the vendor API and this module themselves.
 
-## Rust crates (648)
+## Rust crates (658)
 
 | Component | Version | License |
 | --- | --- | --- |
@@ -79,6 +79,8 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [atomic-waker](https://github.com/smol-rs/atomic-waker) | 1.1.2 | Apache-2.0 OR MIT |
 | [audiopus_sys](https://github.com/lakelezz/audiopus_sys.git) | 0.2.2 | ISC |
 | [autocfg](https://github.com/cuviper/autocfg) | 1.5.1 | Apache-2.0 OR MIT |
+| [aws-lc-rs](https://github.com/aws/aws-lc-rs) | 1.18.0 | ISC AND (Apache-2.0 OR ISC) |
+| [aws-lc-sys](https://github.com/aws/aws-lc-rs) | 0.44.0 | ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0) |
 | [axum](https://github.com/tokio-rs/axum) | 0.8.9 | MIT |
 | [axum-core](https://github.com/tokio-rs/axum) | 0.5.6 | MIT |
 | [axum-macros](https://github.com/tokio-rs/axum) | 0.5.1 | MIT |
@@ -200,6 +202,7 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [foreign-types-macros](https://github.com/sfackler/foreign-types) | 0.2.4 | MIT/Apache-2.0 |
 | [foreign-types-shared](https://github.com/sfackler/foreign-types) | 0.3.1 | MIT/Apache-2.0 |
 | [form_urlencoded](https://github.com/servo/rust-url) | 1.2.2 | MIT OR Apache-2.0 |
+| [fs_extra](https://github.com/webdesus/fs_extra) | 1.3.0 | MIT |
 | [futures](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
 | [futures-channel](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
 | [futures-core](https://github.com/rust-lang/futures-rs) | 0.3.33 | MIT OR Apache-2.0 |
@@ -286,6 +289,7 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [jni-sys](https://github.com/jni-rs/jni-sys) | 0.3.1 | MIT OR Apache-2.0 |
 | [jni-sys](https://github.com/jni-rs/jni-sys) | 0.4.1 | MIT OR Apache-2.0 |
 | [jni-sys-macros](https://github.com/jni-rs/jni-sys) | 0.4.1 | MIT OR Apache-2.0 |
+| [jobserver](https://github.com/rust-lang/jobserver-rs) | 0.1.35 | MIT OR Apache-2.0 |
 | [js-sys](https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys) | 0.3.104 | MIT OR Apache-2.0 |
 | [json-patch](https://github.com/idubrov/json-patch) | 3.0.1 | MIT/Apache-2.0 |
 | [jsonptr](https://github.com/chanced/jsonptr) | 0.6.3 | MIT OR Apache-2.0 |
@@ -307,6 +311,7 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [litrs](https://github.com/LukasKalbertodt/litrs) | 1.0.0 | MIT OR Apache-2.0 |
 | [lock_api](https://github.com/Amanieu/parking_lot) | 0.4.14 | MIT OR Apache-2.0 |
 | [log](https://github.com/rust-lang/log) | 0.4.33 | MIT OR Apache-2.0 |
+| [lru-slab](https://github.com/Ralith/lru-slab) | 0.1.2 | MIT OR Apache-2.0 OR Zlib |
 | [mach2](https://github.com/JohnTitor/mach2) | 0.4.3 | BSD-2-Clause OR MIT OR Apache-2.0 |
 | [markup5ever](https://github.com/servo/html5ever) | 0.38.0 | MIT OR Apache-2.0 |
 | [matchers](https://github.com/hawkw/matchers) | 0.2.0 | MIT |
@@ -395,6 +400,9 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [proc-macro2](https://github.com/dtolnay/proc-macro2) | 1.0.107 | MIT OR Apache-2.0 |
 | [profiling](https://github.com/aclysma/profiling) | 1.0.18 | MIT OR Apache-2.0 |
 | [quick-xml](https://github.com/tafia/quick-xml) | 0.41.0 | MIT |
+| [quinn](https://github.com/quinn-rs/quinn) | 0.11.11 | MIT OR Apache-2.0 |
+| [quinn-proto](https://github.com/quinn-rs/quinn) | 0.11.16 | MIT OR Apache-2.0 |
+| [quinn-udp](https://github.com/quinn-rs/quinn) | 0.5.15 | MIT OR Apache-2.0 |
 | [quote](https://github.com/dtolnay/quote) | 1.0.47 | MIT OR Apache-2.0 |
 | [r-efi](https://github.com/r-efi/r-efi) | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
 | [r-efi](https://github.com/r-efi/r-efi) | 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
@@ -403,6 +411,7 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [rand_chacha](https://github.com/rust-random/rand) | 0.9.0 | MIT OR Apache-2.0 |
 | [rand_core](https://github.com/rust-random/rand_core) | 0.10.1 | MIT OR Apache-2.0 |
 | [rand_core](https://github.com/rust-random/rand) | 0.9.5 | MIT OR Apache-2.0 |
+| [rand_pcg](https://github.com/rust-random/rngs) | 0.10.2 | MIT OR Apache-2.0 |
 | [range-alloc](https://github.com/gfx-rs/range-alloc) | 0.1.5 | MIT OR Apache-2.0 |
 | [raw-window-handle](https://github.com/rust-windowing/raw-window-handle) | 0.6.2 | MIT OR Apache-2.0 OR Zlib |
 | [raw-window-metal](https://github.com/rust-windowing/raw-window-metal) | 1.1.0 | MIT OR Apache-2.0 |
@@ -606,6 +615,7 @@ Not bundled. The SDRplay API it needs is commercial software licensed for use wi
 | [wasm-streams](https://github.com/MattiasBuelens/wasm-streams/) | 0.5.0 | MIT OR Apache-2.0 |
 | [wayland-sys](https://github.com/smithay/wayland-rs) | 0.31.11 | MIT |
 | [web-sys](https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys) | 0.3.104 | MIT OR Apache-2.0 |
+| [web-time](https://github.com/daxpedda/web-time) | 1.1.0 | MIT OR Apache-2.0 |
 | [web_atoms](https://github.com/servo/html5ever) | 0.2.5 | MIT OR Apache-2.0 |
 | [webkit2gtk](https://github.com/tauri-apps/webkit2gtk-rs) | 2.0.2 | MIT |
 | [webkit2gtk-sys](https://github.com/tauri-apps/webkit2gtk-rs) | 2.0.2 | MIT |

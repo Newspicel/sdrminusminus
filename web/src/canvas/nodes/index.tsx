@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import type { NodeKind, PatchNode } from "../../lib/types";
 import type { FlowData } from "../Canvas";
 import { ChannelFace } from "./ChannelFace";
+import { ChatOutputFace } from "./ChatOutputFace";
 import { DeviceFace } from "./DeviceFace";
 import { DmrTrunkFace } from "./DmrTrunkFace";
 import { GpsFace } from "./GpsFace";
@@ -37,6 +38,7 @@ export const NODE_TYPES: Record<NodeKind, ComponentType<NodeProps<Node<FlowData>
   device: mount(DeviceFace),
   gps: mount(GpsFace),
   channel: mount(ChannelFace),
+  chat_output: mount(ChatOutputFace),
   scope: mount(ScopeFace),
   speaker: mount(SpeakerFace),
   map: mount(MapFace),
@@ -57,6 +59,7 @@ export const FACES: Record<NodeKind, Face> = {
   device: DeviceFace,
   gps: GpsFace,
   channel: ChannelFace,
+  chat_output: ChatOutputFace,
   scope: ScopeFace,
   speaker: SpeakerFace,
   map: MapFace,

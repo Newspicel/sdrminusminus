@@ -31,6 +31,7 @@ mod assets;
 mod auth;
 mod bandplan;
 mod calls;
+mod chat_output;
 mod decoderlog;
 pub mod doctor;
 mod gps;
@@ -267,8 +268,16 @@ fn start_background(state: &AppState) -> Background {
             calls::run(engine, calls, retentions_rx)
         })
     };
+    let chat_output = {
+        let engine = Arc::downgrade(&state.engine);
+        let store = state.store.clone();
+        let calls = state.calls.clone();
+        spawn_task("sdrmm-chat-output", move || {
+            chat_output::run(engine, store, calls)
+        })
+    };
     Background {
-        tasks: vec![log, patch, calls],
+        tasks: vec![log, patch, calls, chat_output],
         detached: false,
     }
 }
@@ -587,6 +596,8 @@ mod tests {
             "FreeDvParams",
             "DeletedCount",
             "PatchGraph",
+            "ChatOutputNode",
+            "ChatOutputTarget",
             "RackLayout",
             "DeviceRef",
             "PatchCatalog",

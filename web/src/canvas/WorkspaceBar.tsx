@@ -97,7 +97,12 @@ export function WorkspaceBar({
                         kind: "network_export" as const,
                         data: { transport: "udp", format: "cf32_le", address: "127.0.0.1:7355" },
                       }
-                    : { kind }),
+                    : kind === "chat_output"
+                      ? {
+                          kind: "chat_output" as const,
+                          data: { target: { service: "discord" as const, webhook_url: "" } },
+                        }
+                      : { kind }),
       } as PatchNode;
       return { ...snapshot, graph: addNode(snapshot.graph, node) };
     });
