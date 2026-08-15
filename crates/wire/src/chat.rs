@@ -65,13 +65,13 @@ impl ChatOutputTarget {
     #[must_use]
     pub fn valid(&self) -> bool {
         match self {
-            Self::Discord { webhook_url } => valid_url(webhook_url),
+            Self::Discord { webhook_url } => valid_discord_webhook(webhook_url),
             Self::Matrix {
                 homeserver_url,
                 room_id,
                 access_token,
             } => {
-                valid_url(homeserver_url)
+                valid_https_url(homeserver_url)
                     && room_id.len() <= MAX_MATRIX_ROOM_ID_LEN
                     && access_token.len() <= MAX_CHAT_TOKEN_LEN
             }
@@ -79,10 +79,49 @@ impl ChatOutputTarget {
     }
 }
 
-fn valid_url(value: &str) -> bool {
+fn valid_https_url(value: &str) -> bool {
     value.is_empty()
         || value.len() <= MAX_CHAT_URL_LEN
             && url::Url::parse(value).is_ok_and(|url| url.scheme() == "https")
+}
+
+fn valid_discord_webhook(value: &str) -> bool {
+    if value.is_empty() {
+        return true;
+    }
+    let Ok(url) = url::Url::parse(value) else {
+        return false;
+    };
+    if value.len() > MAX_CHAT_URL_LEN
+        || url.scheme() != "https"
+        || url.host_str() != Some("discord.com")
+        || url.port_or_known_default() != Some(443)
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return false;
+    }
+    let Some(segments) = url.path_segments() else {
+        return false;
+    };
+    let segments: Vec<_> = segments.collect();
+    match segments.as_slice() {
+        ["api", "webhooks", id, token] => valid_webhook_credentials(id, token),
+        ["api", version, "webhooks", id, token] => {
+            valid_api_version(version) && valid_webhook_credentials(id, token)
+        }
+        _ => false,
+    }
+}
+
+fn valid_api_version(value: &str) -> bool {
+    value
+        .strip_prefix('v')
+        .is_some_and(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn valid_webhook_credentials(id: &str, token: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) && !token.is_empty()
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -96,17 +135,35 @@ mod tests {
 
     #[test]
     fn matrix_requires_every_credential_before_delivery() {
-        let mut target = ChatOutputTarget::Matrix {
-            homeserver_url: "https://matrix.example".to_owned(),
-            room_id: "!radio:example".to_owned(),
-            access_token: String::new(),
-        };
-        assert!(!target.configured());
-        if let ChatOutputTarget::Matrix { access_token, .. } = &mut target {
-            *access_token = "secret".to_owned();
+        let matrix =
+            |homeserver_url: &str, room_id: &str, access_token: &str| ChatOutputTarget::Matrix {
+                homeserver_url: homeserver_url.to_owned(),
+                room_id: room_id.to_owned(),
+                access_token: access_token.to_owned(),
+            };
+        for target in [
+            matrix("", "!radio:example", "secret"),
+            matrix("https://matrix.example", "", "secret"),
+            matrix("https://matrix.example", "!radio:example", ""),
+        ] {
+            assert!(!target.configured());
         }
-        assert!(target.configured());
-        assert!(target.valid());
+        for target in [
+            matrix(
+                "https://matrix.example",
+                &"r".repeat(MAX_MATRIX_ROOM_ID_LEN + 1),
+                "secret",
+            ),
+            matrix(
+                "https://matrix.example",
+                "!radio:example",
+                &"t".repeat(MAX_CHAT_TOKEN_LEN + 1),
+            ),
+        ] {
+            assert!(!target.valid());
+        }
+        let target = matrix("https://matrix.example", "!radio:example", "secret");
+        assert!(target.configured() && target.valid());
     }
 
     #[test]
@@ -115,6 +172,12 @@ mod tests {
         assert!(
             ChatOutputTarget::Discord {
                 webhook_url: "https://discord.com/api/webhooks/1/token".to_owned(),
+            }
+            .valid()
+        );
+        assert!(
+            ChatOutputTarget::Discord {
+                webhook_url: "https://discord.com/api/v10/webhooks/1/token".to_owned(),
             }
             .valid()
         );
@@ -136,6 +199,19 @@ mod tests {
             }
             .valid()
         );
+        for webhook_url in [
+            "https://example.com/api/webhooks/1/token",
+            "https://127.0.0.1/api/webhooks/1/token",
+            "https://discord.com.example/api/webhooks/1/token",
+            "https://discord.com/api/channels/1/token",
+        ] {
+            assert!(
+                !ChatOutputTarget::Discord {
+                    webhook_url: webhook_url.to_owned(),
+                }
+                .valid()
+            );
+        }
     }
 
     #[test]
