@@ -57,6 +57,13 @@ async function leaveField(node: Locator): Promise<void> {
   await node.locator("header").click();
 }
 
+/** Bring a face on the canvas forward, the way a pointer does. Its controls answer only once its
+ * node is the selected one — until then the face takes the press and hands it to the camera — so
+ * every leg that reaches into a face selects it first, by the one part that is never a control. */
+async function activate(node: Locator): Promise<void> {
+  await node.locator("header").click();
+}
+
 /** One face in the rack. The rack has no wires and no pane, so its faces are addressed by the
  * node they render rather than through React Flow. */
 function rackNode(page: Page, id: string): Locator {
@@ -139,6 +146,7 @@ test.describe("the workspace", () => {
     await expect(node("scope")).toBeVisible();
     await expect(node("speaker")).toBeVisible();
 
+    await activate(receiver);
     const recordings = receiver.getByRole("button", { name: "Recordings (100)" });
     await expect(receiver.getByRole("button", { name: /capture-099/i })).toHaveCount(0);
     await recordings.click();
@@ -201,6 +209,7 @@ test.describe("the workspace", () => {
       })
       .toEqual([1, 1]);
 
+    await activate(channel);
     await channel.getByText("NFM", { exact: true }).first().click();
     await page.keyboard.press("m");
     await expect
@@ -226,8 +235,46 @@ test.describe("the workspace", () => {
     await expect(threshold).toBeEnabled();
     expect(await cursor(squelch)).toBe("pointer");
     expect(await cursor(threshold.locator("xpath=.."))).toBe("grab");
+    // Only the title bar of the selected face wears the hand. The library paints its own over the
+    // whole card, which promised a move on every control the face owns and on every face the
+    // pointer merely crossed.
+    expect(await cursor(channel)).toBe("default");
+    expect(await cursor(channel.locator("header"))).toBe("grab");
+    expect(await cursor(node("scope").locator("header"))).toBe("default");
     await channel.getByText("-60 dB", { exact: true }).click();
     await expect(squelch).toBeChecked();
+
+    // A face that is not the selected one leaves the drag to the camera and keeps its controls out
+    // of it. Both answering at once was the break: dragging the patch across a channel swept its
+    // squelch threshold on the way past.
+    await activate(node("device"));
+    const viewport = page.locator(".react-flow__viewport");
+    const framing = (): Promise<string> =>
+      viewport.evaluate((element) => getComputedStyle(element).transform);
+    const framedAt = await framing();
+    const held = await threshold.inputValue();
+    const thumb = await threshold.locator("xpath=..").boundingBox();
+    if (thumb === null) {
+      throw new Error("a squelch threshold to drag across");
+    }
+    const sweep = async (from: number, by: number): Promise<void> => {
+      const y = thumb.y + thumb.height / 2;
+      await page.mouse.move(from, y);
+      await page.mouse.down();
+      await page.mouse.move(from + by, y, { steps: 8 });
+      await page.mouse.up();
+    };
+    const grip = thumb.x + thumb.width / 2;
+    await sweep(grip, 90);
+    expect(await threshold.inputValue()).toBe(held);
+    expect(await framing()).not.toBe(framedAt);
+    // Dragged back from where the face now sits, so the legs below find the patch framed as they
+    // left it — and the thumb is swept a second time without moving.
+    await sweep(grip + 90, -90);
+    expect(await framing()).toBe(framedAt);
+    expect(await threshold.inputValue()).toBe(held);
+
+    await activate(channel);
     await squelch.click();
     await expect(threshold).toBeDisabled();
 
@@ -337,7 +384,7 @@ test.describe("the workspace", () => {
     await expect(page.getByText(/nothing pinned/i)).toHaveCount(0);
 
     await page.getByRole("group", { name: "View" }).getByRole("button", { name: "Patch" }).click();
-    await node("device").locator("header").click();
+    await activate(node("device"));
     await node("device").getByRole("combobox", { name: "Sample rate" }).click();
     await page.getByRole("option", { name: "2.000 MS/s" }).click();
 
@@ -417,7 +464,7 @@ test.describe("the workspace", () => {
     await expect(attribution).toBeVisible();
     await expect(attribution.locator(".maplibregl-ctrl-attrib-inner")).toBeHidden();
 
-    await map.locator("header").click();
+    await activate(map);
     await attribution.locator("summary.maplibregl-ctrl-attrib-button").click();
     await expect(attribution.getByText("Stub basemap credits")).toBeVisible();
   });
@@ -444,6 +491,7 @@ test.describe("the workspace", () => {
     await page.getByRole("button", { name: "NMEA serial" }).click();
     const nmea = page.locator('.react-flow__node[data-id^="gps:"]', { hasText: "NMEA" });
     await expect(nmea).toBeVisible();
+    await activate(nmea);
 
     const device = nmea.getByRole("combobox", { name: "Serial device" });
     await device.fill("");
@@ -646,8 +694,7 @@ test.describe("the workspace", () => {
     };
     const before = await stored();
     const speaker = page.locator('.react-flow__node[data-id="speaker"]');
-    // The header, not the face: a click anywhere else lands on a control the face owns.
-    await speaker.locator("header").click();
+    await activate(speaker);
 
     await page.keyboard.press("ControlOrMeta+c");
     await expect(page.getByText("Copied 1 node")).toBeVisible();
@@ -692,6 +739,7 @@ test.describe("the workspace", () => {
     // operator back to the radio without cutting the wire.
     await expect(sources).toBeVisible();
     await expect(scope.getByRole("button", { name: "SPECTRUM" })).toBeVisible();
+    await activate(scope);
     await sources.getByRole("button", { name: "IQ" }).click();
     await expect(scope.getByRole("button", { name: "TRACES" })).toBeVisible();
     await expect(scope.getByRole("button", { name: "SPECTRUM" })).toHaveCount(0);

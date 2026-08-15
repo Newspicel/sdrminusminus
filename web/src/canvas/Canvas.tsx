@@ -299,7 +299,6 @@ export function Canvas() {
         deleteKeyCode={DELETE_KEYS}
         panOnScroll
         panOnScrollSpeed={1}
-        selectionOnDrag
         // The patch opens framed: a workspace drawn over several screens is otherwise restored at
         // whatever corner the last camera left, and the operator's first gesture is always a hunt.
         fitView

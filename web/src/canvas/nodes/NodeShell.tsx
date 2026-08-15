@@ -129,12 +129,12 @@ export function NodeShell({
           />
         )}
         {/* The one place the node can be dragged from, so the one place that says so: the grab
-          cursor is the affordance, and the library's default of painting it over the whole card
-          promised a drag on every button inside the face. The buttons in here opt back out —
-          they are pressed, not dragged. */}
+          cursor is the affordance, and it appears only once the gesture is really there — an
+          unselected face is not draggable yet, and a hand over it would promise a move that
+          instead goes to the camera. The buttons in here keep their own pointer. */}
         <header
           className={`flex h-6.5 shrink-0 items-center gap-2 border-b border-line bg-panel-2 pr-1 ${
-            surface === "canvas" ? "cursor-grab active:cursor-grabbing" : ""
+            surface === "canvas" && selected ? "cursor-grab active:cursor-grabbing" : ""
           }`}
         >
           <span aria-hidden className={`h-full w-1 ${CATEGORY_STRIP[category]}`} />
@@ -186,11 +186,17 @@ export function NodeShell({
           it. `nopan nowheel` stay conditional — over an inactive face the wheel and the drag
           belong to the camera, so the patch stays navigable from wherever the pointer is. */}
         <div
-          className={`flex min-h-0 flex-1 flex-col overflow-hidden nodrag ${
+          className={`relative flex min-h-0 flex-1 flex-col overflow-hidden nodrag ${
             active ? "nopan nowheel" : ""
           }`}
         >
           <Active value={active}>{children}</Active>
+          {/* A face answers the pointer only once its node is the selected one. Without this the
+            same press both panned the patch and moved whatever sat under it — a gain slider a
+            camera drag crossed came out somewhere else. The sheet takes the press instead and
+            lets it bubble, so the click still selects the node and the drag still belongs to the
+            camera; the second press, on a face that is now active, reaches the control. */}
+          {!active && <span aria-hidden className="absolute inset-0 z-20" />}
         </div>
 
         {ports.map((port, index) => (

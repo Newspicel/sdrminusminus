@@ -320,14 +320,27 @@
   box-shadow: none;
   font-size: inherit;
   color: inherit;
-  /* The library paints `cursor: grab` across the whole node. Only the title bar drags one, so
-     only the title bar claims the hand (see `NodeShell`) — everywhere else the cursor has to be
-     free to say what that control actually does. */
   cursor: default;
 }
 
+/* The library paints `cursor: pointer` over a selectable node and `cursor: grab` over a draggable
+   one — the whole card, controls included. Only the title bar drags a node, so only the title bar
+   claims the hand (see `NodeShell`); everywhere else the cursor has to be free to say what that
+   control actually does. Every state the library styles is named here, because each of its
+   selectors outranks the bare `.react-flow__node` above. */
+.react-flow__node.selectable,
+.react-flow__node.draggable,
+.react-flow__node.draggable.dragging {
+  cursor: default;
+}
+
+/* A port straddles the border it sits on, so half of it lies over the face — and at a zoom that
+   lands the edge between two pixels, its very centre does. Above the sheet an inactive face is
+   covered with (`NodeShell`), or a wire could not be drawn from a node the pointer has not
+   selected first. Below the popups, which open over the ports. */
 .react-flow__handle {
   border-radius: 0;
+  z-index: 25;
 }
 
 /* The connection line follows the same rule as a drawn wire, in the accent because it is not
