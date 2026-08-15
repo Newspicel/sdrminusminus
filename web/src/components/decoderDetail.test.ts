@@ -76,6 +76,25 @@ describe("eventDetail", () => {
           },
         },
       },
+      radio_clock: {
+        kind: "radio_clock",
+        data: {
+          standard: "dcf77",
+          datetime: "2026-08-15T12:34:00+02:00",
+          dst: true,
+          leap_warning: false,
+          symbols: "M000",
+        },
+      },
+      gnss: {
+        kind: "gnss",
+        data: {
+          prn: 7,
+          doppler_hz: 1000,
+          code_phase_chips: 158.34,
+          cn0_db_hz: 44.5,
+        },
+      },
     };
     for (const kind of DECODER_KINDS) {
       expect(() => eventDetail(sample[kind]), kind).not.toThrow();

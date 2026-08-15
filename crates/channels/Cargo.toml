@@ -18,6 +18,7 @@ sdrmm-wire.workspace = true
 sdrmm-dsp.workspace = true
 sdrmm-modem.workspace = true
 num-complex.workspace = true
+rustfft.workspace = true
 thiserror.workspace = true
 blip25-vocoder.workspace = true
 codec2.workspace = true
@@ -28,7 +29,6 @@ codec2.workspace = true
 cc.workspace = true
 
 [dev-dependencies]
-rustfft.workspace = true
 # The coded-baseline artifacts (tests/dmr_soft_gain.rs) bundle three labelled curves per
 # file, a shape `sweep::save_json` (one bare Curve) does not cover.
 serde.workspace = true

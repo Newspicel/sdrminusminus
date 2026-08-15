@@ -14,7 +14,8 @@ from a Raspberry Pi or home server, or connect directly to `rtl_tcp` and SpyServ
 
 - Build a receiver visually from device, channel, display, scanner, recorder, and output nodes.
 - Listen to AM, narrowband FM, broadcast FM, and SSB.
-- Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, Morse, sub-GHz frames, and several
+- Decode ADS-B, AIS, APRS/AX.25, POCSAG, ACARS, NAVTEX, RTTY, Morse, DCF77/WWVB/MSF/JJY radio
+  clocks, educational GPS L1 C/A acquisition and NAV telemetry, sub-GHz frames, and several
   digital voice modes.
 - Display live spectrum and waterfall views, decoded readouts, position maps, logs, and ATV video.
 - Scan frequency ranges, save workspaces and presets, search regional band plans, and record IQ as

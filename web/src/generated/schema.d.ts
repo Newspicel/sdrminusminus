@@ -1415,9 +1415,9 @@ export interface components {
              *     resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
              *     highest, so a receiver is set anywhere in that range rather than to one exact number.
              *
-             *     ADS-B is the one such type: a 0.5 µs pulse is a single sample at
-             *     2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
-             *     meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
+             *     ADS-B and educational GNSS are such types: their chip timing is defined at the capture
+             *     rate, so the decoder meets the radio at its rate instead. Mutually exclusive with
+             *     `exact_rate_only`.
              */
             native_rate_max_hz?: number | null;
             /** @description Whether this channel accepts a live station position input. */
@@ -1560,6 +1560,14 @@ export interface components {
             settings: components["schemas"]["IdentParams"];
             /** @enum {string} */
             type: "ident";
+        } | {
+            settings: components["schemas"]["RadioClockParams"];
+            /** @enum {string} */
+            type: "radio_clock";
+        } | {
+            settings: components["schemas"]["GnssParams"];
+            /** @enum {string} */
+            type: "gnss";
         };
         /** @description Per-channel settings: where the channel sits and how it demodulates. */
         ChannelSettings: {
@@ -1836,6 +1844,14 @@ export interface components {
             data: components["schemas"]["IdentReport"];
             /** @enum {string} */
             kind: "ident";
+        } | {
+            data: components["schemas"]["RadioClockFrame"];
+            /** @enum {string} */
+            kind: "radio_clock";
+        } | {
+            data: components["schemas"]["GnssFrame"];
+            /** @enum {string} */
+            kind: "gnss";
         };
         /**
          * @description One stored decoder frame (: decoder logs are queryable and exportable, not
@@ -2249,6 +2265,43 @@ export interface components {
             stage: string;
             /** Format: double */
             value_db: number;
+        };
+        /** @description GPS L1 C/A acquisition state or one parity-checked NAV subframe. */
+        GnssFrame: {
+            /** Format: float */
+            cn0_db_hz: number;
+            /** Format: float */
+            code_phase_chips: number;
+            /** Format: float */
+            doppler_hz: number;
+            /** Format: int32 */
+            prn: number;
+            /** Format: int32 */
+            subframe?: number | null;
+            /** Format: int32 */
+            tow_seconds?: number | null;
+            /** Format: int32 */
+            week?: number | null;
+            words?: string[];
+        };
+        /** @description Educational GPS L1 C/A acquisition and NAV-message settings. */
+        GnssParams: {
+            /**
+             * Format: int32
+             * @description Symmetric acquisition search span around the tuned L1 carrier.
+             */
+            doppler_hz?: number;
+            /**
+             * Format: int32
+             * @description Space-vehicle PRN to acquire. A focused single-PRN view keeps every correlation result
+             *     inspectable and bounds the work done on the DSP thread.
+             */
+            prn?: number;
+            /**
+             * Format: float
+             * @description Acquisition peak divided by the mean correlation floor.
+             */
+            threshold?: number;
         };
         GpsNode: {
             source?: components["schemas"]["PositionSource"];
@@ -3018,6 +3071,33 @@ export interface components {
         RackSlot: components["schemas"]["RackCell"] & {
             node: string;
         };
+        /** @description One complete civil-time minute recovered from a long-wave radio-clock service. */
+        RadioClockFrame: {
+            /**
+             * @description ISO 8601 civil time carried on air. DCF77, MSF and JJY include their UTC offset;
+             *     WWVB is UTC.
+             */
+            datetime: string;
+            dst?: boolean;
+            /** Format: float */
+            dut1_seconds?: number | null;
+            leap_warning?: boolean;
+            standard: components["schemas"]["RadioClockStandard"];
+            /** @description The 60 received symbols (`0`, `1`, `M` marker, `?` invalid). */
+            symbols: string;
+            /** Format: int32 */
+            utc_offset_minutes?: number | null;
+        };
+        RadioClockParams: {
+            /** @description Reverse the received AM envelope for an inverting receiver or recording. */
+            invert?: boolean;
+            standard?: components["schemas"]["RadioClockStandard"];
+        };
+        /**
+         * @description Long-wave civil time service carried by the radio-clock channel.
+         * @enum {string}
+         */
+        RadioClockStandard: "dcf77" | "wwvb" | "msf" | "jjy";
         /** @description An inclusive numeric range with an optional step, in the setting's native unit. */
         Range: {
             /** Format: double */

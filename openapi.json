@@ -3866,7 +3866,7 @@
               "null"
             ],
             "format": "double",
-            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B is the one such type: a 0.5 µs pulse is a single sample at\n2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder\nmeets the radio at its rate instead. Mutually exclusive with `exact_rate_only`."
+            "description": "Set when the channel is handed the device's **own** samples — mixed to its offset, never\nresampled. `input_rate_hz` is then the lowest device rate it can run at and this the\nhighest, so a receiver is set anywhere in that range rather than to one exact number.\n\nADS-B and educational GNSS are such types: their chip timing is defined at the capture\nrate, so the decoder meets the radio at its rate instead. Mutually exclusive with\n`exact_rate_only`."
           },
           "needs_position": {
             "type": "boolean",
@@ -4335,6 +4335,42 @@
                 "type": "string",
                 "enum": [
                   "ident"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/RadioClockParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "radio_clock"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "settings",
+              "type"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/GnssParams"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "gnss"
                 ]
               }
             }
@@ -5150,6 +5186,42 @@
                 "type": "string",
                 "enum": [
                   "ident"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/RadioClockFrame"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "radio_clock"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "data",
+              "kind"
+            ],
+            "properties": {
+              "data": {
+                "$ref": "#/components/schemas/GnssFrame"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "gnss"
                 ]
               }
             }
@@ -6307,6 +6379,88 @@
           "value_db": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "GnssFrame": {
+        "type": "object",
+        "description": "GPS L1 C/A acquisition state or one parity-checked NAV subframe.",
+        "required": [
+          "prn",
+          "doppler_hz",
+          "code_phase_chips",
+          "cn0_db_hz"
+        ],
+        "properties": {
+          "cn0_db_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "code_phase_chips": {
+            "type": "number",
+            "format": "float"
+          },
+          "doppler_hz": {
+            "type": "number",
+            "format": "float"
+          },
+          "prn": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "subframe": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "tow_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "week": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "words": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "GnssParams": {
+        "type": "object",
+        "description": "Educational GPS L1 C/A acquisition and NAV-message settings.",
+        "properties": {
+          "doppler_hz": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Symmetric acquisition search span around the tuned L1 carrier.",
+            "minimum": 0
+          },
+          "prn": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Space-vehicle PRN to acquire. A focused single-PRN view keeps every correlation result\ninspectable and bounds the work done on the DSP thread.",
+            "minimum": 0
+          },
+          "threshold": {
+            "type": "number",
+            "format": "float",
+            "description": "Acquisition peak divided by the mean correlation floor."
           }
         }
       },
@@ -7988,6 +8142,70 @@
           }
         ],
         "description": "One pinned node and the cells it occupies."
+      },
+      "RadioClockFrame": {
+        "type": "object",
+        "description": "One complete civil-time minute recovered from a long-wave radio-clock service.",
+        "required": [
+          "standard",
+          "datetime",
+          "symbols"
+        ],
+        "properties": {
+          "datetime": {
+            "type": "string",
+            "description": "ISO 8601 civil time carried on air. DCF77, MSF and JJY include their UTC offset;\nWWVB is UTC."
+          },
+          "dst": {
+            "type": "boolean"
+          },
+          "dut1_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float"
+          },
+          "leap_warning": {
+            "type": "boolean"
+          },
+          "standard": {
+            "$ref": "#/components/schemas/RadioClockStandard"
+          },
+          "symbols": {
+            "type": "string",
+            "description": "The 60 received symbols (`0`, `1`, `M` marker, `?` invalid)."
+          },
+          "utc_offset_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "RadioClockParams": {
+        "type": "object",
+        "properties": {
+          "invert": {
+            "type": "boolean",
+            "description": "Reverse the received AM envelope for an inverting receiver or recording."
+          },
+          "standard": {
+            "$ref": "#/components/schemas/RadioClockStandard"
+          }
+        }
+      },
+      "RadioClockStandard": {
+        "type": "string",
+        "description": "Long-wave civil time service carried by the radio-clock channel.",
+        "enum": [
+          "dcf77",
+          "wwvb",
+          "msf",
+          "jjy"
+        ]
       },
       "Range": {
         "type": "object",
