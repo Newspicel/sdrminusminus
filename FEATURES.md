@@ -60,14 +60,12 @@ particular build, open **+ Node** or request `GET /api/channeltypes` from that s
 
 ## 7. Voice & analog channels
 
-- **[planned]** ATV colour and the sound subcarrier — luma only today; chroma is left where it is in the video band
 - **[planned]** Notch and audio filters per channel
 - **[planned]** Selcall (CCIR/ZVEI)
 
 ## 8. Digital voice
 
-- **[planned]** NXDN SACCH/FACCH addressing and YSF callsigns — the signalling layers below
-  each mode's voice framing
+- **[planned]** YSF callsigns — the signalling layer below its voice framing
 - **[planned]** FreeDV
 - **[planned]** Hardware AMBE dongle/server support
 

@@ -32,9 +32,8 @@ pub struct ChannelDescriptor {
     /// resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
     /// highest, so a receiver is set anywhere in that range rather than to one exact number.
     ///
-    /// ADS-B is the one such type: a 0.5 µs pulse is a single sample at
-    /// 2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
-    /// meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
+    /// ADS-B uses this to preserve pulse timing, while ATV uses it to retain wide chroma and
+    /// sound subcarriers. Mutually exclusive with `exact_rate_only`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_rate_max_hz: Option<f64>,
     #[serde(default)]
@@ -547,6 +546,17 @@ pub enum AtvStandard {
     SystemA405,
 }
 
+/// Colour encoding carried on the composite-video subcarrier. Monochrome leaves the
+/// subcarrier untouched and works at the lower sample rates used by narrow-band ATV.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AtvColor {
+    #[default]
+    Monochrome,
+    Pal,
+    Ntsc,
+}
+
 impl AtvStandard {
     /// Lines per frame, both fields together.
     #[must_use]
@@ -600,6 +610,14 @@ pub struct AtvParams {
     /// camera sources send.
     #[serde(default = "default_true")]
     pub interlace: bool,
+    /// Composite colour system. PAL and NTSC need a device rate wide enough to contain their
+    /// 4.43 MHz or 3.58 MHz subcarrier respectively.
+    #[serde(default)]
+    pub color: AtvColor,
+    /// FM sound carrier above the picture carrier, in Hz. Common values are 4.5, 5.5, 6.0 and
+    /// 6.5 MHz. `None` keeps ATV usable on receivers that only cover the luma channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound_subcarrier_hz: Option<f64>,
 }
 
 impl Default for AtvParams {
@@ -610,6 +628,8 @@ impl Default for AtvParams {
             bandwidth_hz: default_atv_bandwidth_hz(),
             invert: false,
             interlace: true,
+            color: AtvColor::default(),
+            sound_subcarrier_hz: None,
         }
     }
 }

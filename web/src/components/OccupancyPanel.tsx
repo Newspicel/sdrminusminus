@@ -99,7 +99,7 @@ export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
           {rows.map((bucket) => {
             const peak = busiestHour(bucket);
             return (
-              <button
+              <Button
                 key={bucket.freq_hz}
                 type="button"
                 disabled={active === null}
@@ -132,7 +132,7 @@ export function OccupancyPanel({ active }: { active: DeviceSet | null }) {
                 <span className="legend w-10 shrink-0 text-right tabular-nums">
                   {formatDuty(bucket.duty)}
                 </span>
-              </button>
+              </Button>
             );
           })}
 

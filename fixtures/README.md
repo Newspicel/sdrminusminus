@@ -29,13 +29,14 @@ device, add the named channel at the stated offset, and the decoder log fills up
 | `subghz_ev1527_500k` | 500 k | `subghz` @ +100 kHz | 24-bit PWM `0A1B23`, address `0A1B2`, button 3 |
 | `atv_ccir625_2m4` | 2.4 M | `atv` @ +200 kHz | 625/25 AM, five vertical bars black to white |
 
-Two pairs are **not** written by `cargo xtask fixtures` and are committed instead — one
-recorded off air, one frozen render no current generator reproduces.
+Three pairs are **not** written by `cargo xtask fixtures` and are committed instead — one
+recorded off air and two frozen regression renders.
 
 | stem | rate | channel | expected |
 |---|---|---|---|
 | `dmr_call_48k` | 48 k | `dmr` @ 0 Hz | colour code 1, group call, radio ID 12345678 to talkgroup 12345678 |
 | `ais_position_pre_cpm_240k` | 240 k | `ais` @ +25 kHz | MMSI 211234560 at 53.5413, 9.9846 |
+| `nxdn_addressed_48k` | 48 k | `nxdn` @ 0 Hz | RAN 17, radio 12345 to talkgroup 234 via FACCH/SACCH |
 
 ADS-B is the one fixture whose device rate is not negotiable: it fills its whole 2 MHz
 channel, so a resampling DDC cannot carry it and the engine refuses the channel at any other
@@ -55,9 +56,9 @@ device.
 
 ## Provenance
 
-- **Synthesized fixtures are never committed.** They are deterministic renders of the
-  virtual siggen — regenerate with `cargo xtask fixtures`. The `.gitignore` here excludes
-  all `*.sigmf-*` so a generated pair can't land in a commit by accident.
+- **Generated fixtures are never committed.** They are deterministic renders of the virtual
+  siggen — regenerate with `cargo xtask fixtures`. The `.gitignore` here excludes all
+  `*.sigmf-*` so a generated pair can't land in a commit by accident.
 - **Recorded off-air captures** arrive with their M4+ decoders: kept to seconds, stripped
   to the band of interest, and either committed case-by-case (small) or fetched by
   `cargo xtask fixtures` (). Committing one means force-adding past the
@@ -77,3 +78,6 @@ device.
   evidence left that the general CPM engine decodes what the hand-written AIS chain produced —
   `ais::tests::decodes_the_committed_fixture` reads it directly, and today's generator emits a
   different waveform (6425 samples against this one's 6250).
+- `nxdn_addressed_48k` (0.69 s, 260 KB): a frozen reference-modulator render containing a
+  complete four-quarter SACCH message and FACCH call addressing. It is committed so the
+  decoder test cannot regenerate the samples it is about to verify.

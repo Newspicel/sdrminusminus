@@ -11,6 +11,7 @@ pub enum FrameKind {
     AudioOpus = 1,
     IqF32 = 2,
     VideoGray = 3,
+    VideoRgb = 4,
 }
 
 impl FrameKind {
@@ -21,6 +22,7 @@ impl FrameKind {
             1 => Some(Self::AudioOpus),
             2 => Some(Self::IqF32),
             3 => Some(Self::VideoGray),
+            4 => Some(Self::VideoRgb),
             _ => None,
         }
     }
@@ -150,7 +152,28 @@ impl IqFrame<'_> {
     }
 }
 
-/// One decoded picture ready to encode: 8-bit luma, row-major, `width · height` bytes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum VideoData<'a> {
+    Gray(&'a [u8]),
+    Rgb(&'a [u8]),
+}
+
+impl<'a> VideoData<'a> {
+    fn kind(self) -> FrameKind {
+        match self {
+            Self::Gray(_) => FrameKind::VideoGray,
+            Self::Rgb(_) => FrameKind::VideoRgb,
+        }
+    }
+
+    fn bytes(self) -> &'a [u8] {
+        match self {
+            Self::Gray(bytes) | Self::Rgb(bytes) => bytes,
+        }
+    }
+}
+
+/// One decoded picture ready to encode: row-major 8-bit grayscale or RGB pixels.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VideoFrame<'a> {
     pub stream_id: u16,
@@ -159,14 +182,14 @@ pub struct VideoFrame<'a> {
     pub timestamp: u64,
     pub width: u16,
     pub height: u16,
-    pub luma: &'a [u8],
+    pub data: VideoData<'a>,
 }
 
 impl VideoFrame<'_> {
     /// Serialized length: header + the geometry + one byte per pixel.
     #[must_use]
     pub fn encoded_len(&self) -> usize {
-        HEADER_LEN + 2 + 2 + self.luma.len()
+        HEADER_LEN + 2 + 2 + self.data.bytes().len()
     }
 
     /// Encode into a fresh little-endian byte buffer.
@@ -174,13 +197,13 @@ impl VideoFrame<'_> {
     pub fn encode(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(self.encoded_len());
         buf.push(PROTOCOL_VERSION);
-        buf.push(FrameKind::VideoGray as u8);
+        buf.push(self.data.kind() as u8);
         buf.extend_from_slice(&self.stream_id.to_le_bytes());
         buf.extend_from_slice(&self.seq.to_le_bytes());
         buf.extend_from_slice(&self.timestamp.to_le_bytes());
         buf.extend_from_slice(&self.width.to_le_bytes());
         buf.extend_from_slice(&self.height.to_le_bytes());
-        buf.extend_from_slice(self.luma);
+        buf.extend_from_slice(self.data.bytes());
         buf
     }
 }
@@ -348,7 +371,7 @@ mod tests {
             timestamp: 2_000_000,
             width: 8,
             height: 4,
-            luma: &luma,
+            data: VideoData::Gray(&luma),
         };
         let buf = frame.encode();
         assert_eq!(buf.len(), frame.encoded_len());
@@ -364,5 +387,23 @@ mod tests {
         // The payload length is what the geometry claims, so a client can size its ImageData
         // from the header alone.
         assert_eq!(out.len(), usize::from(width) * usize::from(height));
+    }
+
+    #[test]
+    fn rgb_video_roundtrip() {
+        let rgb: Vec<u8> = (0..(3 * 3 * 2)).map(|i| (i * 11) as u8).collect();
+        let frame = VideoFrame {
+            stream_id: 12,
+            seq: 4,
+            timestamp: 99,
+            width: 3,
+            height: 2,
+            data: VideoData::Rgb(&rgb),
+        };
+        let buf = frame.encode();
+        let (_, kind, _, _, _, width, height, out) = decode_video(&buf);
+        assert_eq!(kind, FrameKind::VideoRgb);
+        assert_eq!(out.len(), usize::from(width) * usize::from(height) * 3);
+        assert_eq!(out, rgb);
     }
 }

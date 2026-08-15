@@ -908,6 +908,12 @@ export interface components {
             version?: string | null;
         };
         /**
+         * @description Colour encoding carried on the composite-video subcarrier. Monochrome leaves the
+         *     subcarrier untouched and works at the lower sample rates used by narrow-band ATV.
+         * @enum {string}
+         */
+        AtvColor: "monochrome" | "pal" | "ntsc";
+        /**
          * @description How an analog television transmission carries its video, and with it the polarity the
          *     demodulated signal arrives in (: ATV).
          * @enum {string}
@@ -922,6 +928,11 @@ export interface components {
              */
             bandwidth_hz?: number;
             /**
+             * @description Composite colour system. PAL and NTSC need a device rate wide enough to contain their
+             *     4.43 MHz or 3.58 MHz subcarrier respectively.
+             */
+            color?: components["schemas"]["AtvColor"];
+            /**
              * @description Weave the two fields into one frame at their real line positions. Off decodes each
              *     vertical sync as a whole progressive frame, which is what non-interlaced amateur and
              *     camera sources send.
@@ -934,6 +945,12 @@ export interface components {
              */
             invert?: boolean;
             modulation?: components["schemas"]["AtvModulation"];
+            /**
+             * Format: double
+             * @description FM sound carrier above the picture carrier, in Hz. Common values are 4.5, 5.5, 6.0 and
+             *     6.5 MHz. `None` keeps ATV usable on receivers that only cover the luma channel.
+             */
+            sound_subcarrier_hz?: number | null;
             standard?: components["schemas"]["AtvStandard"];
         };
         /**
@@ -1229,9 +1246,8 @@ export interface components {
              *     resampled. `input_rate_hz` is then the lowest device rate it can run at and this the
              *     highest, so a receiver is set anywhere in that range rather than to one exact number.
              *
-             *     ADS-B is the one such type: a 0.5 µs pulse is a single sample at
-             *     2 Msps, so any rate conversion splits it across two and nothing decodes — the decoder
-             *     meets the radio at its rate instead. Mutually exclusive with `exact_rate_only`.
+             *     ADS-B uses this to preserve pulse timing, while ATV uses it to retain wide chroma and
+             *     sound subcarriers. Mutually exclusive with `exact_rate_only`.
              */
             native_rate_max_hz?: number | null;
             /** @description Whether this channel accepts a live station position input. */

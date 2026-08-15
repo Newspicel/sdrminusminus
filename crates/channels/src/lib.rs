@@ -184,14 +184,14 @@ pub struct ChannelCtx {
     pub input_rate: f64,
 }
 
-/// One picture a video channel scanned out: 8-bit luma, row-major from the top line, exactly
-/// `width · height` bytes. Grayscale because that is what an analog raster carries once the
-/// colour subcarrier is left alone (: ATV decodes luma).
+/// One picture a video channel scanned out. `luma` is always present; `rgb` is either empty or
+/// three bytes per pixel when the transmission carried a supported colour subcarrier.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VideoPicture {
     pub width: u16,
     pub height: u16,
     pub luma: Vec<u8>,
+    pub rgb: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -535,10 +535,10 @@ mod tests {
     use std::collections::HashSet;
 
     use sdrmm_wire::{
-        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvParams, ChannelParams,
-        DmrParams, DpmrParams, DstarParams, IdentParams, M17Params, MorseParams, NavtexParams,
-        NfmParams, NxdnParams, P25Params, PocsagParams, RttyParams, SsbParams, SubghzParams,
-        WfmParams, YsfParams,
+        AcarsParams, AdsbParams, AisParams, AmParams, AprsParams, AtvColor, AtvParams,
+        ChannelParams, DmrParams, DpmrParams, DstarParams, IdentParams, M17Params, MorseParams,
+        NavtexParams, NfmParams, NxdnParams, P25Params, PocsagParams, RttyParams, SsbParams,
+        SubghzParams, WfmParams, YsfParams,
     };
 
     use super::*;
@@ -626,6 +626,7 @@ mod tests {
                         | "am"
                         | "ssb"
                         | "wfm"
+                        | "atv"
                         | "dmr"
                         | "dstar"
                         | "ysf"
@@ -675,6 +676,9 @@ mod tests {
             if d.decoder_kind.as_deref() == Some("dv") {
                 continue;
             }
+            if d.type_id == "atv" && audio.is_empty() {
+                continue;
+            }
             let frames = audio.len() / channels;
             // Filter warm-up is the only shortfall allowed: no mode's group delay reaches
             // 200 output frames at these tap counts.
@@ -687,16 +691,19 @@ mod tests {
         }
     }
 
-    /// The two rate rules the canvas draws. ADS-B is the one type handed the
-    /// device's own samples, and *because* it is, no type is exact-rate any more: the flag and
-    /// the range are mutually exclusive, and a type claiming both would leave the canvas telling
-    /// the operator to set a rate the engine then refuses.
+    /// Native-rate channels are mutually exclusive with exact-rate channels: a type claiming
+    /// both rules would leave the canvas telling the operator to set a rate the engine refuses.
     #[test]
-    fn only_adsb_runs_at_the_device_rate_and_nothing_is_exact_rate() {
+    fn native_rate_modes_and_nothing_is_exact_rate() {
         for d in descriptors() {
+            let native = match d.type_id.as_str() {
+                "adsb" => Some((2_000_000.0, 4_000_000.0)),
+                "atv" => Some((2_000_000.0, 20_000_000.0)),
+                _ => None,
+            };
             assert_eq!(
                 d.native_rate_range(),
-                (d.type_id == "adsb").then_some((2_000_000.0, 4_000_000.0)),
+                native,
                 "{} native rate range",
                 d.type_id
             );
@@ -804,6 +811,14 @@ mod tests {
         assert_eq!(
             occupied_band(&ChannelParams::Wfm(WfmParams::default())),
             (-100_000.0, 100_000.0)
+        );
+        assert_eq!(
+            occupied_band(&ChannelParams::Atv(AtvParams {
+                color: AtvColor::Pal,
+                sound_subcarrier_hz: Some(5_500_000.0),
+                ..AtvParams::default()
+            })),
+            (-5_033_618.75, 5_565_000.0)
         );
     }
 
